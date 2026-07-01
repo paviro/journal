@@ -60,14 +60,8 @@ pub(crate) fn handle_key(
                 Focus::Journals => Focus::Journals,
             };
         }
-        KeyCode::Right => {
-            app.focus = match app.focus {
-                Focus::Journals => Focus::Entries,
-                Focus::Entries if preview_visible => Focus::Preview,
-                Focus::Entries => Focus::Entries,
-                Focus::Preview => Focus::Preview,
-            };
-        }
+        KeyCode::Right => move_focus_right(app, preview_visible),
+        KeyCode::Enter => handle_enter(app, preview_visible)?,
         KeyCode::Tab => {
             app.focus = next_focus(app.focus, preview_visible);
         }
@@ -81,7 +75,6 @@ pub(crate) fn handle_key(
         KeyCode::End if app.focus == Focus::Preview => app.preview_scroll = u16::MAX,
         KeyCode::Up => app.move_selection(-1),
         KeyCode::Down => app.move_selection(1),
-        KeyCode::Enter if app.can_act_on_selected_entry() => view_selected(app)?,
         KeyCode::Char('e') if app.can_act_on_selected_entry() => edit_selected(terminal, app)?,
         KeyCode::Char('v') if app.can_act_on_selected_entry() => view_selected(app)?,
         KeyCode::Char('n') => create_entry_in_selected_journal(terminal, app)?,
@@ -147,6 +140,25 @@ fn next_focus(focus: Focus, preview_visible: bool) -> Focus {
         (Focus::Entries, false) => Focus::Journals,
         (Focus::Preview, _) => Focus::Journals,
     }
+}
+
+fn move_focus_right(app: &mut App, preview_visible: bool) {
+    app.focus = match app.focus {
+        Focus::Journals => Focus::Entries,
+        Focus::Entries if preview_visible => Focus::Preview,
+        Focus::Entries => Focus::Entries,
+        Focus::Preview => Focus::Preview,
+    };
+}
+
+fn handle_enter(app: &mut App, preview_visible: bool) -> AppResult<()> {
+    if app.focus == Focus::Journals {
+        move_focus_right(app, preview_visible);
+    } else if app.can_act_on_selected_entry() {
+        view_selected(app)?;
+    }
+
+    Ok(())
 }
 
 fn handle_viewer_key(
@@ -346,4 +358,30 @@ fn suspend_terminal<T>(
     enable_raw_mode()?;
     terminal.clear()?;
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn enter_on_journals_moves_to_entries_like_right_arrow() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("work")).unwrap();
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut enter_app = App::new(config.clone()).unwrap();
+        let mut right_app = App::new(config).unwrap();
+
+        enter_app.focus = Focus::Journals;
+        right_app.focus = Focus::Journals;
+
+        handle_enter(&mut enter_app, true).unwrap();
+        move_focus_right(&mut right_app, true);
+
+        assert_eq!(enter_app.focus, Focus::Entries);
+        assert_eq!(enter_app.focus, right_app.focus);
+    }
 }
