@@ -2,7 +2,7 @@ use crate::{
     AppResult,
     config::Config,
     markdown::split_front_matter,
-    storage::{self, Entry, Journal, SearchHit, scan_entries, search_all},
+    storage::{self, Entry, Journal, SearchHit, SearchScopeFilter, scan_entries, search_entries},
 };
 use std::{
     fs,
@@ -11,11 +11,12 @@ use std::{
 };
 
 const STATUS_DURATION: Duration = Duration::from_secs(3);
+pub(crate) const PREVIEW_MIN_WIDTH: u16 = 118;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Focus {
     Journals,
-    Items,
+    Entries,
     Preview,
 }
 
@@ -25,19 +26,32 @@ pub(crate) enum Mode {
     Search,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SearchScope {
+    AllJournals,
+    CurrentJournal(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EntryTarget {
+    pub(crate) path: PathBuf,
+    pub(crate) title: String,
+}
+
 pub(crate) struct App {
     pub(crate) config: Config,
     pub(crate) journals: Vec<Journal>,
     pub(crate) entries: Vec<Entry>,
     pub(crate) search_hits: Vec<SearchHit>,
     pub(crate) selected_journal: usize,
-    pub(crate) selected_item: usize,
+    pub(crate) selected_entry_index: usize,
     pub(crate) preview_scroll: u16,
     pub(crate) focus: Focus,
     pub(crate) mode: Mode,
     pub(crate) new_journal_input: Option<String>,
     pub(crate) viewer: Option<MarkdownView>,
     pub(crate) search_query: String,
+    pub(crate) search_scope: SearchScope,
     pub(crate) confirm_delete: bool,
     pub(crate) status: String,
     status_until: Option<Instant>,
@@ -57,13 +71,14 @@ impl App {
             entries: Vec::new(),
             search_hits: Vec::new(),
             selected_journal: 0,
-            selected_item: 0,
+            selected_entry_index: 0,
             preview_scroll: 0,
             focus: Focus::Journals,
             mode: Mode::Browse,
             new_journal_input: None,
             viewer: None,
             search_query: String::new(),
+            search_scope: SearchScope::AllJournals,
             confirm_delete: false,
             status: String::new(),
             status_until: None,
@@ -80,15 +95,15 @@ impl App {
             self.selected_journal = self.journals.len().saturating_sub(1);
             self.preview_scroll = 0;
         }
-        let previous_item = self.selected_item;
-        self.selected_item = self
-            .selected_item
-            .min(self.current_item_count().saturating_sub(1));
-        if self.selected_item != previous_item {
-            self.preview_scroll = 0;
-        }
         if !self.search_query.is_empty() {
-            self.search_hits = search_all(&self.config.journal_root, &self.search_query)?;
+            self.search_hits = self.search_results()?;
+        }
+        let previous_entry_index = self.selected_entry_index;
+        self.selected_entry_index = self
+            .selected_entry_index
+            .min(self.current_entry_list_len().saturating_sub(1));
+        if self.selected_entry_index != previous_entry_index {
+            self.preview_scroll = 0;
         }
         Ok(())
     }
@@ -107,7 +122,7 @@ impl App {
             .collect()
     }
 
-    pub(crate) fn current_item_count(&self) -> usize {
+    pub(crate) fn current_entry_list_len(&self) -> usize {
         match self.mode {
             Mode::Search => self.search_hits.len(),
             Mode::Browse => self.selected_entries().len(),
@@ -117,55 +132,78 @@ impl App {
     pub(crate) fn move_selection(&mut self, delta: isize) {
         let len = match self.focus {
             Focus::Journals if self.mode == Mode::Browse => self.journals.len(),
-            Focus::Items | Focus::Preview | Focus::Journals => self.current_item_count(),
+            Focus::Entries | Focus::Preview | Focus::Journals => self.current_entry_list_len(),
         };
         if len == 0 {
             return;
         }
 
-        let previous_item = self.selected_item;
+        let previous_entry_index = self.selected_entry_index;
         let index = match self.focus {
             Focus::Journals if self.mode == Mode::Browse => &mut self.selected_journal,
-            _ => &mut self.selected_item,
+            _ => &mut self.selected_entry_index,
         };
         let next = (*index as isize + delta).clamp(0, len as isize - 1);
         *index = next as usize;
         if self.focus == Focus::Journals {
-            self.selected_item = 0;
+            self.selected_entry_index = 0;
         }
-        if self.selected_item != previous_item {
+        if self.selected_entry_index != previous_entry_index {
             self.preview_scroll = 0;
         }
     }
 
-    pub(crate) fn selected_entry_path(&self) -> Option<PathBuf> {
+    fn selected_entry(&self) -> Option<&Entry> {
         let entries = self.selected_entries();
-        entries
-            .get(self.selected_item)
-            .map(|entry| entry.path.to_path_buf())
+        entries.get(self.selected_entry_index).copied()
     }
 
-    pub(crate) fn selected_search_hit(&self) -> Option<SearchHit> {
-        self.search_hits.get(self.selected_item).cloned()
+    pub(crate) fn selected_search_hit(&self) -> Option<&SearchHit> {
+        self.search_hits.get(self.selected_entry_index)
     }
 
-    pub(crate) fn selected_markdown_path(&self) -> Option<PathBuf> {
+    pub(crate) fn selected_entry_target(&self) -> Option<EntryTarget> {
         match self.mode {
-            Mode::Search => self.selected_search_hit().map(|hit| hit.path),
-            Mode::Browse => self.selected_entry_path(),
+            Mode::Search => {
+                let hit = self.selected_search_hit()?;
+                Some(EntryTarget {
+                    path: hit.path.clone(),
+                    title: self.search_hit_label(hit),
+                })
+            }
+            Mode::Browse => {
+                let entry = self.selected_entry()?;
+                Some(EntryTarget {
+                    path: entry.path.clone(),
+                    title: entry.title.clone(),
+                })
+            }
         }
     }
 
-    pub(crate) fn selected_markdown_preview(&self) -> Option<(String, String)> {
+    pub(crate) fn has_selected_entry_target(&self) -> bool {
+        self.selected_entry_target().is_some()
+    }
+
+    pub(crate) fn can_act_on_selected_entry(&self) -> bool {
+        matches!(self.focus, Focus::Entries | Focus::Preview) && self.has_selected_entry_target()
+    }
+
+    pub(crate) fn normalize_focus(&mut self, preview_visible: bool) {
+        if self.focus == Focus::Preview && !preview_visible {
+            self.focus = Focus::Entries;
+        }
+    }
+
+    pub(crate) fn selected_entry_preview(&self) -> Option<(String, String)> {
         match self.mode {
             Mode::Search => {
                 let hit = self.selected_search_hit()?;
                 let content = fs::read_to_string(&hit.path).ok()?;
-                Some((hit.label, markdown_body(&content)))
+                Some((self.search_hit_label(hit), markdown_body(&content)))
             }
             Mode::Browse => {
-                let entries = self.selected_entries();
-                let entry = entries.get(self.selected_item)?;
+                let entry = self.selected_entry()?;
                 Some((entry.title.clone(), markdown_body(&entry.content)))
             }
         }
@@ -183,10 +221,64 @@ impl App {
             .position(|journal| journal.name == name)
         {
             self.selected_journal = index;
-            self.selected_item = 0;
+            self.selected_entry_index = 0;
             self.preview_scroll = 0;
-            self.focus = Focus::Items;
+            self.focus = Focus::Entries;
         }
+    }
+
+    pub(crate) fn begin_search(&mut self) {
+        self.search_scope = if self.focus == Focus::Journals {
+            SearchScope::AllJournals
+        } else {
+            self.selected_journal()
+                .map(|journal| SearchScope::CurrentJournal(journal.name.clone()))
+                .unwrap_or(SearchScope::AllJournals)
+        };
+        self.mode = Mode::Search;
+        self.focus = Focus::Entries;
+        self.search_query.clear();
+        self.search_hits.clear();
+        self.selected_entry_index = 0;
+        self.preview_scroll = 0;
+    }
+
+    pub(crate) fn exit_search(&mut self) {
+        self.mode = Mode::Browse;
+        self.search_scope = SearchScope::AllJournals;
+        self.search_query.clear();
+        self.search_hits.clear();
+        self.selected_entry_index = 0;
+        self.preview_scroll = 0;
+    }
+
+    pub(crate) fn update_search_results(&mut self) -> AppResult<()> {
+        self.search_hits = self.search_results()?;
+        self.selected_entry_index = 0;
+        self.preview_scroll = 0;
+        Ok(())
+    }
+
+    pub(crate) fn search_scope_label(&self) -> String {
+        match &self.search_scope {
+            SearchScope::AllJournals => "all".to_string(),
+            SearchScope::CurrentJournal(journal) => journal.clone(),
+        }
+    }
+
+    pub(crate) fn search_hit_label(&self, hit: &SearchHit) -> String {
+        match self.search_scope {
+            SearchScope::AllJournals => format!("{}/{}", hit.journal, hit.title),
+            SearchScope::CurrentJournal(_) => hit.title.clone(),
+        }
+    }
+
+    fn search_results(&self) -> AppResult<Vec<SearchHit>> {
+        search_entries(
+            &self.config.journal_root,
+            &self.search_query,
+            self.search_scope.filter(),
+        )
     }
 
     pub(crate) fn scroll_preview(&mut self, delta: i16) {
@@ -221,9 +313,22 @@ impl App {
     }
 }
 
+impl SearchScope {
+    fn filter(&self) -> SearchScopeFilter<'_> {
+        match self {
+            SearchScope::AllJournals => SearchScopeFilter::AllJournals,
+            SearchScope::CurrentJournal(journal) => SearchScopeFilter::Journal(journal),
+        }
+    }
+}
+
 pub(crate) fn markdown_body(content: &str) -> String {
     let (_, body) = split_front_matter(content);
     body.trim_start().to_string()
+}
+
+pub(crate) fn preview_is_visible(width: u16) -> bool {
+    width >= PREVIEW_MIN_WIDTH
 }
 
 #[cfg(test)]
@@ -242,7 +347,7 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = App::new(config).unwrap();
         app.select_journal_by_name("work");
-        app.focus = Focus::Items;
+        app.focus = Focus::Entries;
         app.preview_scroll = 20;
 
         app.move_selection(1);
@@ -255,5 +360,62 @@ mod tests {
         let content = "---\ntags: []\n---\n\n# Title\nBody\n";
 
         assert_eq!(markdown_body(content), "# Title\nBody\n");
+    }
+
+    #[test]
+    fn journal_focus_does_not_make_entry_targets_actionable() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(entry_dir.join("a.md"), "---\ntags: []\n---\n\n# A\n").unwrap();
+
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.select_journal_by_name("work");
+
+        app.focus = Focus::Journals;
+        assert!(!app.can_act_on_selected_entry());
+
+        app.focus = Focus::Entries;
+        assert!(app.can_act_on_selected_entry());
+    }
+
+    #[test]
+    fn hidden_preview_focus_falls_back_to_entries() {
+        let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.focus = Focus::Preview;
+
+        app.normalize_focus(false);
+
+        assert_eq!(app.focus, Focus::Entries);
+    }
+
+    #[test]
+    fn search_from_journal_focus_is_global() {
+        let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.focus = Focus::Journals;
+
+        app.begin_search();
+
+        assert_eq!(app.search_scope, SearchScope::AllJournals);
+    }
+
+    #[test]
+    fn search_from_entries_focus_is_scoped_to_selected_journal() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("work")).unwrap();
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.select_journal_by_name("work");
+        app.focus = Focus::Entries;
+
+        app.begin_search();
+
+        assert_eq!(
+            app.search_scope,
+            SearchScope::CurrentJournal("work".to_string())
+        );
     }
 }

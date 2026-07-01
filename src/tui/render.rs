@@ -12,7 +12,7 @@ use ratatui::{
 };
 use ratatui_markdown::{markdown::MarkdownRenderer, theme::ThemeConfig};
 
-use super::app::{App, Focus, MarkdownView, Mode};
+use super::app::{App, Focus, MarkdownView, Mode, preview_is_visible};
 
 pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     if let Some(viewer) = &mut app.viewer {
@@ -25,7 +25,8 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .constraints([Constraint::Min(0), Constraint::Length(2)])
         .split(frame.area());
 
-    let wide = root[0].width >= 118;
+    let wide = preview_is_visible(root[0].width);
+    app.normalize_focus(wide);
     let body = if wide {
         Layout::default()
             .direction(Direction::Horizontal)
@@ -43,19 +44,12 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     };
 
     draw_journals(frame, body[0], app);
-    draw_items(frame, body[1], app);
+    draw_entry_list(frame, body[1], app);
     if wide {
         draw_selected_preview(frame, body[2], app);
     }
 
-    let footer_text = if app.mode == Mode::Search {
-        format!("Search: {}  Esc exits search", app.search_query)
-    } else if app.status.is_empty() {
-        "q quit | arrows navigate/scroll focused pane | tab/right focus preview | enter/e edit | v view | n new | j journal | d delete | / search"
-            .to_string()
-    } else {
-        app.status.clone()
-    };
+    let footer_text = footer_text(app, wide);
     let footer = Paragraph::new(footer_text).block(Block::default().borders(Borders::TOP));
     frame.render_widget(footer, root[1]);
 
@@ -82,6 +76,100 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     }
 }
 
+pub(crate) fn footer_text(app: &App, preview_visible: bool) -> String {
+    if !app.status.is_empty() {
+        return app.status.clone();
+    }
+
+    match app.mode {
+        Mode::Search => search_footer_text(app, preview_visible),
+        Mode::Browse => browse_footer_text(app, preview_visible),
+    }
+}
+
+fn search_footer_text(app: &App, preview_visible: bool) -> String {
+    let query = format!("Search {}: {}", app.search_scope_label(), app.search_query);
+    match app.focus {
+        Focus::Preview if app.has_selected_entry_target() => {
+            format!(
+                "{query} | left results | up/down/k/j scroll | PgUp/PgDn | Home/End | enter/e edit | v view | d delete | Esc search"
+            )
+        }
+        Focus::Preview => format!("{query} | left results | Esc search"),
+        _ => {
+            let mut parts = vec![
+                format!("Search {}: {}", app.search_scope_label(), app.search_query),
+                "type query".to_string(),
+                "backspace".to_string(),
+                "up/down select".to_string(),
+            ];
+            if app.has_selected_entry_target() {
+                parts.push("enter edit".to_string());
+            }
+            if preview_visible && app.has_selected_entry_target() {
+                parts.push("right/tab preview".to_string());
+            }
+            parts.push("Esc search".to_string());
+            parts.join(" | ")
+        }
+    }
+}
+
+fn browse_footer_text(app: &App, preview_visible: bool) -> String {
+    let mut parts = match app.focus {
+        Focus::Journals => vec![
+            "q quit".to_string(),
+            "up/down select journal".to_string(),
+            "right/tab entries".to_string(),
+            "n new entry".to_string(),
+            "j new journal".to_string(),
+            "/ search".to_string(),
+            "r refresh".to_string(),
+        ],
+        Focus::Entries => {
+            let mut parts = vec![
+                "left journals".to_string(),
+                "up/down select entry".to_string(),
+            ];
+            if preview_visible && app.has_selected_entry_target() {
+                parts.push("right/tab preview".to_string());
+            }
+            if app.has_selected_entry_target() {
+                parts.push("enter/e edit".to_string());
+                parts.push("v view".to_string());
+                parts.push("d delete".to_string());
+            }
+            parts.push("n new entry".to_string());
+            parts.push("/ search".to_string());
+            parts.push("q quit".to_string());
+            parts
+        }
+        Focus::Preview => {
+            let mut parts = vec![
+                "left entries".to_string(),
+                "up/down/k/j scroll".to_string(),
+                "PgUp/PgDn".to_string(),
+                "Home/End".to_string(),
+            ];
+            if app.has_selected_entry_target() {
+                parts.push("enter/e edit".to_string());
+                parts.push("v view".to_string());
+                parts.push("d delete".to_string());
+            }
+            parts.push("n new entry".to_string());
+            parts.push("/ search".to_string());
+            parts.push("q quit".to_string());
+            parts
+        }
+    };
+
+    if !preview_visible {
+        parts.retain(|part| !part.contains("preview"));
+    }
+
+    parts.join(" | ")
+}
+
 fn draw_markdown_viewer(frame: &mut Frame<'_>, viewer: &mut MarkdownView) {
     let area = frame.area();
     let root = Layout::default()
@@ -104,7 +192,7 @@ fn draw_markdown_viewer(frame: &mut Frame<'_>, viewer: &mut MarkdownView) {
 }
 
 fn draw_selected_preview(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app: &mut App) {
-    if let Some((title, content)) = app.selected_markdown_preview() {
+    if let Some((title, content)) = app.selected_entry_preview() {
         app.preview_scroll = draw_markdown_panel(
             frame,
             area,
@@ -200,7 +288,7 @@ fn draw_journals(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app: &App) 
     frame.render_widget(list, area);
 }
 
-fn draw_items(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app: &App) {
+fn draw_entry_list(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app: &App) {
     let title = match app.mode {
         Mode::Search => "Search",
         Mode::Browse => "Entries",
@@ -213,25 +301,25 @@ fn draw_items(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app: &App) {
             .enumerate()
             .map(|(index, hit)| {
                 ListItem::new(vec![
-                    Line::from(hit.label.clone()),
+                    Line::from(app.search_hit_label(hit)),
                     Line::from(Span::styled(
                         hit.preview.clone(),
                         Style::default().add_modifier(Modifier::DIM),
                     )),
                 ])
                 .style(selected_style(
-                    index == app.selected_item && app.focus == Focus::Items,
+                    index == app.selected_entry_index && app.focus == Focus::Entries,
                 ))
             })
             .collect(),
-        Mode::Browse => entry_items(app),
+        Mode::Browse => entry_list_items(app),
     };
 
     let list = List::new(items).block(Block::default().title(title).borders(Borders::ALL));
     frame.render_widget(list, area);
 }
 
-fn entry_items(app: &App) -> Vec<ListItem<'static>> {
+fn entry_list_items(app: &App) -> Vec<ListItem<'static>> {
     let mut items = Vec::new();
     let mut current_month = None;
     let mut current_day = None;
@@ -269,7 +357,7 @@ fn entry_items(app: &App) -> Vec<ListItem<'static>> {
         }
 
         items.push(ListItem::new(entry_list_lines(entry)).style(selected_style(
-            index == app.selected_item && app.focus == Focus::Items,
+            index == app.selected_entry_index && app.focus == Focus::Entries,
         )));
     }
 
@@ -373,7 +461,27 @@ fn centered_rect(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
+    use std::fs;
     use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    fn app_with_entry() -> App {
+        let dir = tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let entry_dir = root.join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(
+            entry_dir.join("a.md"),
+            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n---\n\n# A\nBody\n",
+        )
+        .unwrap();
+
+        let config = Config::new(root, "true");
+        let mut app = App::new(config).unwrap();
+        app.select_journal_by_name("work");
+        app
+    }
 
     #[test]
     fn viewer_scroll_clamps_to_rendered_content_height() {
@@ -399,6 +507,96 @@ mod tests {
     #[test]
     fn scrollbar_position_stays_at_start_when_content_fits() {
         assert_eq!(scrollbar_position(0, 4, 8), 0);
+    }
+
+    #[test]
+    fn journal_footer_omits_entry_actions() {
+        let mut app = app_with_entry();
+        app.focus = Focus::Journals;
+
+        let text = footer_text(&app, true);
+
+        assert!(!text.contains("enter/e edit"));
+        assert!(!text.contains("v view"));
+        assert!(!text.contains("d delete"));
+    }
+
+    #[test]
+    fn entries_footer_includes_entry_actions_when_an_entry_is_selected() {
+        let mut app = app_with_entry();
+        app.focus = Focus::Entries;
+
+        let text = footer_text(&app, true);
+
+        assert!(text.contains("enter/e edit"));
+        assert!(text.contains("v view"));
+        assert!(text.contains("d delete"));
+    }
+
+    #[test]
+    fn entries_footer_omits_entry_actions_without_a_selection() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("work")).unwrap();
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.select_journal_by_name("work");
+        app.focus = Focus::Entries;
+
+        let text = footer_text(&app, true);
+
+        assert!(!text.contains("enter/e edit"));
+        assert!(!text.contains("v view"));
+        assert!(!text.contains("d delete"));
+    }
+
+    #[test]
+    fn search_results_footer_keeps_text_input_keys_available() {
+        let mut app = app_with_entry();
+        app.mode = Mode::Search;
+        app.focus = Focus::Entries;
+        app.search_query = "body".to_string();
+        app.search_hits = vec![crate::storage::SearchHit {
+            path: app.entries[0].path.clone(),
+            journal: "work".to_string(),
+            title: "A".to_string(),
+            preview: "Body".to_string(),
+        }];
+
+        let text = footer_text(&app, true);
+
+        assert!(text.contains("type query"));
+        assert!(text.contains("Search all: body"));
+        assert!(text.contains("enter edit"));
+        assert!(!text.contains("enter/e edit"));
+        assert!(!text.contains("v view"));
+        assert!(!text.contains("d delete"));
+    }
+
+    #[test]
+    fn scoped_search_hit_labels_omit_journal_prefix() {
+        let mut app = app_with_entry();
+        app.search_scope = crate::tui::app::SearchScope::CurrentJournal("work".to_string());
+        let hit = crate::storage::SearchHit {
+            path: app.entries[0].path.clone(),
+            journal: "work".to_string(),
+            title: "A".to_string(),
+            preview: "Body".to_string(),
+        };
+
+        assert_eq!(app.search_hit_label(&hit), "A");
+    }
+
+    #[test]
+    fn global_search_hit_labels_include_journal_prefix() {
+        let app = app_with_entry();
+        let hit = crate::storage::SearchHit {
+            path: app.entries[0].path.clone(),
+            journal: "work".to_string(),
+            title: "A".to_string(),
+            preview: "Body".to_string(),
+        };
+
+        assert_eq!(app.search_hit_label(&hit), "work/A");
     }
 
     #[test]

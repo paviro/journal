@@ -10,7 +10,7 @@ pub use entries::{
     scan_entries, set_updated_at_now,
 };
 pub use journals::{Journal, create_journal, list_journals, validate_journal_name};
-pub use search::{SearchHit, search_all};
+pub use search::{SearchHit, SearchScopeFilter, search_entries};
 
 pub fn ensure_workspace(root: &Path) -> AppResult<()> {
     fs::create_dir_all(root)?;
