@@ -15,7 +15,10 @@ use ratatui_markdown::{
     theme::{CodeColors, ThemeConfig},
 };
 
-use super::app::{App, Focus, MarkdownView, Mode, preview_is_visible};
+use super::app::{
+    App, ENTRY_LIST_MIN_WIDTH, Focus, JOURNAL_LIST_WIDTH, MarkdownView, Mode, preview_is_visible,
+    single_panel_is_active,
+};
 
 pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     if let Some(viewer) = &mut app.viewer {
@@ -28,35 +31,41 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .constraints([Constraint::Min(0), Constraint::Length(2)])
         .split(frame.area());
 
-    let wide = preview_is_visible(root[0].width);
-    app.normalize_focus(wide);
-    let body = if wide {
-        Layout::default()
+    let preview_visible = preview_is_visible(root[0].width);
+    let single_panel = single_panel_is_active(root[0].width);
+    app.normalize_focus(preview_visible);
+
+    if single_panel {
+        draw_focused_panel(frame, root[0], app);
+    } else if preview_visible {
+        let body = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length(18),
+                Constraint::Length(JOURNAL_LIST_WIDTH),
                 Constraint::Length(42),
-                Constraint::Min(40),
+                Constraint::Min(ENTRY_LIST_MIN_WIDTH),
             ])
-            .split(root[0])
-    } else {
-        Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(18), Constraint::Min(40)])
-            .split(root[0])
-    };
-
-    draw_journals(frame, body[0], app);
-    draw_entry_list(frame, body[1], app);
-    if wide {
+            .split(root[0]);
+        draw_journals(frame, body[0], app);
+        draw_entry_list(frame, body[1], app);
         if app.mode == Mode::Browse && app.focus == Focus::Journals {
             draw_journal_stats(frame, body[2], app);
         } else {
             draw_selected_preview(frame, body[2], app);
         }
+    } else {
+        let body = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(JOURNAL_LIST_WIDTH),
+                Constraint::Min(ENTRY_LIST_MIN_WIDTH),
+            ])
+            .split(root[0]);
+        draw_journals(frame, body[0], app);
+        draw_entry_list(frame, body[1], app);
     }
 
-    let footer_text = footer_text(app, wide);
+    let footer_text = footer_text(app, preview_visible);
     let footer = Paragraph::new(footer_text).block(Block::default().borders(Borders::TOP));
     frame.render_widget(footer, root[1]);
 
@@ -80,6 +89,14 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
             .block(Block::default().title("New Journal").borders(Borders::ALL))
             .wrap(Wrap { trim: true });
         frame.render_widget(dialog, area);
+    }
+}
+
+fn draw_focused_panel(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app: &mut App) {
+    match app.focus {
+        Focus::Journals if app.mode == Mode::Browse => draw_journals(frame, area, app),
+        Focus::Preview => draw_selected_preview(frame, area, app),
+        Focus::Journals | Focus::Entries => draw_entry_list(frame, area, app),
     }
 }
 
@@ -111,10 +128,12 @@ fn search_footer_text(app: &App, preview_visible: bool) -> String {
                 "up/down select".to_string(),
             ];
             if app.has_selected_entry_target() {
-                parts.push("enter view".to_string());
-            }
-            if preview_visible && app.has_selected_entry_target() {
-                parts.push("right/tab preview".to_string());
+                if preview_visible {
+                    parts.push("enter view".to_string());
+                    parts.push("right preview".to_string());
+                } else {
+                    parts.push("right/enter view".to_string());
+                }
             }
             parts.push("Esc search".to_string());
             parts.join(" | ")
@@ -127,7 +146,7 @@ fn browse_footer_text(app: &App, preview_visible: bool) -> String {
         Focus::Journals => vec![
             "q quit".to_string(),
             "up/down select journal".to_string(),
-            "right/tab entries".to_string(),
+            "right entries".to_string(),
             "n new entry".to_string(),
             "j new journal".to_string(),
             "/ search".to_string(),
@@ -138,11 +157,13 @@ fn browse_footer_text(app: &App, preview_visible: bool) -> String {
                 "left journals".to_string(),
                 "up/down select entry".to_string(),
             ];
-            if preview_visible && app.has_selected_entry_target() {
-                parts.push("right/tab preview".to_string());
-            }
             if app.has_selected_entry_target() {
-                parts.push("enter/v view".to_string());
+                if preview_visible {
+                    parts.push("right preview".to_string());
+                    parts.push("enter/v view".to_string());
+                } else {
+                    parts.push("right/enter/v view".to_string());
+                }
                 parts.push("e edit".to_string());
                 parts.push("d delete".to_string());
             }
@@ -665,6 +686,7 @@ fn centered_rect(
 mod tests {
     use super::*;
     use crate::config::Config;
+    use ratatui::{Terminal, backend::TestBackend};
     use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
@@ -684,6 +706,21 @@ mod tests {
         let mut app = App::new(config).unwrap();
         app.select_journal_by_name("work");
         app
+    }
+
+    fn render_text(mut app: App, width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect()
     }
 
     #[test]
@@ -728,6 +765,30 @@ mod tests {
     fn focused_panel_titles_have_ascii_focus_marker() {
         assert_eq!(panel_title("Entries", true), " >> Entries ");
         assert_eq!(panel_title("Entries", false), " Entries ");
+    }
+
+    #[test]
+    fn compact_render_shows_only_the_active_step() {
+        let mut journals_app = app_with_entry();
+        journals_app.focus = Focus::Journals;
+        let journals = render_text(journals_app, 57, 16);
+        assert!(journals.contains(">> Journals"));
+        assert!(!journals.contains(" Entries "));
+        assert!(!journals.contains("2026-07-01 10:00"));
+
+        let mut entries_app = app_with_entry();
+        entries_app.focus = Focus::Entries;
+        let entries = render_text(entries_app, 57, 16);
+        assert!(entries.contains(">> Entries"));
+        assert!(!entries.contains(" Journals "));
+        assert!(!entries.contains("2026-07-01 10:00"));
+
+        let mut preview_focus_app = app_with_entry();
+        preview_focus_app.focus = Focus::Preview;
+        let preview_focus = render_text(preview_focus_app, 57, 16);
+        assert!(preview_focus.contains(">> Entries"));
+        assert!(!preview_focus.contains(" Journals "));
+        assert!(!preview_focus.contains("2026-07-01 10:00"));
     }
 
     #[test]

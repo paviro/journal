@@ -11,6 +11,9 @@ use std::{
 };
 
 const STATUS_DURATION: Duration = Duration::from_secs(3);
+pub(crate) const JOURNAL_LIST_WIDTH: u16 = 18;
+pub(crate) const ENTRY_LIST_MIN_WIDTH: u16 = 40;
+pub(crate) const TWO_PANEL_MIN_WIDTH: u16 = JOURNAL_LIST_WIDTH + ENTRY_LIST_MIN_WIDTH;
 pub(crate) const PREVIEW_MIN_WIDTH: u16 = 118;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,8 +193,8 @@ impl App {
         matches!(self.focus, Focus::Entries | Focus::Preview) && self.has_selected_entry_target()
     }
 
-    pub(crate) fn normalize_focus(&mut self, preview_visible: bool) {
-        if self.focus == Focus::Preview && !preview_visible {
+    pub(crate) fn normalize_focus(&mut self, preview_available: bool) {
+        if self.focus == Focus::Preview && !preview_available {
             self.focus = Focus::Entries;
         }
     }
@@ -355,6 +358,10 @@ pub(crate) fn preview_is_visible(width: u16) -> bool {
     width >= PREVIEW_MIN_WIDTH
 }
 
+pub(crate) fn single_panel_is_active(width: u16) -> bool {
+    width < TWO_PANEL_MIN_WIDTH
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,6 +466,12 @@ mod tests {
         app.normalize_focus(false);
 
         assert_eq!(app.focus, Focus::Entries);
+    }
+
+    #[test]
+    fn compact_width_uses_single_panel_without_inline_preview() {
+        assert!(single_panel_is_active(TWO_PANEL_MIN_WIDTH - 1));
+        assert!(!preview_is_visible(TWO_PANEL_MIN_WIDTH - 1));
     }
 
     #[test]

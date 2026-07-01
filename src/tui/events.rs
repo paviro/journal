@@ -18,11 +18,12 @@ pub(crate) fn handle_key(
     app: &mut App,
     key: KeyEvent,
 ) -> AppResult<bool> {
-    let preview_visible = preview_is_visible(terminal.size()?.width);
+    let width = terminal.size()?.width;
+    let preview_visible = preview_is_visible(width);
     app.normalize_focus(preview_visible);
 
     if app.viewer.is_some() {
-        handle_viewer_key(terminal, app, key)?;
+        handle_viewer_key(terminal, app, key, preview_visible)?;
         return Ok(false);
     }
 
@@ -53,18 +54,9 @@ pub(crate) fn handle_key(
         KeyCode::Char('q') => return Ok(true),
         KeyCode::Char('r') => app.refresh()?,
         KeyCode::Char('/') => app.begin_search(),
-        KeyCode::Left => {
-            app.focus = match app.focus {
-                Focus::Preview => Focus::Entries,
-                Focus::Entries => Focus::Journals,
-                Focus::Journals => Focus::Journals,
-            };
-        }
-        KeyCode::Right => move_focus_right(app, preview_visible),
+        KeyCode::Left => move_focus_left(app),
+        KeyCode::Right => handle_right(app, preview_visible)?,
         KeyCode::Enter => handle_enter(app, preview_visible)?,
-        KeyCode::Tab => {
-            app.focus = next_focus(app.focus, preview_visible);
-        }
         KeyCode::Up if app.focus == Focus::Preview => app.scroll_preview(-1),
         KeyCode::Down if app.focus == Focus::Preview => app.scroll_preview(1),
         KeyCode::Char('k') if app.focus == Focus::Preview => app.scroll_preview(-1),
@@ -95,10 +87,16 @@ fn handle_search_key(
     match key.code {
         KeyCode::Esc => app.exit_search(),
         KeyCode::Left if app.focus == Focus::Preview => app.focus = Focus::Entries,
-        KeyCode::Right | KeyCode::Tab if app.focus == Focus::Entries && preview_visible => {
+        KeyCode::Right
+            if app.focus == Focus::Entries
+                && !preview_visible
+                && app.has_selected_entry_target() =>
+        {
+            view_selected(app)?
+        }
+        KeyCode::Right if app.focus == Focus::Entries && preview_visible => {
             app.focus = Focus::Preview;
         }
-        KeyCode::Tab if app.focus == Focus::Preview => app.focus = Focus::Entries,
         KeyCode::Up if app.focus == Focus::Preview => app.scroll_preview(-1),
         KeyCode::Down if app.focus == Focus::Preview => app.scroll_preview(1),
         KeyCode::Char('k') if app.focus == Focus::Preview => app.scroll_preview(-1),
@@ -133,27 +131,36 @@ fn handle_search_key(
     Ok(())
 }
 
-fn next_focus(focus: Focus, preview_visible: bool) -> Focus {
-    match (focus, preview_visible) {
-        (Focus::Journals, _) => Focus::Entries,
-        (Focus::Entries, true) => Focus::Preview,
-        (Focus::Entries, false) => Focus::Journals,
-        (Focus::Preview, _) => Focus::Journals,
-    }
+fn move_focus_left(app: &mut App) {
+    app.focus = match app.focus {
+        Focus::Preview => Focus::Entries,
+        Focus::Entries => Focus::Journals,
+        Focus::Journals => Focus::Journals,
+    };
 }
 
-fn move_focus_right(app: &mut App, preview_visible: bool) {
+fn handle_right(app: &mut App, preview_visible: bool) -> AppResult<()> {
+    if app.focus == Focus::Entries && !preview_visible && app.has_selected_entry_target() {
+        view_selected(app)?;
+    } else {
+        move_focus_right(app, preview_visible);
+    }
+
+    Ok(())
+}
+
+fn move_focus_right(app: &mut App, preview_available: bool) {
     app.focus = match app.focus {
         Focus::Journals => Focus::Entries,
-        Focus::Entries if preview_visible => Focus::Preview,
+        Focus::Entries if preview_available => Focus::Preview,
         Focus::Entries => Focus::Entries,
         Focus::Preview => Focus::Preview,
     };
 }
 
-fn handle_enter(app: &mut App, preview_visible: bool) -> AppResult<()> {
+fn handle_enter(app: &mut App, preview_available: bool) -> AppResult<()> {
     if app.focus == Focus::Journals {
-        move_focus_right(app, preview_visible);
+        move_focus_right(app, preview_available);
     } else if app.can_act_on_selected_entry() {
         view_selected(app)?;
     }
@@ -165,8 +172,9 @@ fn handle_viewer_key(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     key: KeyEvent,
+    preview_visible: bool,
 ) -> AppResult<()> {
-    if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
+    if viewer_key_closes(key.code, preview_visible) {
         app.viewer = None;
         return Ok(());
     }
@@ -199,6 +207,11 @@ fn handle_viewer_key(
     }
 
     Ok(())
+}
+
+fn viewer_key_closes(key: KeyCode, preview_visible: bool) -> bool {
+    matches!(key, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q'))
+        || (key == KeyCode::Left && !preview_visible)
 }
 
 fn edit_viewer_entry(
@@ -383,5 +396,45 @@ mod tests {
 
         assert_eq!(enter_app.focus, Focus::Entries);
         assert_eq!(enter_app.focus, right_app.focus);
+    }
+
+    #[test]
+    fn right_on_entry_opens_viewer_when_preview_panel_is_hidden() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(entry_dir.join("a.md"), "---\ntags: []\n---\n\n# A\nBody\n").unwrap();
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.select_journal_by_name("work");
+        app.focus = Focus::Entries;
+
+        handle_right(&mut app, false).unwrap();
+
+        assert!(app.viewer.is_some());
+        assert_eq!(app.focus, Focus::Entries);
+    }
+
+    #[test]
+    fn right_on_entry_focuses_preview_when_preview_panel_is_visible() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(entry_dir.join("a.md"), "---\ntags: []\n---\n\n# A\nBody\n").unwrap();
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.select_journal_by_name("work");
+        app.focus = Focus::Entries;
+
+        handle_right(&mut app, true).unwrap();
+
+        assert!(app.viewer.is_none());
+        assert_eq!(app.focus, Focus::Preview);
+    }
+
+    #[test]
+    fn left_closes_viewer_only_when_preview_panel_is_hidden() {
+        assert!(viewer_key_closes(KeyCode::Left, false));
+        assert!(!viewer_key_closes(KeyCode::Left, true));
     }
 }
