@@ -6,8 +6,8 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
-        Block, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation,
-        ScrollbarState, Wrap,
+        Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Scrollbar,
+        ScrollbarOrientation, ScrollbarState, Wrap,
     },
 };
 use ratatui_markdown::{
@@ -206,7 +206,7 @@ fn draw_selected_preview(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app
         );
     } else {
         let empty = Paragraph::new("No entry selected")
-            .block(Block::default().title("Preview").borders(Borders::ALL));
+            .block(panel_block("Preview", app.focus == Focus::Preview));
         frame.render_widget(empty, area);
     }
 }
@@ -219,14 +219,7 @@ fn draw_markdown_panel(
     requested_scroll: u16,
     focused: bool,
 ) -> u16 {
-    let block = Block::default()
-        .title(format!(" {} ", title))
-        .borders(Borders::ALL)
-        .border_style(if focused {
-            Style::default().add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        });
+    let block = panel_block(title, focused);
     let inner = block.inner(area);
     let width = inner.width.saturating_sub(1).max(1) as usize;
     let theme = markdown_theme();
@@ -318,22 +311,23 @@ pub(crate) fn scrollbar_position(scroll: u16, line_count: usize, height: u16) ->
 }
 
 fn draw_journals(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app: &App) {
+    let focused = app.focus == Focus::Journals;
     let items: Vec<ListItem> = app
         .journals
         .iter()
         .enumerate()
         .map(|(index, journal)| {
-            let style =
-                selected_style(index == app.selected_journal && app.focus == Focus::Journals);
+            let style = selected_style(index == app.selected_journal && focused);
             ListItem::new(Line::from(Span::raw(&journal.name))).style(style)
         })
         .collect();
 
-    let list = List::new(items).block(Block::default().title("Journals").borders(Borders::ALL));
+    let list = List::new(items).block(panel_block("Journals", focused));
     frame.render_widget(list, area);
 }
 
 fn draw_entry_list(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app: &App) {
+    let focused = app.focus == Focus::Entries;
     let title = match app.mode {
         Mode::Search => "Search",
         Mode::Browse => "Entries",
@@ -352,15 +346,13 @@ fn draw_entry_list(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app: &App
                         Style::default().add_modifier(Modifier::DIM),
                     )),
                 ])
-                .style(selected_style(
-                    index == app.selected_entry_index && app.focus == Focus::Entries,
-                ))
+                .style(selected_style(index == app.selected_entry_index && focused))
             })
             .collect(),
         Mode::Browse => entry_list_items(app),
     };
 
-    let list = List::new(items).block(Block::default().title(title).borders(Borders::ALL));
+    let list = List::new(items).block(panel_block(title, focused));
     frame.render_widget(list, area);
 }
 
@@ -478,6 +470,28 @@ fn selected_style(selected: bool) -> Style {
     }
 }
 
+fn panel_block(title: &str, focused: bool) -> Block<'static> {
+    let mut block = Block::default()
+        .title(panel_title(title, focused))
+        .borders(Borders::ALL);
+
+    if focused {
+        block = block
+            .border_type(BorderType::Thick)
+            .border_style(Style::default().add_modifier(Modifier::BOLD));
+    }
+
+    block
+}
+
+fn panel_title(title: &str, focused: bool) -> String {
+    if focused {
+        format!(" >> {title} ")
+    } else {
+        format!(" {title} ")
+    }
+}
+
 fn centered_rect(
     percent_x: u16,
     percent_y: u16,
@@ -562,6 +576,12 @@ mod tests {
         assert_eq!(theme.secondary_color, Color::Reset);
         assert_eq!(theme.accent_yellow, Color::Reset);
         assert_eq!(theme.code_colors.variable, Color::Reset);
+    }
+
+    #[test]
+    fn focused_panel_titles_have_ascii_focus_marker() {
+        assert_eq!(panel_title("Entries", true), " >> Entries ");
+        assert_eq!(panel_title("Entries", false), " Entries ");
     }
 
     #[test]
