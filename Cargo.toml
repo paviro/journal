@@ -1,0 +1,19 @@
+[package]
+name = "journal"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.29"
+dirs = "6"
+ratatui = "0.29"
+ratatui-markdown = { version = "0.3.6", default-features = false, features = ["markdown"] }
+serde = { version = "1", features = ["derive"] }
+shell-words = "1"
+toml = "0.9"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
