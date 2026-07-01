@@ -4,8 +4,8 @@ use crate::{
     markdown::split_front_matter,
     storage::{self, Entry, Journal, SearchHit, SearchScopeFilter, scan_entries, search_entries},
 };
+use chrono::{DateTime, Local, NaiveDate};
 use std::{
-    fs,
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -200,12 +200,12 @@ impl App {
         match self.mode {
             Mode::Search => {
                 let hit = self.selected_search_hit()?;
-                let content = fs::read_to_string(&hit.path).ok()?;
-                Some((self.search_hit_label(hit), markdown_body(&content)))
+                let entry = storage::read_entry(&hit.journal, &hit.path).ok()?;
+                Some((entry_timestamp_label(&entry), markdown_body(&entry.content)))
             }
             Mode::Browse => {
                 let entry = self.selected_entry()?;
-                Some((entry.title.clone(), markdown_body(&entry.content)))
+                Some((entry_timestamp_label(entry), markdown_body(&entry.content)))
             }
         }
     }
@@ -328,6 +328,29 @@ pub(crate) fn markdown_body(content: &str) -> String {
     body.trim_start().to_string()
 }
 
+pub(crate) fn entry_timestamp_label(entry: &Entry) -> String {
+    entry
+        .created_at
+        .as_deref()
+        .and_then(parse_entry_timestamp)
+        .map(|timestamp| timestamp.format("%Y-%m-%d %H:%M").to_string())
+        .or_else(|| {
+            entry_date_from_path(&entry.path).map(|date| date.format("%Y-%m-%d").to_string())
+        })
+        .unwrap_or_else(|| "Preview".to_string())
+}
+
+fn parse_entry_timestamp(value: &str) -> Option<DateTime<Local>> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|timestamp| timestamp.with_timezone(&Local))
+}
+
+fn entry_date_from_path(path: &std::path::Path) -> Option<NaiveDate> {
+    let date = path.parent()?.file_name()?.to_str()?;
+    NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()
+}
+
 pub(crate) fn preview_is_visible(width: u16) -> bool {
     width >= PREVIEW_MIN_WIDTH
 }
@@ -335,6 +358,7 @@ pub(crate) fn preview_is_visible(width: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::tempdir;
 
     #[test]
@@ -361,6 +385,51 @@ mod tests {
         let content = "---\ntags: []\n---\n\n# Title\nBody\n";
 
         assert_eq!(markdown_body(content), "# Title\nBody\n");
+    }
+
+    #[test]
+    fn selected_preview_title_uses_entry_timestamp() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(
+            entry_dir.join("a.md"),
+            "---\ncreated_at: \"2026-07-01T10:23:00+02:00\"\n---\n\n# A\nBody\n",
+        )
+        .unwrap();
+
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.select_journal_by_name("work");
+
+        let (title, content) = app.selected_entry_preview().unwrap();
+
+        assert_eq!(title, "2026-07-01 10:23");
+        assert_eq!(content, "# A\nBody\n");
+    }
+
+    #[test]
+    fn search_preview_title_uses_entry_timestamp() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(
+            entry_dir.join("a.md"),
+            "---\ncreated_at: \"2026-07-01T10:23:00+02:00\"\n---\n\n# A\nneedle\n",
+        )
+        .unwrap();
+
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.select_journal_by_name("work");
+        app.begin_search();
+        app.search_query = "needle".to_string();
+        app.update_search_results().unwrap();
+
+        let (title, content) = app.selected_entry_preview().unwrap();
+
+        assert_eq!(title, "2026-07-01 10:23");
+        assert_eq!(content, "# A\nneedle\n");
     }
 
     #[test]

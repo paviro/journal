@@ -154,7 +154,7 @@ fn handle_viewer_key(
     app: &mut App,
     key: KeyEvent,
 ) -> AppResult<()> {
-    if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
+    if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
         app.viewer = None;
         return Ok(());
     }

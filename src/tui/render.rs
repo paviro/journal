@@ -2,7 +2,7 @@ use crate::storage::Entry;
 use chrono::{DateTime, Local, NaiveDate};
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
@@ -49,7 +49,11 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     draw_journals(frame, body[0], app);
     draw_entry_list(frame, body[1], app);
     if wide {
-        draw_selected_preview(frame, body[2], app);
+        if app.mode == Mode::Browse && app.focus == Focus::Journals {
+            draw_journal_stats(frame, body[2], app);
+        } else {
+            draw_selected_preview(frame, body[2], app);
+        }
     }
 
     let footer_text = footer_text(app, wide);
@@ -189,7 +193,7 @@ fn draw_markdown_viewer(frame: &mut Frame<'_>, viewer: &mut MarkdownView) {
     );
 
     frame.render_widget(
-        Paragraph::new(" Esc/q close | e edit | up/down/k/j scroll | PgUp/PgDn | Home/End"),
+        Paragraph::new(" Enter/Esc/q close | e edit | up/down/k/j scroll | PgUp/PgDn | Home/End"),
         root[1],
     );
 }
@@ -209,6 +213,148 @@ fn draw_selected_preview(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app
             .block(panel_block("Preview", app.focus == Focus::Preview));
         frame.render_widget(empty, area);
     }
+}
+
+fn draw_journal_stats(frame: &mut Frame<'_>, area: ratatui::layout::Rect, app: &App) {
+    let panel = panel_block("Journal Stats", false);
+    let inner = panel.inner(area);
+    frame.render_widget(panel, area);
+
+    let Some(stats) = journal_stats(app) else {
+        frame.render_widget(Paragraph::new("No journal selected"), inner);
+        return;
+    };
+
+    let layout = centered_stats_layout(inner);
+    draw_journal_identity(frame, layout.identity, &stats);
+    draw_stat_card(
+        frame,
+        layout.entries,
+        "Entries",
+        &stats.entry_count.to_string(),
+    );
+    draw_stat_card(frame, layout.days, "Days", &stats.active_days.to_string());
+}
+
+struct StatsLayout {
+    identity: Rect,
+    entries: Rect,
+    days: Rect,
+}
+
+fn centered_stats_layout(area: Rect) -> StatsLayout {
+    let content = centered_fixed_rect(area, 60, 14);
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(6),
+            Constraint::Length(0),
+            Constraint::Length(6),
+        ])
+        .split(content);
+    let metrics = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Length(1),
+            Constraint::Percentage(50),
+        ])
+        .split(vertical[2]);
+
+    StatsLayout {
+        identity: vertical[0],
+        entries: metrics[0],
+        days: metrics[2],
+    }
+}
+
+fn draw_journal_identity(frame: &mut Frame<'_>, area: Rect, stats: &JournalStats) {
+    let identity = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            stats.name.clone(),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(stats.year_range.clone()),
+    ])
+    .alignment(Alignment::Center)
+    .block(Block::default().borders(Borders::ALL));
+    frame.render_widget(identity, area);
+}
+
+fn draw_stat_card(frame: &mut Frame<'_>, area: Rect, label: &'static str, value: &str) {
+    let card = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(label),
+        Line::from(Span::styled(
+            value.to_string(),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ])
+    .alignment(Alignment::Center)
+    .block(Block::default().borders(Borders::ALL));
+    frame.render_widget(card, area);
+}
+
+fn centered_fixed_rect(area: Rect, desired_width: u16, desired_height: u16) -> Rect {
+    let width = desired_width.min(area.width);
+    let height = desired_height.min(area.height);
+    Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct JournalStats {
+    name: String,
+    entry_count: usize,
+    active_days: usize,
+    year_range: String,
+}
+
+fn journal_stats(app: &App) -> Option<JournalStats> {
+    let journal = app.selected_journal()?;
+    let entries = app.selected_entries();
+    let entry_count = entries.len();
+    let active_days = active_day_count(&entries);
+    let year_range = journal_year_range(&entries).unwrap_or_else(|| "No dated entries".to_string());
+
+    Some(JournalStats {
+        name: journal.name.clone(),
+        entry_count,
+        active_days,
+        year_range,
+    })
+}
+
+fn journal_year_range(entries: &[&Entry]) -> Option<String> {
+    let mut dates = entries.iter().filter_map(|entry| entry_group_date(entry));
+    let first = dates.next()?;
+    let (oldest, newest) = dates.fold((first, first), |(oldest, newest), date| {
+        (oldest.min(date), newest.max(date))
+    });
+
+    let oldest_year = oldest.format("%Y").to_string();
+    let newest_year = newest.format("%Y").to_string();
+    if oldest_year == newest_year {
+        Some(oldest_year)
+    } else {
+        Some(format!("{oldest_year}-{newest_year}"))
+    }
+}
+
+fn active_day_count(entries: &[&Entry]) -> usize {
+    let mut dates: Vec<NaiveDate> = entries
+        .iter()
+        .filter_map(|entry| entry_group_date(entry))
+        .collect();
+    dates.sort_unstable();
+    dates.dedup();
+    dates.len()
 }
 
 fn draw_markdown_panel(
@@ -582,6 +728,52 @@ mod tests {
     fn focused_panel_titles_have_ascii_focus_marker() {
         assert_eq!(panel_title("Entries", true), " >> Entries ");
         assert_eq!(panel_title("Entries", false), " Entries ");
+    }
+
+    #[test]
+    fn journal_stats_summarizes_selected_journal() {
+        let app = app_with_entry();
+
+        let stats = journal_stats(&app).unwrap();
+
+        assert_eq!(stats.name, "work");
+        assert_eq!(stats.entry_count, 1);
+        assert_eq!(stats.active_days, 1);
+        assert_eq!(stats.year_range, "2026");
+    }
+
+    #[test]
+    fn journal_stats_handles_empty_journals() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("work")).unwrap();
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.select_journal_by_name("work");
+
+        let stats = journal_stats(&app).unwrap();
+
+        assert_eq!(stats.name, "work");
+        assert_eq!(stats.entry_count, 0);
+        assert_eq!(stats.active_days, 0);
+        assert_eq!(stats.year_range, "No dated entries");
+    }
+
+    #[test]
+    fn centered_stats_layout_places_identity_above_metric_cards() {
+        let layout = centered_stats_layout(Rect {
+            x: 10,
+            y: 3,
+            width: 80,
+            height: 24,
+        });
+
+        assert_eq!(layout.identity.y, 8);
+        assert_eq!(layout.identity.height, 6);
+        assert_eq!(layout.entries.y, 14);
+        assert_eq!(layout.days.y, 14);
+        assert!(layout.entries.x < layout.days.x);
+        assert_eq!(layout.entries.height, 6);
+        assert_eq!(layout.days.height, 6);
     }
 
     #[test]
