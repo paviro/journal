@@ -1,14 +1,28 @@
-use noyalib::{Mapping, Value};
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+struct FrontMatter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    updated_at: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    feelings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mood: Option<i64>,
+}
 
 pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
-    let Some(rest) = content.strip_prefix("---\n") else {
+    let Some(rest) = content.strip_prefix("+++\n") else {
         return (None, content);
     };
 
     let mut offset = 0;
     for line in rest.split_inclusive('\n') {
         let marker = line.trim_end_matches('\n').trim_end_matches('\r');
-        if marker == "..." {
+        if marker == "+++" {
             let front_matter = rest[..offset].trim_end_matches('\n').trim_end_matches('\r');
             let body = &rest[offset + line.len()..];
             return (Some(front_matter), body);
@@ -18,7 +32,7 @@ pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
 
     if let Some(index) = rest.rfind('\n') {
         let marker = &rest[index + 1..];
-        if marker == "..." {
+        if marker == "+++" {
             let front_matter = rest[..index].trim_end_matches('\r');
             return (Some(front_matter), "");
         }
@@ -29,30 +43,30 @@ pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
 
 pub fn front_matter_tags(front_matter: &str) -> Vec<String> {
     parse_front_matter(front_matter)
-        .and_then(|metadata| metadata.get("tags").map(strings_from_value))
+        .map(|fm| fm.tags)
         .unwrap_or_default()
 }
 
 pub fn front_matter_feelings(front_matter: &str) -> Vec<String> {
     parse_front_matter(front_matter)
-        .and_then(|metadata| metadata.get("feelings").map(strings_from_value))
+        .map(|fm| fm.feelings)
         .unwrap_or_default()
 }
 
 pub fn front_matter_mood(front_matter: &str) -> Option<i8> {
     parse_front_matter(front_matter)
-        .and_then(|metadata| metadata.get("mood").and_then(|v| v.as_i64()))
+        .and_then(|fm| fm.mood)
+        .and_then(|v| i8::try_from(v).ok())
         .filter(|&v| (-5..=5).contains(&v))
-        .map(|v| v as i8)
 }
 
 pub fn front_matter_value(front_matter: &str, key: &str) -> Option<String> {
-    parse_front_matter(front_matter).and_then(|metadata| {
-        metadata
-            .get(key)
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    })
+    let fm = parse_front_matter(front_matter)?;
+    match key {
+        "created_at" => fm.created_at,
+        "updated_at" => fm.updated_at,
+        _ => None,
+    }
 }
 
 pub fn entry_has_body(content: &str) -> bool {
@@ -77,106 +91,54 @@ pub(crate) fn set_front_matter_value(content: &str, key: &str, value: &str) -> S
     let Some(front_matter) = front_matter else {
         return content.to_string();
     };
-
     let Some(mut metadata) = parse_front_matter(front_matter) else {
         return content.to_string();
     };
-    metadata.insert(key, Value::from(value));
+    match key {
+        "created_at" => metadata.created_at = Some(value.to_string()),
+        "updated_at" => metadata.updated_at = Some(value.to_string()),
+        _ => return content.to_string(),
+    }
     render_content_with_front_matter(&metadata, body)
 }
 
-/// Replace the `tags` field in the YAML front matter with the given list.
+/// Replace the `tags` field in the TOML front matter with the given list.
 /// Returns `None` when there is no front matter.
 pub(crate) fn set_tags_in_front_matter(content: &str, tags: &[String]) -> Option<String> {
-    set_string_list_in_front_matter(content, "tags", tags)
+    let (front_matter, body) = split_front_matter(content);
+    let front_matter = front_matter?;
+    let mut metadata = parse_front_matter(front_matter)?;
+    metadata.tags = tags.to_vec();
+    Some(render_content_with_front_matter(&metadata, body))
 }
 
-/// Replace the `feelings` field in the YAML front matter with the given list.
+/// Replace the `feelings` field in the TOML front matter with the given list.
 /// Returns `None` when there is no front matter.
 pub(crate) fn set_feelings_in_front_matter(content: &str, feelings: &[String]) -> Option<String> {
-    set_string_list_in_front_matter(content, "feelings", feelings)
+    let (front_matter, body) = split_front_matter(content);
+    let front_matter = front_matter?;
+    let mut metadata = parse_front_matter(front_matter)?;
+    metadata.feelings = feelings.to_vec();
+    Some(render_content_with_front_matter(&metadata, body))
 }
 
-/// Set or remove the `mood` field in the YAML front matter.
+/// Set or remove the `mood` field in the TOML front matter.
 /// Returns `None` when there is no front matter.
 pub(crate) fn set_mood_in_front_matter(content: &str, mood: Option<i8>) -> Option<String> {
     let (front_matter, body) = split_front_matter(content);
     let front_matter = front_matter?;
     let mut metadata = parse_front_matter(front_matter)?;
-    match mood {
-        Some(value) => {
-            metadata.insert("mood", Value::from(value));
-        }
-        None => {
-            metadata.remove("mood");
-        }
-    }
+    metadata.mood = mood.map(i64::from);
     Some(render_content_with_front_matter(&metadata, body))
 }
 
-fn set_string_list_in_front_matter(content: &str, key: &str, values: &[String]) -> Option<String> {
-    let (front_matter, body) = split_front_matter(content);
-    let front_matter = front_matter?;
-
-    let mut metadata = parse_front_matter(front_matter)?;
-    metadata.insert(
-        key,
-        Value::Sequence(
-            values
-                .iter()
-                .map(|value| Value::from(value.as_str()))
-                .collect(),
-        ),
-    );
-
-    Some(render_content_with_front_matter(&metadata, body))
+fn parse_front_matter(front_matter: &str) -> Option<FrontMatter> {
+    toml::from_str(front_matter).ok()
 }
 
-fn parse_front_matter(front_matter: &str) -> Option<Mapping> {
-    let value: Value = noyalib::from_str(front_matter).ok()?;
-    match value {
-        Value::Mapping(metadata) => Some(metadata),
-        _ => None,
-    }
-}
-
-fn strings_from_value(value: &Value) -> Vec<String> {
-    if let Some(value) = value.as_str() {
-        return non_empty_string(value).into_iter().collect();
-    }
-
-    value
-        .as_sequence()
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|value| value.as_str().and_then(non_empty_string))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn non_empty_string(value: &str) -> Option<String> {
-    let value = value.trim();
-    if value.is_empty() {
-        None
-    } else {
-        Some(value.to_string())
-    }
-}
-
-fn render_content_with_front_matter(metadata: &Mapping, body: &str) -> String {
-    let mut rendered = noyalib::to_string(&Value::Mapping(metadata.clone())).unwrap_or_default();
-    if let Some(front_matter) = rendered.strip_prefix("---\n") {
-        rendered = front_matter.to_string();
-    }
-    if let Some(front_matter) = rendered.strip_suffix("...\n") {
-        rendered = front_matter.to_string();
-    }
-    if !rendered.ends_with('\n') {
-        rendered.push('\n');
-    }
-    format!("---\n{}...\n{}", rendered, body)
+fn render_content_with_front_matter(metadata: &FrontMatter, body: &str) -> String {
+    let toml = toml::to_string(metadata).unwrap_or_default();
+    format!("+++\n{}+++\n{}", toml, body)
 }
 
 fn display_line_text(line: &str) -> Option<&str> {
@@ -231,63 +193,50 @@ mod tests {
     }
 
     #[test]
-    fn split_front_matter_accepts_yaml_document_end_marker() {
-        let (front_matter, body) = split_front_matter("---\ntitle: \"A\"\n...\n\n# Body\n");
+    fn split_front_matter_parses_toml_delimiters() {
+        let (front_matter, body) =
+            split_front_matter("+++\ntitle = \"A\"\n+++\n\n# Body\n");
 
-        assert_eq!(front_matter, Some("title: \"A\""));
+        assert_eq!(front_matter, Some("title = \"A\""));
         assert_eq!(body, "\n# Body\n");
     }
 
     #[test]
-    fn front_matter_tags_reads_block_list() {
-        let tags = front_matter_tags("tags:\n  - foo\n  - bar\n");
+    fn front_matter_tags_reads_list() {
+        let tags = front_matter_tags("tags = [\"foo\", \"bar\"]\n");
 
         assert_eq!(tags, vec!["foo", "bar"]);
     }
 
     #[test]
-    fn front_matter_tags_reads_flow_list_with_quoted_commas() {
-        let tags = front_matter_tags("tags: [\"foo, bar\", baz]\n");
+    fn front_matter_tags_handles_commas_in_values() {
+        let tags = front_matter_tags("tags = [\"foo, bar\", \"baz\"]\n");
 
         assert_eq!(tags, vec!["foo, bar", "baz"]);
     }
 
     #[test]
-    fn front_matter_tags_keeps_scalar_tag_compatibility() {
-        let tags = front_matter_tags("tags: foo\n");
-
-        assert_eq!(tags, vec!["foo"]);
-    }
-
-    #[test]
-    fn front_matter_feelings_reads_block_list() {
-        let feelings = front_matter_feelings("feelings:\n  - calm\n  - focused\n");
+    fn front_matter_feelings_reads_list() {
+        let feelings = front_matter_feelings("feelings = [\"calm\", \"focused\"]\n");
 
         assert_eq!(feelings, vec!["calm", "focused"]);
     }
 
     #[test]
-    fn front_matter_feelings_keeps_scalar_compatibility() {
-        let feelings = front_matter_feelings("feelings: calm\n");
-
-        assert_eq!(feelings, vec!["calm"]);
-    }
-
-    #[test]
     fn malformed_front_matter_returns_empty_metadata() {
         assert_eq!(
-            front_matter_tags("tags: [unterminated"),
+            front_matter_tags("tags = [unterminated"),
             Vec::<String>::new()
         );
         assert_eq!(
-            front_matter_value("created_at: [unterminated", "created_at"),
+            front_matter_value("created_at = [unterminated", "created_at"),
             None
         );
     }
 
     #[test]
-    fn set_tags_replaces_block_list_without_stale_rows() {
-        let content = "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\ntags:\n  - old\n  - stale\n...\n\n# Body\n";
+    fn set_tags_replaces_list_without_stale_entries() {
+        let content = "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\ntags = [\"old\", \"stale\"]\n+++\n\n# Body\n";
         let tags = vec!["new".to_string(), "next".to_string()];
 
         let updated = set_tags_in_front_matter(content, &tags).unwrap();
@@ -299,13 +248,13 @@ mod tests {
         );
         assert!(!updated.contains("old"));
         assert!(!updated.contains("stale"));
-        assert!(updated.contains("\n...\n\n# Body\n"));
+        assert!(updated.contains("\n+++\n\n# Body\n"));
         assert!(updated.ends_with("\n# Body\n"));
     }
 
     #[test]
-    fn set_feelings_replaces_block_list_without_stale_rows() {
-        let content = "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\nfeelings:\n  - tired\n  - stale\n...\n\n# Body\n";
+    fn set_feelings_replaces_list_without_stale_entries() {
+        let content = "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\nfeelings = [\"tired\", \"stale\"]\n+++\n\n# Body\n";
         let feelings = vec!["calm".to_string(), "focused".to_string()];
 
         let updated = set_feelings_in_front_matter(content, &feelings).unwrap();
@@ -316,16 +265,17 @@ mod tests {
             Some(vec!["calm".to_string(), "focused".to_string()])
         );
         assert!(!updated.contains("stale"));
-        assert!(updated.contains("\n...\n\n# Body\n"));
+        assert!(updated.contains("\n+++\n\n# Body\n"));
     }
 
     #[test]
     fn set_front_matter_value_preserves_body_exactly() {
-        let content = "---\ncreated_at: \"old\"\ntags: []\n...\n\n# Body\n\nTrailing\n";
+        let content =
+            "+++\ncreated_at = \"old\"\ntags = []\n+++\n\n# Body\n\nTrailing\n";
 
         let updated = set_front_matter_value(content, "updated_at", "new");
 
-        assert!(updated.contains("\n...\n\n# Body\n"));
+        assert!(updated.contains("\n+++\n\n# Body\n"));
         assert!(updated.ends_with("\n# Body\n\nTrailing\n"));
         assert_eq!(
             front_matter_value(split_front_matter(&updated).0.unwrap(), "updated_at"),

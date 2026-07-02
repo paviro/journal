@@ -38,7 +38,7 @@ pub fn open_editor_body_only(editor: &str, path: &Path) -> AppResult<()> {
     if result.is_ok() {
         let new_body = fs::read_to_string(&temp_path)?;
         let new_content = format!(
-            "---\n{}\n...\n\n{}",
+            "+++\n{}\n+++\n\n{}",
             front_matter,
             new_body.trim_start_matches('\n')
         );

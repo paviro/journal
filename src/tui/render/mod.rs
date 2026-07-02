@@ -135,7 +135,7 @@ mod tests {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join("a.md"),
-            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n# A\nBody\n",
+            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
 
@@ -337,12 +337,12 @@ mod tests {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join("a.md"),
-            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n# A\nFirst preview\n",
+            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nFirst preview\n",
         )
         .unwrap();
         fs::write(
             entry_dir.join("b.md"),
-            "---\ncreated_at: \"2026-07-01T11:00:00+02:00\"\n...\n\n# B\nSecond preview\n",
+            "+++\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nSecond preview\n",
         )
         .unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
@@ -403,7 +403,7 @@ mod tests {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join("a.md"),
-            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\nfeelings:\n  - calm\n  - focused\n...\n\n# A\nBody\n",
+            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\nfeelings = [\"calm\", \"focused\"]\n+++\n\n# A\nBody\n",
         )
         .unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
@@ -423,7 +423,7 @@ mod tests {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join("a.md"),
-            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n# A\n```mermaid\n  graph TD\n      A[Open journal] --> B[Write entry]\n      B --> C{Preview}\n      C -->|looks good| D[Save]\n      C -->|needs work| B\n  ```\n",
+            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n```mermaid\n  graph TD\n      A[Open journal] --> B[Write entry]\n      B --> C{Preview}\n      C -->|looks good| D[Save]\n      C -->|needs work| B\n  ```\n",
         )
         .unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");

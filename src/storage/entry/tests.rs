@@ -66,9 +66,9 @@ fn create_entry_with_body_writes_body_after_front_matter() {
     let created = create_entry_with_body(dir.path(), "work", "Some text").unwrap();
     let text = fs::read_to_string(created).unwrap();
 
-    assert!(text.starts_with("---\ncreated_at: \""));
-    assert!(text.contains("\nupdated_at: \""));
-    assert!(text.contains("\ntags: []\nfeelings: []\n...\n\nSome text\n"));
+    assert!(text.starts_with("+++\ncreated_at = \""));
+    assert!(text.contains("\nupdated_at = \""));
+    assert!(text.contains("\ntags = []\nfeelings = []\n+++\n\nSome text\n"));
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn entry_template_has_expected_front_matter() {
     assert_eq!(
         template,
         format!(
-            "---\ncreated_at: \"{}\"\nupdated_at: \"{}\"\ntags: []\nfeelings: []\n...\n\n",
+            "+++\ncreated_at = \"{}\"\nupdated_at = \"{}\"\ntags = []\nfeelings = []\n+++\n\n",
             now.to_rfc3339(),
             now.to_rfc3339()
         )
@@ -106,7 +106,7 @@ fn entry_id_is_filename_stem_not_front_matter() {
     let path = dir.path().join("id-from-file.md");
     fs::write(
         &path,
-        "---\nid: \"wrong\"\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n# Title\n",
+        "+++\nid = \"wrong\"\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
     )
     .unwrap();
 
@@ -121,7 +121,7 @@ fn entry_journal_is_read_context_not_front_matter() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "---\njournal: \"wrong\"\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n# Title\n",
+        "+++\njournal = \"wrong\"\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
     )
     .unwrap();
 
@@ -136,7 +136,7 @@ fn entry_title_uses_first_markdown_line_and_preview_uses_next_line() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n# Hi how is it going?\nThis is a test entry\n",
+        "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Hi how is it going?\nThis is a test entry\n",
     )
     .unwrap();
 
@@ -147,12 +147,12 @@ fn entry_title_uses_first_markdown_line_and_preview_uses_next_line() {
 }
 
 #[test]
-fn entry_tags_read_yaml_block_list() {
+fn entry_tags_read_toml_list() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "---\ntags:\n  - work\n  - deep focus\n...\n\n# Tagged\n",
+        "+++\ntags = [\"work\", \"deep focus\"]\n+++\n\n# Tagged\n",
     )
     .unwrap();
 
@@ -162,12 +162,12 @@ fn entry_tags_read_yaml_block_list() {
 }
 
 #[test]
-fn entry_feelings_read_known_yaml_values_only() {
+fn entry_feelings_read_known_values_only() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "---\nfeelings:\n  - Calm\n  - nope\n  - focused\n...\n\n# Feeling\n",
+        "+++\nfeelings = [\"Calm\", \"nope\", \"focused\"]\n+++\n\n# Feeling\n",
     )
     .unwrap();
 
@@ -200,7 +200,7 @@ fn plain_entry_title_and_preview_use_first_two_markdown_lines() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\nPlain title\nPlain preview\n",
+        "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\nPlain title\nPlain preview\n",
     )
     .unwrap();
 
@@ -216,7 +216,7 @@ fn empty_entry_uses_timestamp_title_and_empty_preview() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n",
+        "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n",
     )
     .unwrap();
 
@@ -241,12 +241,12 @@ fn scan_entries_skips_trash() {
     fs::create_dir_all(&trash_dir).unwrap();
     fs::write(
         entry_dir.join("entry.md"),
-        "---\ntags: []\n...\n\n# Active\n",
+        "+++\ntags = []\n+++\n\n# Active\n",
     )
     .unwrap();
     fs::write(
         trash_dir.join("trashed.md"),
-        "---\ntags: []\n...\n\n# Trashed\n",
+        "+++\ntags = []\n+++\n\n# Trashed\n",
     )
     .unwrap();
 

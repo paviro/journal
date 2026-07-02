@@ -328,7 +328,7 @@ mod tests {
         let entry_dir = dir.path().join("work").join("2026-07-01");
         fs::create_dir_all(&entry_dir).unwrap();
         let path = entry_dir.join("a.md");
-        fs::write(&path, "---\ntags: []\nfeelings: []\n...\n\n# A\n").unwrap();
+        fs::write(&path, "+++\ntags = []\nfeelings = []\n+++\n\n# A\n").unwrap();
 
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);

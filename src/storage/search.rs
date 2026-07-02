@@ -63,7 +63,7 @@ mod tests {
         fs::create_dir_all(dir.path().join("work").join("2026-07-01")).unwrap();
         fs::write(
             dir.path().join("work").join("2026-07-01").join("entry.md"),
-            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n# Alpha\nneedle\n",
+            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Alpha\nneedle\n",
         )
         .unwrap();
 
@@ -82,12 +82,12 @@ mod tests {
         fs::create_dir_all(dir.path().join("home").join("2026-07-01")).unwrap();
         fs::write(
             dir.path().join("work").join("2026-07-01").join("entry.md"),
-            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n# Work\nneedle\n",
+            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Work\nneedle\n",
         )
         .unwrap();
         fs::write(
             dir.path().join("home").join("2026-07-01").join("entry.md"),
-            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n# Home\nneedle\n",
+            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Home\nneedle\n",
         )
         .unwrap();
 

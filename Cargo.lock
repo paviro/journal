@@ -1140,8 +1140,6 @@ checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
- "serde",
- "serde_core",
 ]
 
 [[package]]
@@ -1240,7 +1238,6 @@ dependencies = [
  "crossterm 0.29.0",
  "dirs",
  "nanoid",
- "noyalib",
  "ratatui 0.29.0",
  "ratatui 0.30.2",
  "ratatui-markdown",
@@ -1446,22 +1443,6 @@ checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
 dependencies = [
  "memchr",
  "minimal-lexical",
-]
-
-[[package]]
-name = "noyalib"
-version = "0.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70fbde2dc0a7a7573769ff292f54108ea080a2afd73cbfe337033d0aa4bdd3df"
-dependencies = [
- "indexmap",
- "itoa",
- "memchr",
- "rustc-hash 2.1.3",
- "ryu",
- "serde",
- "serde_ignored",
- "smallvec",
 ]
 
 [[package]]
@@ -2269,16 +2250,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.118",
-]
-
-[[package]]
-name = "serde_ignored"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "115dffd5f3853e06e746965a20dcbae6ee747ae30b543d91b0e089668bb07798"
-dependencies = [
- "serde",
- "serde_core",
 ]
 
 [[package]]
