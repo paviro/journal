@@ -1,0 +1,446 @@
+# Multi-target build tasks for journal
+
+[config]
+default_to_workspace = false
+main_project_member = "."
+
+# Default environment variables
+[env]
+CARGO_BUILD_PROFILE = "release"
+ANDROID_API = "24"
+ANDROID_SDK_ROOT = "/opt/homebrew/share/android-commandlinetools"
+TERMUX_TARGET = "aarch64-linux-android"
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER = "aarch64-unknown-linux-musl-gcc"
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = "aarch64-unknown-linux-gnu-gcc"
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "x86_64-unknown-linux-gnu-gcc"
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "x86_64-unknown-linux-musl-gcc"
+CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "x86_64-w64-mingw32-gcc"
+
+# Production profile environment
+[env.production]
+CARGO_BUILD_PROFILE = "release"
+
+# Android / Termux targets
+[tasks.build-termux]
+description = "Cross-compile for native Termux on 64-bit ARM Android"
+dependencies = ["install-termux-target"]
+script = '''
+TARGET="${TERMUX_TARGET:-aarch64-linux-android}"
+API="${ANDROID_API:-24}"
+
+case "$(uname -s)" in
+    Darwin)
+        HOST_TAG="darwin-x86_64"
+        ;;
+    Linux)
+        HOST_TAG="linux-x86_64"
+        ;;
+    *)
+        echo "Unsupported host OS for Android NDK cross-compilation: $(uname -s)" >&2
+        exit 1
+        ;;
+esac
+
+SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+if [ -z "$SDK_ROOT" ] && [ -d "$HOME/Library/Android/sdk" ]; then
+    SDK_ROOT="$HOME/Library/Android/sdk"
+fi
+if [ -z "$SDK_ROOT" ] && [ -d "/opt/homebrew/share/android-commandlinetools" ]; then
+    SDK_ROOT="/opt/homebrew/share/android-commandlinetools"
+fi
+
+NDK_HOME="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-${ANDROID_NDK:-}}}"
+if [ -z "$NDK_HOME" ] && [ -n "$SDK_ROOT" ] && [ -d "${SDK_ROOT}/ndk" ]; then
+    NDK_HOME=$(find "${SDK_ROOT}/ndk" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)
+fi
+if [ -z "$NDK_HOME" ]; then
+    echo "ANDROID_NDK_HOME, ANDROID_NDK_ROOT, ANDROID_NDK, or ANDROID_SDK_ROOT with an ndk directory must point to an Android NDK install." >&2
+    exit 1
+fi
+
+TOOLCHAIN_BIN="${NDK_HOME}/toolchains/llvm/prebuilt/${HOST_TAG}/bin"
+LINKER="${TOOLCHAIN_BIN}/aarch64-linux-android${API}-clang"
+if [ ! -x "$LINKER" ]; then
+    echo "Android NDK linker not found or not executable: $LINKER" >&2
+    exit 1
+fi
+
+if [ -x "${TOOLCHAIN_BIN}/llvm-ar" ]; then
+    export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="${TOOLCHAIN_BIN}/llvm-ar"
+fi
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$LINKER"
+cargo build --release --target "$TARGET"
+'''
+
+[tasks.install-termux-target]
+description = "Install the Rust target used for Termux ARM64 Android builds"
+command = "rustup"
+args = ["target", "add", "aarch64-linux-android"]
+
+# ARM64 targets
+[tasks.build-arm64-musl]
+description = "Build for ARM64 with musl"
+command = "cargo"
+args = ["build", "--release", "--target", "aarch64-unknown-linux-musl"]
+
+[tasks.build-arm64-gnu]
+description = "Build for ARM64 with glibc"
+command = "cargo"
+args = ["build", "--release", "--target", "aarch64-unknown-linux-gnu"]
+
+# x86_64 Linux targets
+[tasks.build-x86-gnu]
+description = "Build for x86_64 Linux with glibc"
+command = "cargo"
+args = ["build", "--release", "--target", "x86_64-unknown-linux-gnu"]
+
+[tasks.build-x86-musl]
+description = "Build for x86_64 Linux with musl"
+command = "cargo"
+args = ["build", "--release", "--target", "x86_64-unknown-linux-musl"]
+
+# Windows targets
+[tasks.build-windows-gnu]
+description = "Build for Windows x86_64 (MinGW)"
+command = "cargo"
+args = ["build", "--release", "--target", "x86_64-pc-windows-gnu"]
+
+# macOS targets
+[tasks.build-macos-intel]
+description = "Build for Intel macOS"
+command = "cargo"
+args = ["build", "--release", "--target", "x86_64-apple-darwin"]
+
+[tasks.build-macos-silicon]
+description = "Build for Apple Silicon macOS"
+command = "cargo"
+args = ["build", "--release", "--target", "aarch64-apple-darwin"]
+
+[tasks.build-macos-universal]
+description = "Build universal macOS binary (Intel + Apple Silicon)"
+dependencies = ["build-macos-intel", "build-macos-silicon"]
+script = '''
+mkdir -p target/universal-apple-darwin/release
+lipo -create \
+    target/x86_64-apple-darwin/release/journal \
+    target/aarch64-apple-darwin/release/journal \
+    -output target/universal-apple-darwin/release/journal
+'''
+
+# Combined build tasks
+[tasks.build-all]
+description = "Build for all supported platforms"
+dependencies = [
+    "build-termux",
+    "build-arm64-musl",
+    "build-arm64-gnu",
+    "build-x86-gnu",
+    "build-x86-musl",
+    "build-windows-gnu",
+    "build-macos-intel",
+    "build-macos-silicon",
+    "build-macos-universal"
+]
+
+[tasks.build-arm64-all]
+description = "Build for both ARM64 targets"
+dependencies = [
+    "build-termux",
+    "build-arm64-musl",
+    "build-arm64-gnu"
+]
+
+[tasks.build-linux-all]
+description = "Build for all Linux targets"
+dependencies = [
+    "build-arm64-musl",
+    "build-arm64-gnu",
+    "build-x86-gnu",
+    "build-x86-musl"
+]
+
+[tasks.build-windows-all]
+description = "Build for all Windows targets"
+dependencies = [
+    "build-windows-gnu"
+]
+
+[tasks.build-macos-all]
+description = "Build for all macOS targets"
+dependencies = [
+    "build-macos-intel",
+    "build-macos-silicon",
+    "build-macos-universal"
+]
+
+[tasks.run-tests]
+description = "Execute the full test suite before building releases"
+command = "cargo"
+args = ["test"]
+
+[tasks.clean-all]
+description = "Clean all build artifacts"
+command = "cargo"
+args = ["clean"]
+
+# Packaging tasks
+[tasks.create-release-dir]
+description = "Create release directory"
+script = '''
+mkdir -p release
+'''
+
+[tasks.package-termux]
+description = "Package native Termux ARM64 Android binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="journal"
+TARGET="${TERMUX_TARGET:-aarch64-linux-android}"
+PLATFORM="android-aarch64-termux"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-arm64-musl]
+description = "Package ARM64 musl binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="journal"
+TARGET="aarch64-unknown-linux-musl"
+PLATFORM="linux-musl-aarch64"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-arm64-gnu]
+description = "Package ARM64 gnu binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="journal"
+TARGET="aarch64-unknown-linux-gnu"
+PLATFORM="linux-gnu-aarch64"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-x86-gnu]
+description = "Package x86_64 gnu binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="journal"
+TARGET="x86_64-unknown-linux-gnu"
+PLATFORM="linux-gnu-x86_64"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-x86-musl]
+description = "Package x86_64 musl binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="journal"
+TARGET="x86_64-unknown-linux-musl"
+PLATFORM="linux-musl-x86_64"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-windows-gnu]
+description = "Package Windows gnu binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="journal.exe"
+TARGET="x86_64-pc-windows-gnu"
+PLATFORM="windows-gnu-x86_64"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-macos-intel]
+description = "Package Intel macOS binary"
+dependencies = ["create-release-dir", "sign-macos-intel"]
+script = '''
+BINARY_NAME="journal"
+TARGET="x86_64-apple-darwin"
+PLATFORM="apple-darwin-x86_64"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-macos-silicon]
+description = "Package Apple Silicon macOS binary"
+dependencies = ["create-release-dir", "sign-macos-silicon"]
+script = '''
+BINARY_NAME="journal"
+TARGET="aarch64-apple-darwin"
+PLATFORM="apple-darwin-aarch64"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-macos-universal]
+description = "Package Universal macOS binary"
+dependencies = ["create-release-dir", "sign-macos-universal"]
+script = '''
+BINARY_NAME="journal"
+TARGET="universal-apple-darwin"
+PLATFORM="apple-darwin-universal"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+# Combined packaging tasks
+[tasks.package-all]
+description = "Package all platform binaries into zip files"
+dependencies = [
+    "package-termux",
+    "package-arm64-musl",
+    "package-arm64-gnu",
+    "package-x86-gnu",
+    "package-x86-musl",
+    "package-windows-gnu",
+    "package-macos-intel",
+    "package-macos-silicon",
+    "package-macos-universal"
+]
+
+# Build and package in one go
+[tasks.release-all]
+description = "Build and package all platforms"
+dependencies = [
+    "run-tests",
+    "build-all",
+    "package-all",
+    "notarize-macos-intel",
+    "notarize-macos-silicon",
+    "notarize-macos-universal"
+]
+
+[tasks.sign-macos-intel]
+description = "Sign Intel macOS binary if APPLE_DEVELOPER_ID is set"
+dependencies = ["build-macos-intel"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+BINARY_PATH="target/x86_64-apple-darwin/release/journal"
+if [ -n "$APPLE_DEVELOPER_ID" ]; then
+    if codesign --sign "$APPLE_DEVELOPER_ID" --timestamp --options runtime "$BINARY_PATH"; then
+        echo "Successfully signed Intel macOS binary."
+    else
+        echo "Failed to sign Intel macOS binary."
+    fi
+else
+    echo "APPLE_DEVELOPER_ID not set, skipping code signing for Intel macOS binary."
+fi
+'''
+
+[tasks.sign-macos-silicon]
+description = "Sign Apple Silicon macOS binary if APPLE_DEVELOPER_ID is set"
+dependencies = ["build-macos-silicon"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+BINARY_PATH="target/aarch64-apple-darwin/release/journal"
+if [ -n "$APPLE_DEVELOPER_ID" ]; then
+    if codesign --sign "$APPLE_DEVELOPER_ID" --timestamp --options runtime "$BINARY_PATH"; then
+        echo "Successfully signed Apple Silicon macOS binary."
+    else
+        echo "Failed to sign Apple Silicon macOS binary."
+    fi
+else
+    echo "APPLE_DEVELOPER_ID not set, skipping code signing for Apple Silicon macOS binary."
+fi
+'''
+
+[tasks.sign-macos-universal]
+description = "Sign Universal macOS binary if APPLE_DEVELOPER_ID is set"
+dependencies = ["build-macos-universal"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+BINARY_PATH="target/universal-apple-darwin/release/journal"
+if [ -n "$APPLE_DEVELOPER_ID" ]; then
+    if codesign --sign "$APPLE_DEVELOPER_ID" --timestamp --options runtime "$BINARY_PATH"; then
+        echo "Successfully signed Universal macOS binary."
+    else
+        echo "Failed to sign Universal macOS binary."
+    fi
+else
+    echo "APPLE_DEVELOPER_ID not set, skipping code signing for Universal macOS binary."
+fi
+'''
+
+[tasks.notarize-macos-intel]
+description = "Notarize Intel macOS zip if APPLE_USERNAME and APPLE_PASSWORD are set"
+dependencies = ["package-macos-intel"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+ZIP_PATH="release/apple-darwin-x86_64.zip"
+TEAM_ID=$(echo "$APPLE_DEVELOPER_ID" | sed -n 's/.*(\(.*\)).*/\1/p')
+if [ -n "$APPLE_USERNAME" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$TEAM_ID" ]; then
+    if xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait; then
+        echo "Successfully notarized Intel macOS zip."
+    else
+        echo "Failed to notarize Intel macOS zip."
+    fi
+else
+    echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID not set, skipping notarization for Intel macOS zip."
+fi
+'''
+
+[tasks.notarize-macos-silicon]
+description = "Notarize Apple Silicon macOS zip if APPLE_USERNAME and APPLE_PASSWORD are set"
+dependencies = ["package-macos-silicon"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+ZIP_PATH="release/apple-darwin-aarch64.zip"
+TEAM_ID=$(echo "$APPLE_DEVELOPER_ID" | sed -n 's/.*(\(.*\)).*/\1/p')
+if [ -n "$APPLE_USERNAME" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$TEAM_ID" ]; then
+    if xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait; then
+        echo "Successfully notarized Apple Silicon macOS zip."
+    else
+        echo "Failed to notarize Apple Silicon macOS zip."
+    fi
+else
+    echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID not set, skipping notarization for Apple Silicon macOS zip."
+fi
+'''
+
+[tasks.notarize-macos-universal]
+description = "Notarize Universal macOS zip if APPLE_USERNAME and APPLE_PASSWORD are set"
+dependencies = ["package-macos-universal"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+ZIP_PATH="release/apple-darwin-universal.zip"
+TEAM_ID=$(echo "$APPLE_DEVELOPER_ID" | sed -n 's/.*(\(.*\)).*/\1/p')
+if [ -n "$APPLE_USERNAME" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$TEAM_ID" ]; then
+    if xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait; then
+        echo "Successfully notarized Universal macOS zip."
+    else
+        echo "Failed to notarize Universal macOS zip."
+    fi
+else
+    echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID not set, skipping notarization for Universal macOS zip."
+fi
+'''
