@@ -278,7 +278,7 @@ mod tests {
             vec![
                 EntryRowMeta {
                     entry_index: None,
-                    height: 1,
+                    height: 3,
                 },
                 EntryRowMeta {
                     entry_index: None,
@@ -296,10 +296,12 @@ mod tests {
         );
         assert_eq!(entry_index_at(area, 1, 1, 0, &rows), None);
         assert_eq!(entry_index_at(area, 1, 2, 0, &rows), None);
-        assert_eq!(entry_index_at(area, 1, 3, 0, &rows), Some(0));
-        assert_eq!(entry_index_at(area, 1, 4, 0, &rows), Some(0));
-        assert_eq!(entry_index_at(area, 1, 5, 0, &rows), Some(1));
-        assert_eq!(entry_index_at(area, 1, 1, 2, &rows), Some(0));
+        assert_eq!(entry_index_at(area, 1, 3, 0, &rows), None);
+        assert_eq!(entry_index_at(area, 1, 4, 0, &rows), None);
+        assert_eq!(entry_index_at(area, 1, 5, 0, &rows), Some(0));
+        assert_eq!(entry_index_at(area, 1, 6, 0, &rows), Some(0));
+        assert_eq!(entry_index_at(area, 1, 7, 0, &rows), Some(1));
+        assert_eq!(entry_index_at(area, 1, 1, 2, &rows), None);
     }
 
     #[test]
@@ -378,7 +380,7 @@ mod tests {
         );
         assert!(
             buffer
-                .cell((20, 3))
+                .cell((20, 5))
                 .unwrap()
                 .modifier
                 .contains(Modifier::REVERSED)

@@ -66,10 +66,14 @@ fn browse_entry_rows(app: &App) -> Vec<EntryListRow> {
             if let Some(month) = month {
                 rows.push(EntryListRow {
                     entry_index: None,
-                    lines: vec![Line::from(Span::styled(
-                        month,
-                        Style::default().add_modifier(Modifier::BOLD | Modifier::DIM),
-                    ))],
+                    lines: vec![
+                        Line::from(Span::raw("─".repeat(200))),
+                        Line::from(Span::styled(
+                            month,
+                            Style::default().add_modifier(Modifier::BOLD),
+                        )),
+                        Line::from(Span::raw("─".repeat(200))),
+                    ],
                     selected: false,
                 });
             }
@@ -83,7 +87,7 @@ fn browse_entry_rows(app: &App) -> Vec<EntryListRow> {
                     entry_index: None,
                     lines: vec![Line::from(vec![
                         Span::raw("  "),
-                        Span::styled(day, Style::default().add_modifier(Modifier::DIM)),
+                        Span::styled(day, Style::default()),
                     ])],
                     selected: false,
                 });
@@ -161,12 +165,12 @@ pub(crate) fn entry_list_lines(entry: &Entry) -> Vec<Line<'static>> {
         .map(|timestamp| timestamp.format("%H:%M").to_string())
         .unwrap_or_default();
 
-    let dim_style = Style::default().add_modifier(Modifier::DIM);
+    let muted_style = Style::default();
     let left_width = 7;
 
     let mut title_line = if !time.is_empty() {
         vec![
-            Span::styled(format!("{time:<5}"), dim_style),
+            Span::styled(format!("{time:<5}"), muted_style),
             Span::raw("  "),
         ]
     } else {
@@ -181,7 +185,7 @@ pub(crate) fn entry_list_lines(entry: &Entry) -> Vec<Line<'static>> {
 
     if !entry.preview.is_empty() {
         let mut second_line = vec![Span::raw(" ".repeat(left_width))];
-        second_line.push(Span::styled(entry.preview.clone(), dim_style));
+        second_line.push(Span::styled(entry.preview.clone(), muted_style));
 
         lines.push(Line::from(second_line));
     }
