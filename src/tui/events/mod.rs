@@ -65,7 +65,7 @@ mod tests {
             fs::write(
                 entry_dir.join(format!("{index}.md")),
                 format!(
-                    "---\ncreated_at: \"2026-07-01T10:{index:02}:00+02:00\"\n---\n\n# Entry {index}\nPreview {index}\n"
+                    "---\ncreated_at: \"2026-07-01T10:{index:02}:00+02:00\"\n...\n\n# Entry {index}\nPreview {index}\n"
                 ),
             )
             .unwrap();
@@ -100,7 +100,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let entry_dir = dir.path().join("work").join("2026-07-01");
         fs::create_dir_all(&entry_dir).unwrap();
-        fs::write(entry_dir.join("a.md"), "---\ntags: []\n---\n\n# A\nBody\n").unwrap();
+        fs::write(entry_dir.join("a.md"), "---\ntags: []\n...\n\n# A\nBody\n").unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
@@ -119,7 +119,7 @@ mod tests {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join("a.md"),
-            "---\ncreated_at: \"2026-07-01T10:23:00+02:00\"\n---\n\n# A\nBody\n",
+            "---\ncreated_at: \"2026-07-01T10:23:00+02:00\"\n...\n\n# A\nBody\n",
         )
         .unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
@@ -138,7 +138,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let entry_dir = dir.path().join("work").join("2026-07-01");
         fs::create_dir_all(&entry_dir).unwrap();
-        fs::write(entry_dir.join("a.md"), "---\ntags: []\n---\n\n# A\nBody\n").unwrap();
+        fs::write(entry_dir.join("a.md"), "---\ntags: []\n...\n\n# A\nBody\n").unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");

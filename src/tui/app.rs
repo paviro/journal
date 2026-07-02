@@ -569,8 +569,8 @@ mod tests {
         let dir = tempdir().unwrap();
         let entry_dir = dir.path().join("work").join("2026-07-01");
         fs::create_dir_all(&entry_dir).unwrap();
-        fs::write(entry_dir.join("a.md"), "---\ntags: []\n---\n\n# A\n").unwrap();
-        fs::write(entry_dir.join("b.md"), "---\ntags: []\n---\n\n# B\n").unwrap();
+        fs::write(entry_dir.join("a.md"), "---\ntags: []\n...\n\n# A\n").unwrap();
+        fs::write(entry_dir.join("b.md"), "---\ntags: []\n...\n\n# B\n").unwrap();
 
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
@@ -585,7 +585,7 @@ mod tests {
 
     #[test]
     fn markdown_body_strips_front_matter_for_entry_view() {
-        let content = "---\ntags: []\n---\n\n# Title\nBody\n";
+        let content = "---\ntags: []\n...\n\n# Title\nBody\n";
 
         assert_eq!(markdown_body(content), "# Title\nBody\n");
     }
@@ -597,7 +597,7 @@ mod tests {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join("a.md"),
-            "---\ncreated_at: \"2026-07-01T10:23:00+02:00\"\n---\n\n# A\nBody\n",
+            "---\ncreated_at: \"2026-07-01T10:23:00+02:00\"\n...\n\n# A\nBody\n",
         )
         .unwrap();
 
@@ -618,7 +618,7 @@ mod tests {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join("a.md"),
-            "---\ncreated_at: \"2026-07-01T10:23:00+02:00\"\n---\n\n# A\nneedle\n",
+            "---\ncreated_at: \"2026-07-01T10:23:00+02:00\"\n...\n\n# A\nneedle\n",
         )
         .unwrap();
 
@@ -640,7 +640,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let entry_dir = dir.path().join("work").join("2026-07-01");
         fs::create_dir_all(&entry_dir).unwrap();
-        fs::write(entry_dir.join("a.md"), "---\ntags: []\n---\n\n# A\n").unwrap();
+        fs::write(entry_dir.join("a.md"), "---\ntags: []\n...\n\n# A\n").unwrap();
 
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);

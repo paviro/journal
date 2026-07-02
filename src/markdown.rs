@@ -1,47 +1,44 @@
+use noyalib::{Mapping, Value};
+
 pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
     let Some(rest) = content.strip_prefix("---\n") else {
         return (None, content);
     };
 
-    if let Some(index) = rest.find("\n---\n") {
-        let front_matter = &rest[..index];
-        let body = &rest[index + "\n---\n".len()..];
-        return (Some(front_matter), body);
+    let mut offset = 0;
+    for line in rest.split_inclusive('\n') {
+        let marker = line.trim_end_matches('\n').trim_end_matches('\r');
+        if marker == "..." {
+            let front_matter = rest[..offset].trim_end_matches('\n').trim_end_matches('\r');
+            let body = &rest[offset + line.len()..];
+            return (Some(front_matter), body);
+        }
+        offset += line.len();
+    }
+
+    if let Some(index) = rest.rfind('\n') {
+        let marker = &rest[index + 1..];
+        if marker == "..." {
+            let front_matter = rest[..index].trim_end_matches('\r');
+            return (Some(front_matter), "");
+        }
     }
 
     (None, content)
 }
 
 pub fn front_matter_tags(front_matter: &str) -> Vec<String> {
-    front_matter
-        .lines()
-        .find_map(|line| {
-            let trimmed = line.trim();
-            let list = trimmed.strip_prefix("tags:")?.trim();
-            if list.is_empty() || list == "[]" {
-                return Some(Vec::new());
-            }
-            let inner = list
-                .strip_prefix('[')
-                .and_then(|s| s.strip_suffix(']'))
-                .unwrap_or(list);
-            let tags: Vec<String> = inner
-                .split(',')
-                .filter_map(|t| {
-                    let t = t.trim().trim_matches('"').trim().to_string();
-                    if t.is_empty() { None } else { Some(t) }
-                })
-                .collect();
-            Some(tags)
-        })
+    parse_front_matter(front_matter)
+        .and_then(|metadata| metadata.get("tags").map(tags_from_value))
         .unwrap_or_default()
 }
 
 pub fn front_matter_value(front_matter: &str, key: &str) -> Option<String> {
-    let prefix = format!("{key}:");
-    front_matter.lines().find_map(|line| {
-        let value = line.trim().strip_prefix(&prefix)?.trim();
-        Some(value.trim_matches('"').to_string())
+    parse_front_matter(front_matter).and_then(|metadata| {
+        metadata
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
     })
 }
 
@@ -68,33 +65,11 @@ pub(crate) fn set_front_matter_value(content: &str, key: &str, value: &str) -> S
         return content.to_string();
     };
 
-    let prefix = format!("{key}:");
-    let mut found = false;
-    let mut lines = Vec::new();
-    for line in front_matter.lines() {
-        if line.trim_start().starts_with(&prefix) {
-            lines.push(format!("{key}: \"{}\"", escape_yaml_string(value)));
-            found = true;
-        } else {
-            lines.push(line.to_string());
-        }
-    }
-    if !found {
-        lines.push(format!("{key}: \"{}\"", escape_yaml_string(value)));
-    }
-
-    format!("---\n{}\n---\n{}", lines.join("\n"), body)
-}
-
-/// Serialize a list of tags into a `tags: [...]` line.
-fn serialize_tags(tags: &[String]) -> String {
-    format!(
-        "[{}]",
-        tags.iter()
-            .map(|t| format!("\"{}\"", escape_yaml_string(t)))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
+    let Some(mut metadata) = parse_front_matter(front_matter) else {
+        return content.to_string();
+    };
+    metadata.insert(key, Value::from(value));
+    render_content_with_front_matter(&metadata, body)
 }
 
 /// Replace the `tags` field in the YAML front matter with the given list.
@@ -103,30 +78,59 @@ pub(crate) fn set_tags_in_front_matter(content: &str, tags: &[String]) -> Option
     let (front_matter, body) = split_front_matter(content);
     let front_matter = front_matter?;
 
-    let serialized = serialize_tags(tags);
+    let mut metadata = parse_front_matter(front_matter)?;
+    metadata.insert(
+        "tags",
+        Value::Sequence(tags.iter().map(|tag| Value::from(tag.as_str())).collect()),
+    );
 
-    let prefix = "tags:";
-    let mut found = false;
-    let mut lines: Vec<String> = front_matter
-        .lines()
-        .map(|line| {
-            if line.trim_start().starts_with(prefix) {
-                found = true;
-                format!("tags: {serialized}")
-            } else {
-                line.to_string()
-            }
-        })
-        .collect();
-    if !found {
-        lines.push(format!("tags: {serialized}"));
-    }
-
-    Some(format!("---\n{}\n---\n{}", lines.join("\n"), body))
+    Some(render_content_with_front_matter(&metadata, body))
 }
 
-pub(crate) fn escape_yaml_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+fn parse_front_matter(front_matter: &str) -> Option<Mapping> {
+    let value: Value = noyalib::from_str(front_matter).ok()?;
+    match value {
+        Value::Mapping(metadata) => Some(metadata),
+        _ => None,
+    }
+}
+
+fn tags_from_value(value: &Value) -> Vec<String> {
+    if let Some(tag) = value.as_str() {
+        return non_empty_tag(tag).into_iter().collect();
+    }
+
+    value
+        .as_sequence()
+        .map(|tags| {
+            tags.iter()
+                .filter_map(|tag| tag.as_str().and_then(non_empty_tag))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn non_empty_tag(tag: &str) -> Option<String> {
+    let tag = tag.trim();
+    if tag.is_empty() {
+        None
+    } else {
+        Some(tag.to_string())
+    }
+}
+
+fn render_content_with_front_matter(metadata: &Mapping, body: &str) -> String {
+    let mut rendered = noyalib::to_string(&Value::Mapping(metadata.clone())).unwrap_or_default();
+    if let Some(front_matter) = rendered.strip_prefix("---\n") {
+        rendered = front_matter.to_string();
+    }
+    if let Some(front_matter) = rendered.strip_suffix("...\n") {
+        rendered = front_matter.to_string();
+    }
+    if !rendered.ends_with('\n') {
+        rendered.push('\n');
+    }
+    format!("---\n{}...\n{}", rendered, body)
 }
 
 fn display_line_text(line: &str) -> Option<&str> {
@@ -181,10 +185,75 @@ mod tests {
     }
 
     #[test]
-    fn split_front_matter_returns_body_after_yaml() {
-        let (front_matter, body) = split_front_matter("---\ntitle: \"A\"\n---\n\n# Body\n");
+    fn split_front_matter_accepts_yaml_document_end_marker() {
+        let (front_matter, body) = split_front_matter("---\ntitle: \"A\"\n...\n\n# Body\n");
 
         assert_eq!(front_matter, Some("title: \"A\""));
         assert_eq!(body, "\n# Body\n");
+    }
+
+    #[test]
+    fn front_matter_tags_reads_block_list() {
+        let tags = front_matter_tags("tags:\n  - foo\n  - bar\n");
+
+        assert_eq!(tags, vec!["foo", "bar"]);
+    }
+
+    #[test]
+    fn front_matter_tags_reads_flow_list_with_quoted_commas() {
+        let tags = front_matter_tags("tags: [\"foo, bar\", baz]\n");
+
+        assert_eq!(tags, vec!["foo, bar", "baz"]);
+    }
+
+    #[test]
+    fn front_matter_tags_keeps_scalar_tag_compatibility() {
+        let tags = front_matter_tags("tags: foo\n");
+
+        assert_eq!(tags, vec!["foo"]);
+    }
+
+    #[test]
+    fn malformed_front_matter_returns_empty_metadata() {
+        assert_eq!(
+            front_matter_tags("tags: [unterminated"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            front_matter_value("created_at: [unterminated", "created_at"),
+            None
+        );
+    }
+
+    #[test]
+    fn set_tags_replaces_block_list_without_stale_rows() {
+        let content = "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\ntags:\n  - old\n  - stale\n...\n\n# Body\n";
+        let tags = vec!["new".to_string(), "next".to_string()];
+
+        let updated = set_tags_in_front_matter(content, &tags).unwrap();
+
+        let (front_matter, _) = split_front_matter(&updated);
+        assert_eq!(
+            front_matter.map(front_matter_tags),
+            Some(vec!["new".to_string(), "next".to_string()])
+        );
+        assert!(!updated.contains("old"));
+        assert!(!updated.contains("stale"));
+        assert!(updated.contains("\n...\n\n# Body\n"));
+        assert!(updated.ends_with("\n# Body\n"));
+    }
+
+    #[test]
+    fn set_front_matter_value_preserves_body_exactly() {
+        let content = "---\ncreated_at: \"old\"\ntags: []\n...\n\n# Body\n\nTrailing\n";
+
+        let updated = set_front_matter_value(content, "updated_at", "new");
+
+        assert!(updated.contains("\n...\n\n# Body\n"));
+        assert!(updated.ends_with("\n# Body\n\nTrailing\n"));
+        assert_eq!(
+            front_matter_value(split_front_matter(&updated).0.unwrap(), "updated_at"),
+            Some("new".to_string())
+        );
     }
 }

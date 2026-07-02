@@ -125,7 +125,7 @@ mod tests {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join("a.md"),
-            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n---\n\n# A\nBody\n",
+            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n# A\nBody\n",
         )
         .unwrap();
 
@@ -266,12 +266,12 @@ mod tests {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join("a.md"),
-            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n---\n\n# A\nFirst preview\n",
+            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n...\n\n# A\nFirst preview\n",
         )
         .unwrap();
         fs::write(
             entry_dir.join("b.md"),
-            "---\ncreated_at: \"2026-07-01T11:00:00+02:00\"\n---\n\n# B\nSecond preview\n",
+            "---\ncreated_at: \"2026-07-01T11:00:00+02:00\"\n...\n\n# B\nSecond preview\n",
         )
         .unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");

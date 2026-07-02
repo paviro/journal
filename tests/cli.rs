@@ -86,7 +86,7 @@ fn positional_entry_command_creates_entry_in_default_journal() {
     assert!(output.status.success());
     let entries = entry_texts(&root, "work");
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].contains("\n---\n\nSome text\n"));
+    assert!(entries[0].contains("\n...\n\nSome text\n"));
 }
 
 #[test]
@@ -255,8 +255,8 @@ fn encrypt_command_converts_workspace_and_entry_command_writes_encrypted_files()
     fs::create_dir_all(&trash_dir).unwrap();
     let entry = entry_dir.join("entry.md");
     let trashed = trash_dir.join("old.md");
-    fs::write(&entry, "---\ntags: []\n---\n\n# Secret\nBody\n").unwrap();
-    fs::write(&trashed, "---\ntags: []\n---\n\n# Trashed\n").unwrap();
+    fs::write(&entry, "---\ntags: []\n...\n\n# Secret\nBody\n").unwrap();
+    fs::write(&trashed, "---\ntags: []\n...\n\n# Trashed\n").unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -382,7 +382,7 @@ fn encrypt_command_finishes_partial_encryption_without_touching_existing_age_fil
     let entry_dir = root.join("work").join("2026").join("07").join("02");
     fs::create_dir_all(&entry_dir).unwrap();
     let remaining_plain = entry_dir.join("remaining.md");
-    fs::write(&remaining_plain, "---\ntags: []\n---\n\n# Remaining\n").unwrap();
+    fs::write(&remaining_plain, "---\ntags: []\n...\n\n# Remaining\n").unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -424,7 +424,7 @@ fn encrypt_command_fails_when_plain_entry_target_age_file_already_exists() {
     fs::create_dir_all(&entry_dir).unwrap();
     let plain = entry_dir.join("entry.md");
     let encrypted = entry_dir.join("entry.md.age");
-    fs::write(&plain, "---\ntags: []\n---\n\n# Plain\n").unwrap();
+    fs::write(&plain, "---\ntags: []\n...\n\n# Plain\n").unwrap();
     journal::crypto::encrypt_to_file(&paths, b"# Existing encrypted\n", &encrypted).unwrap();
     write_config(&config, &root, Some("work"));
 

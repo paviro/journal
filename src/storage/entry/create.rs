@@ -142,7 +142,7 @@ fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 pub fn entry_template(created_at: DateTime<Local>, updated_at: DateTime<Local>) -> String {
     format!(
-        "---\ncreated_at: \"{}\"\nupdated_at: \"{}\"\ntags: []\n---\n\n",
+        "---\ncreated_at: \"{}\"\nupdated_at: \"{}\"\ntags: []\n...\n\n",
         created_at.to_rfc3339(),
         updated_at.to_rfc3339()
     )
