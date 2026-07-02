@@ -1,6 +1,6 @@
 use crate::{
     AppResult, crypto,
-    markdown::{entry_has_body, set_tags_in_front_matter},
+    markdown::{entry_has_body, set_feelings_in_front_matter, set_tags_in_front_matter},
     storage::{
         create_encrypted_entry, create_entry, create_journal, edit_encrypted_entry,
         is_encrypted_entry_file, move_entry_to_trash, open_editor,
@@ -202,6 +202,45 @@ pub(super) fn set_tags_on_entry(app: &mut App, tags: &[String]) -> AppResult<()>
     Ok(())
 }
 
+pub(super) fn set_feelings_on_entry(app: &mut App, feelings: &[String]) -> AppResult<()> {
+    let Some(target) = app.selected_entry_target() else {
+        return Ok(());
+    };
+
+    if is_encrypted_entry_file(&target.path) {
+        let Some(ref identity) = app.unlocked_identity else {
+            app.set_status("Encryption identity not available");
+            return Ok(());
+        };
+        let content = read_entry_content_with_identity(&target.path, Some(identity))?;
+        let Some(new_content) = set_feelings_in_front_matter(&content, feelings) else {
+            return Ok(());
+        };
+        let temp_path = std::env::temp_dir().join(format!(
+            ".journal-feelings-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::write(&temp_path, &new_content)?;
+        crypto::encrypt_file(&app.encryption_paths, &temp_path, &target.path)?;
+        let _ = fs::remove_file(&temp_path);
+    } else {
+        let content = fs::read_to_string(&target.path)?;
+        let Some(new_content) = set_feelings_in_front_matter(&content, feelings) else {
+            return Ok(());
+        };
+        fs::write(&target.path, new_content)?;
+        set_updated_at_now(&target.path)?;
+    }
+
+    app.set_status("Feelings saved");
+    app.refresh()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,5 +278,29 @@ mod tests {
 
         assert_eq!(app.status(), "Encryption identity not available");
         assert!(!app.entry_view_expanded);
+    }
+
+    #[test]
+    fn set_feelings_on_entry_writes_front_matter_and_refreshes_app() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        let path = entry_dir.join("a.md");
+        fs::write(&path, "---\ntags: []\nfeelings: []\n...\n\n# A\n").unwrap();
+
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+        let feelings = vec!["calm".to_string(), "focused".to_string()];
+
+        set_feelings_on_entry(&mut app, &feelings).unwrap();
+
+        let content = fs::read_to_string(path).unwrap();
+        let (front_matter, _) = crate::markdown::split_front_matter(&content);
+        assert_eq!(
+            front_matter.map(crate::markdown::front_matter_feelings),
+            Some(feelings.clone())
+        );
+        assert_eq!(app.selected_entry_feelings(), feelings);
     }
 }

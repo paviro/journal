@@ -56,6 +56,7 @@ fn browse_footer_text(app: &App) -> String {
                 parts.push("view (enter)".to_string());
                 parts.push("delete (d)".to_string());
                 parts.push("edit tags (t)".to_string());
+                parts.push("edit feelings (f)".to_string());
             }
             parts.push("search (/)".to_string());
             parts.push("quit (q)".to_string());
@@ -69,6 +70,7 @@ fn browse_footer_text(app: &App) -> String {
                 parts.push("view (enter)".to_string());
                 parts.push("delete (d)".to_string());
                 parts.push("edit tags (t)".to_string());
+                parts.push("edit feelings (f)".to_string());
             }
             parts.push("search (/)".to_string());
             parts.push("quit (q)".to_string());

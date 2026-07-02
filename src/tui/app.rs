@@ -2,6 +2,7 @@ use crate::{
     AppResult,
     config::Config,
     crypto,
+    feelings::{FEELINGS, normalize_feeling},
     markdown::split_front_matter,
     storage::{
         self, Entry, EntryEncryptionState, Journal, SearchHit, SearchScopeFilter,
@@ -10,7 +11,9 @@ use crate::{
 };
 use std::{path::PathBuf, time::Duration};
 
-use super::state::{EditTagFocus, EditTagState, Overlay, ScrollState, SearchState, StatusBar};
+use super::state::{
+    EditFeelingState, EditTagFocus, EditTagState, Overlay, ScrollState, SearchState, StatusBar,
+};
 
 pub(crate) const JOURNAL_LIST_WIDTH: u16 = 18;
 pub(crate) const ENTRY_LIST_INLINE_WIDTH: u16 = 42;
@@ -238,6 +241,24 @@ impl App {
         }
     }
 
+    pub(crate) fn selected_entry_feelings(&self) -> Vec<String> {
+        match self.mode {
+            Mode::Search => self
+                .selected_search_hit()
+                .and_then(|hit| {
+                    self.entries
+                        .iter()
+                        .find(|entry| entry.path == hit.path)
+                        .map(|entry| entry.feelings.clone())
+                })
+                .unwrap_or_default(),
+            Mode::Browse => self
+                .selected_entry()
+                .map(|entry| entry.feelings.clone())
+                .unwrap_or_default(),
+        }
+    }
+
     pub(crate) fn has_selected_entry_target(&self) -> bool {
         self.selected_entry_target().is_some()
     }
@@ -306,6 +327,20 @@ impl App {
     pub(crate) fn edit_tag_state_mut(&mut self) -> Option<&mut EditTagState> {
         match &mut self.overlay {
             Overlay::EditTags(state) => Some(state),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn edit_feeling_state(&self) -> Option<&EditFeelingState> {
+        match &self.overlay {
+            Overlay::EditFeelings(state) => Some(state),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn edit_feeling_state_mut(&mut self) -> Option<&mut EditFeelingState> {
+        match &mut self.overlay {
+            Overlay::EditFeelings(state) => Some(state),
             _ => None,
         }
     }
@@ -388,6 +423,16 @@ impl App {
         });
     }
 
+    pub(crate) fn begin_edit_feelings(&mut self) {
+        let selected = self.selected_entry_feelings();
+        self.overlay = Overlay::EditFeelings(EditFeelingState {
+            all_feelings: FEELINGS.iter().map(|feeling| feeling.to_string()).collect(),
+            selected,
+            cursor: 0,
+            scroll: 0,
+        });
+    }
+
     pub(crate) fn begin_tag_search(&mut self, tag: &str) {
         self.search.scope = self
             .selected_journal()
@@ -397,6 +442,19 @@ impl App {
         self.focus = Focus::Entries;
         self.search.query = format!("tags:{tag}");
         self.search.hits = self.search_results_by_tag(tag);
+        self.selected_entry_index = 0;
+        self.scroll.reset_entry();
+    }
+
+    pub(crate) fn begin_feeling_search(&mut self, feeling: &str) {
+        self.search.scope = self
+            .selected_journal()
+            .map(|journal| SearchScope::CurrentJournal(journal.name.clone()))
+            .unwrap_or(SearchScope::AllJournals);
+        self.mode = Mode::Search;
+        self.focus = Focus::Entries;
+        self.search.query = format!("feelings:{feeling}");
+        self.search.hits = self.search_results_by_feeling(feeling);
         self.selected_entry_index = 0;
         self.scroll.reset_entry();
     }
@@ -449,6 +507,8 @@ impl App {
     fn search_results(&self) -> Vec<SearchHit> {
         if let Some(tag) = self.search.query.strip_prefix("tags:") {
             self.search_results_by_tag(tag.trim())
+        } else if let Some(feeling) = self.search.query.strip_prefix("feelings:") {
+            self.search_results_by_feeling(feeling.trim())
         } else {
             search_loaded_entries(
                 &self.entries,
@@ -468,6 +528,32 @@ impl App {
                         .tags
                         .iter()
                         .any(|t| t.to_lowercase().contains(&tag_lower))
+            })
+            .filter(|entry| match self.search.scope {
+                SearchScope::AllJournals => true,
+                SearchScope::CurrentJournal(ref journal) => entry.journal == *journal,
+            })
+            .map(|entry| SearchHit {
+                path: entry.path.clone(),
+                journal: entry.journal.clone(),
+                title: entry.title.clone(),
+                preview: entry.preview.clone(),
+            })
+            .collect()
+    }
+
+    fn search_results_by_feeling(&self, feeling: &str) -> Vec<SearchHit> {
+        let Some(feeling) = normalize_feeling(feeling) else {
+            return Vec::new();
+        };
+        self.entries
+            .iter()
+            .filter(|entry| {
+                entry.encryption_state != EntryEncryptionState::EncryptedLocked
+                    && entry
+                        .feelings
+                        .iter()
+                        .any(|entry_feeling| entry_feeling == &feeling)
             })
             .filter(|entry| match self.search.scope {
                 SearchScope::AllJournals => true,
@@ -717,6 +803,55 @@ mod tests {
             app.search.scope,
             SearchScope::CurrentJournal("work".to_string())
         );
+    }
+
+    #[test]
+    fn feelings_search_matches_exact_known_label() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(
+            entry_dir.join("a.md"),
+            "---\nfeelings:\n  - calm\n...\n\n# A\n",
+        )
+        .unwrap();
+        fs::write(
+            entry_dir.join("b.md"),
+            "---\nfeelings:\n  - anxious\n...\n\n# B\n",
+        )
+        .unwrap();
+
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+        app.begin_search();
+        app.search.query = "feelings:calm".to_string();
+        app.update_search_results();
+
+        assert_eq!(app.search.hits.len(), 1);
+        assert_eq!(app.search.hits[0].title, "A");
+    }
+
+    #[test]
+    fn begin_edit_feelings_uses_fixed_list_and_selected_entry_values() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(
+            entry_dir.join("a.md"),
+            "---\nfeelings:\n  - calm\n  - focused\n...\n\n# A\n",
+        )
+        .unwrap();
+
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+
+        app.begin_edit_feelings();
+
+        let state = app.edit_feeling_state().unwrap();
+        assert_eq!(state.all_feelings[0], "calm");
+        assert_eq!(state.selected, vec!["calm", "focused"]);
     }
 
     #[test]

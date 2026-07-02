@@ -1,10 +1,12 @@
 use super::paths::{entry_id, is_encrypted_entry_file, is_entry_file};
 use super::{Entry, EntryEncryptionState};
+use crate::feelings::normalize_feelings;
 use crate::storage::list_journals;
 use crate::{
     AppResult, crypto,
     markdown::{
-        display_title_and_preview, front_matter_tags, front_matter_value, split_front_matter,
+        display_title_and_preview, front_matter_feelings, front_matter_tags, front_matter_value,
+        split_front_matter,
     },
 };
 use rayon::prelude::*;
@@ -107,6 +109,10 @@ pub fn read_entry_with_identity(
     let created_at = front_matter.and_then(|yaml| front_matter_value(yaml, "created_at"));
     let updated_at = front_matter.and_then(|yaml| front_matter_value(yaml, "updated_at"));
     let tags = front_matter.map(front_matter_tags).unwrap_or_default();
+    let feelings = front_matter
+        .map(front_matter_feelings)
+        .map(|feelings| normalize_feelings(feelings.iter().map(String::as_str)))
+        .unwrap_or_default();
     let id = entry_id(path).ok_or("entry file has no UTF-8 stem")?;
     let (title, preview) = display_title_and_preview(body, created_at.as_deref().unwrap_or(""));
 
@@ -120,6 +126,7 @@ pub fn read_entry_with_identity(
         title,
         preview,
         tags,
+        feelings,
         content,
     })
 }
@@ -136,6 +143,7 @@ fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {
         title: "[locked] Encrypted entry".to_string(),
         preview: "Encryption identity not available".to_string(),
         tags: Vec::new(),
+        feelings: Vec::new(),
         content: "Encryption identity not available".to_string(),
     })
 }

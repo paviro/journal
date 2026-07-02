@@ -21,7 +21,7 @@ pub(crate) use super::entry_rows::{
     ensure_entry_visible, entry_row_metadata, total_entry_row_height,
 };
 pub(crate) use super::hit_test::{
-    entry_index_at, journal_index_at, panel_inner, point_in_rect, tag_at_point,
+    entry_index_at, feeling_at_point, journal_index_at, panel_inner, point_in_rect, tag_at_point,
 };
 pub(crate) use super::scroll::{
     clamp_scroll, ensure_index_visible, scroll_offset, scrollbar_position, viewer_scroll,
@@ -31,11 +31,12 @@ pub(crate) use chrome::panel_title;
 pub(crate) use chrome::{
     centered_rect, footer_text, panel_block, panel_content_inner, selected_style,
 };
-use dialogs::{draw_confirm_delete, draw_edit_tags_dialog, draw_new_journal_input};
+use dialogs::{
+    draw_confirm_delete, draw_edit_feelings_dialog, draw_edit_tags_dialog, draw_new_journal_input,
+};
 use entries::draw_entry_list;
 use journals::draw_journals;
 pub(crate) use layout::{TuiLayout, tui_layout};
-pub(crate) use markdown_panel::TAGS_SECTION_HEIGHT;
 use markdown_panel::draw_selected_entry_view;
 #[cfg(test)]
 pub(crate) use markdown_panel::markdown_theme;
@@ -87,6 +88,10 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
 
     if let Some(state) = app.edit_tag_state_mut() {
         draw_edit_tags_dialog(frame, state);
+    }
+
+    if let Some(state) = app.edit_feeling_state_mut() {
+        draw_edit_feelings_dialog(frame, state);
     }
 }
 
@@ -321,6 +326,26 @@ mod tests {
         assert_eq!(theme.secondary_color, Color::Reset);
         assert_eq!(theme.accent_yellow, Color::Reset);
         assert_eq!(theme.code_colors.variable, Color::Reset);
+    }
+
+    #[test]
+    fn entry_view_renders_feelings_metadata() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(
+            entry_dir.join("a.md"),
+            "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\nfeelings:\n  - calm\n  - focused\n...\n\n# A\nBody\n",
+        )
+        .unwrap();
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+        app.focus = Focus::EntryView;
+
+        let rendered = render_text(app, 120, 20);
+
+        assert!(rendered.contains("Feelings: calm | focused"));
     }
 
     #[test]
@@ -567,6 +592,7 @@ mod tests {
             title: "Title".to_string(),
             preview: "Preview".to_string(),
             tags: Vec::new(),
+            feelings: Vec::new(),
             content: String::new(),
         };
 
@@ -598,6 +624,7 @@ mod tests {
             title: "[locked] Encrypted entry".to_string(),
             preview: "Encryption identity not available".to_string(),
             tags: Vec::new(),
+            feelings: Vec::new(),
             content: "Encryption identity not available".to_string(),
         };
 
@@ -628,6 +655,7 @@ mod tests {
             title: "Title".to_string(),
             preview: String::new(),
             tags: Vec::new(),
+            feelings: Vec::new(),
             content: String::new(),
         };
 
@@ -647,6 +675,7 @@ mod tests {
             title: "Title".to_string(),
             preview: String::new(),
             tags: Vec::new(),
+            feelings: Vec::new(),
             content: String::new(),
         };
 

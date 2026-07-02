@@ -17,7 +17,7 @@ pub(crate) fn handle_mouse(
     let size = terminal.size()?;
     let area = Rect::new(0, 0, size.width, size.height);
 
-    if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+    if mouse.kind == MouseEventKind::Down(MouseButton::Left) && !overlay_is_open(app) {
         let layout = render::tui_layout(area, app);
         if render::point_in_rect(layout.footer, mouse.column, mouse.row) {
             return handle_footer_click(terminal, app, mouse, layout);
@@ -28,11 +28,15 @@ pub(crate) fn handle_mouse(
     Ok(false)
 }
 
-pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
-    if app.new_journal_input().is_some()
+fn overlay_is_open(app: &App) -> bool {
+    app.new_journal_input().is_some()
         || app.is_confirming_delete()
         || app.edit_tag_state().is_some()
-    {
+        || app.edit_feeling_state().is_some()
+}
+
+pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
+    if overlay_is_open(app) {
         return Ok(());
     }
 
@@ -100,10 +104,17 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
         && render::point_in_rect(area, mouse.column, mouse.row)
         && app.has_selected_entry_target()
     {
-        if let Some(tag) = {
-            let tags = app.selected_entry_tags();
-            render::tag_at_point(area, mouse.column, mouse.row, &tags)
-        } {
+        let tags = app.selected_entry_tags();
+        let feelings = app.selected_entry_feelings();
+        if let Some(feeling) =
+            render::feeling_at_point(area, mouse.column, mouse.row, &tags, &feelings)
+        {
+            app.begin_feeling_search(&feeling);
+            return Ok(());
+        }
+        if let Some(tag) =
+            render::tag_at_point(area, mouse.column, mouse.row, &tags, &feelings)
+        {
             app.begin_tag_search(&tag);
             return Ok(());
         }
@@ -183,6 +194,8 @@ fn handle_footer_click(
                 app.begin_confirm_delete();
             } else if seg.starts_with("edit tags") && app.has_selected_entry_target() {
                 app.begin_edit_tags();
+            } else if seg.starts_with("edit feelings") && app.has_selected_entry_target() {
+                app.begin_edit_feelings();
             } else if seg.starts_with("close") && app.entry_view_expanded {
                 app.entry_view_expanded = false;
                 app.focus = Focus::Entries;

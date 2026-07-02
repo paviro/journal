@@ -15,17 +15,19 @@ use crate::tui::{
     render::{panel_block, panel_content_inner, scrollbar_position, viewer_scroll},
 };
 
-pub(crate) const TAGS_SECTION_HEIGHT: u16 = 2;
-
 pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     if let Some((title, content)) = app.selected_entry_view() {
         let tags = app.selected_entry_tags();
+        let feelings = app.selected_entry_feelings();
         app.scroll.entry_view = draw_markdown_panel(
             frame,
             area,
             &title,
             &content,
-            &tags,
+            EntryMetadata {
+                tags: &tags,
+                feelings: &feelings,
+            },
             app.scroll.entry_view,
             app.focus == Focus::EntryView,
         );
@@ -48,19 +50,20 @@ fn draw_markdown_panel(
     area: Rect,
     title: &str,
     content: &str,
-    tags: &[String],
+    metadata: EntryMetadata<'_>,
     requested_scroll: u16,
     focused: bool,
 ) -> u16 {
     let wc = word_count(content);
     let block = panel_block(title, focused, Some(wc));
     let inner = panel_content_inner(block.inner(area));
-    let show_tags = !tags.is_empty() && inner.height > TAGS_SECTION_HEIGHT;
+    let metadata_height = metadata_section_height(metadata.tags, metadata.feelings);
+    let show_metadata = metadata_height > 0 && inner.height > metadata_height;
 
-    let (content_rect, tags_rect) = if show_tags {
+    let (content_rect, metadata_rect) = if show_metadata {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(TAGS_SECTION_HEIGHT)])
+            .constraints([Constraint::Min(1), Constraint::Length(metadata_height)])
             .split(inner);
         (chunks[0], Some(chunks[1]))
     } else {
@@ -78,8 +81,8 @@ fn draw_markdown_panel(
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), content_rect);
 
-    if let Some(tags_rect) = tags_rect {
-        draw_tags_section(frame, tags_rect, tags);
+    if let Some(metadata_rect) = metadata_rect {
+        draw_metadata_section(frame, metadata_rect, metadata);
     }
 
     if line_count > content_rect.height as usize {
@@ -99,25 +102,55 @@ fn draw_markdown_panel(
     scroll
 }
 
-fn draw_tags_section(frame: &mut Frame<'_>, area: Rect, tags: &[String]) {
+#[derive(Clone, Copy)]
+struct EntryMetadata<'a> {
+    tags: &'a [String],
+    feelings: &'a [String],
+}
+
+fn metadata_section_height(tags: &[String], feelings: &[String]) -> u16 {
+    let rows = (!feelings.is_empty()) as u16 + (!tags.is_empty()) as u16;
+    if rows == 0 { 0 } else { 1 + rows }
+}
+
+fn draw_metadata_section(frame: &mut Frame<'_>, area: Rect, metadata: EntryMetadata<'_>) {
     let sep = "─".repeat(area.width.saturating_sub(1) as usize);
     frame.render_widget(
         Paragraph::new(sep).style(Style::default().add_modifier(Modifier::DIM)),
         Rect { height: 1, ..area },
     );
 
-    let tags_line = Line::from(vec![
-        Span::styled("Tags: ", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(tags.join(" | ")),
-    ]);
-    frame.render_widget(
-        Paragraph::new(tags_line),
-        Rect {
-            y: area.y + 1,
-            height: area.height.saturating_sub(1),
-            ..area
-        },
-    );
+    let mut y = area.y + 1;
+    if !metadata.feelings.is_empty() {
+        let feelings_line = Line::from(vec![
+            Span::styled("Feelings: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(metadata.feelings.join(" | ")),
+        ]);
+        frame.render_widget(
+            Paragraph::new(feelings_line),
+            Rect {
+                y,
+                height: 1,
+                ..area
+            },
+        );
+        y = y.saturating_add(1);
+    }
+
+    if !metadata.tags.is_empty() {
+        let tags_line = Line::from(vec![
+            Span::styled("Tags: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(metadata.tags.join(" | ")),
+        ]);
+        frame.render_widget(
+            Paragraph::new(tags_line),
+            Rect {
+                y,
+                height: 1,
+                ..area
+            },
+        );
+    }
 }
 
 pub(crate) fn markdown_theme() -> ThemeConfig {

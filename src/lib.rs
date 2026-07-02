@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod config;
 pub mod crypto;
+pub mod feelings;
 pub mod markdown;
 pub mod migrate;
 pub mod storage;

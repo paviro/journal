@@ -68,7 +68,7 @@ fn create_entry_with_body_writes_body_after_front_matter() {
 
     assert!(text.starts_with("---\ncreated_at: \""));
     assert!(text.contains("\nupdated_at: \""));
-    assert!(text.contains("\ntags: []\n...\n\nSome text\n"));
+    assert!(text.contains("\ntags: []\nfeelings: []\n...\n\nSome text\n"));
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn entry_template_has_expected_front_matter() {
     assert_eq!(
         template,
         format!(
-            "---\ncreated_at: \"{}\"\nupdated_at: \"{}\"\ntags: []\n...\n\n",
+            "---\ncreated_at: \"{}\"\nupdated_at: \"{}\"\ntags: []\nfeelings: []\n...\n\n",
             now.to_rfc3339(),
             now.to_rfc3339()
         )
@@ -159,6 +159,38 @@ fn entry_tags_read_yaml_block_list() {
     let entry = read_entry("journal", &path).unwrap();
 
     assert_eq!(entry.tags, vec!["work", "deep focus"]);
+}
+
+#[test]
+fn entry_feelings_read_known_yaml_values_only() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("entry.md");
+    fs::write(
+        &path,
+        "---\nfeelings:\n  - Calm\n  - nope\n  - focused\n...\n\n# Feeling\n",
+    )
+    .unwrap();
+
+    let entry = read_entry("journal", &path).unwrap();
+
+    assert_eq!(entry.feelings, vec!["calm", "focused"]);
+}
+
+#[test]
+fn create_entry_with_body_and_feelings_writes_feelings() {
+    let dir = tempdir().unwrap();
+    let feelings = vec!["calm".to_string(), "focused".to_string()];
+
+    let created =
+        create_entry_with_body_and_feelings(dir.path(), "work", "Some text", &feelings).unwrap();
+    let text = fs::read_to_string(created).unwrap();
+    let (front_matter, _) = crate::markdown::split_front_matter(&text);
+
+    assert_eq!(
+        front_matter.map(crate::markdown::front_matter_feelings),
+        Some(feelings)
+    );
+    assert!(text.ends_with("\nSome text\n"));
 }
 
 #[test]

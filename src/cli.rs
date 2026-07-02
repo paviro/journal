@@ -1,4 +1,4 @@
-use crate::{AppResult, config, crypto, migrate, storage, tui};
+use crate::{AppResult, config, crypto, feelings, migrate, storage, tui};
 use clap::{Parser, Subcommand};
 use std::{
     io::{self, Read},
@@ -19,6 +19,9 @@ struct Cli {
 
     #[arg(long, value_name = "NAME")]
     journal: Option<String>,
+
+    #[arg(long, value_name = "LABEL")]
+    feeling: Vec<String>,
 
     #[command(subcommand)]
     command: Option<CliCommand>,
@@ -51,8 +54,8 @@ pub fn run() -> AppResult<()> {
     if !cli.body.is_empty() || stdin_is_pipe {
         return create_entry_from_command(cli, stdin_is_pipe);
     }
-    if cli.journal.is_some() {
-        return Err("--journal requires entry text or piped stdin".into());
+    if cli.journal.is_some() || !cli.feeling.is_empty() {
+        return Err("--journal and --feeling require entry text or piped stdin".into());
     }
 
     let (config_path, config) = config::load_or_setup_with_path(cli.config.as_deref())?;
@@ -84,6 +87,9 @@ fn validate_no_entry_args(cli: &Cli) -> AppResult<()> {
     if cli.journal.is_some() {
         return Err("command cannot be used with --journal".into());
     }
+    if !cli.feeling.is_empty() {
+        return Err("command cannot be used with --feeling".into());
+    }
     Ok(())
 }
 
@@ -109,6 +115,7 @@ fn create_entry_from_command(cli: Cli, stdin_is_pipe: bool) -> AppResult<()> {
         .or(config.default_journal.as_deref())
         .ok_or("no journal specified; pass --journal or set one with `journal default <name>`")?;
     validate_existing_journal(&config.journal_root, journal)?;
+    let feelings = feelings::validate_feelings(cli.feeling.iter().map(String::as_str))?;
 
     let body = if body_from_args {
         cli.body.join(" ")
@@ -120,9 +127,20 @@ fn create_entry_from_command(cli: Cli, stdin_is_pipe: bool) -> AppResult<()> {
 
     let paths = crypto::EncryptionPaths::for_config(&config_path, &config.journal_root)?;
     let path = if crypto::should_encrypt(&paths) {
-        storage::create_encrypted_entry_with_body(&config.journal_root, journal, &body, &paths)?
+        storage::create_encrypted_entry_with_body_and_feelings(
+            &config.journal_root,
+            journal,
+            &body,
+            &feelings,
+            &paths,
+        )?
     } else {
-        storage::create_entry_with_body(&config.journal_root, journal, &body)?
+        storage::create_entry_with_body_and_feelings(
+            &config.journal_root,
+            journal,
+            &body,
+            &feelings,
+        )?
     };
     println!("{}", path.display());
     Ok(())

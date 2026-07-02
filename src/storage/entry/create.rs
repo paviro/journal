@@ -59,7 +59,20 @@ pub fn create_encrypted_entry(
 
 pub fn create_entry_with_body(root: &Path, journal: &str, body: &str) -> AppResult<PathBuf> {
     let now = Local::now();
-    let content = entry_with_body(now, body);
+    let content = entry_with_body(now, body, &[]);
+    create_entry_file(root, journal, now, &content, WriteTarget::Plain, || {
+        nanoid!(ENTRY_ID_LEN)
+    })
+}
+
+pub fn create_entry_with_body_and_feelings(
+    root: &Path,
+    journal: &str,
+    body: &str,
+    feelings: &[String],
+) -> AppResult<PathBuf> {
+    let now = Local::now();
+    let content = entry_with_body(now, body, feelings);
     create_entry_file(root, journal, now, &content, WriteTarget::Plain, || {
         nanoid!(ENTRY_ID_LEN)
     })
@@ -72,7 +85,7 @@ pub fn create_encrypted_entry_with_body(
     paths: &crypto::EncryptionPaths,
 ) -> AppResult<PathBuf> {
     let now = Local::now();
-    let content = entry_with_body(now, body);
+    let content = entry_with_body(now, body, &[]);
     create_entry_file(
         root,
         journal,
@@ -83,8 +96,31 @@ pub fn create_encrypted_entry_with_body(
     )
 }
 
-fn entry_with_body(now: DateTime<Local>, body: &str) -> String {
+pub fn create_encrypted_entry_with_body_and_feelings(
+    root: &Path,
+    journal: &str,
+    body: &str,
+    feelings: &[String],
+    paths: &crypto::EncryptionPaths,
+) -> AppResult<PathBuf> {
+    let now = Local::now();
+    let content = entry_with_body(now, body, feelings);
+    create_entry_file(
+        root,
+        journal,
+        now,
+        &content,
+        WriteTarget::Encrypted(paths),
+        || nanoid!(ENTRY_ID_LEN),
+    )
+}
+
+fn entry_with_body(now: DateTime<Local>, body: &str, feelings: &[String]) -> String {
     let mut content = entry_template(now, now);
+    if !feelings.is_empty() {
+        content =
+            crate::markdown::set_feelings_in_front_matter(&content, feelings).unwrap_or(content);
+    }
     content.push_str(body);
     if !content.ends_with('\n') {
         content.push('\n');
@@ -142,7 +178,7 @@ fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 pub fn entry_template(created_at: DateTime<Local>, updated_at: DateTime<Local>) -> String {
     format!(
-        "---\ncreated_at: \"{}\"\nupdated_at: \"{}\"\ntags: []\n...\n\n",
+        "---\ncreated_at: \"{}\"\nupdated_at: \"{}\"\ntags: []\nfeelings: []\n...\n\n",
         created_at.to_rfc3339(),
         updated_at.to_rfc3339()
     )

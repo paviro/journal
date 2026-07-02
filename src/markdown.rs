@@ -29,7 +29,13 @@ pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
 
 pub fn front_matter_tags(front_matter: &str) -> Vec<String> {
     parse_front_matter(front_matter)
-        .and_then(|metadata| metadata.get("tags").map(tags_from_value))
+        .and_then(|metadata| metadata.get("tags").map(strings_from_value))
+        .unwrap_or_default()
+}
+
+pub fn front_matter_feelings(front_matter: &str) -> Vec<String> {
+    parse_front_matter(front_matter)
+        .and_then(|metadata| metadata.get("feelings").map(strings_from_value))
         .unwrap_or_default()
 }
 
@@ -75,13 +81,28 @@ pub(crate) fn set_front_matter_value(content: &str, key: &str, value: &str) -> S
 /// Replace the `tags` field in the YAML front matter with the given list.
 /// Returns `None` when there is no front matter.
 pub(crate) fn set_tags_in_front_matter(content: &str, tags: &[String]) -> Option<String> {
+    set_string_list_in_front_matter(content, "tags", tags)
+}
+
+/// Replace the `feelings` field in the YAML front matter with the given list.
+/// Returns `None` when there is no front matter.
+pub(crate) fn set_feelings_in_front_matter(content: &str, feelings: &[String]) -> Option<String> {
+    set_string_list_in_front_matter(content, "feelings", feelings)
+}
+
+fn set_string_list_in_front_matter(content: &str, key: &str, values: &[String]) -> Option<String> {
     let (front_matter, body) = split_front_matter(content);
     let front_matter = front_matter?;
 
     let mut metadata = parse_front_matter(front_matter)?;
     metadata.insert(
-        "tags",
-        Value::Sequence(tags.iter().map(|tag| Value::from(tag.as_str())).collect()),
+        key,
+        Value::Sequence(
+            values
+                .iter()
+                .map(|value| Value::from(value.as_str()))
+                .collect(),
+        ),
     );
 
     Some(render_content_with_front_matter(&metadata, body))
@@ -95,27 +116,28 @@ fn parse_front_matter(front_matter: &str) -> Option<Mapping> {
     }
 }
 
-fn tags_from_value(value: &Value) -> Vec<String> {
-    if let Some(tag) = value.as_str() {
-        return non_empty_tag(tag).into_iter().collect();
+fn strings_from_value(value: &Value) -> Vec<String> {
+    if let Some(value) = value.as_str() {
+        return non_empty_string(value).into_iter().collect();
     }
 
     value
         .as_sequence()
-        .map(|tags| {
-            tags.iter()
-                .filter_map(|tag| tag.as_str().and_then(non_empty_tag))
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str().and_then(non_empty_string))
                 .collect()
         })
         .unwrap_or_default()
 }
 
-fn non_empty_tag(tag: &str) -> Option<String> {
-    let tag = tag.trim();
-    if tag.is_empty() {
+fn non_empty_string(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
         None
     } else {
-        Some(tag.to_string())
+        Some(value.to_string())
     }
 }
 
@@ -214,6 +236,20 @@ mod tests {
     }
 
     #[test]
+    fn front_matter_feelings_reads_block_list() {
+        let feelings = front_matter_feelings("feelings:\n  - calm\n  - focused\n");
+
+        assert_eq!(feelings, vec!["calm", "focused"]);
+    }
+
+    #[test]
+    fn front_matter_feelings_keeps_scalar_compatibility() {
+        let feelings = front_matter_feelings("feelings: calm\n");
+
+        assert_eq!(feelings, vec!["calm"]);
+    }
+
+    #[test]
     fn malformed_front_matter_returns_empty_metadata() {
         assert_eq!(
             front_matter_tags("tags: [unterminated"),
@@ -241,6 +277,22 @@ mod tests {
         assert!(!updated.contains("stale"));
         assert!(updated.contains("\n...\n\n# Body\n"));
         assert!(updated.ends_with("\n# Body\n"));
+    }
+
+    #[test]
+    fn set_feelings_replaces_block_list_without_stale_rows() {
+        let content = "---\ncreated_at: \"2026-07-01T10:00:00+02:00\"\nfeelings:\n  - tired\n  - stale\n...\n\n# Body\n";
+        let feelings = vec!["calm".to_string(), "focused".to_string()];
+
+        let updated = set_feelings_in_front_matter(content, &feelings).unwrap();
+
+        let (front_matter, _) = split_front_matter(&updated);
+        assert_eq!(
+            front_matter.map(front_matter_feelings),
+            Some(vec!["calm".to_string(), "focused".to_string()])
+        );
+        assert!(!updated.contains("stale"));
+        assert!(updated.contains("\n...\n\n# Body\n"));
     }
 
     #[test]

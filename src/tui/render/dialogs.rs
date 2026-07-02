@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
-use crate::tui::state::{EditTagFocus, EditTagState};
+use crate::tui::state::{EditFeelingState, EditTagFocus, EditTagState};
 
 fn centered_rect_with_height(percent_x: u16, height: u16, area: Rect) -> Rect {
     let vertical = Layout::default()
@@ -163,6 +163,99 @@ pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagSt
     frame.render_widget(block, area);
 
     // Render lines inside the inner area
+    for (y_offset, line) in lines.into_iter().enumerate() {
+        let y = inner.y + y_offset as u16;
+        if y >= inner.y + inner.height {
+            break;
+        }
+        frame.render_widget(
+            Paragraph::new(line).style(Style::default()),
+            Rect {
+                x: inner.x,
+                y,
+                width: inner.width,
+                height: 1,
+            },
+        );
+    }
+}
+
+pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditFeelingState) {
+    let area_height = frame.area().height;
+    let max_feelings_visible = 12u16;
+    let visible_feelings = (state.all_feelings.len() as u16).min(max_feelings_visible);
+    let inner_height = 4u16 + visible_feelings;
+    let dialog_height = (inner_height + 2).min(area_height.saturating_sub(2));
+
+    let area = centered_rect_with_height(40, dialog_height, frame.area());
+    frame.render_widget(Clear, area);
+
+    let inner = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    };
+
+    let list_lines = state.all_feelings.len() as u16;
+    let max_visible = inner.height.saturating_sub(3);
+
+    if state.cursor < state.scroll as usize {
+        state.scroll = state.cursor as u16;
+    }
+    let last_visible = state.scroll as usize + max_visible as usize;
+    if state.cursor >= last_visible.saturating_sub(1) && list_lines > max_visible {
+        state.scroll = state
+            .cursor
+            .saturating_add(1)
+            .saturating_sub(max_visible as usize)
+            .min(list_lines.saturating_sub(max_visible) as usize) as u16;
+    }
+
+    let scroll = state.scroll.min(list_lines.saturating_sub(max_visible));
+    let end = (scroll + max_visible).min(list_lines);
+
+    let mut lines: Vec<Line<'_>> = Vec::new();
+    lines.push(Line::from(Span::styled(
+        " Feelings ",
+        Style::default().add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+
+    for i in scroll..end {
+        let feeling = &state.all_feelings[i as usize];
+        let checked = state.selected.iter().any(|value| value == feeling);
+        let marker = if checked { "[x]" } else { "[ ]" };
+        let is_cursor = i as usize == state.cursor;
+        let prefix = if is_cursor { ">" } else { " " };
+        let text = format!("{prefix}{marker} {feeling}");
+        let style = if is_cursor {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(Span::styled(text, style)));
+    }
+
+    if list_lines > max_visible {
+        let pct = if list_lines == 0 {
+            0
+        } else {
+            scroll as usize * 100 / list_lines as usize
+        };
+        lines.push(Line::from(format!(" --- {pct}% ---")));
+    } else {
+        lines.push(Line::from(""));
+    }
+
+    lines.push(Line::from(" toggle (space) | save (enter) | cancel (esc)"));
+
+    let block = Block::default()
+        .title(" Edit Feelings ")
+        .borders(Borders::ALL);
+    frame.render_widget(Clear, area);
+    frame.render_widget(block, area);
+
     for (y_offset, line) in lines.into_iter().enumerate() {
         let y = inner.y + y_offset as u16;
         if y >= inner.y + inner.height {

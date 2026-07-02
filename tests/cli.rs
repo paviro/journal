@@ -90,6 +90,57 @@ fn positional_entry_command_creates_entry_in_default_journal() {
 }
 
 #[test]
+fn entry_command_writes_repeatable_feelings() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    let config = dir.path().join("config.toml");
+    fs::create_dir_all(root.join("work")).unwrap();
+    write_config(&config, &root, Some("work"));
+
+    let output = Command::new(journal_bin())
+        .arg("--config")
+        .arg(&config)
+        .arg("--feeling")
+        .arg("Calm")
+        .arg("--feeling")
+        .arg("focused")
+        .arg("Some text")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let entries = entry_texts(&root, "work");
+    assert_eq!(entries.len(), 1);
+    let (front_matter, _) = journal::markdown::split_front_matter(&entries[0]);
+    assert_eq!(
+        front_matter.map(journal::markdown::front_matter_feelings),
+        Some(vec!["calm".to_string(), "focused".to_string()])
+    );
+}
+
+#[test]
+fn entry_command_rejects_unknown_feeling() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    let config = dir.path().join("config.toml");
+    fs::create_dir_all(root.join("work")).unwrap();
+    write_config(&config, &root, Some("work"));
+
+    let output = Command::new(journal_bin())
+        .arg("--config")
+        .arg(&config)
+        .arg("--feeling")
+        .arg("sparkly")
+        .arg("Some text")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown feeling 'sparkly'"));
+    assert!(entry_texts(&root, "work").is_empty());
+}
+
+#[test]
 fn piped_entry_command_creates_entry_in_default_journal() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");

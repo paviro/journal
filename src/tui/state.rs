@@ -122,6 +122,18 @@ pub(crate) struct EditTagState {
     pub(crate) focus: EditTagFocus,
 }
 
+/// State for the edit-feelings overlay.
+pub(crate) struct EditFeelingState {
+    /// Fixed feelings vocabulary in display order.
+    pub(crate) all_feelings: Vec<String>,
+    /// Feelings currently selected for the entry.
+    pub(crate) selected: Vec<String>,
+    /// Cursor index into `all_feelings`.
+    pub(crate) cursor: usize,
+    /// Scroll offset for the feelings list inside the dialog.
+    pub(crate) scroll: u16,
+}
+
 /// The single modal overlay that can be active over the browse view. Making
 /// this an enum keeps the modals mutually exclusive by construction.
 #[derive(Default)]
@@ -131,4 +143,5 @@ pub(crate) enum Overlay {
     ConfirmDelete,
     NewJournal(String),
     EditTags(EditTagState),
+    EditFeelings(EditFeelingState),
 }

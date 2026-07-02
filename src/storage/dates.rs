@@ -45,6 +45,7 @@ mod tests {
             title: "Title".to_string(),
             preview: String::new(),
             tags: Vec::new(),
+            feelings: Vec::new(),
             content: String::new(),
         }
     }

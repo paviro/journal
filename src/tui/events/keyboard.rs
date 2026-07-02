@@ -10,8 +10,8 @@ use crate::tui::{
 };
 
 use super::actions::{
-    create_entry_in_selected_journal, delete_selected, edit_selected, set_tags_on_entry,
-    submit_new_journal, view_selected,
+    create_entry_in_selected_journal, delete_selected, edit_selected, set_feelings_on_entry,
+    set_tags_on_entry, submit_new_journal, view_selected,
 };
 
 pub(crate) fn handle_key(
@@ -53,6 +53,11 @@ pub(crate) fn handle_key(
         return Ok(false);
     }
 
+    if app.edit_feeling_state().is_some() {
+        handle_edit_feelings_key(app, key)?;
+        return Ok(false);
+    }
+
     if app.mode == Mode::Search {
         handle_search_key(terminal, app, key, entry_view_available)?;
         return Ok(false);
@@ -82,10 +87,53 @@ pub(crate) fn handle_key(
         }
         KeyCode::Char('d') if app.can_act_on_selected_entry() => app.begin_confirm_delete(),
         KeyCode::Char('t') if app.can_act_on_selected_entry() => app.begin_edit_tags(),
+        KeyCode::Char('f') if app.can_act_on_selected_entry() => app.begin_edit_feelings(),
         _ => {}
     }
 
     Ok(false)
+}
+
+fn handle_edit_feelings_key(app: &mut App, key: KeyEvent) -> AppResult<()> {
+    match key.code {
+        KeyCode::Esc => {
+            app.close_overlay();
+        }
+        KeyCode::Enter => {
+            let feelings = app
+                .edit_feeling_state()
+                .map(|state| state.selected.clone())
+                .unwrap_or_default();
+            set_feelings_on_entry(app, &feelings)?;
+            app.close_overlay();
+        }
+        KeyCode::Up => {
+            if let Some(state) = app.edit_feeling_state_mut()
+                && state.cursor > 0
+            {
+                state.cursor -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if let Some(state) = app.edit_feeling_state_mut()
+                && state.cursor + 1 < state.all_feelings.len()
+            {
+                state.cursor += 1;
+            }
+        }
+        KeyCode::Char(' ') => {
+            if let Some(state) = app.edit_feeling_state_mut() {
+                let feeling = state.all_feelings[state.cursor].clone();
+                if let Some(pos) = state.selected.iter().position(|value| value == &feeling) {
+                    state.selected.remove(pos);
+                } else {
+                    state.selected.push(feeling);
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn handle_search_key(
