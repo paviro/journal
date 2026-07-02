@@ -63,8 +63,7 @@ pub(crate) fn handle_key(
     }
 
     if app.mode == Mode::Search {
-        handle_search_key(terminal, app, key, entry_view_available)?;
-        return Ok(false);
+        return handle_search_key(terminal, app, key, entry_view_available);
     }
 
     if handle_entry_view_scroll(app, key.code) {
@@ -182,9 +181,9 @@ fn handle_search_key(
     app: &mut App,
     key: KeyEvent,
     entry_view_available: bool,
-) -> AppResult<()> {
+) -> AppResult<bool> {
     if handle_entry_view_scroll(app, key.code) {
-        return Ok(());
+        return Ok(false);
     }
 
     match key.code {
@@ -201,12 +200,21 @@ fn handle_search_key(
             app.focus = Focus::EntryView;
         }
         KeyCode::Enter if app.can_act_on_selected_entry() => view_selected(app)?,
+        KeyCode::Char('q') => return Ok(true),
         KeyCode::Char('e') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
             edit_selected(terminal, app)?
         }
-
         KeyCode::Char('d') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
             app.begin_confirm_delete()
+        }
+        KeyCode::Char('t') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
+            app.begin_edit_tags()
+        }
+        KeyCode::Char('f') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
+            app.begin_edit_feelings()
+        }
+        KeyCode::Char('m') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
+            app.begin_edit_mood()
         }
         KeyCode::Backspace if app.focus == Focus::Entries => {
             app.search.query.pop();
@@ -221,7 +229,7 @@ fn handle_search_key(
         _ => {}
     }
 
-    Ok(())
+    Ok(false)
 }
 
 /// Handle EntryView scroll keys, returning `true` when the key was consumed.

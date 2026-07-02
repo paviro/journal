@@ -23,7 +23,7 @@ fn search_footer_text(app: &App) -> String {
     let query = format!("Search {}: {}", app.search_scope_label(), app.search.query);
     match app.focus {
         Focus::EntryView if app.has_selected_entry_target() => {
-            format!("{query} | view (enter) | edit (e) | delete (d) | exit search (esc) | quit (q)")
+            format!("{query} | view (enter) | edit (e) | delete (d) | edit tags (t) | edit feelings (f) | edit mood (m) | exit search (esc) | quit (q)")
         }
         Focus::EntryView => format!("{query} | exit search (esc) | quit (q)"),
         _ => {
