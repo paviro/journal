@@ -1,20 +1,23 @@
 use crate::{
     AppResult,
     markdown::{
-        display_title_and_preview, escape_yaml_string, front_matter_value, set_front_matter_value,
-        split_front_matter,
+        display_title_and_preview, front_matter_value, set_front_matter_value, split_front_matter,
     },
 };
 use chrono::{DateTime, Local};
+use nanoid::nanoid;
 use std::{
     ffi::OsStr,
-    fs,
+    fs::{self, OpenOptions},
+    io::{self, Write},
     path::{Path, PathBuf},
     process::Command,
 };
-use uuid::Uuid;
 
 use super::list_journals;
+
+const ENTRY_ID_LEN: usize = 12;
+const ENTRY_CREATE_ATTEMPTS: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
@@ -29,23 +32,55 @@ pub struct Entry {
 }
 
 pub fn entry_path(root: &Path, journal: &str, now: DateTime<Local>) -> PathBuf {
+    entry_path_with_id(root, journal, now, &nanoid!(ENTRY_ID_LEN))
+}
+
+fn entry_path_with_id(root: &Path, journal: &str, now: DateTime<Local>, id: &str) -> PathBuf {
     root.join(journal)
-        .join(now.format("%Y-%m-%d").to_string())
-        .join(format!("{}.md", Uuid::new_v4()))
+        .join(now.format("%Y").to_string())
+        .join(now.format("%m").to_string())
+        .join(now.format("%d").to_string())
+        .join(format!("{}-{id}.md", now.format("%Y-%m-%dT%H-%M-%S")))
 }
 
 pub fn create_entry(root: &Path, journal: &str, editor: &str) -> AppResult<PathBuf> {
     let now = Local::now();
-    let path = entry_path(root, journal, now);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let content = entry_template(journal, now, now);
-    fs::write(&path, content)?;
+    let content = entry_template(now, now);
+    let path = create_entry_file(root, journal, now, &content, || nanoid!(ENTRY_ID_LEN))?;
     open_editor(editor, &path)?;
     set_updated_at_now(&path)?;
     Ok(path)
+}
+
+fn create_entry_file(
+    root: &Path,
+    journal: &str,
+    now: DateTime<Local>,
+    content: &str,
+    mut id_generator: impl FnMut() -> String,
+) -> AppResult<PathBuf> {
+    for _ in 0..ENTRY_CREATE_ATTEMPTS {
+        let path = entry_path_with_id(root, journal, now, &id_generator());
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        match write_new_file(&path, content) {
+            Ok(()) => return Ok(path),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    Err(
+        format!("could not create a unique entry path after {ENTRY_CREATE_ATTEMPTS} attempts")
+            .into(),
+    )
+}
+
+fn write_new_file(path: &Path, content: &str) -> io::Result<()> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(content.as_bytes())
 }
 
 pub fn open_editor(editor: &str, path: &Path) -> AppResult<()> {
@@ -133,14 +168,15 @@ pub fn move_entry_to_trash(root: &Path, entry_path: &Path) -> AppResult<PathBuf>
         .next()
         .ok_or("entry path is missing journal component")?
         .as_os_str();
-    let date = entry_path
-        .parent()
-        .and_then(Path::file_name)
-        .ok_or("entry path is missing date directory")?;
-    let file = entry_path
-        .file_name()
-        .ok_or("entry path is missing file name")?;
-    let trash_path = root.join(journal).join(".trash").join(date).join(file);
+    let mut entry_relative_path = PathBuf::new();
+    for component in components {
+        entry_relative_path.push(component.as_os_str());
+    }
+    if entry_relative_path.as_os_str().is_empty() {
+        return Err("entry path is missing file path after journal component".into());
+    }
+
+    let trash_path = root.join(journal).join(".trash").join(entry_relative_path);
     if let Some(parent) = trash_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -148,14 +184,9 @@ pub fn move_entry_to_trash(root: &Path, entry_path: &Path) -> AppResult<PathBuf>
     Ok(trash_path)
 }
 
-pub fn entry_template(
-    journal: &str,
-    created_at: DateTime<Local>,
-    updated_at: DateTime<Local>,
-) -> String {
+pub fn entry_template(created_at: DateTime<Local>, updated_at: DateTime<Local>) -> String {
     format!(
-        "---\njournal: \"{}\"\ncreated_at: \"{}\"\nupdated_at: \"{}\"\ntags: []\n---\n\n",
-        escape_yaml_string(journal),
+        "---\ncreated_at: \"{}\"\nupdated_at: \"{}\"\ntags: []\n---\n\n",
         created_at.to_rfc3339(),
         updated_at.to_rfc3339()
     )
@@ -176,31 +207,61 @@ mod tests {
     }
 
     #[test]
-    fn entry_path_uses_uuid_filename_under_dated_journal_folder() {
+    fn entry_path_uses_year_month_day_folder_and_datetime_short_id_filename() {
         let dir = tempdir().unwrap();
         let now = local_time(2026, 7, 1, 23, 30);
 
         let path = entry_path(dir.path(), "work", now);
 
-        assert!(path.starts_with(dir.path().join("work").join("2026-07-01")));
+        assert!(path.starts_with(dir.path().join("work").join("2026").join("07").join("01")));
         let stem = path.file_stem().unwrap().to_str().unwrap();
-        assert!(Uuid::parse_str(stem).is_ok());
+        let short_id = stem.strip_prefix("2026-07-01T23-30-00-").unwrap();
+        assert_eq!(short_id.len(), 12);
+        assert!(
+            short_id
+                .chars()
+                .all(|ch| nanoid::alphabet::SAFE.contains(&ch))
+        );
+    }
+
+    #[test]
+    fn create_entry_file_retries_without_overwriting_existing_path() {
+        let dir = tempdir().unwrap();
+        let now = local_time(2026, 7, 1, 23, 30);
+        let existing = entry_path_with_id(dir.path(), "work", now, "existing");
+        fs::create_dir_all(existing.parent().unwrap()).unwrap();
+        fs::write(&existing, "keep me").unwrap();
+        let mut ids = ["existing", "fresh"].into_iter();
+
+        let created = create_entry_file(dir.path(), "work", now, "new content", || {
+            ids.next().unwrap().to_string()
+        })
+        .unwrap();
+
+        assert_eq!(
+            created,
+            entry_path_with_id(dir.path(), "work", now, "fresh")
+        );
+        assert_eq!(fs::read_to_string(existing).unwrap(), "keep me");
+        assert_eq!(fs::read_to_string(created).unwrap(), "new content");
     }
 
     #[test]
     fn entry_template_has_expected_front_matter() {
         let now = local_time(2026, 7, 1, 23, 30);
 
-        let template = entry_template("work", now, now);
+        let template = entry_template(now, now);
 
         assert_eq!(
             template,
             format!(
-                "---\njournal: \"work\"\ncreated_at: \"{}\"\nupdated_at: \"{}\"\ntags: []\n---\n\n",
+                "---\ncreated_at: \"{}\"\nupdated_at: \"{}\"\ntags: []\n---\n\n",
                 now.to_rfc3339(),
                 now.to_rfc3339()
             )
         );
+        assert!(!template.contains("journal:"));
+        assert!(!template.contains("kind:"));
     }
 
     #[test]
@@ -216,6 +277,21 @@ mod tests {
         let entry = read_entry("journal", &path).unwrap();
 
         assert_eq!(entry.id, "id-from-file");
+    }
+
+    #[test]
+    fn entry_journal_is_read_context_not_front_matter() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("entry.md");
+        fs::write(
+            &path,
+            "---\njournal: \"wrong\"\ncreated_at: \"2026-07-01T10:00:00+02:00\"\n---\n\n# Title\n",
+        )
+        .unwrap();
+
+        let entry = read_entry("folder-name", &path).unwrap();
+
+        assert_eq!(entry.journal, "folder-name");
     }
 
     #[test]
@@ -269,8 +345,14 @@ mod tests {
     #[test]
     fn scan_entries_skips_trash() {
         let dir = tempdir().unwrap();
-        let entry_dir = dir.path().join("work").join("2026-07-01");
-        let trash_dir = dir.path().join("work").join(".trash").join("2026-07-01");
+        let entry_dir = dir.path().join("work").join("2026").join("07").join("01");
+        let trash_dir = dir
+            .path()
+            .join("work")
+            .join(".trash")
+            .join("2026")
+            .join("07")
+            .join("01");
         fs::create_dir_all(&entry_dir).unwrap();
         fs::create_dir_all(&trash_dir).unwrap();
         fs::write(
@@ -293,7 +375,13 @@ mod tests {
     #[test]
     fn delete_moves_entry_to_journal_trash() {
         let dir = tempdir().unwrap();
-        let path = dir.path().join("work").join("2026-07-01").join("id.md");
+        let path = dir
+            .path()
+            .join("work")
+            .join("2026")
+            .join("07")
+            .join("01")
+            .join("id.md");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, "body").unwrap();
 
@@ -304,7 +392,9 @@ mod tests {
             dir.path()
                 .join("work")
                 .join(".trash")
-                .join("2026-07-01")
+                .join("2026")
+                .join("07")
+                .join("01")
                 .join("id.md")
         );
         assert!(trash.exists());

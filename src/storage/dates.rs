@@ -10,7 +10,8 @@ pub(crate) fn parse_entry_timestamp(value: &str) -> Option<DateTime<Local>> {
 }
 
 pub(crate) fn entry_date_from_path(path: &Path) -> Option<NaiveDate> {
-    let date = path.parent()?.file_name()?.to_str()?;
+    let stem = path.file_stem()?.to_str()?;
+    let date = stem.get(..10)?;
     NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()
 }
 
@@ -64,8 +65,8 @@ mod tests {
     }
 
     #[test]
-    fn group_date_falls_back_to_date_folder() {
-        let entry = entry(None, "work/2026-07-01/id.md");
+    fn group_date_falls_back_to_filename_date() {
+        let entry = entry(None, "work/2026/07/01/2026-07-01T10-23-00-id.md");
 
         assert_eq!(
             entry_group_date(&entry),

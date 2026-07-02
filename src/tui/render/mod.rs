@@ -537,11 +537,11 @@ mod tests {
     }
 
     #[test]
-    fn entry_group_labels_fall_back_to_date_folder() {
+    fn entry_group_labels_fall_back_to_filename_date() {
         let entry = Entry {
             id: "id".to_string(),
             journal: "work".to_string(),
-            path: PathBuf::from("work/2026-07-01/id.md"),
+            path: PathBuf::from("work/2026/07/01/2026-07-01T10-23-00-id.md"),
             created_at: None,
             updated_at: None,
             title: "Title".to_string(),
