@@ -72,11 +72,7 @@ impl App {
     ) -> AppResult<Self> {
         storage::ensure_workspace(&config.journal_root)?;
         let entry_paths = storage::collect_entry_paths(&config.journal_root)?;
-        let unlocked_identity = if crypto::can_decrypt(&encryption_paths)
-            && entry_paths
-                .iter()
-                .any(|entry| storage::is_encrypted_entry_file(&entry.path))
-        {
+        let unlocked_identity = if crypto::can_decrypt(&encryption_paths) {
             Some(crypto::prompt_unlock_identity(&encryption_paths)?)
         } else {
             None
