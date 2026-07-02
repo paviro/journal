@@ -29,7 +29,10 @@ pub(crate) fn handle_mouse(
 }
 
 pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
-    if app.new_journal_input().is_some() || app.is_confirming_delete() {
+    if app.new_journal_input().is_some()
+        || app.is_confirming_delete()
+        || app.edit_tag_state().is_some()
+    {
         return Ok(());
     }
 
@@ -178,6 +181,8 @@ fn handle_footer_click(
                 view_selected(app)?;
             } else if seg.starts_with("delete") && app.has_selected_entry_target() {
                 app.begin_confirm_delete();
+            } else if seg.starts_with("edit tags") && app.has_selected_entry_target() {
+                app.begin_edit_tags();
             } else if seg.starts_with("close") && app.entry_view_expanded {
                 app.entry_view_expanded = false;
                 app.focus = Focus::Entries;

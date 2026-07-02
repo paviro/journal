@@ -31,7 +31,7 @@ pub(crate) use chrome::panel_title;
 pub(crate) use chrome::{
     centered_rect, footer_text, panel_block, panel_content_inner, selected_style,
 };
-use dialogs::{draw_confirm_delete, draw_new_journal_input};
+use dialogs::{draw_confirm_delete, draw_edit_tags_dialog, draw_new_journal_input};
 use entries::draw_entry_list;
 use journals::draw_journals;
 pub(crate) use layout::{TuiLayout, tui_layout};
@@ -83,6 +83,10 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
 
     if let Some(input) = app.new_journal_input() {
         draw_new_journal_input(frame, input);
+    }
+
+    if let Some(state) = app.edit_tag_state_mut() {
+        draw_edit_tags_dialog(frame, state);
     }
 }
 

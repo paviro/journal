@@ -10,7 +10,7 @@ use crate::{
 };
 use std::{path::PathBuf, time::Duration};
 
-use super::state::{Overlay, ScrollState, SearchState, StatusBar};
+use super::state::{EditTagFocus, EditTagState, Overlay, ScrollState, SearchState, StatusBar};
 
 pub(crate) const JOURNAL_LIST_WIDTH: u16 = 18;
 pub(crate) const ENTRY_LIST_INLINE_WIDTH: u16 = 42;
@@ -296,6 +296,20 @@ impl App {
         }
     }
 
+    pub(crate) fn edit_tag_state(&self) -> Option<&EditTagState> {
+        match &self.overlay {
+            Overlay::EditTags(state) => Some(state),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn edit_tag_state_mut(&mut self) -> Option<&mut EditTagState> {
+        match &mut self.overlay {
+            Overlay::EditTags(state) => Some(state),
+            _ => None,
+        }
+    }
+
     pub(crate) fn is_confirming_delete(&self) -> bool {
         matches!(self.overlay, Overlay::ConfirmDelete)
     }
@@ -320,6 +334,58 @@ impl App {
             self.scroll.reset_entry();
             self.focus = Focus::Entries;
         }
+    }
+
+    /// Collect all tags across every loaded entry, sorted by usage count
+    /// (most frequent first) and then alphabetically. Tags differing only in
+    /// case are consolidated: the most common casing wins (ties go to the
+    /// first alphabetically).
+    pub(crate) fn all_tags_sorted(&self) -> Vec<(String, usize)> {
+        // First pass — count per lowercased key, track casing frequency.
+        let mut lower_to_casing: std::collections::BTreeMap<String, CasingCount> =
+            std::collections::BTreeMap::new();
+        for entry in &self.entries {
+            for tag in &entry.tags {
+                let lower = tag.to_lowercase();
+                let entry = lower_to_casing.entry(lower).or_default();
+                entry.total += 1;
+                *entry.forms.entry(tag.clone()).or_default() += 1;
+            }
+        }
+        let mut pairs: Vec<_> = lower_to_casing
+            .into_values()
+            .map(|cc| {
+                // Pick the casing form with the highest frequency; ties → first alphabetically.
+                let display = cc
+                    .forms
+                    .into_iter()
+                    .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+                    .map(|(form, _)| form)
+                    .unwrap_or_default();
+                (display, cc.total)
+            })
+            .collect();
+        pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        pairs
+    }
+
+    pub(crate) fn begin_edit_tags(&mut self) {
+        let all_tags = self.all_tags_sorted();
+        let filtered: Vec<usize> = (0..all_tags.len()).collect();
+        let entry_tags: Vec<String> = self
+            .selected_entry_tags()
+            .into_iter()
+            .map(|t| t.to_lowercase())
+            .collect();
+        self.overlay = Overlay::EditTags(EditTagState {
+            all_tags,
+            filtered,
+            selected: entry_tags,
+            cursor: 0,
+            scroll: 0,
+            input: String::new(),
+            focus: EditTagFocus::List,
+        });
     }
 
     pub(crate) fn begin_tag_search(&mut self, tag: &str) {
@@ -456,6 +522,14 @@ impl SearchScope {
             SearchScope::CurrentJournal(journal) => SearchScopeFilter::Journal(journal),
         }
     }
+}
+
+/// Helper for [`App::all_tags_sorted`]: counts per lowercased tag and per
+/// original-casing form so we can consolidate case variants.
+#[derive(Default)]
+struct CasingCount {
+    total: usize,
+    forms: std::collections::BTreeMap<String, usize>,
 }
 
 pub(crate) fn markdown_body(content: &str) -> String {

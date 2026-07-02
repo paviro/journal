@@ -86,6 +86,45 @@ pub(crate) fn set_front_matter_value(content: &str, key: &str, value: &str) -> S
     format!("---\n{}\n---\n{}", lines.join("\n"), body)
 }
 
+/// Serialize a list of tags into a `tags: [...]` line.
+fn serialize_tags(tags: &[String]) -> String {
+    format!(
+        "[{}]",
+        tags.iter()
+            .map(|t| format!("\"{}\"", escape_yaml_string(t)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+/// Replace the `tags` field in the YAML front matter with the given list.
+/// Returns `None` when there is no front matter.
+pub(crate) fn set_tags_in_front_matter(content: &str, tags: &[String]) -> Option<String> {
+    let (front_matter, body) = split_front_matter(content);
+    let front_matter = front_matter?;
+
+    let serialized = serialize_tags(tags);
+
+    let prefix = "tags:";
+    let mut found = false;
+    let mut lines: Vec<String> = front_matter
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with(prefix) {
+                found = true;
+                format!("tags: {serialized}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    if !found {
+        lines.push(format!("tags: {serialized}"));
+    }
+
+    Some(format!("---\n{}\n---\n{}", lines.join("\n"), body))
+}
+
 pub(crate) fn escape_yaml_string(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }

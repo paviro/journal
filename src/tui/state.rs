@@ -96,6 +96,32 @@ impl Default for SearchState {
     }
 }
 
+/// Which part of the edit-tags dialog has keyboard focus.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditTagFocus {
+    #[default]
+    List,
+    Input,
+}
+
+/// State for the edit-tags overlay.
+pub(crate) struct EditTagState {
+    /// All tags across every entry, sorted by usage count descending.
+    pub(crate) all_tags: Vec<(String, usize)>,
+    /// Indices into `all_tags` that match the current filter input.
+    pub(crate) filtered: Vec<usize>,
+    /// Tags currently selected for the entry (lowercased for look-up).
+    pub(crate) selected: Vec<String>,
+    /// Index into `filtered` for the list cursor.
+    pub(crate) cursor: usize,
+    /// Scroll offset for the tag list inside the dialog.
+    pub(crate) scroll: u16,
+    /// Text input for filtering tags and adding new ones.
+    pub(crate) input: String,
+    /// Whether keyboard events go to the list or to the input.
+    pub(crate) focus: EditTagFocus,
+}
+
 /// The single modal overlay that can be active over the browse view. Making
 /// this an enum keeps the modals mutually exclusive by construction.
 #[derive(Default)]
@@ -104,4 +130,5 @@ pub(crate) enum Overlay {
     None,
     ConfirmDelete,
     NewJournal(String),
+    EditTags(EditTagState),
 }

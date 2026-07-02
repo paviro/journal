@@ -6,11 +6,12 @@ use std::io;
 use crate::tui::{
     app::{App, Focus, Mode, entry_view_is_available},
     render,
+    state::EditTagState,
 };
 
 use super::actions::{
-    create_entry_in_selected_journal, delete_selected, edit_selected, submit_new_journal,
-    view_selected,
+    create_entry_in_selected_journal, delete_selected, edit_selected, set_tags_on_entry,
+    submit_new_journal, view_selected,
 };
 
 pub(crate) fn handle_key(
@@ -47,6 +48,11 @@ pub(crate) fn handle_key(
         return Ok(false);
     }
 
+    if app.edit_tag_state().is_some() {
+        handle_edit_tags_key(app, key)?;
+        return Ok(false);
+    }
+
     if app.mode == Mode::Search {
         handle_search_key(terminal, app, key, entry_view_available)?;
         return Ok(false);
@@ -75,6 +81,7 @@ pub(crate) fn handle_key(
             }
         }
         KeyCode::Char('d') if app.can_act_on_selected_entry() => app.begin_confirm_delete(),
+        KeyCode::Char('t') if app.can_act_on_selected_entry() => app.begin_edit_tags(),
         _ => {}
     }
 
@@ -259,6 +266,126 @@ fn handle_new_journal_input(app: &mut App, key: KeyEvent) -> AppResult<()> {
         KeyCode::Char(ch) => {
             if let Some(input) = app.new_journal_input_mut() {
                 input.push(ch);
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn rebuild_filter(state: &mut EditTagState) {
+    let query = state.input.to_lowercase();
+    state.filtered = state
+        .all_tags
+        .iter()
+        .enumerate()
+        .filter(|(_, (tag, _))| tag.to_lowercase().contains(&query))
+        .map(|(i, _)| i)
+        .collect();
+    state.cursor = state.cursor.min(state.filtered.len().saturating_sub(1));
+    state.scroll = 0;
+}
+
+fn handle_edit_tags_key(app: &mut App, key: KeyEvent) -> AppResult<()> {
+    use crate::tui::state::EditTagFocus;
+
+    match key.code {
+        KeyCode::Esc => {
+            app.close_overlay();
+        }
+        KeyCode::Tab => {
+            if let Some(state) = app.edit_tag_state_mut() {
+                state.focus = match state.focus {
+                    EditTagFocus::List => EditTagFocus::Input,
+                    EditTagFocus::Input => EditTagFocus::List,
+                };
+            }
+        }
+        KeyCode::Enter
+            if app
+                .edit_tag_state()
+                .is_some_and(|s| s.focus == EditTagFocus::List) =>
+        {
+            let tags: Vec<String> = app
+                .edit_tag_state()
+                .map(|s| s.selected.clone())
+                .unwrap_or_default();
+            set_tags_on_entry(app, &tags)?;
+            app.close_overlay();
+        }
+        KeyCode::Enter => {
+            // Input mode — add typed tag to selection
+            if let Some(state) = app.edit_tag_state_mut() {
+                let tag = state.input.trim().to_lowercase();
+                if !tag.is_empty() && !state.selected.contains(&tag) {
+                    state.selected.push(tag.clone());
+                    if !state
+                        .all_tags
+                        .iter()
+                        .any(|(t, _)| t.eq_ignore_ascii_case(&tag))
+                    {
+                        state.all_tags.push((tag, 0));
+                    }
+                }
+                state.input.clear();
+                rebuild_filter(state);
+            }
+        }
+        KeyCode::Up
+            if app
+                .edit_tag_state()
+                .is_some_and(|s| s.focus == EditTagFocus::List) =>
+        {
+            if let Some(state) = app.edit_tag_state_mut()
+                && state.cursor > 0
+            {
+                state.cursor -= 1;
+            }
+        }
+        KeyCode::Down
+            if app
+                .edit_tag_state()
+                .is_some_and(|s| s.focus == EditTagFocus::List) =>
+        {
+            if let Some(state) = app.edit_tag_state_mut()
+                && state.cursor + 1 < state.filtered.len()
+            {
+                state.cursor += 1;
+            }
+        }
+        KeyCode::Char(' ')
+            if app
+                .edit_tag_state()
+                .is_some_and(|s| s.focus == EditTagFocus::List) =>
+        {
+            if let Some(state) = app.edit_tag_state_mut() {
+                let tag_idx = state.filtered[state.cursor];
+                let tag = state.all_tags[tag_idx].0.to_lowercase();
+                if let Some(pos) = state.selected.iter().position(|t| t == &tag) {
+                    state.selected.remove(pos);
+                } else {
+                    state.selected.push(tag);
+                }
+            }
+        }
+        KeyCode::Backspace
+            if app
+                .edit_tag_state()
+                .is_some_and(|s| s.focus == EditTagFocus::Input) =>
+        {
+            if let Some(state) = app.edit_tag_state_mut() {
+                state.input.pop();
+                rebuild_filter(state);
+            }
+        }
+        KeyCode::Char(ch)
+            if app
+                .edit_tag_state()
+                .is_some_and(|s| s.focus == EditTagFocus::Input) =>
+        {
+            if let Some(state) = app.edit_tag_state_mut() {
+                state.input.push(ch);
+                rebuild_filter(state);
             }
         }
         _ => {}
