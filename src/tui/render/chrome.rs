@@ -134,6 +134,15 @@ pub(crate) fn panel_title(title: &str, focused: bool) -> String {
     }
 }
 
+pub(crate) fn panel_content_inner(area: Rect) -> Rect {
+    let pad = 1;
+    Rect {
+        x: area.x.saturating_add(pad),
+        width: area.width.saturating_sub(pad * 2).max(1),
+        ..area
+    }
+}
+
 pub(crate) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)

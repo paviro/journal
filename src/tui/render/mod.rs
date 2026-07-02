@@ -26,7 +26,9 @@ pub(crate) use super::scroll::{
 };
 #[cfg(test)]
 pub(crate) use chrome::panel_title;
-pub(crate) use chrome::{centered_rect, footer_text, panel_block, selected_style};
+pub(crate) use chrome::{
+    centered_rect, footer_text, panel_block, panel_content_inner, selected_style,
+};
 use dialogs::{draw_confirm_delete, draw_new_journal_input};
 use entries::draw_entry_list;
 use journals::draw_journals;
@@ -369,14 +371,14 @@ mod tests {
 
         assert!(
             buffer
-                .cell((1, 1))
+                .cell((2, 1))
                 .unwrap()
                 .modifier
                 .contains(Modifier::REVERSED)
         );
         assert!(
             buffer
-                .cell((19, 3))
+                .cell((20, 3))
                 .unwrap()
                 .modifier
                 .contains(Modifier::REVERSED)
@@ -393,7 +395,7 @@ mod tests {
 
         assert!(
             buffer
-                .cell((1, 1))
+                .cell((2, 1))
                 .unwrap()
                 .modifier
                 .contains(Modifier::REVERSED)

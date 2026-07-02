@@ -11,7 +11,7 @@ use ratatui_markdown::{
 
 use crate::tui::{
     app::{App, Focus},
-    render::{panel_block, scrollbar_position, viewer_scroll},
+    render::{panel_block, panel_content_inner, scrollbar_position, viewer_scroll},
 };
 
 pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
@@ -40,7 +40,7 @@ fn draw_markdown_panel(
     focused: bool,
 ) -> u16 {
     let block = panel_block(title, focused);
-    let inner = block.inner(area);
+    let inner = panel_content_inner(block.inner(area));
     let width = inner.width.saturating_sub(1).max(1) as usize;
     let theme = markdown_theme();
     let renderer = MarkdownRenderer::new(width);
