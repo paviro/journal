@@ -4,7 +4,7 @@ use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use std::io;
 
 use crate::tui::{
-    app::{App, Focus, Mode},
+    app::{App, Focus, Mode, entry_view_is_available},
     events::actions::view_selected,
     render,
 };
@@ -24,7 +24,7 @@ pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect)
         return Ok(());
     }
 
-    app.normalize_focus(render::tui_layout(area, app).inline_entry_view_visible);
+    app.normalize_focus(entry_view_is_available(area.width));
     let layout = render::tui_layout(area, app);
 
     if app.viewer.is_some() {
@@ -77,7 +77,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             render::entry_index_at(area, mouse.column, mouse.row, app.entry_scroll, &rows)
         {
             app.select_entry_index(index);
-            if !layout.inline_entry_view_visible {
+            if !layout.entry_view_visible {
                 view_selected(app)?;
             }
         }

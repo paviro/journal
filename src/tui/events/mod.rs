@@ -123,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn right_on_entry_focuses_entry_view_when_inline_entry_view_is_visible() {
+    fn right_on_entry_focuses_entry_view_when_entry_view_is_available() {
         let dir = tempdir().unwrap();
         let entry_dir = dir.path().join("work").join("2026-07-01");
         fs::create_dir_all(&entry_dir).unwrap();
@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn left_closes_viewer_only_when_inline_entry_view_is_hidden() {
+    fn left_closes_viewer_only_when_entry_view_is_unavailable() {
         assert!(viewer_key_closes(KeyCode::Left, false));
         assert!(!viewer_key_closes(KeyCode::Left, true));
     }
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn entry_click_selects_row_and_opens_viewer_when_inline_entry_view_is_hidden() {
+    fn entry_click_selects_row_without_opening_viewer_when_entry_view_is_visible() {
         let mut app = app_with_entries(2);
         app.focus = Focus::Entries;
         let area = Rect::new(0, 0, 80, 12);
@@ -279,7 +279,7 @@ mod tests {
 
         assert_eq!(app.focus, Focus::Entries);
         assert_eq!(app.selected_entry_index, 0);
-        assert!(app.viewer.is_some());
+        assert!(app.viewer.is_none());
     }
 
     #[test]

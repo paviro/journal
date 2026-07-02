@@ -6,18 +6,18 @@ use ratatui::{
 
 use crate::tui::app::{App, Focus, Mode};
 
-pub(crate) fn footer_text(app: &App, inline_entry_view_visible: bool) -> String {
+pub(crate) fn footer_text(app: &App, entry_view_visible: bool) -> String {
     if !app.status.is_empty() {
         return app.status.clone();
     }
 
     match app.mode {
-        Mode::Search => search_footer_text(app, inline_entry_view_visible),
-        Mode::Browse => browse_footer_text(app, inline_entry_view_visible),
+        Mode::Search => search_footer_text(app, entry_view_visible),
+        Mode::Browse => browse_footer_text(app, entry_view_visible),
     }
 }
 
-fn search_footer_text(app: &App, inline_entry_view_visible: bool) -> String {
+fn search_footer_text(app: &App, entry_view_visible: bool) -> String {
     let query = format!("Search {}: {}", app.search_scope_label(), app.search_query);
     match app.focus {
         Focus::EntryView if app.has_selected_entry_target() => {
@@ -34,7 +34,7 @@ fn search_footer_text(app: &App, inline_entry_view_visible: bool) -> String {
                 "up/down select".to_string(),
             ];
             if app.has_selected_entry_target() {
-                if inline_entry_view_visible {
+                if entry_view_visible {
                     parts.push("enter view".to_string());
                     parts.push("right view".to_string());
                 } else {
@@ -47,7 +47,7 @@ fn search_footer_text(app: &App, inline_entry_view_visible: bool) -> String {
     }
 }
 
-fn browse_footer_text(app: &App, inline_entry_view_visible: bool) -> String {
+fn browse_footer_text(app: &App, entry_view_visible: bool) -> String {
     let mut parts = match app.focus {
         Focus::Journals => vec![
             "q quit".to_string(),
@@ -64,7 +64,7 @@ fn browse_footer_text(app: &App, inline_entry_view_visible: bool) -> String {
                 "up/down select entry".to_string(),
             ];
             if app.has_selected_entry_target() {
-                if inline_entry_view_visible {
+                if entry_view_visible {
                     parts.push("right view".to_string());
                     parts.push("enter/v view".to_string());
                 } else {
@@ -97,7 +97,7 @@ fn browse_footer_text(app: &App, inline_entry_view_visible: bool) -> String {
         }
     };
 
-    if !inline_entry_view_visible {
+    if !entry_view_visible {
         parts.retain(|part| !part.contains("right view"));
     }
 

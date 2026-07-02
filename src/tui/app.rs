@@ -14,9 +14,11 @@ use std::{
 
 const STATUS_DURATION: Duration = Duration::from_secs(3);
 pub(crate) const JOURNAL_LIST_WIDTH: u16 = 18;
+pub(crate) const ENTRY_LIST_INLINE_WIDTH: u16 = 42;
 pub(crate) const ENTRY_LIST_MIN_WIDTH: u16 = 40;
 pub(crate) const TWO_PANEL_MIN_WIDTH: u16 = JOURNAL_LIST_WIDTH + ENTRY_LIST_MIN_WIDTH;
-pub(crate) const INLINE_ENTRY_VIEW_MIN_WIDTH: u16 = 118;
+pub(crate) const INLINE_ENTRY_VIEW_MIN_WIDTH: u16 =
+    JOURNAL_LIST_WIDTH + ENTRY_LIST_INLINE_WIDTH + ENTRY_LIST_MIN_WIDTH;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Focus {
@@ -227,8 +229,8 @@ impl App {
         matches!(self.focus, Focus::Entries | Focus::EntryView) && self.has_selected_entry_target()
     }
 
-    pub(crate) fn normalize_focus(&mut self, inline_entry_view_available: bool) {
-        if self.focus == Focus::EntryView && !inline_entry_view_available {
+    pub(crate) fn normalize_focus(&mut self, entry_view_available: bool) {
+        if self.focus == Focus::EntryView && !entry_view_available {
             self.focus = Focus::Entries;
         }
     }
@@ -382,6 +384,10 @@ pub(crate) fn inline_entry_view_is_visible(width: u16) -> bool {
     width >= INLINE_ENTRY_VIEW_MIN_WIDTH
 }
 
+pub(crate) fn entry_view_is_available(width: u16) -> bool {
+    width >= TWO_PANEL_MIN_WIDTH
+}
+
 pub(crate) fn single_panel_is_active(width: u16) -> bool {
     width < TWO_PANEL_MIN_WIDTH
 }
@@ -493,9 +499,30 @@ mod tests {
     }
 
     #[test]
+    fn available_entry_view_focus_is_preserved() {
+        let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.focus = Focus::EntryView;
+
+        app.normalize_focus(true);
+
+        assert_eq!(app.focus, Focus::EntryView);
+    }
+
+    #[test]
     fn compact_width_uses_single_panel_without_inline_entry_view() {
         assert!(single_panel_is_active(TWO_PANEL_MIN_WIDTH - 1));
         assert!(!inline_entry_view_is_visible(TWO_PANEL_MIN_WIDTH - 1));
+        assert!(!entry_view_is_available(TWO_PANEL_MIN_WIDTH - 1));
+        assert!(entry_view_is_available(TWO_PANEL_MIN_WIDTH));
+    }
+
+    #[test]
+    fn inline_entry_view_uses_minimum_three_column_width() {
+        assert!(!inline_entry_view_is_visible(
+            INLINE_ENTRY_VIEW_MIN_WIDTH - 1
+        ));
+        assert!(inline_entry_view_is_visible(INLINE_ENTRY_VIEW_MIN_WIDTH));
     }
 
     #[test]

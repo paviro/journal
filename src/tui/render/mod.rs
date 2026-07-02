@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
-use super::app::{App, inline_entry_view_is_visible};
+use super::app::{App, entry_view_is_available};
 #[cfg(test)]
 pub(crate) use super::entry_rows::{
     EntryRowMeta, entry_day_label, entry_list_lines, entry_month_label,
@@ -41,7 +41,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
         return;
     }
 
-    app.normalize_focus(inline_entry_view_is_visible(frame.area().width));
+    app.normalize_focus(entry_view_is_available(frame.area().width));
     let layout = tui_layout(frame.area(), app);
 
     if let Some(area) = layout.journals {
@@ -56,7 +56,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
         draw_selected_entry_view(frame, area, app);
     }
 
-    let footer_text = footer_text(app, layout.inline_entry_view_visible);
+    let footer_text = footer_text(app, layout.entry_view_visible);
     let footer = Paragraph::new(footer_text).block(Block::default().borders(Borders::TOP));
     frame.render_widget(footer, layout.footer);
 
@@ -89,7 +89,7 @@ mod tests {
     use crate::{
         config::Config,
         storage::Entry,
-        tui::app::{Focus, Mode},
+        tui::app::{Focus, INLINE_ENTRY_VIEW_MIN_WIDTH, Mode},
     };
     use ratatui::{
         Terminal,
@@ -150,7 +150,7 @@ mod tests {
         let layout = tui_layout(Rect::new(0, 0, 120, 20), &app);
 
         assert!(!layout.single_panel);
-        assert!(layout.inline_entry_view_visible);
+        assert!(layout.entry_view_visible);
         assert_eq!(layout.journals.unwrap(), Rect::new(0, 0, 18, 18));
         assert_eq!(layout.entries.unwrap(), Rect::new(18, 0, 42, 18));
         assert_eq!(layout.entry_view.unwrap(), Rect::new(60, 0, 60, 18));
@@ -158,17 +158,45 @@ mod tests {
     }
 
     #[test]
+    fn layout_keeps_three_columns_at_minimum_inline_width() {
+        let mut app = app_with_entry();
+        app.focus = Focus::Entries;
+
+        let layout = tui_layout(Rect::new(0, 0, INLINE_ENTRY_VIEW_MIN_WIDTH, 20), &app);
+
+        assert!(!layout.single_panel);
+        assert!(layout.entry_view_visible);
+        assert_eq!(layout.journals.unwrap(), Rect::new(0, 0, 18, 18));
+        assert_eq!(layout.entries.unwrap(), Rect::new(18, 0, 42, 18));
+        assert_eq!(layout.entry_view.unwrap(), Rect::new(60, 0, 40, 18));
+    }
+
+    #[test]
     fn layout_places_hit_targets_in_two_columns_without_inline_entry_view() {
+        let mut app = app_with_entry();
+        app.focus = Focus::Journals;
+
+        let layout = tui_layout(Rect::new(0, 0, 80, 20), &app);
+
+        assert!(!layout.single_panel);
+        assert!(!layout.entry_view_visible);
+        assert_eq!(layout.journals.unwrap(), Rect::new(0, 0, 18, 18));
+        assert_eq!(layout.entries.unwrap(), Rect::new(18, 0, 62, 18));
+        assert!(layout.entry_view.is_none());
+    }
+
+    #[test]
+    fn layout_shifts_two_columns_to_entries_and_preview_when_entries_are_active() {
         let mut app = app_with_entry();
         app.focus = Focus::Entries;
 
         let layout = tui_layout(Rect::new(0, 0, 80, 20), &app);
 
         assert!(!layout.single_panel);
-        assert!(!layout.inline_entry_view_visible);
-        assert_eq!(layout.journals.unwrap(), Rect::new(0, 0, 18, 18));
-        assert_eq!(layout.entries.unwrap(), Rect::new(18, 0, 62, 18));
-        assert!(layout.entry_view.is_none());
+        assert!(layout.entry_view_visible);
+        assert!(layout.journals.is_none());
+        assert_eq!(layout.entries.unwrap(), Rect::new(0, 0, 42, 18));
+        assert_eq!(layout.entry_view.unwrap(), Rect::new(42, 0, 38, 18));
     }
 
     #[test]
@@ -304,6 +332,23 @@ mod tests {
         assert!(entry_view_focus.contains(">> Entries"));
         assert!(!entry_view_focus.contains(" Journals "));
         assert!(!entry_view_focus.contains("2026-07-01 10:00"));
+    }
+
+    #[test]
+    fn two_column_render_follows_active_column_pair() {
+        let mut journals_app = app_with_entry();
+        journals_app.focus = Focus::Journals;
+        let journals = render_text(journals_app, 80, 16);
+        assert!(journals.contains(">> Journals"));
+        assert!(journals.contains(" Entries "));
+        assert!(!journals.contains("2026-07-01 10:00"));
+
+        let mut entries_app = app_with_entry();
+        entries_app.focus = Focus::Entries;
+        let entries = render_text(entries_app, 80, 16);
+        assert!(entries.contains(">> Entries"));
+        assert!(!entries.contains(" Journals "));
+        assert!(entries.contains("2026-07-01 10:00"));
     }
 
     #[test]

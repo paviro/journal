@@ -4,7 +4,7 @@ use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use std::io;
 
 use crate::tui::{
-    app::{App, Focus, Mode, inline_entry_view_is_visible},
+    app::{App, Focus, Mode, entry_view_is_available},
     render,
 };
 
@@ -19,11 +19,11 @@ pub(crate) fn handle_key(
     key: KeyEvent,
 ) -> AppResult<bool> {
     let width = terminal.size()?.width;
-    let inline_entry_view_visible = inline_entry_view_is_visible(width);
-    app.normalize_focus(inline_entry_view_visible);
+    let entry_view_available = entry_view_is_available(width);
+    app.normalize_focus(entry_view_available);
 
     if app.viewer.is_some() {
-        handle_viewer_key(terminal, app, key, inline_entry_view_visible)?;
+        handle_viewer_key(terminal, app, key, entry_view_available)?;
         return Ok(false);
     }
 
@@ -46,7 +46,7 @@ pub(crate) fn handle_key(
     }
 
     if app.mode == Mode::Search {
-        handle_search_key(terminal, app, key, inline_entry_view_visible)?;
+        handle_search_key(terminal, app, key, entry_view_available)?;
         return Ok(false);
     }
 
@@ -55,8 +55,8 @@ pub(crate) fn handle_key(
         KeyCode::Char('r') => app.refresh()?,
         KeyCode::Char('/') => app.begin_search(),
         KeyCode::Left => move_focus_left(app),
-        KeyCode::Right => handle_right(app, inline_entry_view_visible)?,
-        KeyCode::Enter => handle_enter(app, inline_entry_view_visible)?,
+        KeyCode::Right => handle_right(app, entry_view_available)?,
+        KeyCode::Enter => handle_enter(app, entry_view_available)?,
         KeyCode::Up if app.focus == Focus::EntryView => app.scroll_entry_view(-1),
         KeyCode::Down if app.focus == Focus::EntryView => app.scroll_entry_view(1),
         KeyCode::Char('k') if app.focus == Focus::EntryView => app.scroll_entry_view(-1),
@@ -88,19 +88,19 @@ fn handle_search_key(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     key: KeyEvent,
-    inline_entry_view_visible: bool,
+    entry_view_available: bool,
 ) -> AppResult<()> {
     match key.code {
         KeyCode::Esc => app.exit_search(),
         KeyCode::Left if app.focus == Focus::EntryView => app.focus = Focus::Entries,
         KeyCode::Right
             if app.focus == Focus::Entries
-                && !inline_entry_view_visible
+                && !entry_view_available
                 && app.has_selected_entry_target() =>
         {
             view_selected(app)?
         }
-        KeyCode::Right if app.focus == Focus::Entries && inline_entry_view_visible => {
+        KeyCode::Right if app.focus == Focus::Entries && entry_view_available => {
             app.focus = Focus::EntryView;
         }
         KeyCode::Up if app.focus == Focus::EntryView => app.scroll_entry_view(-1),
@@ -179,29 +179,28 @@ fn move_focus_left(app: &mut App) {
     };
 }
 
-pub(super) fn handle_right(app: &mut App, inline_entry_view_visible: bool) -> AppResult<()> {
-    if app.focus == Focus::Entries && !inline_entry_view_visible && app.has_selected_entry_target()
-    {
+pub(super) fn handle_right(app: &mut App, entry_view_available: bool) -> AppResult<()> {
+    if app.focus == Focus::Entries && !entry_view_available && app.has_selected_entry_target() {
         view_selected(app)?;
     } else {
-        move_focus_right(app, inline_entry_view_visible);
+        move_focus_right(app, entry_view_available);
     }
 
     Ok(())
 }
 
-pub(super) fn move_focus_right(app: &mut App, inline_entry_view_available: bool) {
+pub(super) fn move_focus_right(app: &mut App, entry_view_available: bool) {
     app.focus = match app.focus {
         Focus::Journals => Focus::Entries,
-        Focus::Entries if inline_entry_view_available => Focus::EntryView,
+        Focus::Entries if entry_view_available => Focus::EntryView,
         Focus::Entries => Focus::Entries,
         Focus::EntryView => Focus::EntryView,
     };
 }
 
-pub(super) fn handle_enter(app: &mut App, inline_entry_view_available: bool) -> AppResult<()> {
+pub(super) fn handle_enter(app: &mut App, entry_view_available: bool) -> AppResult<()> {
     if app.focus == Focus::Journals {
-        move_focus_right(app, inline_entry_view_available);
+        move_focus_right(app, entry_view_available);
     } else if app.can_act_on_selected_entry() {
         view_selected(app)?;
     }
@@ -213,9 +212,9 @@ fn handle_viewer_key(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     key: KeyEvent,
-    inline_entry_view_visible: bool,
+    entry_view_available: bool,
 ) -> AppResult<()> {
-    if viewer_key_closes(key.code, inline_entry_view_visible) {
+    if viewer_key_closes(key.code, entry_view_available) {
         app.viewer = None;
         return Ok(());
     }
@@ -250,9 +249,9 @@ fn handle_viewer_key(
     Ok(())
 }
 
-pub(super) fn viewer_key_closes(key: KeyCode, inline_entry_view_visible: bool) -> bool {
+pub(super) fn viewer_key_closes(key: KeyCode, entry_view_available: bool) -> bool {
     matches!(key, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q'))
-        || (key == KeyCode::Left && !inline_entry_view_visible)
+        || (key == KeyCode::Left && !entry_view_available)
 }
 
 fn handle_new_journal_input(app: &mut App, key: KeyEvent) -> AppResult<()> {
