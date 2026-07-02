@@ -4,7 +4,7 @@ use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use std::io;
 
 use crate::tui::{
-    app::{App, Focus, Mode, entry_view_is_available},
+    app::{App, Focus, Mode, entry_view_is_available, inline_entry_view_is_visible},
     events::actions::{create_entry_in_selected_journal, edit_selected, view_selected},
     render,
 };
@@ -86,7 +86,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             render::entry_index_at(area, mouse.column, mouse.row, app.scroll.entry, &rows)
         {
             app.select_entry_index(index);
-            if !layout.entry_view_visible {
+            if !inline_entry_view_is_visible(layout.content.width) {
                 view_selected(app)?;
             }
         }
