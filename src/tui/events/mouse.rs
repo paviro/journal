@@ -5,13 +5,11 @@ use std::io;
 
 use crate::tui::{
     app::{App, Focus, Mode, entry_view_is_available, inline_entry_view_is_visible},
-    events::actions::{
-        create_entry_in_selected_journal, edit_selected, set_feelings_on_entry, set_mood_on_entry,
-        set_tags_on_entry, view_selected,
-    },
+    events::actions::view_selected,
     render,
-    state::EditTagFocus,
 };
+
+use super::action::Action;
 
 pub(crate) fn handle_mouse(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -22,13 +20,16 @@ pub(crate) fn handle_mouse(
     let area = Rect::new(0, 0, size.width, size.height);
 
     if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
-        if overlay_is_open(app) {
-            handle_dialog_hint_click(app, mouse, area)?;
+        if app.has_overlay() {
+            handle_dialog_hint_click(terminal, app, mouse, area)?;
             return Ok(false);
         }
         let layout = render::tui_layout(area, app);
         if render::point_in_rect(layout.footer, mouse.column, mouse.row) {
-            return handle_footer_click(terminal, app, mouse, layout);
+            if let Some(action) = footer_click_to_action(app, mouse, layout) {
+                return super::dispatch_action(terminal, app, action);
+            }
+            return Ok(false);
         }
     }
 
@@ -36,16 +37,8 @@ pub(crate) fn handle_mouse(
     Ok(false)
 }
 
-fn overlay_is_open(app: &App) -> bool {
-    app.new_journal_input().is_some()
-        || app.is_confirming_delete()
-        || app.edit_tag_state().is_some()
-        || app.edit_feeling_state().is_some()
-        || app.edit_mood_state().is_some()
-}
-
 pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
-    if overlay_is_open(app) {
+    if app.has_overlay() {
         return Ok(());
     }
 
@@ -168,63 +161,56 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
     }
 }
 
-fn handle_footer_click(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    app: &mut App,
+// ── Footer click ──────────────────────────────────────────────────────────────
+
+fn footer_click_to_action(
+    app: &App,
     mouse: MouseEvent,
     layout: render::TuiLayout,
-) -> AppResult<bool> {
+) -> Option<Action> {
     let text = if app.entry_view_expanded {
         " close (enter/esc) | edit (e) | quit (q)".to_string()
     } else {
         render::footer_text(app, layout.entry_view_visible)
     };
 
-    let segments: Vec<&str> = text.split(" | ").collect();
-    let footer_x = layout.footer.x;
-    let click_x = mouse.column;
+    let seg = hint_segment_at(&text, layout.footer.x, mouse.column)?;
 
-    let mut x_pos = footer_x;
-    for segment in &segments {
-        let seg_len = segment.len() as u16;
-        if click_x >= x_pos && click_x < x_pos + seg_len {
-            let seg = segment.trim();
-            if seg.starts_with("new journal") {
-                app.begin_new_journal_input();
-            } else if seg.starts_with("new entry") {
-                create_entry_in_selected_journal(terminal, app)?;
-            } else if seg == "refresh (r)" {
-                app.refresh()?;
-            } else if seg.starts_with("edit") && app.can_act_on_selected_entry() {
-                edit_selected(terminal, app)?;
-            } else if seg.starts_with("view") && app.has_selected_entry_target() {
-                view_selected(app)?;
-            } else if seg.starts_with("delete") && app.has_selected_entry_target() {
-                app.begin_confirm_delete();
-            } else if seg.starts_with("edit tags") && app.has_selected_entry_target() {
-                app.begin_edit_tags();
-            } else if seg.starts_with("edit feelings") && app.has_selected_entry_target() {
-                app.begin_edit_feelings();
-            } else if seg.starts_with("close") && app.entry_view_expanded {
-                app.entry_view_expanded = false;
-                app.focus = Focus::Entries;
-            } else if seg.starts_with("quit") {
-                return Ok(true);
-            } else if seg.starts_with("exit search") {
-                app.exit_search();
-            } else if seg.starts_with("search") {
-                app.begin_search();
-            }
-            return Ok(false);
-        }
-        x_pos += seg_len + 3;
+    if seg.starts_with("new journal") {
+        Some(Action::NewJournal)
+    } else if seg.starts_with("new entry") {
+        Some(Action::NewEntry)
+    } else if seg == "refresh (r)" {
+        Some(Action::Refresh)
+    } else if seg.starts_with("edit tags") && app.has_selected_entry_target() {
+        Some(Action::BeginEditTags)
+    } else if seg.starts_with("edit feelings") && app.has_selected_entry_target() {
+        Some(Action::BeginEditFeelings)
+    } else if seg.starts_with("edit mood") && app.has_selected_entry_target() {
+        Some(Action::BeginEditMood)
+    } else if seg.starts_with("edit") && app.can_act_on_selected_entry() {
+        Some(Action::EditSelected)
+    } else if seg.starts_with("view") && app.has_selected_entry_target() {
+        Some(Action::ViewSelected)
+    } else if seg.starts_with("delete") && app.has_selected_entry_target() {
+        Some(Action::BeginDelete)
+    } else if seg.starts_with("close") && app.entry_view_expanded {
+        Some(Action::CancelOverlay)
+    } else if seg.starts_with("quit") {
+        Some(Action::Quit)
+    } else if seg.starts_with("exit search") {
+        Some(Action::ExitSearch)
+    } else if seg.starts_with("search") {
+        Some(Action::BeginSearch)
+    } else {
+        None
     }
-
-    Ok(false)
 }
 
 // ── Dialog hint click routing ─────────────────────────────────────────────────
 
+/// Returns the trimmed hint segment under `col`, given that the hint string
+/// starts at `origin_x` on screen. Separators are `" | "` (3 columns).
 fn hint_segment_at(hint: &str, origin_x: u16, col: u16) -> Option<&str> {
     if col < origin_x {
         return None;
@@ -232,16 +218,21 @@ fn hint_segment_at(hint: &str, origin_x: u16, col: u16) -> Option<&str> {
     let rel = (col - origin_x) as usize;
     let mut x = 0usize;
     for seg in hint.split(" | ") {
-        let width = seg.chars().count(); // char count == display columns for non-CJK
+        let width = seg.chars().count();
         if rel >= x && rel < x + width {
             return Some(seg.trim());
         }
-        x += width + 3; // " | " separator is 3 display columns
+        x += width + 3;
     }
     None
 }
 
-fn handle_dialog_hint_click(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
+fn handle_dialog_hint_click(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    mouse: MouseEvent,
+    area: Rect,
+) -> AppResult<()> {
     let col = mouse.column;
     let row = mouse.row;
 
@@ -251,8 +242,9 @@ fn handle_dialog_hint_click(app: &mut App, mouse: MouseEvent, area: Rect) -> App
         let inner = render::panel_inner(dialog);
         if row == inner.y + inner.height.saturating_sub(1)
             && let Some(seg) = hint_segment_at(render::tags_dialog_hint(focus), inner.x, col)
+            && let Some(action) = tags_hint_to_action(app, seg)
         {
-            dispatch_tags_hint(app, seg)?;
+            super::dispatch_action(terminal, app, action)?;
         }
         return Ok(());
     }
@@ -263,8 +255,9 @@ fn handle_dialog_hint_click(app: &mut App, mouse: MouseEvent, area: Rect) -> App
         let inner = render::panel_inner(dialog);
         if row == inner.y + inner.height.saturating_sub(1)
             && let Some(seg) = hint_segment_at(render::FEELINGS_HINT, inner.x, col)
+            && let Some(action) = feelings_hint_to_action(seg)
         {
-            dispatch_feelings_hint(app, seg)?;
+            super::dispatch_action(terminal, app, action)?;
         }
         return Ok(());
     }
@@ -274,105 +267,53 @@ fn handle_dialog_hint_click(app: &mut App, mouse: MouseEvent, area: Rect) -> App
         let inner = render::panel_inner(dialog);
         if row == inner.y + inner.height.saturating_sub(1)
             && let Some(seg) = hint_segment_at(render::MOOD_HINT, inner.x, col)
+            && let Some(action) = mood_hint_to_action(seg)
         {
-            dispatch_mood_hint(app, seg)?;
+            super::dispatch_action(terminal, app, action)?;
         }
     }
 
     Ok(())
 }
 
-fn dispatch_tags_hint(app: &mut App, seg: &str) -> AppResult<()> {
-    if seg.starts_with("toggle")
-        && let Some(state) = app.edit_tag_state_mut()
-        && let Some(&tag_idx) = state.filtered.get(state.cursor)
-    {
-        let tag = state.all_tags[tag_idx].0.to_lowercase();
-        if let Some(pos) = state.selected.iter().position(|t| t == &tag) {
-            state.selected.remove(pos);
-        } else {
-            state.selected.push(tag);
-        }
+/// Pure: maps a tags-dialog hint segment to an Action.
+fn tags_hint_to_action(app: &App, seg: &str) -> Option<Action> {
+    if seg.starts_with("toggle") && app.edit_tag_state().is_some_and(|s| !s.filtered.is_empty()) {
+        Some(Action::TagsToggle)
     } else if seg.starts_with("input") || seg.starts_with("list") {
-        if let Some(state) = app.edit_tag_state_mut() {
-            state.focus = match state.focus {
-                EditTagFocus::List => EditTagFocus::Input,
-                EditTagFocus::Input => EditTagFocus::List,
-            };
-        }
+        Some(Action::TagsSwitchFocus)
     } else if seg.starts_with("add") {
-        if let Some(state) = app.edit_tag_state_mut() {
-            let tag = state.input.trim().to_lowercase();
-            if !tag.is_empty() && !state.selected.contains(&tag) {
-                state.selected.push(tag.clone());
-                if !state
-                    .all_tags
-                    .iter()
-                    .any(|(t, _)| t.eq_ignore_ascii_case(&tag))
-                {
-                    state.all_tags.push((tag, 0));
-                }
-            }
-            state.input.clear();
-            state.rebuild_filter();
-        }
+        Some(Action::TagsAddFromInput)
     } else if seg.starts_with("save") {
-        let tags = app
-            .edit_tag_state()
-            .map(|s| s.selected.clone())
-            .unwrap_or_default();
-        set_tags_on_entry(app, &tags)?;
-        app.close_overlay();
+        Some(Action::TagsSave)
     } else {
-        // "cancel" or any unknown segment
-        app.close_overlay();
+        Some(Action::CancelOverlay)
     }
-    Ok(())
 }
 
-fn dispatch_feelings_hint(app: &mut App, seg: &str) -> AppResult<()> {
+/// Pure: maps a feelings-dialog hint segment to an Action.
+fn feelings_hint_to_action(seg: &str) -> Option<Action> {
     if seg.starts_with("toggle") {
-        if let Some(state) = app.edit_feeling_state_mut() {
-            let feeling = state.all_feelings[state.cursor].clone();
-            if let Some(pos) = state.selected.iter().position(|v| v == &feeling) {
-                state.selected.remove(pos);
-            } else {
-                state.selected.push(feeling);
-            }
-        }
+        Some(Action::FeelingsToggle)
     } else if seg.starts_with("save") {
-        let feelings = app
-            .edit_feeling_state()
-            .map(|s| s.selected.clone())
-            .unwrap_or_default();
-        set_feelings_on_entry(app, &feelings)?;
-        app.close_overlay();
+        Some(Action::FeelingsSave)
     } else {
-        app.close_overlay();
+        Some(Action::CancelOverlay)
     }
-    Ok(())
 }
 
-fn dispatch_mood_hint(app: &mut App, seg: &str) -> AppResult<()> {
-    if seg.starts_with("decrease")
-        && let Some(state) = app.edit_mood_state_mut()
-        && state.draft > -5
-    {
-        state.draft -= 1;
-    } else if seg.starts_with("increase")
-        && let Some(state) = app.edit_mood_state_mut()
-        && state.draft < 5
-    {
-        state.draft += 1;
+/// Pure: maps a mood-dialog hint segment to an Action.
+fn mood_hint_to_action(seg: &str) -> Option<Action> {
+    if seg.starts_with("decrease") {
+        Some(Action::MoodDecrease)
+    } else if seg.starts_with("increase") {
+        Some(Action::MoodIncrease)
     } else if seg.starts_with("save") {
-        let mood = app.edit_mood_state().map(|s| s.draft);
-        set_mood_on_entry(app, mood)?;
-        app.close_overlay();
+        Some(Action::MoodSave)
     } else if seg.starts_with("clear") {
-        set_mood_on_entry(app, None)?;
-        app.close_overlay();
+        Some(Action::MoodClear)
     } else {
-        app.close_overlay();
+        Some(Action::CancelOverlay)
     }
-    Ok(())
 }
+

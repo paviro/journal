@@ -382,6 +382,10 @@ impl App {
         self.overlay = Overlay::ConfirmDelete;
     }
 
+    pub(crate) fn has_overlay(&self) -> bool {
+        !matches!(self.overlay, Overlay::None)
+    }
+
     pub(crate) fn close_overlay(&mut self) {
         self.overlay = Overlay::None;
     }
