@@ -5,7 +5,7 @@ mod hit_test;
 mod render;
 mod scroll;
 
-use crate::{AppResult, config::Config};
+use crate::{AppResult, config::Config, crypto};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
@@ -16,13 +16,14 @@ use std::io;
 
 use app::App;
 
-pub fn run(config: Config) -> AppResult<()> {
+pub fn run(config: Config, encryption_paths: crypto::EncryptionPaths) -> AppResult<()> {
+    let app = App::new(config, encryption_paths)?;
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let result = run_loop(&mut terminal, config);
+    let result = run_loop(&mut terminal, app);
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
@@ -33,11 +34,7 @@ pub fn run(config: Config) -> AppResult<()> {
     result
 }
 
-fn run_loop(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    config: Config,
-) -> AppResult<()> {
-    let mut app = App::new(config)?;
+fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App) -> AppResult<()> {
     terminal.draw(|frame| render::draw(frame, &mut app))?;
 
     loop {

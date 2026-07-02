@@ -53,15 +53,20 @@ pub fn save_config(path: &Path, config: &Config) -> AppResult<()> {
 }
 
 pub fn load_or_setup(path_override: Option<&Path>) -> AppResult<Config> {
+    Ok(load_or_setup_with_path(path_override)?.1)
+}
+
+pub fn load_or_setup_with_path(path_override: Option<&Path>) -> AppResult<(PathBuf, Config)> {
     let config_path = config_path(path_override)?;
 
     if config_path.exists() {
         let config = load_config(&config_path)?;
         crate::storage::ensure_workspace(&config.journal_root)?;
-        return Ok(config);
+        return Ok((config_path, config));
     }
 
-    interactive_setup(&config_path)
+    let config = interactive_setup(&config_path)?;
+    Ok((config_path, config))
 }
 
 pub fn load_existing(path_override: Option<&Path>) -> AppResult<(PathBuf, Config)> {
@@ -118,7 +123,26 @@ fn interactive_setup(config_path: &Path) -> AppResult<Config> {
         editor_input.trim().to_string()
     };
 
+    write!(stdout, "Enable age encryption? [y/N]: ")?;
+    stdout.flush()?;
+    let mut encryption_input = String::new();
+    io::stdin().read_line(&mut encryption_input)?;
+
     let config = Config::new(journal_root, editor);
+    if matches!(encryption_input.trim(), "y" | "Y" | "yes" | "YES" | "Yes") {
+        writeln!(
+            stdout,
+            "Generating a passphrase-protected journal age identity."
+        )?;
+        let paths = crate::crypto::EncryptionPaths::for_config(config_path, &config.journal_root)?;
+        crate::crypto::generate_identity_store_interactive(&paths)?;
+        writeln!(
+            stdout,
+            "Age identity: {}. Back it up; without it encrypted journal files cannot be decrypted.",
+            paths.identity_file.display()
+        )?;
+    }
+
     save_config(config_path, &config)?;
     crate::storage::ensure_workspace(&config.journal_root)?;
     Ok(config)
@@ -180,5 +204,17 @@ mod tests {
         let loaded = load_config(&path).unwrap();
 
         assert_eq!(loaded.default_journal.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn saved_config_omits_encryption_state() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let config = Config::new(dir.path().join("root"), "vim");
+
+        save_config(&path, &config).unwrap();
+
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("encryption"));
     }
 }

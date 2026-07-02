@@ -88,7 +88,8 @@ mod tests {
     use super::*;
     use crate::{
         config::Config,
-        storage::Entry,
+        crypto,
+        storage::{Entry, EntryEncryptionState},
         tui::app::{Focus, INLINE_ENTRY_VIEW_MIN_WIDTH, Mode},
     };
     use ratatui::{
@@ -100,6 +101,15 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
+
+    fn new_app(config: Config) -> App {
+        let encryption_paths = crypto::EncryptionPaths::for_config(
+            &config.journal_root.join("config.toml"),
+            &config.journal_root,
+        )
+        .unwrap();
+        App::new(config, encryption_paths).unwrap()
+    }
 
     fn app_with_entry() -> App {
         let dir = tempdir().unwrap();
@@ -113,7 +123,7 @@ mod tests {
         .unwrap();
 
         let config = Config::new(root, "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
         app
     }
@@ -258,7 +268,7 @@ mod tests {
         )
         .unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
         let area = Rect::new(0, 0, 40, 10);
         let rows = entry_row_metadata(&app);
@@ -416,7 +426,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::create_dir_all(dir.path().join("work")).unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
 
         let stats = journal_stats(&app).unwrap();
@@ -474,7 +484,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::create_dir_all(dir.path().join("work")).unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
         app.focus = Focus::Entries;
 
@@ -541,6 +551,7 @@ mod tests {
             id: "id".to_string(),
             journal: "work".to_string(),
             path: PathBuf::from("id.md"),
+            encryption_state: EntryEncryptionState::Plain,
             created_at: Some("2026-07-01T10:23:00+02:00".to_string()),
             updated_at: None,
             title: "Title".to_string(),
@@ -565,11 +576,41 @@ mod tests {
     }
 
     #[test]
+    fn locked_entry_list_lines_include_structural_marker() {
+        let entry = Entry {
+            id: "id".to_string(),
+            journal: "work".to_string(),
+            path: PathBuf::from("work/2026/07/01/2026-07-01T10-23-00-id.md.age"),
+            encryption_state: EntryEncryptionState::EncryptedLocked,
+            created_at: None,
+            updated_at: None,
+            title: "[locked] Encrypted entry".to_string(),
+            preview: "Encryption identity not available".to_string(),
+            content: "Encryption identity not available".to_string(),
+        };
+
+        let lines = entry_list_lines(&entry);
+        let rendered: Vec<String> = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect();
+
+        assert_eq!(rendered[0], "       [locked] Encrypted entry");
+        assert_eq!(rendered[1], "       Encryption identity not available");
+    }
+
+    #[test]
     fn entry_group_labels_use_created_timestamp() {
         let entry = Entry {
             id: "id".to_string(),
             journal: "work".to_string(),
             path: PathBuf::from("work/2026-01-01/id.md"),
+            encryption_state: EntryEncryptionState::Plain,
             created_at: Some("2026-07-01T10:23:00+02:00".to_string()),
             updated_at: None,
             title: "Title".to_string(),
@@ -587,6 +628,7 @@ mod tests {
             id: "id".to_string(),
             journal: "work".to_string(),
             path: PathBuf::from("work/2026/07/01/2026-07-01T10-23-00-id.md"),
+            encryption_state: EntryEncryptionState::Plain,
             created_at: None,
             updated_at: None,
             title: "Title".to_string(),

@@ -46,6 +46,7 @@ mod tests {
             id: "id".to_string(),
             journal: "work".to_string(),
             path: PathBuf::from(path),
+            encryption_state: crate::storage::EntryEncryptionState::Plain,
             created_at: created_at.map(str::to_string),
             updated_at: None,
             title: "Title".to_string(),

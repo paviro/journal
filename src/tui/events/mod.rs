@@ -17,6 +17,7 @@ mod tests {
     use super::*;
     use crate::{
         config::Config,
+        crypto,
         tui::{
             app::{App, Focus},
             render,
@@ -36,13 +37,22 @@ mod tests {
         }
     }
 
+    fn new_app(config: Config) -> App {
+        let encryption_paths = crypto::EncryptionPaths::for_config(
+            &config.journal_root.join("config.toml"),
+            &config.journal_root,
+        )
+        .unwrap();
+        App::new(config, encryption_paths).unwrap()
+    }
+
     fn app_with_journals(names: &[&str]) -> App {
         let dir = tempdir().unwrap();
         for name in names {
             fs::create_dir_all(dir.path().join(name)).unwrap();
         }
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let app = App::new(config).unwrap();
+        let app = new_app(config);
         std::mem::forget(dir);
         app
     }
@@ -61,7 +71,7 @@ mod tests {
             .unwrap();
         }
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
         std::mem::forget(dir);
         app
@@ -72,8 +82,8 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::create_dir_all(dir.path().join("work")).unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut enter_app = App::new(config.clone()).unwrap();
-        let mut right_app = App::new(config).unwrap();
+        let mut enter_app = new_app(config.clone());
+        let mut right_app = new_app(config);
 
         enter_app.focus = Focus::Journals;
         right_app.focus = Focus::Journals;
@@ -92,7 +102,7 @@ mod tests {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(entry_dir.join("a.md"), "---\ntags: []\n---\n\n# A\nBody\n").unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
         app.focus = Focus::Entries;
 
@@ -113,7 +123,7 @@ mod tests {
         )
         .unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
         app.focus = Focus::Entries;
 
@@ -129,7 +139,7 @@ mod tests {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(entry_dir.join("a.md"), "---\ntags: []\n---\n\n# A\nBody\n").unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
         app.focus = Focus::Entries;
 

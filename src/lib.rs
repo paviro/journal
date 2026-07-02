@@ -1,4 +1,5 @@
 pub mod config;
+pub mod crypto;
 pub mod markdown;
 pub mod storage;
 pub mod tui;

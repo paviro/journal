@@ -1,10 +1,11 @@
 use crate::{
     AppResult,
     config::Config,
+    crypto,
     markdown::split_front_matter,
     storage::{
-        self, Entry, Journal, SearchHit, SearchScopeFilter, entry_timestamp_label, scan_entries,
-        search_entries,
+        self, Entry, EntryEncryptionState, Journal, SearchHit, SearchScopeFilter,
+        entry_timestamp_label, scan_entries_with_identity, search_entries_with_identity,
     },
 };
 use std::{
@@ -47,6 +48,8 @@ pub(crate) struct EntryTarget {
 
 pub(crate) struct App {
     pub(crate) config: Config,
+    pub(crate) encryption_paths: crypto::EncryptionPaths,
+    pub(crate) unlocked_identity: Option<crypto::UnlockedIdentity>,
     pub(crate) journals: Vec<Journal>,
     pub(crate) entries: Vec<Entry>,
     pub(crate) search_hits: Vec<SearchHit>,
@@ -74,9 +77,21 @@ pub(crate) struct MarkdownView {
 }
 
 impl App {
-    pub(crate) fn new(config: Config) -> AppResult<Self> {
+    pub(crate) fn new(
+        config: Config,
+        encryption_paths: crypto::EncryptionPaths,
+    ) -> AppResult<Self> {
+        let unlocked_identity = if crypto::can_decrypt(&encryption_paths)
+            && storage::has_encrypted_entries(&config.journal_root)?
+        {
+            Some(crypto::prompt_unlock_identity(&encryption_paths)?)
+        } else {
+            None
+        };
         let mut app = Self {
             config,
+            encryption_paths,
+            unlocked_identity,
             journals: Vec::new(),
             entries: Vec::new(),
             search_hits: Vec::new(),
@@ -102,7 +117,8 @@ impl App {
     pub(crate) fn refresh(&mut self) -> AppResult<()> {
         storage::ensure_workspace(&self.config.journal_root)?;
         self.journals = storage::list_journals(&self.config.journal_root)?;
-        self.entries = scan_entries(&self.config.journal_root)?;
+        self.entries =
+            scan_entries_with_identity(&self.config.journal_root, self.unlocked_identity.as_ref())?;
         if self.selected_journal >= self.journals.len() {
             self.selected_journal = self.journals.len().saturating_sub(1);
             self.journal_scroll = 0;
@@ -239,11 +255,22 @@ impl App {
         match self.mode {
             Mode::Search => {
                 let hit = self.selected_search_hit()?;
-                let entry = storage::read_entry(&hit.journal, &hit.path).ok()?;
+                let entry = storage::read_entry_with_identity(
+                    &hit.journal,
+                    &hit.path,
+                    self.unlocked_identity.as_ref(),
+                )
+                .ok()?;
                 Some((entry_timestamp_label(&entry), markdown_body(&entry.content)))
             }
             Mode::Browse => {
                 let entry = self.selected_entry()?;
+                if entry.encryption_state == EntryEncryptionState::EncryptedLocked {
+                    return Some((
+                        entry_timestamp_label(entry),
+                        "Encryption identity not available".to_string(),
+                    ));
+                }
                 Some((entry_timestamp_label(entry), markdown_body(&entry.content)))
             }
         }
@@ -319,10 +346,11 @@ impl App {
     }
 
     fn search_results(&self) -> AppResult<Vec<SearchHit>> {
-        search_entries(
+        search_entries_with_identity(
             &self.config.journal_root,
             &self.search_query,
             self.search_scope.filter(),
+            self.unlocked_identity.as_ref(),
         )
     }
 
@@ -398,6 +426,15 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
+    fn new_app(config: Config) -> App {
+        let encryption_paths = crypto::EncryptionPaths::for_config(
+            &config.journal_root.join("config.toml"),
+            &config.journal_root,
+        )
+        .unwrap();
+        App::new(config, encryption_paths).unwrap()
+    }
+
     #[test]
     fn changing_selected_entry_resets_entry_view_scroll() {
         let dir = tempdir().unwrap();
@@ -407,7 +444,7 @@ mod tests {
         fs::write(entry_dir.join("b.md"), "---\ntags: []\n---\n\n# B\n").unwrap();
 
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
         app.focus = Focus::Entries;
         app.entry_view_scroll = 20;
@@ -436,7 +473,7 @@ mod tests {
         .unwrap();
 
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
 
         let (title, content) = app.selected_entry_view().unwrap();
@@ -457,7 +494,7 @@ mod tests {
         .unwrap();
 
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
         app.begin_search();
         app.search_query = "needle".to_string();
@@ -477,7 +514,7 @@ mod tests {
         fs::write(entry_dir.join("a.md"), "---\ntags: []\n---\n\n# A\n").unwrap();
 
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
 
         app.focus = Focus::Journals;
@@ -490,7 +527,7 @@ mod tests {
     #[test]
     fn hidden_entry_view_focus_falls_back_to_entries() {
         let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.focus = Focus::EntryView;
 
         app.normalize_focus(false);
@@ -501,7 +538,7 @@ mod tests {
     #[test]
     fn available_entry_view_focus_is_preserved() {
         let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.focus = Focus::EntryView;
 
         app.normalize_focus(true);
@@ -528,7 +565,7 @@ mod tests {
     #[test]
     fn search_from_journal_focus_is_global() {
         let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.focus = Focus::Journals;
 
         app.begin_search();
@@ -541,7 +578,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::create_dir_all(dir.path().join("work")).unwrap();
         let config = Config::new(dir.path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.select_journal_by_name("work");
         app.focus = Focus::Entries;
 
@@ -556,7 +593,7 @@ mod tests {
     #[test]
     fn status_timeout_is_none_without_active_status() {
         let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
-        let app = App::new(config).unwrap();
+        let app = new_app(config);
 
         assert!(app.status_timeout().is_none());
     }
@@ -564,7 +601,7 @@ mod tests {
     #[test]
     fn status_timeout_is_some_with_active_status() {
         let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
 
         app.set_status("Saved");
 
@@ -574,7 +611,7 @@ mod tests {
     #[test]
     fn expire_status_reports_visible_change_once() {
         let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
-        let mut app = App::new(config).unwrap();
+        let mut app = new_app(config);
         app.status = "Saved".to_string();
         app.status_until = Some(Instant::now() - Duration::from_secs(1));
 

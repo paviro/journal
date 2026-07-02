@@ -1,7 +1,7 @@
-use crate::AppResult;
+use crate::{AppResult, crypto};
 use std::path::PathBuf;
 
-use super::scan_entries;
+use super::{EntryEncryptionState, scan_entries, scan_entries_with_identity};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchHit {
@@ -22,14 +22,31 @@ pub fn search_entries(
     query: &str,
     scope: SearchScopeFilter<'_>,
 ) -> AppResult<Vec<SearchHit>> {
+    search_entries_with_identity(root, query, scope, None)
+}
+
+pub fn search_entries_with_identity(
+    root: &std::path::Path,
+    query: &str,
+    scope: SearchScopeFilter<'_>,
+    identity: Option<&crypto::UnlockedIdentity>,
+) -> AppResult<Vec<SearchHit>> {
     let needle = query.trim().to_lowercase();
     if needle.is_empty() {
         return Ok(Vec::new());
     }
 
     let mut hits = Vec::new();
-    for entry in scan_entries(root)? {
+    let entries = if identity.is_some() {
+        scan_entries_with_identity(root, identity)?
+    } else {
+        scan_entries(root)?
+    };
+    for entry in entries {
         if matches!(scope, SearchScopeFilter::Journal(journal) if entry.journal != journal) {
+            continue;
+        }
+        if entry.encryption_state == EntryEncryptionState::EncryptedLocked {
             continue;
         }
 
