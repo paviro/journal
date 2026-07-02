@@ -63,7 +63,7 @@ pub(super) fn create_entry_in_selected_journal(
     if app.selected_journal().is_some() {
         new_entry(terminal, app)
     } else {
-        app.set_status("Create a journal first with j");
+        app.set_status("Create a journal first with n");
         Ok(())
     }
 }

@@ -23,7 +23,9 @@ pub(crate) fn handle_key(
     app.normalize_focus(entry_view_available);
 
     if app.entry_view_expanded {
-        handle_expanded_entry_key(terminal, app, key)?;
+        if handle_expanded_entry_key(terminal, app, key)? {
+            return Ok(true);
+        }
         return Ok(false);
     }
 
@@ -64,9 +66,14 @@ pub(crate) fn handle_key(
         KeyCode::Up => move_selection_visible(terminal, app, -1)?,
         KeyCode::Down => move_selection_visible(terminal, app, 1)?,
         KeyCode::Char('e') if app.can_act_on_selected_entry() => edit_selected(terminal, app)?,
-        KeyCode::Char('v') if app.can_act_on_selected_entry() => view_selected(app)?,
-        KeyCode::Char('n') => create_entry_in_selected_journal(terminal, app)?,
-        KeyCode::Char('j') | KeyCode::Char('J') => app.begin_new_journal_input(),
+
+        KeyCode::Char('n') => {
+            if app.focus == Focus::Journals {
+                app.begin_new_journal_input();
+            } else {
+                create_entry_in_selected_journal(terminal, app)?;
+            }
+        }
         KeyCode::Char('d') if app.can_act_on_selected_entry() => app.begin_confirm_delete(),
         _ => {}
     }
@@ -101,9 +108,7 @@ fn handle_search_key(
         KeyCode::Char('e') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
             edit_selected(terminal, app)?
         }
-        KeyCode::Char('v') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
-            view_selected(app)?
-        }
+
         KeyCode::Char('d') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
             app.begin_confirm_delete()
         }
@@ -218,9 +223,10 @@ fn handle_expanded_entry_key(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     key: KeyEvent,
-) -> AppResult<()> {
+) -> AppResult<bool> {
     match key.code {
-        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter | KeyCode::Left => {
+        KeyCode::Char('q') => return Ok(true),
+        KeyCode::Esc | KeyCode::Enter | KeyCode::Left => {
             app.entry_view_expanded = false;
             app.focus = Focus::Entries;
         }
@@ -235,7 +241,7 @@ fn handle_expanded_entry_key(
         }
         _ => {}
     }
-    Ok(())
+    Ok(false)
 }
 
 fn handle_new_journal_input(app: &mut App, key: KeyEvent) -> AppResult<()> {

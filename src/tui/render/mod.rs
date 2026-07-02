@@ -49,7 +49,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
             .split(area);
         draw_selected_entry_view(frame, chunks[0], app);
         frame.render_widget(
-            Paragraph::new(" Esc/q close | e edit | up/down/k/j scroll | PgUp/PgDn | Home/End"),
+            Paragraph::new(" close (enter/esc) | edit (e) | quit (q)"),
             chunks[1],
         );
         return;
@@ -462,9 +462,9 @@ mod tests {
 
         let text = footer_text(&app, true);
 
-        assert!(!text.contains("enter/v view"));
-        assert!(!text.contains("e edit"));
-        assert!(!text.contains("d delete"));
+        assert!(!text.contains("view (enter)"));
+        assert!(!text.contains("edit (e)"));
+        assert!(!text.contains("delete (d)"));
     }
 
     #[test]
@@ -474,9 +474,9 @@ mod tests {
 
         let text = footer_text(&app, true);
 
-        assert!(text.contains("enter/v view"));
-        assert!(text.contains("e edit"));
-        assert!(text.contains("d delete"));
+        assert!(text.contains("view (enter)"));
+        assert!(text.contains("edit (e)"));
+        assert!(text.contains("delete (d)"));
     }
 
     #[test]
@@ -490,9 +490,9 @@ mod tests {
 
         let text = footer_text(&app, true);
 
-        assert!(!text.contains("enter/v view"));
-        assert!(!text.contains("e edit"));
-        assert!(!text.contains("d delete"));
+        assert!(!text.contains("view (enter)"));
+        assert!(!text.contains("edit (e)"));
+        assert!(!text.contains("delete (d)"));
     }
 
     #[test]
@@ -512,10 +512,9 @@ mod tests {
 
         assert!(text.contains("type query"));
         assert!(text.contains("Search all: body"));
-        assert!(text.contains("enter view"));
-        assert!(!text.contains("enter/v view"));
-        assert!(!text.contains("e edit"));
-        assert!(!text.contains("d delete"));
+        assert!(text.contains("view (enter)"));
+        assert!(!text.contains("edit (e)"));
+        assert!(!text.contains("delete (d)"));
     }
 
     #[test]

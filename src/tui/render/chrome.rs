@@ -6,100 +6,72 @@ use ratatui::{
 
 use crate::tui::app::{App, Focus, Mode};
 
-pub(crate) fn footer_text(app: &App, entry_view_visible: bool) -> String {
+pub(crate) fn footer_text(app: &App, _entry_view_visible: bool) -> String {
     if !app.status().is_empty() {
         return app.status().to_string();
     }
 
     match app.mode {
-        Mode::Search => search_footer_text(app, entry_view_visible),
-        Mode::Browse => browse_footer_text(app, entry_view_visible),
+        Mode::Search => search_footer_text(app),
+        Mode::Browse => browse_footer_text(app),
     }
 }
 
-fn search_footer_text(app: &App, entry_view_visible: bool) -> String {
+fn search_footer_text(app: &App) -> String {
     let query = format!("Search {}: {}", app.search_scope_label(), app.search.query);
     match app.focus {
         Focus::EntryView if app.has_selected_entry_target() => {
-            format!(
-                "{query} | left results | up/down/k/j scroll | PgUp/PgDn | Home/End | enter/v view | e edit | d delete | Esc search"
-            )
+            format!("{query} | view (enter) | edit (e) | delete (d) | search (Esc) | quit (q)")
         }
-        Focus::EntryView => format!("{query} | left results | Esc search"),
+        Focus::EntryView => format!("{query} | search (Esc) | quit (q)"),
         _ => {
             let mut parts = vec![
                 format!("Search {}: {}", app.search_scope_label(), app.search.query),
                 "type query".to_string(),
                 "backspace".to_string(),
-                "up/down select".to_string(),
             ];
             if app.has_selected_entry_target() {
-                if entry_view_visible {
-                    parts.push("enter view".to_string());
-                    parts.push("right view".to_string());
-                } else {
-                    parts.push("right/enter view".to_string());
-                }
+                parts.push("view (enter)".to_string());
             }
-            parts.push("Esc search".to_string());
+            parts.push("search (Esc)".to_string());
             parts.join(" | ")
         }
     }
 }
 
-fn browse_footer_text(app: &App, entry_view_visible: bool) -> String {
-    let mut parts = match app.focus {
+fn browse_footer_text(app: &App) -> String {
+    let parts = match app.focus {
         Focus::Journals => vec![
-            "q quit".to_string(),
-            "up/down select journal".to_string(),
-            "right entries".to_string(),
-            "n new entry".to_string(),
-            "j new journal".to_string(),
-            "/ search".to_string(),
-            "r refresh".to_string(),
+            "new journal (n)".to_string(),
+            "refresh (r)".to_string(),
+            "search (/)".to_string(),
+            "quit (q)".to_string(),
         ],
         Focus::Entries => {
-            let mut parts = vec![
-                "left journals".to_string(),
-                "up/down select entry".to_string(),
-            ];
+            let mut parts = vec![];
+            parts.push("new entry (n)".to_string());
             if app.has_selected_entry_target() {
-                if entry_view_visible {
-                    parts.push("right view".to_string());
-                    parts.push("enter/v view".to_string());
-                } else {
-                    parts.push("right/enter/v view".to_string());
-                }
-                parts.push("e edit".to_string());
-                parts.push("d delete".to_string());
+                parts.push("edit (e)".to_string());
+                parts.push("view (enter)".to_string());
+                parts.push("delete (d)".to_string());
             }
-            parts.push("n new entry".to_string());
-            parts.push("/ search".to_string());
-            parts.push("q quit".to_string());
+            parts.push("search (/)".to_string());
+            parts.push("quit (q)".to_string());
             parts
         }
         Focus::EntryView => {
-            let mut parts = vec![
-                "left entries".to_string(),
-                "up/down/k/j scroll".to_string(),
-                "PgUp/PgDn".to_string(),
-                "Home/End".to_string(),
-            ];
+            let mut parts = vec![];
+            parts.push("new entry (n)".to_string());
             if app.has_selected_entry_target() {
-                parts.push("enter/v view".to_string());
-                parts.push("e edit".to_string());
-                parts.push("d delete".to_string());
+                parts.push("edit (e)".to_string());
+                parts.push("view (enter)".to_string());
+                parts.push("delete (d)".to_string());
             }
-            parts.push("n new entry".to_string());
-            parts.push("/ search".to_string());
-            parts.push("q quit".to_string());
+            parts.push("search (/)".to_string());
+            parts.push("quit (q)".to_string());
             parts
         }
     };
-
-    if !entry_view_visible {
-        parts.retain(|part| !part.contains("right view"));
-    }
 
     parts.join(" | ")
 }
