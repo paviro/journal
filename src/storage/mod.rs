@@ -16,7 +16,7 @@ pub use entries::{
     scan_entries_with_identity, set_updated_at_now,
 };
 pub use journals::{Journal, create_journal, list_journals, validate_journal_name};
-pub use search::{SearchHit, SearchScopeFilter, search_entries, search_entries_with_identity};
+pub use search::{SearchHit, SearchScopeFilter, search_loaded_entries};
 
 pub fn ensure_workspace(root: &Path) -> AppResult<()> {
     fs::create_dir_all(root)?;

@@ -123,11 +123,11 @@ fn handle_search_key(
         }
         KeyCode::Backspace if app.focus == Focus::Entries => {
             app.search_query.pop();
-            app.update_search_results()?;
+            app.update_search_results();
         }
         KeyCode::Char(ch) if app.focus == Focus::Entries => {
             app.search_query.push(ch);
-            app.update_search_results()?;
+            app.update_search_results();
         }
         KeyCode::Up => {
             app.move_selection(-1);

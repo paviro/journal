@@ -1,7 +1,6 @@
-use crate::{AppResult, crypto};
 use std::path::PathBuf;
 
-use super::{EntryEncryptionState, scan_entries, scan_entries_with_identity};
+use super::{Entry, EntryEncryptionState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchHit {
@@ -17,31 +16,19 @@ pub enum SearchScopeFilter<'a> {
     Journal(&'a str),
 }
 
-pub fn search_entries(
-    root: &std::path::Path,
+/// Filter already-loaded entries in memory. No disk I/O or decryption — the
+/// caller's `Entry` cache already holds decrypted `content` for every entry.
+pub fn search_loaded_entries(
+    entries: &[Entry],
     query: &str,
     scope: SearchScopeFilter<'_>,
-) -> AppResult<Vec<SearchHit>> {
-    search_entries_with_identity(root, query, scope, None)
-}
-
-pub fn search_entries_with_identity(
-    root: &std::path::Path,
-    query: &str,
-    scope: SearchScopeFilter<'_>,
-    identity: Option<&crypto::UnlockedIdentity>,
-) -> AppResult<Vec<SearchHit>> {
+) -> Vec<SearchHit> {
     let needle = query.trim().to_lowercase();
     if needle.is_empty() {
-        return Ok(Vec::new());
+        return Vec::new();
     }
 
     let mut hits = Vec::new();
-    let entries = if identity.is_some() {
-        scan_entries_with_identity(root, identity)?
-    } else {
-        scan_entries(root)?
-    };
     for entry in entries {
         if matches!(scope, SearchScopeFilter::Journal(journal) if entry.journal != journal) {
             continue;
@@ -52,20 +39,21 @@ pub fn search_entries_with_identity(
 
         if entry.content.to_lowercase().contains(&needle) {
             hits.push(SearchHit {
-                path: entry.path,
-                journal: entry.journal,
-                title: entry.title,
-                preview: entry.preview,
+                path: entry.path.clone(),
+                journal: entry.journal.clone(),
+                title: entry.title.clone(),
+                preview: entry.preview.clone(),
             });
         }
     }
 
-    Ok(hits)
+    hits
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::scan_entries;
     use std::fs;
     use tempfile::tempdir;
 
@@ -79,7 +67,8 @@ mod tests {
         )
         .unwrap();
 
-        let hits = search_entries(dir.path(), "needle", SearchScopeFilter::AllJournals).unwrap();
+        let entries = scan_entries(dir.path()).unwrap();
+        let hits = search_loaded_entries(&entries, "needle", SearchScopeFilter::AllJournals);
 
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].journal, "work");
@@ -102,8 +91,8 @@ mod tests {
         )
         .unwrap();
 
-        let hits =
-            search_entries(dir.path(), "needle", SearchScopeFilter::Journal("work")).unwrap();
+        let entries = scan_entries(dir.path()).unwrap();
+        let hits = search_loaded_entries(&entries, "needle", SearchScopeFilter::Journal("work"));
 
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].journal, "work");

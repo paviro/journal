@@ -5,7 +5,7 @@ use crate::{
     markdown::split_front_matter,
     storage::{
         self, Entry, EntryEncryptionState, Journal, SearchHit, SearchScopeFilter,
-        entry_timestamp_label, search_entries_with_identity,
+        entry_timestamp_label, search_loaded_entries,
     },
 };
 use std::{
@@ -134,7 +134,7 @@ impl App {
             self.entry_view_scroll = 0;
         }
         if !self.search_query.is_empty() {
-            self.search_hits = self.search_results()?;
+            self.search_hits = self.search_results();
         }
         let previous_entry_index = self.selected_entry_index;
         self.selected_entry_index = self
@@ -331,12 +331,11 @@ impl App {
         self.entry_view_scroll = 0;
     }
 
-    pub(crate) fn update_search_results(&mut self) -> AppResult<()> {
-        self.search_hits = self.search_results()?;
+    pub(crate) fn update_search_results(&mut self) {
+        self.search_hits = self.search_results();
         self.selected_entry_index = 0;
         self.entry_scroll = 0;
         self.entry_view_scroll = 0;
-        Ok(())
     }
 
     pub(crate) fn search_scope_label(&self) -> String {
@@ -353,12 +352,11 @@ impl App {
         }
     }
 
-    fn search_results(&self) -> AppResult<Vec<SearchHit>> {
-        search_entries_with_identity(
-            &self.config.journal_root,
+    fn search_results(&self) -> Vec<SearchHit> {
+        search_loaded_entries(
+            &self.entries,
             &self.search_query,
             self.search_scope.filter(),
-            self.unlocked_identity.as_ref(),
         )
     }
 
@@ -506,7 +504,7 @@ mod tests {
         app.select_journal_by_name("work");
         app.begin_search();
         app.search_query = "needle".to_string();
-        app.update_search_results().unwrap();
+        app.update_search_results();
 
         let (title, content) = app.selected_entry_view().unwrap();
 
