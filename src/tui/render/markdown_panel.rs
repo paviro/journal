@@ -1,10 +1,15 @@
 use ratatui::{
     Frame,
     buffer::Buffer,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, ScrollbarState, Widget},
+};
+use ratatui_029::{
+    layout::Alignment as MarkdownAlignment,
+    style::{Color as MarkdownColor, Modifier as MarkdownModifier, Style as MarkdownStyle},
+    text::{Line as MarkdownLine, Span as MarkdownSpan},
 };
 use ratatui_markdown::{
     markdown::MarkdownRenderer,
@@ -80,7 +85,7 @@ fn draw_markdown_panel(
     let theme = markdown_theme();
     let renderer = MarkdownRenderer::new(width);
     let blocks = renderer.parse(content);
-    let lines = renderer.render(&blocks, &theme);
+    let lines = adapt_markdown_lines(renderer.render(&blocks, &theme));
     let line_count = lines.len();
     let scroll = viewer_scroll(requested_scroll, line_count, content_rect.height);
 
@@ -243,7 +248,7 @@ impl Widget for MoodBar {
 }
 
 pub(crate) fn markdown_theme() -> ThemeConfig {
-    let foreground = Color::Reset;
+    let foreground = MarkdownColor::Reset;
     ThemeConfig::builder()
         .with_text_color(foreground)
         .with_muted_text_color(foreground)
@@ -265,21 +270,94 @@ pub(crate) fn markdown_theme() -> ThemeConfig {
 
 fn reset_code_colors() -> CodeColors {
     CodeColors {
-        comment: Color::Reset,
-        keyword: Color::Reset,
-        string: Color::Reset,
-        string_escape: Color::Reset,
-        number: Color::Reset,
-        constant: Color::Reset,
-        function: Color::Reset,
-        r#type: Color::Reset,
-        variable: Color::Reset,
-        property: Color::Reset,
-        operator: Color::Reset,
-        punctuation: Color::Reset,
-        attribute: Color::Reset,
-        tag: Color::Reset,
-        label: Color::Reset,
-        error: Color::Reset,
+        comment: MarkdownColor::Reset,
+        keyword: MarkdownColor::Reset,
+        string: MarkdownColor::Reset,
+        string_escape: MarkdownColor::Reset,
+        number: MarkdownColor::Reset,
+        constant: MarkdownColor::Reset,
+        function: MarkdownColor::Reset,
+        r#type: MarkdownColor::Reset,
+        variable: MarkdownColor::Reset,
+        property: MarkdownColor::Reset,
+        operator: MarkdownColor::Reset,
+        punctuation: MarkdownColor::Reset,
+        attribute: MarkdownColor::Reset,
+        tag: MarkdownColor::Reset,
+        label: MarkdownColor::Reset,
+        error: MarkdownColor::Reset,
+    }
+}
+
+fn adapt_markdown_lines(lines: Vec<MarkdownLine<'_>>) -> Vec<Line<'_>> {
+    lines.into_iter().map(adapt_markdown_line).collect()
+}
+
+fn adapt_markdown_line(line: MarkdownLine<'_>) -> Line<'_> {
+    Line {
+        style: adapt_markdown_style(line.style),
+        alignment: line.alignment.map(adapt_markdown_alignment),
+        spans: line.spans.into_iter().map(adapt_markdown_span).collect(),
+    }
+}
+
+fn adapt_markdown_span(span: MarkdownSpan<'_>) -> Span<'_> {
+    Span {
+        style: adapt_markdown_style(span.style),
+        content: span.content,
+    }
+}
+
+fn adapt_markdown_style(markdown_style: MarkdownStyle) -> Style {
+    let mut style = Style::default()
+        .add_modifier(adapt_markdown_modifier(markdown_style.add_modifier))
+        .remove_modifier(adapt_markdown_modifier(markdown_style.sub_modifier));
+
+    if let Some(fg) = markdown_style.fg {
+        style = style.fg(adapt_markdown_color(fg));
+    }
+    if let Some(bg) = markdown_style.bg {
+        style = style.bg(adapt_markdown_color(bg));
+    }
+    if let Some(underline_color) = markdown_style.underline_color {
+        style = style.underline_color(adapt_markdown_color(underline_color));
+    }
+
+    style
+}
+
+fn adapt_markdown_modifier(modifier: MarkdownModifier) -> Modifier {
+    Modifier::from_bits_truncate(modifier.bits())
+}
+
+fn adapt_markdown_alignment(alignment: MarkdownAlignment) -> Alignment {
+    match alignment {
+        MarkdownAlignment::Left => Alignment::Left,
+        MarkdownAlignment::Center => Alignment::Center,
+        MarkdownAlignment::Right => Alignment::Right,
+    }
+}
+
+fn adapt_markdown_color(color: MarkdownColor) -> Color {
+    match color {
+        MarkdownColor::Reset => Color::Reset,
+        MarkdownColor::Black => Color::Black,
+        MarkdownColor::Red => Color::Red,
+        MarkdownColor::Green => Color::Green,
+        MarkdownColor::Yellow => Color::Yellow,
+        MarkdownColor::Blue => Color::Blue,
+        MarkdownColor::Magenta => Color::Magenta,
+        MarkdownColor::Cyan => Color::Cyan,
+        MarkdownColor::Gray => Color::Gray,
+        MarkdownColor::DarkGray => Color::DarkGray,
+        MarkdownColor::LightRed => Color::LightRed,
+        MarkdownColor::LightGreen => Color::LightGreen,
+        MarkdownColor::LightYellow => Color::LightYellow,
+        MarkdownColor::LightBlue => Color::LightBlue,
+        MarkdownColor::LightMagenta => Color::LightMagenta,
+        MarkdownColor::LightCyan => Color::LightCyan,
+        MarkdownColor::White => Color::White,
+        MarkdownColor::Rgb(r, g, b) => Color::Rgb(r, g, b),
+        MarkdownColor::Indexed(index) => Color::Indexed(index),
     }
 }

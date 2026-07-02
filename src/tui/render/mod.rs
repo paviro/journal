@@ -113,12 +113,8 @@ mod tests {
             state::{EditTagFocus, EditTagState},
         },
     };
-    use ratatui::{
-        Terminal,
-        backend::TestBackend,
-        layout::Rect,
-        style::{Color, Modifier},
-    };
+    use ratatui::{Terminal, backend::TestBackend, layout::Rect, style::Modifier};
+    use ratatui_029::style::Color as MarkdownColor;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
@@ -392,12 +388,12 @@ mod tests {
     fn markdown_theme_uses_terminal_default_foregrounds() {
         let theme = markdown_theme();
 
-        assert_eq!(theme.text_color, Color::Reset);
-        assert_eq!(theme.muted_text_color, Color::Reset);
-        assert_eq!(theme.primary_color, Color::Reset);
-        assert_eq!(theme.secondary_color, Color::Reset);
-        assert_eq!(theme.accent_yellow, Color::Reset);
-        assert_eq!(theme.code_colors.variable, Color::Reset);
+        assert_eq!(theme.text_color, MarkdownColor::Reset);
+        assert_eq!(theme.muted_text_color, MarkdownColor::Reset);
+        assert_eq!(theme.primary_color, MarkdownColor::Reset);
+        assert_eq!(theme.secondary_color, MarkdownColor::Reset);
+        assert_eq!(theme.accent_yellow, MarkdownColor::Reset);
+        assert_eq!(theme.code_colors.variable, MarkdownColor::Reset);
     }
 
     #[test]
