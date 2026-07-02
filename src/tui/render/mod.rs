@@ -6,10 +6,7 @@ mod layout;
 mod markdown_panel;
 mod stats;
 
-use ratatui::{
-    Frame,
-    widgets::{Block, Borders, Paragraph},
-};
+use ratatui::{Frame, widgets::Paragraph};
 
 use super::app::{App, entry_view_is_available};
 #[cfg(test)]
@@ -59,7 +56,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     }
 
     let footer_text = footer_text(app, layout.entry_view_visible);
-    let footer = Paragraph::new(footer_text).block(Block::default().borders(Borders::TOP));
+    let footer = Paragraph::new(footer_text);
     frame.render_widget(footer, layout.footer);
 
     if app.is_confirming_delete() {
@@ -149,10 +146,10 @@ mod tests {
 
         assert!(!layout.single_panel);
         assert!(layout.entry_view_visible);
-        assert_eq!(layout.journals.unwrap(), Rect::new(0, 0, 18, 18));
-        assert_eq!(layout.entries.unwrap(), Rect::new(18, 0, 42, 18));
-        assert_eq!(layout.entry_view.unwrap(), Rect::new(60, 0, 60, 18));
-        assert_eq!(layout.footer, Rect::new(0, 18, 120, 2));
+        assert_eq!(layout.journals.unwrap(), Rect::new(0, 0, 18, 19));
+        assert_eq!(layout.entries.unwrap(), Rect::new(18, 0, 42, 19));
+        assert_eq!(layout.entry_view.unwrap(), Rect::new(60, 0, 60, 19));
+        assert_eq!(layout.footer, Rect::new(0, 19, 120, 1));
     }
 
     #[test]
@@ -164,9 +161,9 @@ mod tests {
 
         assert!(!layout.single_panel);
         assert!(layout.entry_view_visible);
-        assert_eq!(layout.journals.unwrap(), Rect::new(0, 0, 18, 18));
-        assert_eq!(layout.entries.unwrap(), Rect::new(18, 0, 42, 18));
-        assert_eq!(layout.entry_view.unwrap(), Rect::new(60, 0, 40, 18));
+        assert_eq!(layout.journals.unwrap(), Rect::new(0, 0, 18, 19));
+        assert_eq!(layout.entries.unwrap(), Rect::new(18, 0, 42, 19));
+        assert_eq!(layout.entry_view.unwrap(), Rect::new(60, 0, 40, 19));
     }
 
     #[test]
@@ -178,8 +175,8 @@ mod tests {
 
         assert!(!layout.single_panel);
         assert!(!layout.entry_view_visible);
-        assert_eq!(layout.journals.unwrap(), Rect::new(0, 0, 18, 18));
-        assert_eq!(layout.entries.unwrap(), Rect::new(18, 0, 62, 18));
+        assert_eq!(layout.journals.unwrap(), Rect::new(0, 0, 18, 19));
+        assert_eq!(layout.entries.unwrap(), Rect::new(18, 0, 62, 19));
         assert!(layout.entry_view.is_none());
     }
 
@@ -193,8 +190,8 @@ mod tests {
         assert!(!layout.single_panel);
         assert!(layout.entry_view_visible);
         assert!(layout.journals.is_none());
-        assert_eq!(layout.entries.unwrap(), Rect::new(0, 0, 42, 18));
-        assert_eq!(layout.entry_view.unwrap(), Rect::new(42, 0, 38, 18));
+        assert_eq!(layout.entries.unwrap(), Rect::new(0, 0, 42, 19));
+        assert_eq!(layout.entry_view.unwrap(), Rect::new(42, 0, 38, 19));
     }
 
     #[test]
@@ -204,13 +201,13 @@ mod tests {
 
         let journals = tui_layout(Rect::new(0, 0, 57, 20), &app);
         assert!(journals.single_panel);
-        assert_eq!(journals.journals.unwrap(), Rect::new(0, 0, 57, 18));
+        assert_eq!(journals.journals.unwrap(), Rect::new(0, 0, 57, 19));
         assert!(journals.entries.is_none());
 
         app.focus = Focus::Entries;
         let entries = tui_layout(Rect::new(0, 0, 57, 20), &app);
         assert!(entries.single_panel);
-        assert_eq!(entries.entries.unwrap(), Rect::new(0, 0, 57, 18));
+        assert_eq!(entries.entries.unwrap(), Rect::new(0, 0, 57, 19));
         assert!(entries.journals.is_none());
     }
 

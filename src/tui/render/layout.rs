@@ -20,7 +20,7 @@ pub(crate) struct TuiLayout {
 pub(crate) fn tui_layout(area: Rect, app: &App) -> TuiLayout {
     let root = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(2)])
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
         .split(area);
     let content = root[0];
     let footer = root[1];
