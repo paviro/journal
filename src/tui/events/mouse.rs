@@ -5,7 +5,7 @@ use std::io;
 
 use crate::tui::{
     app::{App, Focus, Mode, entry_view_is_available},
-    events::actions::view_selected,
+    events::actions::{create_entry_in_selected_journal, edit_selected, view_selected},
     render,
 };
 
@@ -13,10 +13,19 @@ pub(crate) fn handle_mouse(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     mouse: MouseEvent,
-) -> AppResult<()> {
+) -> AppResult<bool> {
     let size = terminal.size()?;
     let area = Rect::new(0, 0, size.width, size.height);
-    handle_mouse_in_area(app, mouse, area)
+
+    if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+        let layout = render::tui_layout(area, app);
+        if render::point_in_rect(layout.footer, mouse.column, mouse.row) {
+            return handle_footer_click(terminal, app, mouse, layout);
+        }
+    }
+
+    handle_mouse_in_area(app, mouse, area)?;
+    Ok(false)
 }
 
 pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
@@ -127,4 +136,55 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
             render::panel_inner(area).height,
         );
     }
+}
+
+fn handle_footer_click(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    mouse: MouseEvent,
+    layout: render::TuiLayout,
+) -> AppResult<bool> {
+    let text = if app.entry_view_expanded {
+        " close (enter/esc) | edit (e) | quit (q)".to_string()
+    } else {
+        render::footer_text(app, layout.entry_view_visible)
+    };
+
+    let segments: Vec<&str> = text.split(" | ").collect();
+    let footer_x = layout.footer.x;
+    let click_x = mouse.column;
+
+    let mut x_pos = footer_x;
+    for segment in &segments {
+        let seg_len = segment.len() as u16;
+        if click_x >= x_pos && click_x < x_pos + seg_len {
+            let seg = segment.trim();
+            if seg.starts_with("new journal") {
+                app.begin_new_journal_input();
+            } else if seg.starts_with("new entry") {
+                create_entry_in_selected_journal(terminal, app)?;
+            } else if seg == "refresh (r)" {
+                app.refresh()?;
+            } else if seg.starts_with("edit") && app.can_act_on_selected_entry() {
+                edit_selected(terminal, app)?;
+            } else if seg.starts_with("view") && app.has_selected_entry_target() {
+                view_selected(app)?;
+            } else if seg.starts_with("delete") && app.has_selected_entry_target() {
+                app.begin_confirm_delete();
+            } else if seg.starts_with("close") && app.entry_view_expanded {
+                app.entry_view_expanded = false;
+                app.focus = Focus::Entries;
+            } else if seg.starts_with("quit") {
+                return Ok(true);
+            } else if seg.starts_with("exit search") {
+                app.exit_search();
+            } else if seg.starts_with("search") {
+                app.begin_search();
+            }
+            return Ok(false);
+        }
+        x_pos += seg_len + 3;
+    }
+
+    Ok(false)
 }

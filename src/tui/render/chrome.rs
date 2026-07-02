@@ -21,19 +21,19 @@ fn search_footer_text(app: &App) -> String {
     let query = format!("Search {}: {}", app.search_scope_label(), app.search.query);
     match app.focus {
         Focus::EntryView if app.has_selected_entry_target() => {
-            format!("{query} | view (enter) | edit (e) | delete (d) | search (Esc) | quit (q)")
+            format!("{query} | view (enter) | edit (e) | delete (d) | exit search (esc) | quit (q)")
         }
-        Focus::EntryView => format!("{query} | search (Esc) | quit (q)"),
+        Focus::EntryView => format!("{query} | exit search (esc) | quit (q)"),
         _ => {
-            let mut parts = vec![
-                format!("Search {}: {}", app.search_scope_label(), app.search.query),
-                "type query".to_string(),
-                "backspace".to_string(),
-            ];
+            let mut parts = vec![format!(
+                "Search {}: {}",
+                app.search_scope_label(),
+                app.search.query
+            )];
             if app.has_selected_entry_target() {
                 parts.push("view (enter)".to_string());
             }
-            parts.push("search (Esc)".to_string());
+            parts.push("exit search (esc)".to_string());
             parts.join(" | ")
         }
     }

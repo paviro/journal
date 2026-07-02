@@ -496,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn search_results_footer_keeps_text_input_keys_available() {
+    fn search_results_footer_shows_escape_and_entry_actions() {
         let mut app = app_with_entry();
         app.mode = Mode::Search;
         app.focus = Focus::Entries;
@@ -510,9 +510,11 @@ mod tests {
 
         let text = footer_text(&app, true);
 
-        assert!(text.contains("type query"));
         assert!(text.contains("Search all: body"));
         assert!(text.contains("view (enter)"));
+        assert!(text.contains("exit search (esc)"));
+        assert!(!text.contains("type query"));
+        assert!(!text.contains("backspace"));
         assert!(!text.contains("edit (e)"));
         assert!(!text.contains("delete (d)"));
     }

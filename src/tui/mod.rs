@@ -61,7 +61,9 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
                 true
             }
             Some(Event::Mouse(mouse)) => {
-                events::handle_mouse(terminal, &mut app, mouse)?;
+                if events::handle_mouse(terminal, &mut app, mouse)? {
+                    break;
+                }
                 true
             }
             Some(Event::Resize(_, _)) => true,
