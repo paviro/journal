@@ -60,8 +60,11 @@ pub fn run() -> AppResult<()> {
     if !cli.body.is_empty() || stdin_is_pipe {
         return create_entry_from_command(cli, stdin_is_pipe);
     }
-    if cli.journal.is_some() || !cli.tag.is_empty() || !cli.feeling.is_empty() || cli.mood.is_some() {
-        return Err("--journal, --tag, --feeling, and --mood require entry text or piped stdin".into());
+    if cli.journal.is_some() || !cli.tag.is_empty() || !cli.feeling.is_empty() || cli.mood.is_some()
+    {
+        return Err(
+            "--journal, --tag, --feeling, and --mood require entry text or piped stdin".into(),
+        );
     }
 
     let (config_path, config) = config::load_or_setup_with_path(cli.config.as_deref())?;

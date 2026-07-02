@@ -267,7 +267,8 @@ fn keep_selection_visible(
             );
         }
     } else if let Some(area) = layout.entries {
-        let rows = render::entry_row_metadata(app);
+        let text_width = area.width.saturating_sub(11);
+        let rows = render::entry_row_metadata(app, text_width);
         render::ensure_entry_visible(
             &mut app.scroll.entry,
             &rows,

@@ -13,7 +13,10 @@ use ratatui_markdown::{
 
 use crate::tui::{
     app::{App, Focus},
-    render::{panel_block, panel_content_inner, render_vertical_scrollbar, scrollbar_position, viewer_scroll},
+    render::{
+        panel_block, panel_content_inner, render_vertical_scrollbar, scrollbar_position,
+        viewer_scroll,
+    },
 };
 
 pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
@@ -120,7 +123,11 @@ fn draw_metadata_section(frame: &mut Frame<'_>, area: Rect, metadata: EntryMetad
 
     let mut y = area.y + 1;
     if let Some(score) = metadata.mood {
-        let mood_rect = Rect { y, height: 1, ..area };
+        let mood_rect = Rect {
+            y,
+            height: 1,
+            ..area
+        };
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([

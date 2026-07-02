@@ -199,13 +199,21 @@ pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState
     for (y_offset, text) in [
         (0u16, ""),
         (2u16, ""),
-        (3u16, "decrease (←) | increase (→) | save (enter) | clear (del) | cancel (esc)"),
+        (
+            3u16,
+            "decrease (←) | increase (→) | save (enter) | clear (del) | cancel (esc)",
+        ),
     ] {
         let y = inner.y + y_offset;
         if y < inner.y + inner.height {
             frame.render_widget(
                 Paragraph::new(Line::from(text)),
-                Rect { x: inner.x, y, width: inner.width, height: 1 },
+                Rect {
+                    x: inner.x,
+                    y,
+                    width: inner.width,
+                    height: 1,
+                },
             );
         }
     }
@@ -213,7 +221,12 @@ pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState
     // Render bar line with MoodBar widget
     let bar_y = inner.y + 1;
     if bar_y < inner.y + inner.height {
-        let bar_rect = Rect { x: inner.x, y: bar_y, width: inner.width, height: 1 };
+        let bar_rect = Rect {
+            x: inner.x,
+            y: bar_y,
+            width: inner.width,
+            height: 1,
+        };
         let right_w = right_label.len() as u16;
         let chunks = Layout::default()
             .direction(Direction::Horizontal)

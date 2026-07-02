@@ -88,7 +88,8 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
         && render::point_in_rect(area, mouse.column, mouse.row)
     {
         app.focus = Focus::Entries;
-        let rows = render::entry_row_metadata(app);
+        let text_width = area.width.saturating_sub(11);
+        let rows = render::entry_row_metadata(app, text_width);
         if let Some(index) =
             render::entry_index_at(area, mouse.column, mouse.row, app.scroll.entry, &rows)
         {
@@ -112,9 +113,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             app.begin_feeling_search(&feeling);
             return Ok(());
         }
-        if let Some(tag) =
-            render::tag_at_point(area, mouse.column, mouse.row, &tags, &feelings)
-        {
+        if let Some(tag) = render::tag_at_point(area, mouse.column, mouse.row, &tags, &feelings) {
             app.begin_tag_search(&tag);
             return Ok(());
         }
@@ -136,7 +135,8 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
     if let Some(area) = layout.entries
         && render::point_in_rect(area, mouse.column, mouse.row)
     {
-        let rows = render::entry_row_metadata(app);
+        let text_width = area.width.saturating_sub(11);
+        let rows = render::entry_row_metadata(app, text_width);
         app.scroll.entry = render::scroll_offset(
             app.scroll.entry,
             delta,

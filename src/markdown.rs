@@ -42,7 +42,7 @@ pub fn front_matter_feelings(front_matter: &str) -> Vec<String> {
 pub fn front_matter_mood(front_matter: &str) -> Option<i8> {
     parse_front_matter(front_matter)
         .and_then(|metadata| metadata.get("mood").and_then(|v| v.as_i64()))
-        .filter(|&v| v >= -5 && v <= 5)
+        .filter(|&v| (-5..=5).contains(&v))
         .map(|v| v as i8)
 }
 

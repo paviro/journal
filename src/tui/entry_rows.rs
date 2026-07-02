@@ -30,7 +30,7 @@ impl EntryListRow {
     }
 }
 
-pub(crate) fn entry_list_rows(app: &App) -> Vec<EntryListRow> {
+pub(crate) fn entry_list_rows(app: &App, text_width: u16) -> Vec<EntryListRow> {
     match app.mode {
         Mode::Search => app
             .search
@@ -49,11 +49,11 @@ pub(crate) fn entry_list_rows(app: &App) -> Vec<EntryListRow> {
                 selected: entry_selection_is_visible(app) && index == app.selected_entry_index,
             })
             .collect(),
-        Mode::Browse => browse_entry_rows(app),
+        Mode::Browse => browse_entry_rows(app, text_width),
     }
 }
 
-fn browse_entry_rows(app: &App) -> Vec<EntryListRow> {
+fn browse_entry_rows(app: &App, text_width: u16) -> Vec<EntryListRow> {
     let mut rows = Vec::new();
     let mut current_month = None;
     let mut current_day = None;
@@ -103,7 +103,7 @@ fn browse_entry_rows(app: &App) -> Vec<EntryListRow> {
 
         rows.push(EntryListRow {
             entry_index: Some(index),
-            lines: entry_list_lines(entry),
+            lines: entry_list_lines(entry, text_width),
             selected: entry_selection_is_visible(app) && index == app.selected_entry_index,
         });
     }
@@ -115,8 +115,8 @@ fn entry_selection_is_visible(app: &App) -> bool {
     app.focus != Focus::Journals
 }
 
-pub(crate) fn entry_row_metadata(app: &App) -> Vec<EntryRowMeta> {
-    entry_list_rows(app)
+pub(crate) fn entry_row_metadata(app: &App, text_width: u16) -> Vec<EntryRowMeta> {
+    entry_list_rows(app, text_width)
         .into_iter()
         .map(|row| EntryRowMeta {
             entry_index: row.entry_index,
@@ -165,39 +165,136 @@ pub(crate) fn entry_day_label(entry: &Entry) -> Option<String> {
     entry_group_date(entry).map(|date| date.format("%A %d").to_string())
 }
 
-pub(crate) fn entry_list_lines(entry: &Entry) -> Vec<Line<'static>> {
+pub(crate) fn entry_list_lines(entry: &Entry, text_width: u16) -> Vec<Line<'static>> {
     let timestamp = entry.created_at.as_deref().and_then(parse_entry_timestamp);
     let time = timestamp
         .as_ref()
         .map(|timestamp| timestamp.format("%H:%M").to_string())
         .unwrap_or_default();
 
-    let muted_style = Style::default();
-    let left_width = 7;
+    let tw = text_width as usize;
 
-    let mut title_line = if !time.is_empty() {
+    let blank_gutter: Vec<Span<'static>> = vec![Span::raw(" ".repeat(7))];
+    let gutter: Vec<Span<'static>> = if !time.is_empty() {
         vec![
-            Span::styled(format!("{time:<5}"), muted_style),
+            Span::styled(
+                format!("{time:<5}"),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
             Span::raw("  "),
         ]
     } else {
-        vec![Span::raw(" ".repeat(left_width))]
+        blank_gutter.clone()
     };
-    title_line.push(Span::styled(
-        entry.title.clone(),
-        Style::default().add_modifier(Modifier::BOLD),
-    ));
 
-    let mut lines = vec![Line::from(title_line)];
+    let title: Vec<char> = entry.title.chars().collect();
+    let title_len = title.len();
+    let has_preview = !entry.preview.is_empty();
 
-    if !entry.preview.is_empty() {
-        let mut second_line = vec![Span::raw(" ".repeat(left_width))];
-        second_line.push(Span::styled(entry.preview.clone(), muted_style));
+    // Find the best word-boundary break at or before `limit` chars into `chars`.
+    let word_break = |chars: &[char], limit: usize| -> usize {
+        if chars.len() <= limit {
+            return chars.len();
+        }
+        chars[..limit]
+            .iter()
+            .rposition(|&c| c == ' ')
+            .unwrap_or(limit)
+    };
 
-        lines.push(Line::from(second_line));
+    // Advance past a leading space at `pos` in `chars`.
+    let skip_space = |chars: &[char], pos: usize| -> usize {
+        if chars.get(pos) == Some(&' ') {
+            pos + 1
+        } else {
+            pos
+        }
+    };
+
+    if tw == 0 {
+        return vec![Line::from(gutter)];
     }
 
-    lines
+    if title_len <= tw {
+        // Title fits on line 1; preview flows across lines 2 and 3.
+        let mut line1 = gutter.clone();
+        line1.push(Span::raw(entry.title.clone()));
+
+        if !has_preview {
+            return vec![Line::from(line1)];
+        }
+
+        let preview_chars: Vec<char> = entry.preview.chars().collect();
+
+        // Line 2
+        let break2 = word_break(&preview_chars, tw);
+        let mut line2 = blank_gutter.clone();
+        line2.push(Span::raw(
+            preview_chars[..break2].iter().collect::<String>(),
+        ));
+
+        if break2 >= preview_chars.len() {
+            return vec![Line::from(line1), Line::from(line2)];
+        }
+
+        // Line 3
+        let rest3 = &preview_chars[skip_space(&preview_chars, break2)..];
+        let mut line3 = blank_gutter.clone();
+        if rest3.len() <= tw {
+            line3.push(Span::raw(rest3.iter().collect::<String>()));
+        } else {
+            let break3 = word_break(rest3, tw.saturating_sub(3));
+            line3.push(Span::raw(rest3[..break3].iter().collect::<String>()));
+            line3.push(Span::raw("..."));
+        }
+
+        return vec![Line::from(line1), Line::from(line2), Line::from(line3)];
+    }
+
+    // Title doesn't fit: flow title + preview as continuous text across three lines.
+    let combined: Vec<char> = if has_preview {
+        let mut v = title.clone();
+        v.push(' ');
+        v.extend(entry.preview.chars());
+        v
+    } else {
+        title.clone()
+    };
+
+    let make_span =
+        |slice: &[char]| -> Span<'static> { Span::raw(slice.iter().collect::<String>()) };
+
+    // Line 1
+    let break1 = word_break(&combined, tw);
+    let rest2 = &combined[skip_space(&combined, break1)..];
+
+    // Line 2
+    let break2 = word_break(rest2, tw);
+    let rest3 = &rest2[skip_space(rest2, break2)..];
+
+    // Line 3
+    let (line3_slice, has_more) = if rest3.len() <= tw {
+        (rest3, false)
+    } else {
+        (
+            rest3[..word_break(rest3, tw.saturating_sub(3))].as_ref(),
+            true,
+        )
+    };
+
+    let mut line1 = gutter.clone();
+    line1.push(make_span(&combined[..break1]));
+
+    let mut line2 = blank_gutter.clone();
+    line2.push(make_span(&rest2[..break2]));
+
+    let mut line3 = blank_gutter.clone();
+    line3.push(make_span(line3_slice));
+    if has_more {
+        line3.push(Span::raw("..."));
+    }
+
+    vec![Line::from(line1), Line::from(line2), Line::from(line3)]
 }
 
 pub(crate) fn ensure_entry_visible(

@@ -37,7 +37,11 @@ pub fn open_editor_body_only(editor: &str, path: &Path) -> AppResult<()> {
     let result = open_editor(editor, &temp_path);
     if result.is_ok() {
         let new_body = fs::read_to_string(&temp_path)?;
-        let new_content = format!("---\n{}\n...\n\n{}", front_matter, new_body.trim_start_matches('\n'));
+        let new_content = format!(
+            "---\n{}\n...\n\n{}",
+            front_matter,
+            new_body.trim_start_matches('\n')
+        );
         fs::write(path, new_content)?;
     }
     let _ = fs::remove_file(&temp_path);

@@ -1,4 +1,8 @@
-use ratatui::{Frame, layout::Rect, widgets::{List, ScrollbarState}};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    widgets::{List, ScrollbarState},
+};
 
 use crate::tui::{
     app::{App, Focus, Mode},
@@ -20,9 +24,10 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, area: Rect, app: &mut App) 
         None,
     );
     let inner = panel_content_inner(block.inner(area));
-    let rows = entry_list_rows(app);
+    let text_width = inner.width.saturating_sub(7);
+    let rows = entry_list_rows(app, text_width);
     let viewport_height = inner.height;
-    let meta = entry_row_metadata(app);
+    let meta = entry_row_metadata(app, text_width);
     let total_height = total_entry_row_height(&meta);
     app.scroll.entry = clamp_scroll(app.scroll.entry, total_height, viewport_height);
     let items = visible_entry_items(&rows, app.scroll.entry, viewport_height);
@@ -34,7 +39,11 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, area: Rect, app: &mut App) 
         let mut state = ScrollbarState::default()
             .content_length(total_height)
             .viewport_content_length(viewport_height as usize)
-            .position(scrollbar_position(app.scroll.entry, total_height, viewport_height));
+            .position(scrollbar_position(
+                app.scroll.entry,
+                total_height,
+                viewport_height,
+            ));
         render_vertical_scrollbar(frame, area, &mut state);
     }
 }

@@ -182,7 +182,8 @@ fn create_entry_with_body_and_feelings_writes_feelings() {
     let feelings = vec!["calm".to_string(), "focused".to_string()];
 
     let created =
-        create_entry_with_body_and_feelings(dir.path(), "work", "Some text", &[], &feelings, None).unwrap();
+        create_entry_with_body_and_feelings(dir.path(), "work", "Some text", &[], &feelings, None)
+            .unwrap();
     let text = fs::read_to_string(created).unwrap();
     let (front_matter, _) = crate::markdown::split_front_matter(&text);
 

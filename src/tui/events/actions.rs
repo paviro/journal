@@ -1,6 +1,9 @@
 use crate::{
     AppResult, crypto,
-    markdown::{entry_has_body, set_feelings_in_front_matter, set_mood_in_front_matter, set_tags_in_front_matter},
+    markdown::{
+        entry_has_body, set_feelings_in_front_matter, set_mood_in_front_matter,
+        set_tags_in_front_matter,
+    },
     storage::{
         create_encrypted_entry, create_entry, create_journal, edit_encrypted_entry,
         is_encrypted_entry_file, move_entry_to_trash, open_editor_body_only,

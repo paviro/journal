@@ -135,8 +135,7 @@ fn entry_with_body(
             crate::markdown::set_feelings_in_front_matter(&content, feelings).unwrap_or(content);
     }
     if mood.is_some() {
-        content =
-            crate::markdown::set_mood_in_front_matter(&content, mood).unwrap_or(content);
+        content = crate::markdown::set_mood_in_front_matter(&content, mood).unwrap_or(content);
     }
     content.push_str(body);
     if !content.ends_with('\n') {

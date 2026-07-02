@@ -348,14 +348,12 @@ impl App {
 
     pub(crate) fn selected_entry_mood(&self) -> Option<i8> {
         match self.mode {
-            Mode::Search => self
-                .selected_search_hit()
-                .and_then(|hit| {
-                    self.entries
-                        .iter()
-                        .find(|entry| entry.path == hit.path)
-                        .and_then(|entry| entry.mood)
-                }),
+            Mode::Search => self.selected_search_hit().and_then(|hit| {
+                self.entries
+                    .iter()
+                    .find(|entry| entry.path == hit.path)
+                    .and_then(|entry| entry.mood)
+            }),
             Mode::Browse => self.selected_entry().and_then(|entry| entry.mood),
         }
     }

@@ -271,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn entry_hit_testing_ignores_headers_and_maps_two_line_entries() {
+    fn entry_hit_testing_ignores_headers_and_maps_three_line_entries() {
         let dir = tempdir().unwrap();
         let entry_dir = dir.path().join("work").join("2026-07-01");
         fs::create_dir_all(&entry_dir).unwrap();
@@ -289,7 +289,8 @@ mod tests {
         let mut app = new_app(config);
         app.select_journal_by_name("work");
         let area = Rect::new(0, 0, 40, 10);
-        let rows = entry_row_metadata(&app);
+        // text_width=10 gives entries height 3 (title + 2 preview lines)
+        let rows = entry_row_metadata(&app, 10);
 
         assert_eq!(
             rows,
@@ -304,11 +305,11 @@ mod tests {
                 },
                 EntryRowMeta {
                     entry_index: Some(0),
-                    height: 2,
+                    height: 3,
                 },
                 EntryRowMeta {
                     entry_index: Some(1),
-                    height: 2,
+                    height: 3,
                 },
             ]
         );
@@ -318,7 +319,8 @@ mod tests {
         assert_eq!(entry_index_at(area, 1, 4, 0, &rows), None);
         assert_eq!(entry_index_at(area, 1, 5, 0, &rows), Some(0));
         assert_eq!(entry_index_at(area, 1, 6, 0, &rows), Some(0));
-        assert_eq!(entry_index_at(area, 1, 7, 0, &rows), Some(1));
+        assert_eq!(entry_index_at(area, 1, 7, 0, &rows), Some(0));
+        assert_eq!(entry_index_at(area, 1, 8, 0, &rows), Some(1));
         assert_eq!(entry_index_at(area, 1, 1, 2, &rows), None);
     }
 
@@ -603,7 +605,7 @@ mod tests {
             content: String::new(),
         };
 
-        let lines = entry_list_lines(&entry);
+        let lines = entry_list_lines(&entry, 30);
         let rendered: Vec<String> = lines
             .iter()
             .map(|line| {
@@ -617,6 +619,42 @@ mod tests {
         assert_eq!(rendered.len(), 2);
         assert_eq!(rendered[0], "10:23  Title");
         assert_eq!(rendered[1], "       Preview");
+    }
+
+    #[test]
+    fn entry_list_lines_wrap_long_title_onto_second_line() {
+        let entry = Entry {
+            id: "id".to_string(),
+            journal: "work".to_string(),
+            path: PathBuf::from("id.md"),
+            encryption_state: EntryEncryptionState::Plain,
+            created_at: Some("2026-07-01T10:23:00+02:00".to_string()),
+            updated_at: None,
+            title: "A very long title".to_string(),
+            preview: "preview text".to_string(),
+            tags: Vec::new(),
+            feelings: Vec::new(),
+            mood: None,
+            content: String::new(),
+        };
+
+        // text_width=12: "A very long title preview text" flows across three lines.
+        // Line 1: "A very long" (break at space pos 11), line 2: "title", line 3: "preview text"
+        let lines = entry_list_lines(&entry, 12);
+        let rendered: Vec<String> = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect();
+
+        assert_eq!(rendered.len(), 3);
+        assert_eq!(rendered[0], "10:23  A very long");
+        assert_eq!(rendered[1], "       title");
+        assert_eq!(rendered[2], "       preview text");
     }
 
     #[test]
@@ -636,7 +674,7 @@ mod tests {
             content: "Encryption identity not available".to_string(),
         };
 
-        let lines = entry_list_lines(&entry);
+        let lines = entry_list_lines(&entry, 100);
         let rendered: Vec<String> = lines
             .iter()
             .map(|line| {
@@ -647,6 +685,7 @@ mod tests {
             })
             .collect();
 
+        assert_eq!(rendered.len(), 2);
         assert_eq!(rendered[0], "       [locked] Encrypted entry");
         assert_eq!(rendered[1], "       Encryption identity not available");
     }
