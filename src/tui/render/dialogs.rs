@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, ScrollbarState, Wrap},
@@ -55,10 +55,11 @@ pub(super) fn draw_new_journal_input(frame: &mut Frame<'_>, input: &str) {
 pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagState) {
     let area_height = frame.area().height;
 
-    // Content: header + blank + N tags + input + gap + help
+    // Content: header + blank + N tags/placeholder + blank + input + gap + help
+    const TAG_DIALOG_FIXED_ROWS: u16 = 6;
     let max_tags_visible = 10u16;
-    let visible_tags = (state.filtered.len() as u16).min(max_tags_visible);
-    let inner_height = 5u16 + visible_tags; // header(1) + blank(1) + tags + input(1) + gap(1) + help(1)
+    let visible_tags = (state.filtered.len() as u16).min(max_tags_visible).max(1);
+    let inner_height = TAG_DIALOG_FIXED_ROWS + visible_tags;
     let dialog_height = (inner_height + 2).min(area_height.saturating_sub(2)); // + borders, cap at terminal
 
     let area = centered_rect_with_height(40, dialog_height, frame.area());
@@ -75,7 +76,7 @@ pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagSt
     let input_focused = state.focus == EditTagFocus::Input;
 
     let list_lines = state.filtered.len() as u16;
-    let max_visible = inner.height.saturating_sub(3); // reserve 2 for input + 1 gap
+    let max_visible = inner.height.saturating_sub(TAG_DIALOG_FIXED_ROWS);
 
     // Keep the cursor visible
     if state.cursor < state.scroll as usize {
@@ -127,10 +128,12 @@ pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagSt
         }
     }
 
+    lines.push(Line::from(""));
+
     // Input row
     let input_text = format!(
         "{}Search / new tag: {}",
-        if input_focused { "> " } else { "  " },
+        if input_focused { ">" } else { " " },
         state.input
     );
     let input_style = if input_focused {
@@ -180,7 +183,7 @@ pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagSt
 }
 
 pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState) {
-    let area = centered_rect_with_height(44, 7, frame.area());
+    let area = centered_rect_with_height(44, 8, frame.area());
     frame.render_widget(Clear, area);
 
     let inner = Rect {
@@ -198,10 +201,9 @@ pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState
     // Render non-bar lines
     for (y_offset, text) in [
         (0u16, ""),
-        (2u16, ""),
         (
-            3u16,
-            "decrease (←) | increase (→) | save (enter) | clear (del) | cancel (esc)",
+            5u16,
+            " decrease (←) | increase (→) | save (enter) | clear (del) | cancel (esc)",
         ),
     ] {
         let y = inner.y + y_offset;
@@ -219,6 +221,7 @@ pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState
     }
 
     // Render bar line with MoodBar widget
+    let right_w = right_label.len() as u16;
     let bar_y = inner.y + 1;
     if bar_y < inner.y + inner.height {
         let bar_rect = Rect {
@@ -227,7 +230,6 @@ pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState
             width: inner.width,
             height: 1,
         };
-        let right_w = right_label.len() as u16;
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
@@ -240,13 +242,36 @@ pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState
         frame.render_widget(MoodBar::new(state.draft), chunks[1]);
         frame.render_widget(Paragraph::new(right_label), chunks[2]);
     }
+
+    // Render value number centred below the bar
+    let value_y = inner.y + 3;
+    if value_y < inner.y + inner.height {
+        let value_rect = Rect {
+            x: inner.x,
+            y: value_y,
+            width: inner.width,
+            height: 1,
+        };
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(10),
+                Constraint::Min(3),
+                Constraint::Length(right_w),
+            ])
+            .split(value_rect);
+        frame.render_widget(
+            Paragraph::new(Line::from(format!("{}", state.draft))).alignment(Alignment::Center),
+            chunks[1],
+        );
+    }
 }
 
 pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditFeelingState) {
     let area_height = frame.area().height;
-    let max_feelings_visible = 12u16;
+    let max_feelings_visible = 11u16;
     let visible_feelings = (state.all_feelings.len() as u16).min(max_feelings_visible);
-    let inner_height = 3u16 + visible_feelings;
+    let inner_height = 4u16 + visible_feelings;
     let dialog_height = (inner_height + 2).min(area_height.saturating_sub(2));
 
     let area = centered_rect_with_height(40, dialog_height, frame.area());
@@ -260,7 +285,7 @@ pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditF
     };
 
     let list_lines = state.all_feelings.len() as u16;
-    let max_visible = inner.height.saturating_sub(3);
+    let max_visible = inner.height.saturating_sub(4);
 
     if state.cursor < state.scroll as usize {
         state.scroll = state.cursor as u16;
@@ -299,6 +324,7 @@ pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditF
         lines.push(Line::from(Span::styled(text, style)));
     }
 
+    lines.push(Line::from(""));
     lines.push(Line::from(" toggle (space) | save (enter) | cancel (esc)"));
 
     let block = Block::default()

@@ -108,7 +108,10 @@ mod tests {
         config::Config,
         crypto,
         storage::{Entry, EntryEncryptionState},
-        tui::app::{Focus, INLINE_ENTRY_VIEW_MIN_WIDTH, Mode},
+        tui::{
+            app::{Focus, INLINE_ENTRY_VIEW_MIN_WIDTH, Mode},
+            state::{EditTagFocus, EditTagState},
+        },
     };
     use ratatui::{
         Terminal,
@@ -168,6 +171,23 @@ mod tests {
         terminal.draw(|frame| draw(frame, &mut app)).unwrap();
 
         terminal.backend().clone()
+    }
+
+    fn render_edit_tags_dialog_text(mut state: EditTagState, width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| dialogs::draw_edit_tags_dialog(frame, &mut state))
+            .unwrap();
+
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect()
     }
 
     #[test]
@@ -268,6 +288,50 @@ mod tests {
     #[test]
     fn scrollbar_position_stays_at_start_when_content_fits() {
         assert_eq!(scrollbar_position(0, 4, 8), 0);
+    }
+
+    #[test]
+    fn edit_tags_dialog_keeps_help_visible_below_spacer() {
+        let all_tags: Vec<(String, usize)> = (0..20)
+            .map(|index| (format!("tag-{index:02}"), index))
+            .collect();
+        let filtered: Vec<usize> = (0..all_tags.len()).collect();
+        let rendered = render_edit_tags_dialog_text(
+            EditTagState {
+                all_tags,
+                filtered,
+                selected: Vec::new(),
+                cursor: 0,
+                scroll: 0,
+                input: String::new(),
+                focus: EditTagFocus::List,
+            },
+            200,
+            20,
+        );
+
+        assert!(rendered.contains(">[ ] tag-00 (0)"));
+        assert!(rendered.contains(" toggle (space) | input (tab) | save (enter) | cancel (esc)"));
+    }
+
+    #[test]
+    fn edit_tags_dialog_counts_no_matches_row_when_sizing() {
+        let rendered = render_edit_tags_dialog_text(
+            EditTagState {
+                all_tags: vec![("work".to_string(), 1)],
+                filtered: Vec::new(),
+                selected: Vec::new(),
+                cursor: 0,
+                scroll: 0,
+                input: "missing".to_string(),
+                focus: EditTagFocus::Input,
+            },
+            200,
+            12,
+        );
+
+        assert!(rendered.contains(" (no matches)"));
+        assert!(rendered.contains(" add (enter) | list (tab) | cancel (esc)"));
     }
 
     #[test]
