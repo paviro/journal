@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Margin, Rect},
+    layout::{Constraint, Flex, Layout, Margin, Rect},
     style::{Modifier, Style},
     text::Line,
     widgets::{Block, BorderType, Borders, Scrollbar, ScrollbarOrientation, ScrollbarState},
@@ -143,20 +143,21 @@ pub(crate) fn render_vertical_scrollbar(
 }
 
 pub(crate) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(area);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(vertical[1])[1]
+    let [row] = Layout::vertical([Constraint::Percentage(percent_y)])
+        .flex(Flex::Center)
+        .areas(area);
+    let [cell] = Layout::horizontal([Constraint::Percentage(percent_x)])
+        .flex(Flex::Center)
+        .areas(row);
+    cell
+}
+
+pub(crate) fn centered_rect_fixed_height(percent_x: u16, height: u16, area: Rect) -> Rect {
+    let [row] = Layout::vertical([Constraint::Length(height)])
+        .flex(Flex::Center)
+        .areas(area);
+    let [cell] = Layout::horizontal([Constraint::Percentage(percent_x)])
+        .flex(Flex::Center)
+        .areas(row);
+    cell
 }

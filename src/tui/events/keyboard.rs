@@ -6,7 +6,6 @@ use std::io;
 use crate::tui::{
     app::{App, Focus, Mode, entry_view_is_available},
     render,
-    state::EditTagState,
 };
 
 use super::actions::{
@@ -364,19 +363,6 @@ fn handle_new_journal_input(app: &mut App, key: KeyEvent) -> AppResult<()> {
     Ok(())
 }
 
-fn rebuild_filter(state: &mut EditTagState) {
-    let query = state.input.to_lowercase();
-    state.filtered = state
-        .all_tags
-        .iter()
-        .enumerate()
-        .filter(|(_, (tag, _))| tag.to_lowercase().contains(&query))
-        .map(|(i, _)| i)
-        .collect();
-    state.cursor = state.cursor.min(state.filtered.len().saturating_sub(1));
-    state.scroll = 0;
-}
-
 fn handle_edit_tags_key(app: &mut App, key: KeyEvent) -> AppResult<()> {
     use crate::tui::state::EditTagFocus;
 
@@ -419,7 +405,7 @@ fn handle_edit_tags_key(app: &mut App, key: KeyEvent) -> AppResult<()> {
                     }
                 }
                 state.input.clear();
-                rebuild_filter(state);
+                state.rebuild_filter();
             }
         }
         KeyCode::Up
@@ -466,7 +452,7 @@ fn handle_edit_tags_key(app: &mut App, key: KeyEvent) -> AppResult<()> {
         {
             if let Some(state) = app.edit_tag_state_mut() {
                 state.input.pop();
-                rebuild_filter(state);
+                state.rebuild_filter();
             }
         }
         KeyCode::Char(ch)
@@ -476,7 +462,7 @@ fn handle_edit_tags_key(app: &mut App, key: KeyEvent) -> AppResult<()> {
         {
             if let Some(state) = app.edit_tag_state_mut() {
                 state.input.push(ch);
-                rebuild_filter(state);
+                state.rebuild_filter();
             }
         }
         _ => {}

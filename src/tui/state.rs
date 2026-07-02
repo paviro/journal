@@ -122,6 +122,21 @@ pub(crate) struct EditTagState {
     pub(crate) focus: EditTagFocus,
 }
 
+impl EditTagState {
+    pub(crate) fn rebuild_filter(&mut self) {
+        let query = self.input.to_lowercase();
+        self.filtered = self
+            .all_tags
+            .iter()
+            .enumerate()
+            .filter(|(_, (tag, _))| tag.to_lowercase().contains(&query))
+            .map(|(i, _)| i)
+            .collect();
+        self.cursor = self.cursor.min(self.filtered.len().saturating_sub(1));
+        self.scroll = 0;
+    }
+}
+
 /// State for the edit-feelings overlay.
 pub(crate) struct EditFeelingState {
     /// Fixed feelings vocabulary in display order.

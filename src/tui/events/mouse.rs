@@ -5,8 +5,12 @@ use std::io;
 
 use crate::tui::{
     app::{App, Focus, Mode, entry_view_is_available, inline_entry_view_is_visible},
-    events::actions::{create_entry_in_selected_journal, edit_selected, view_selected},
+    events::actions::{
+        create_entry_in_selected_journal, edit_selected, set_feelings_on_entry, set_mood_on_entry,
+        set_tags_on_entry, view_selected,
+    },
     render,
+    state::EditTagFocus,
 };
 
 pub(crate) fn handle_mouse(
@@ -17,7 +21,11 @@ pub(crate) fn handle_mouse(
     let size = terminal.size()?;
     let area = Rect::new(0, 0, size.width, size.height);
 
-    if mouse.kind == MouseEventKind::Down(MouseButton::Left) && !overlay_is_open(app) {
+    if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+        if overlay_is_open(app) {
+            handle_dialog_hint_click(app, mouse, area)?;
+            return Ok(false);
+        }
         let layout = render::tui_layout(area, app);
         if render::point_in_rect(layout.footer, mouse.column, mouse.row) {
             return handle_footer_click(terminal, app, mouse, layout);
@@ -33,6 +41,7 @@ fn overlay_is_open(app: &App) -> bool {
         || app.is_confirming_delete()
         || app.edit_tag_state().is_some()
         || app.edit_feeling_state().is_some()
+        || app.edit_mood_state().is_some()
 }
 
 pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
@@ -212,4 +221,154 @@ fn handle_footer_click(
     }
 
     Ok(false)
+}
+
+// ── Dialog hint click routing ─────────────────────────────────────────────────
+
+fn hint_segment_at<'a>(hint: &'a str, origin_x: u16, col: u16) -> Option<&'a str> {
+    if col < origin_x {
+        return None;
+    }
+    let rel = (col - origin_x) as usize;
+    let mut x = 0usize;
+    for seg in hint.split(" | ") {
+        let width = seg.chars().count(); // char count == display columns for non-CJK
+        if rel >= x && rel < x + width {
+            return Some(seg.trim());
+        }
+        x += width + 3; // " | " separator is 3 display columns
+    }
+    None
+}
+
+fn handle_dialog_hint_click(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
+    let col = mouse.column;
+    let row = mouse.row;
+
+    if let Some(focus) = app.edit_tag_state().map(|s| s.focus) {
+        let filtered_len = app.edit_tag_state().map_or(0, |s| s.filtered.len());
+        let dialog = render::tags_dialog_area(area, filtered_len);
+        let inner = render::panel_inner(dialog);
+        if row == inner.y + inner.height.saturating_sub(1) {
+            if let Some(seg) = hint_segment_at(render::tags_dialog_hint(focus), inner.x, col) {
+                dispatch_tags_hint(app, seg)?;
+            }
+        }
+        return Ok(());
+    }
+
+    if app.edit_feeling_state().is_some() {
+        let all_len = app.edit_feeling_state().map_or(0, |s| s.all_feelings.len());
+        let dialog = render::feelings_dialog_area(area, all_len);
+        let inner = render::panel_inner(dialog);
+        if row == inner.y + inner.height.saturating_sub(1) {
+            if let Some(seg) = hint_segment_at(render::FEELINGS_HINT, inner.x, col) {
+                dispatch_feelings_hint(app, seg)?;
+            }
+        }
+        return Ok(());
+    }
+
+    if app.edit_mood_state().is_some() {
+        let dialog = render::mood_dialog_area(area);
+        let inner = render::panel_inner(dialog);
+        if row == inner.y + inner.height.saturating_sub(1) {
+            if let Some(seg) = hint_segment_at(render::MOOD_HINT, inner.x, col) {
+                dispatch_mood_hint(app, seg)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn dispatch_tags_hint(app: &mut App, seg: &str) -> AppResult<()> {
+    if seg.starts_with("toggle") {
+        if let Some(state) = app.edit_tag_state_mut() {
+            if let Some(&tag_idx) = state.filtered.get(state.cursor) {
+                let tag = state.all_tags[tag_idx].0.to_lowercase();
+                if let Some(pos) = state.selected.iter().position(|t| t == &tag) {
+                    state.selected.remove(pos);
+                } else {
+                    state.selected.push(tag);
+                }
+            }
+        }
+    } else if seg.starts_with("input") || seg.starts_with("list") {
+        if let Some(state) = app.edit_tag_state_mut() {
+            state.focus = match state.focus {
+                EditTagFocus::List => EditTagFocus::Input,
+                EditTagFocus::Input => EditTagFocus::List,
+            };
+        }
+    } else if seg.starts_with("add") {
+        if let Some(state) = app.edit_tag_state_mut() {
+            let tag = state.input.trim().to_lowercase();
+            if !tag.is_empty() && !state.selected.contains(&tag) {
+                state.selected.push(tag.clone());
+                if !state.all_tags.iter().any(|(t, _)| t.eq_ignore_ascii_case(&tag)) {
+                    state.all_tags.push((tag, 0));
+                }
+            }
+            state.input.clear();
+            state.rebuild_filter();
+        }
+    } else if seg.starts_with("save") {
+        let tags = app.edit_tag_state().map(|s| s.selected.clone()).unwrap_or_default();
+        set_tags_on_entry(app, &tags)?;
+        app.close_overlay();
+    } else {
+        // "cancel" or any unknown segment
+        app.close_overlay();
+    }
+    Ok(())
+}
+
+fn dispatch_feelings_hint(app: &mut App, seg: &str) -> AppResult<()> {
+    if seg.starts_with("toggle") {
+        if let Some(state) = app.edit_feeling_state_mut() {
+            let feeling = state.all_feelings[state.cursor].clone();
+            if let Some(pos) = state.selected.iter().position(|v| v == &feeling) {
+                state.selected.remove(pos);
+            } else {
+                state.selected.push(feeling);
+            }
+        }
+    } else if seg.starts_with("save") {
+        let feelings = app
+            .edit_feeling_state()
+            .map(|s| s.selected.clone())
+            .unwrap_or_default();
+        set_feelings_on_entry(app, &feelings)?;
+        app.close_overlay();
+    } else {
+        app.close_overlay();
+    }
+    Ok(())
+}
+
+fn dispatch_mood_hint(app: &mut App, seg: &str) -> AppResult<()> {
+    if seg.starts_with("decrease") {
+        if let Some(state) = app.edit_mood_state_mut() {
+            if state.draft > -5 {
+                state.draft -= 1;
+            }
+        }
+    } else if seg.starts_with("increase") {
+        if let Some(state) = app.edit_mood_state_mut() {
+            if state.draft < 5 {
+                state.draft += 1;
+            }
+        }
+    } else if seg.starts_with("save") {
+        let mood = app.edit_mood_state().map(|s| s.draft);
+        set_mood_on_entry(app, mood)?;
+        app.close_overlay();
+    } else if seg.starts_with("clear") {
+        set_mood_on_entry(app, None)?;
+        app.close_overlay();
+    } else {
+        app.close_overlay();
+    }
+    Ok(())
 }

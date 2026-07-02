@@ -11,24 +11,79 @@ use crate::tui::{
     state::{EditFeelingState, EditMoodState, EditTagFocus, EditTagState},
 };
 
-fn centered_rect_with_height(percent_x: u16, height: u16, area: Rect) -> Rect {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Fill(1),
-            Constraint::Length(height),
-            Constraint::Fill(1),
-        ])
-        .split(area);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(vertical[1])[1]
+// ── Hint text constants and helpers ──────────────────────────────────────────
+
+pub(crate) const FEELINGS_HINT: &str = " toggle (space) | save (enter) | cancel (esc)";
+pub(crate) const MOOD_HINT: &str =
+    " decrease (←) | increase (→) | save (enter) | clear (del) | cancel (esc)";
+
+pub(crate) fn tags_dialog_hint(focus: EditTagFocus) -> &'static str {
+    match focus {
+        EditTagFocus::List => " toggle (space) | input (tab) | save (enter) | cancel (esc)",
+        EditTagFocus::Input => " add (enter) | list (tab) | cancel (esc)",
+    }
 }
+
+// ── Dialog area helpers (re-used by the mouse handler for hit-testing) ───────
+
+pub(crate) fn tags_dialog_area(frame_area: Rect, filtered_len: usize) -> Rect {
+    const FIXED: u16 = 6;
+    let visible = (filtered_len as u16).min(10).max(1);
+    let h = (FIXED + visible + 2).min(frame_area.height.saturating_sub(2));
+    super::centered_rect_fixed_height(40, h, frame_area)
+}
+
+pub(crate) fn feelings_dialog_area(frame_area: Rect, all_len: usize) -> Rect {
+    let visible = (all_len as u16).min(11);
+    let h = (4 + visible + 2).min(frame_area.height.saturating_sub(2));
+    super::centered_rect_fixed_height(40, h, frame_area)
+}
+
+pub(crate) fn mood_dialog_area(frame_area: Rect) -> Rect {
+    super::centered_rect_fixed_height(44, 8, frame_area)
+}
+
+// ── Shared render helpers ─────────────────────────────────────────────────────
+
+fn render_lines_in_area<'a>(
+    frame: &mut Frame<'_>,
+    lines: impl IntoIterator<Item = Line<'a>>,
+    inner: Rect,
+) {
+    for (y_offset, line) in lines.into_iter().enumerate() {
+        let y = inner.y + y_offset as u16;
+        if y >= inner.y + inner.height {
+            break;
+        }
+        frame.render_widget(
+            Paragraph::new(line),
+            Rect {
+                x: inner.x,
+                y,
+                width: inner.width,
+                height: 1,
+            },
+        );
+    }
+}
+
+fn render_dialog_scrollbar(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    list_lines: u16,
+    max_visible: u16,
+    scroll: u16,
+) {
+    if list_lines > max_visible {
+        let mut state = ScrollbarState::default()
+            .content_length(list_lines as usize)
+            .viewport_content_length(max_visible as usize)
+            .position(scrollbar_position(scroll, list_lines as usize, max_visible));
+        render_vertical_scrollbar(frame, area, &mut state);
+    }
+}
+
+// ── Dialog draw functions ─────────────────────────────────────────────────────
 
 pub(super) fn draw_confirm_delete(frame: &mut Frame<'_>) {
     let area = super::centered_rect(50, 20, frame.area());
@@ -53,29 +108,14 @@ pub(super) fn draw_new_journal_input(frame: &mut Frame<'_>, input: &str) {
 }
 
 pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagState) {
-    let area_height = frame.area().height;
-
-    // Content: header + blank + N tags/placeholder + blank + input + gap + help
-    const TAG_DIALOG_FIXED_ROWS: u16 = 6;
-    let max_tags_visible = 10u16;
-    let visible_tags = (state.filtered.len() as u16).min(max_tags_visible).max(1);
-    let inner_height = TAG_DIALOG_FIXED_ROWS + visible_tags;
-    let dialog_height = (inner_height + 2).min(area_height.saturating_sub(2)); // + borders, cap at terminal
-
-    let area = centered_rect_with_height(40, dialog_height, frame.area());
-    frame.render_widget(Clear, area);
-
-    let inner = Rect {
-        x: area.x + 1,
-        y: area.y + 1,
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    };
+    let area = tags_dialog_area(frame.area(), state.filtered.len());
+    let inner = super::panel_inner(area);
 
     let list_focused = state.focus == EditTagFocus::List;
     let input_focused = state.focus == EditTagFocus::Input;
 
     let list_lines = state.filtered.len() as u16;
+    const TAG_DIALOG_FIXED_ROWS: u16 = 6;
     let max_visible = inner.height.saturating_sub(TAG_DIALOG_FIXED_ROWS);
 
     // Keep the cursor visible
@@ -96,14 +136,12 @@ pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagSt
 
     let mut lines: Vec<Line<'_>> = Vec::new();
 
-    // Tag list header
     lines.push(Line::from(Span::styled(
         " Tags ",
         Style::default().add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(""));
 
-    // Tag rows
     if state.filtered.is_empty() {
         lines.push(Line::from(if state.input.is_empty() {
             " (no tags yet)"
@@ -130,7 +168,6 @@ pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagSt
 
     lines.push(Line::from(""));
 
-    // Input row
     let input_text = format!(
         "{}Search / new tag: {}",
         if input_focused { ">" } else { " " },
@@ -143,97 +180,41 @@ pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagSt
     };
     lines.push(Line::from(Span::styled(input_text, input_style)));
     lines.push(Line::from(""));
+    lines.push(Line::from(tags_dialog_hint(state.focus)));
 
-    // Instructions
-    let help = if list_focused {
-        " toggle (space) | input (tab) | save (enter) | cancel (esc)"
-    } else {
-        " add (enter) | list (tab) | cancel (esc)"
-    };
-    lines.push(Line::from(help));
-
-    let block = Block::default().title(" Edit Tags ").borders(Borders::ALL);
     frame.render_widget(Clear, area);
-    frame.render_widget(block, area);
-
-    // Render lines inside the inner area
-    for (y_offset, line) in lines.into_iter().enumerate() {
-        let y = inner.y + y_offset as u16;
-        if y >= inner.y + inner.height {
-            break;
-        }
-        frame.render_widget(
-            Paragraph::new(line).style(Style::default()),
-            Rect {
-                x: inner.x,
-                y,
-                width: inner.width,
-                height: 1,
-            },
-        );
-    }
-
-    if list_lines > max_visible {
-        let mut state = ScrollbarState::default()
-            .content_length(list_lines as usize)
-            .viewport_content_length(max_visible as usize)
-            .position(scrollbar_position(scroll, list_lines as usize, max_visible));
-        render_vertical_scrollbar(frame, area, &mut state);
-    }
+    frame.render_widget(Block::default().title(" Edit Tags ").borders(Borders::ALL), area);
+    render_lines_in_area(frame, lines, inner);
+    render_dialog_scrollbar(frame, area, list_lines, max_visible, scroll);
 }
 
 pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState) {
-    let area = centered_rect_with_height(44, 8, frame.area());
+    let area = mood_dialog_area(frame.area());
+    let inner = super::panel_inner(area);
+
     frame.render_widget(Clear, area);
-
-    let inner = Rect {
-        x: area.x + 1,
-        y: area.y + 1,
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    };
-
-    let block = Block::default().title(" Edit Mood ").borders(Borders::ALL);
-    frame.render_widget(block, area);
+    frame.render_widget(Block::default().title(" Edit Mood ").borders(Borders::ALL), area);
 
     let right_label = " Blissful";
 
-    // Render non-bar lines
-    for (y_offset, text) in [
-        (0u16, ""),
-        (
-            5u16,
-            " decrease (←) | increase (→) | save (enter) | clear (del) | cancel (esc)",
-        ),
-    ] {
-        let y = inner.y + y_offset;
-        if y < inner.y + inner.height {
-            frame.render_widget(
-                Paragraph::new(Line::from(text)),
-                Rect {
-                    x: inner.x,
-                    y,
-                    width: inner.width,
-                    height: 1,
-                },
-            );
-        }
+    // Empty spacer row
+    let spacer_y = inner.y;
+    if spacer_y < inner.y + inner.height {
+        frame.render_widget(
+            Paragraph::new(Line::from("")),
+            Rect { x: inner.x, y: spacer_y, width: inner.width, height: 1 },
+        );
     }
 
-    // Render bar line with MoodBar widget
+    // Mood bar row
     let right_w = right_label.len() as u16;
     let bar_y = inner.y + 1;
     if bar_y < inner.y + inner.height {
-        let bar_rect = Rect {
-            x: inner.x,
-            y: bar_y,
-            width: inner.width,
-            height: 1,
-        };
+        let bar_rect = Rect { x: inner.x, y: bar_y, width: inner.width, height: 1 };
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length(10), // "Miserable "
+                Constraint::Length(10),
                 Constraint::Min(3),
                 Constraint::Length(right_w),
             ])
@@ -243,15 +224,10 @@ pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState
         frame.render_widget(Paragraph::new(right_label), chunks[2]);
     }
 
-    // Render value number centred below the bar
+    // Value number centred below the bar
     let value_y = inner.y + 3;
     if value_y < inner.y + inner.height {
-        let value_rect = Rect {
-            x: inner.x,
-            y: value_y,
-            width: inner.width,
-            height: 1,
-        };
+        let value_rect = Rect { x: inner.x, y: value_y, width: inner.width, height: 1 };
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
@@ -265,24 +241,20 @@ pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState
             chunks[1],
         );
     }
+
+    // Hint line
+    let hint_y = inner.y + inner.height.saturating_sub(1);
+    if hint_y < inner.y + inner.height {
+        frame.render_widget(
+            Paragraph::new(Line::from(MOOD_HINT)),
+            Rect { x: inner.x, y: hint_y, width: inner.width, height: 1 },
+        );
+    }
 }
 
 pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditFeelingState) {
-    let area_height = frame.area().height;
-    let max_feelings_visible = 11u16;
-    let visible_feelings = (state.all_feelings.len() as u16).min(max_feelings_visible);
-    let inner_height = 4u16 + visible_feelings;
-    let dialog_height = (inner_height + 2).min(area_height.saturating_sub(2));
-
-    let area = centered_rect_with_height(40, dialog_height, frame.area());
-    frame.render_widget(Clear, area);
-
-    let inner = Rect {
-        x: area.x + 1,
-        y: area.y + 1,
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    };
+    let area = feelings_dialog_area(frame.area(), state.all_feelings.len());
+    let inner = super::panel_inner(area);
 
     let list_lines = state.all_feelings.len() as u16;
     let max_visible = inner.height.saturating_sub(4);
@@ -325,35 +297,13 @@ pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditF
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(" toggle (space) | save (enter) | cancel (esc)"));
+    lines.push(Line::from(FEELINGS_HINT));
 
-    let block = Block::default()
-        .title(" Edit Feelings ")
-        .borders(Borders::ALL);
     frame.render_widget(Clear, area);
-    frame.render_widget(block, area);
-
-    for (y_offset, line) in lines.into_iter().enumerate() {
-        let y = inner.y + y_offset as u16;
-        if y >= inner.y + inner.height {
-            break;
-        }
-        frame.render_widget(
-            Paragraph::new(line).style(Style::default()),
-            Rect {
-                x: inner.x,
-                y,
-                width: inner.width,
-                height: 1,
-            },
-        );
-    }
-
-    if list_lines > max_visible {
-        let mut state = ScrollbarState::default()
-            .content_length(list_lines as usize)
-            .viewport_content_length(max_visible as usize)
-            .position(scrollbar_position(scroll, list_lines as usize, max_visible));
-        render_vertical_scrollbar(frame, area, &mut state);
-    }
+    frame.render_widget(
+        Block::default().title(" Edit Feelings ").borders(Borders::ALL),
+        area,
+    );
+    render_lines_in_area(frame, lines, inner);
+    render_dialog_scrollbar(frame, area, list_lines, max_visible, scroll);
 }
