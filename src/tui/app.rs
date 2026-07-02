@@ -346,13 +346,21 @@ impl App {
         self.status_until = None;
     }
 
-    pub(crate) fn expire_status(&mut self) {
+    pub(crate) fn status_timeout(&self) -> Option<Duration> {
+        self.status_until
+            .map(|deadline| deadline.saturating_duration_since(Instant::now()))
+    }
+
+    pub(crate) fn expire_status(&mut self) -> bool {
         if self
             .status_until
             .is_some_and(|deadline| Instant::now() >= deadline)
         {
             self.clear_status();
+            return true;
         }
+
+        false
     }
 }
 
@@ -516,5 +524,35 @@ mod tests {
             app.search_scope,
             SearchScope::CurrentJournal("work".to_string())
         );
+    }
+
+    #[test]
+    fn status_timeout_is_none_without_active_status() {
+        let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+        let app = App::new(config).unwrap();
+
+        assert!(app.status_timeout().is_none());
+    }
+
+    #[test]
+    fn status_timeout_is_some_with_active_status() {
+        let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+
+        app.set_status("Saved");
+
+        assert!(app.status_timeout().is_some());
+    }
+
+    #[test]
+    fn expire_status_reports_visible_change_once() {
+        let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+        let mut app = App::new(config).unwrap();
+        app.status = "Saved".to_string();
+        app.status_until = Some(Instant::now() - Duration::from_secs(1));
+
+        assert!(app.expire_status());
+        assert!(app.status.is_empty());
+        assert!(!app.expire_status());
     }
 }

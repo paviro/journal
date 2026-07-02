@@ -12,7 +12,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::{io, time::Duration};
+use std::io;
 
 use app::App;
 
@@ -38,28 +38,41 @@ fn run_loop(
     config: Config,
 ) -> AppResult<()> {
     let mut app = App::new(config)?;
+    terminal.draw(|frame| render::draw(frame, &mut app))?;
 
     loop {
-        app.expire_status();
-        terminal.draw(|frame| render::draw(frame, &mut app))?;
+        let event = match app.status_timeout() {
+            Some(timeout) => {
+                if event::poll(timeout)? {
+                    Some(event::read()?)
+                } else {
+                    None
+                }
+            }
+            None => Some(event::read()?),
+        };
 
-        if !event::poll(Duration::from_millis(250))? {
-            continue;
-        }
-
-        match event::read()? {
-            Event::Key(key) => {
+        let redraw = match event {
+            Some(Event::Key(key)) => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
                     break;
                 }
                 if events::handle_key(terminal, &mut app, key)? {
                     break;
                 }
+                true
             }
-            Event::Mouse(mouse) => {
+            Some(Event::Mouse(mouse)) => {
                 events::handle_mouse(terminal, &mut app, mouse)?;
+                true
             }
-            _ => {}
+            Some(Event::Resize(_, _)) => true,
+            Some(_) => false,
+            None => app.expire_status(),
+        };
+
+        if redraw {
+            terminal.draw(|frame| render::draw(frame, &mut app))?;
         }
     }
 
