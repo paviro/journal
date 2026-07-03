@@ -794,7 +794,7 @@ mod tests {
         let text = footer_text(&app);
 
         assert_eq!(
-            footer_hint_id_at(&app, 0, text.find("edit tags").unwrap() as u16),
+            footer_hint_id_at(&app, 0, text.find("tags (t)").unwrap() as u16),
             Some(HintId::BeginEditTags)
         );
         assert_eq!(

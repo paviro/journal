@@ -149,9 +149,9 @@ fn search_footer_line(app: &App) -> HintLine {
             Hint::new("view", "enter", HintId::ViewSelected),
             Hint::new("edit", "e", HintId::EditSelected),
             Hint::new("delete", "d", HintId::BeginDelete),
-            Hint::new("edit tags", "t", HintId::BeginEditTags),
-            Hint::new("edit feelings", "f", HintId::BeginEditFeelings),
-            Hint::new("edit mood", "m", HintId::BeginEditMood),
+            Hint::new("tags", "t", HintId::BeginEditTags),
+            Hint::new("feelings", "f", HintId::BeginEditFeelings),
+            Hint::new("mood", "m", HintId::BeginEditMood),
             Hint::new("exit search", "esc", HintId::ExitSearch),
             Hint::new("quit", "q", HintId::Quit),
         ],
@@ -188,9 +188,9 @@ fn browse_footer_line(app: &App) -> HintLine {
                 hints.push(Hint::new("edit", "e", HintId::EditSelected));
                 hints.push(Hint::new("view", "enter", HintId::ViewSelected));
                 hints.push(Hint::new("delete", "d", HintId::BeginDelete));
-                hints.push(Hint::new("edit tags", "t", HintId::BeginEditTags));
-                hints.push(Hint::new("edit feelings", "f", HintId::BeginEditFeelings));
-                hints.push(Hint::new("edit mood", "m", HintId::BeginEditMood));
+                hints.push(Hint::new("tags", "t", HintId::BeginEditTags));
+                hints.push(Hint::new("feelings", "f", HintId::BeginEditFeelings));
+                hints.push(Hint::new("mood", "m", HintId::BeginEditMood));
             }
             hints.push(Hint::new("search", "/", HintId::BeginSearch));
             hints.push(Hint::new("quit", "q", HintId::Quit));
@@ -202,9 +202,9 @@ fn browse_footer_line(app: &App) -> HintLine {
                 hints.push(Hint::new("edit", "e", HintId::EditSelected));
                 hints.push(Hint::new("view", "enter", HintId::ViewSelected));
                 hints.push(Hint::new("delete", "d", HintId::BeginDelete));
-                hints.push(Hint::new("edit tags", "t", HintId::BeginEditTags));
-                hints.push(Hint::new("edit feelings", "f", HintId::BeginEditFeelings));
-                hints.push(Hint::new("edit mood", "m", HintId::BeginEditMood));
+                hints.push(Hint::new("tags", "t", HintId::BeginEditTags));
+                hints.push(Hint::new("feelings", "f", HintId::BeginEditFeelings));
+                hints.push(Hint::new("mood", "m", HintId::BeginEditMood));
             }
             hints.push(Hint::new("search", "/", HintId::BeginSearch));
             hints.push(Hint::new("quit", "q", HintId::Quit));
