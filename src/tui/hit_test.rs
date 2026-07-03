@@ -1,9 +1,9 @@
 use ratatui::layout::Rect;
 
 use super::entry_rows::EntryRowMeta;
-use super::surface::{EntryListGeometry, entry_metadata_layout, metadata_item_at, point_in_rect};
 #[cfg(test)]
 use super::surface::PanelGeometry;
+use super::surface::{EntryListGeometry, entry_metadata_layout, metadata_item_at, point_in_rect};
 
 #[cfg(test)]
 pub(crate) fn journal_index_at(

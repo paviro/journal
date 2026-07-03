@@ -2,7 +2,6 @@
 pub(crate) enum Action {
     // Global
     Quit,
-    Refresh,
     // Browse / search navigation
     FocusLeft,
     FocusRight,

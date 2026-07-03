@@ -76,7 +76,6 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
     }
     match key.code {
         KeyCode::Char('q') => Some(Action::Quit),
-        KeyCode::Char('r') => Some(Action::Refresh),
         KeyCode::Char('/') => Some(Action::BeginSearch),
         KeyCode::Left => Some(Action::FocusLeft),
         KeyCode::Right

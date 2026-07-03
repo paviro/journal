@@ -18,9 +18,9 @@ pub(crate) use super::entry_rows::{
     EntryRowMeta, entry_day_label, entry_list_lines, entry_month_label,
 };
 pub(crate) use super::entry_rows::{entry_row_metadata, total_entry_row_height};
-pub(crate) use super::hit_test::{entry_index_at, feeling_at_point, tag_at_point};
 #[cfg(test)]
 pub(crate) use super::hit_test::journal_index_at;
+pub(crate) use super::hit_test::{entry_index_at, feeling_at_point, tag_at_point};
 #[cfg(test)]
 pub(crate) use super::scroll::scrollbar_position;
 pub(crate) use super::scroll::{clamp_scroll, viewer_scroll};

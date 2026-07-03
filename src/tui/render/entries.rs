@@ -28,8 +28,11 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
     let viewport_height = geometry.viewport_height;
     let meta = entry_row_metadata(app, text_width);
     let total_height = total_entry_row_height(&meta);
-    let pixel_offset =
-        clamp_scroll(app.entry_list.offset() as u16, total_height, viewport_height);
+    let pixel_offset = clamp_scroll(
+        app.entry_list.offset() as u16,
+        total_height,
+        viewport_height,
+    );
     *app.entry_list.offset_mut() = pixel_offset as usize;
 
     let highlight_active = app.focus != Focus::Journals;
@@ -45,7 +48,8 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_spacing(HighlightSpacing::Never);
 
-    let mut render_state = list_state_for_render(selected_visible, 0, viewport_height, highlight_active);
+    let mut render_state =
+        list_state_for_render(selected_visible, 0, viewport_height, highlight_active);
 
     frame.render_widget(block, geometry.panel.area);
     frame.render_stateful_widget(list, geometry.panel.content, &mut render_state);

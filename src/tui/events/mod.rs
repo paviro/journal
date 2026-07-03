@@ -35,7 +35,6 @@ pub(crate) fn dispatch_action(
 
     match action {
         Action::Quit => return Ok(true),
-        Action::Refresh => app.refresh()?,
 
         Action::FocusLeft => move_focus_left(app),
         Action::FocusRight => {

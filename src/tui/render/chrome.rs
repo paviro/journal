@@ -13,7 +13,6 @@ use crate::tui::app::{App, Focus, Mode};
 pub(crate) enum HintId {
     NewJournal,
     NewEntry,
-    Refresh,
     BeginSearch,
     Quit,
     EditSelected,
@@ -180,7 +179,6 @@ fn browse_footer_line(app: &App) -> HintLine {
     let hints = match app.focus {
         Focus::Journals => vec![
             Hint::new("new journal", "n", HintId::NewJournal),
-            Hint::new("refresh", "r", HintId::Refresh),
             Hint::new("search", "/", HintId::BeginSearch),
             Hint::new("quit", "q", HintId::Quit),
         ],

@@ -341,7 +341,6 @@ pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action>
     match id {
         render::HintId::NewJournal => Some(Action::NewJournal),
         render::HintId::NewEntry => Some(Action::NewEntry),
-        render::HintId::Refresh => Some(Action::Refresh),
         render::HintId::BeginSearch => Some(Action::BeginSearch),
         render::HintId::Quit => Some(Action::Quit),
         render::HintId::EditSelected if app.can_act_on_selected_entry() => {

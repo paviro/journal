@@ -5,7 +5,10 @@ use ratatui::{
     widgets::ListItem,
 };
 
-use super::{app::{App, Mode}, scroll::clamp_scroll};
+use super::{
+    app::{App, Mode},
+    scroll::clamp_scroll,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EntryRowMeta {
@@ -106,7 +109,6 @@ fn browse_entry_rows(app: &App, text_width: u16) -> Vec<EntryListRow> {
 
     rows
 }
-
 
 pub(crate) fn entry_row_metadata(app: &App, text_width: u16) -> Vec<EntryRowMeta> {
     entry_list_rows(app, text_width)

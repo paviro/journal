@@ -299,7 +299,12 @@ pub(crate) fn move_list_selection(state: &mut ListState, len: usize, delta: isiz
     state.select(Some(next));
 }
 
-pub(crate) fn scroll_list_offset(state: &mut ListState, delta: i16, len: usize, viewport_height: u16) {
+pub(crate) fn scroll_list_offset(
+    state: &mut ListState,
+    delta: i16,
+    len: usize,
+    viewport_height: u16,
+) {
     if len == 0 || viewport_height == 0 {
         *state.offset_mut() = 0;
         return;

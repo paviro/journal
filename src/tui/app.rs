@@ -137,7 +137,12 @@ impl App {
     }
 
     pub(crate) fn journal_list_scroll(&mut self, delta: i16, viewport_height: u16) {
-        scroll_list_offset(&mut self.journal_list, delta, self.journals.len(), viewport_height);
+        scroll_list_offset(
+            &mut self.journal_list,
+            delta,
+            self.journals.len(),
+            viewport_height,
+        );
     }
 
     fn reset_entry_scroll(&mut self) {
@@ -153,7 +158,9 @@ impl App {
     ) {
         let max = total_height.saturating_sub(viewport_height as usize);
         let offset = if delta < 0 {
-            self.entry_list.offset().saturating_sub(delta.unsigned_abs() as usize)
+            self.entry_list
+                .offset()
+                .saturating_sub(delta.unsigned_abs() as usize)
         } else {
             self.entry_list.offset().saturating_add(delta as usize)
         };

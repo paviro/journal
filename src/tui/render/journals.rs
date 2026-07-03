@@ -32,8 +32,12 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_spacing(HighlightSpacing::Never);
 
-    let mut render_state =
-        list_state_for_render(app.journal_list.selected(), offset, viewport_height, highlight_active);
+    let mut render_state = list_state_for_render(
+        app.journal_list.selected(),
+        offset,
+        viewport_height,
+        highlight_active,
+    );
 
     frame.render_widget(block, geometry.area);
     frame.render_stateful_widget(list, geometry.content, &mut render_state);
@@ -45,4 +49,3 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
         offset as u16,
     );
 }
-

@@ -6,6 +6,7 @@ mod render;
 mod scroll;
 mod state;
 mod surface;
+mod watcher;
 
 use crate::{AppResult, config::Config, crypto};
 use crossterm::{
@@ -14,7 +15,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::io;
+use std::{io, time::Duration};
 
 use app::App;
 
@@ -37,18 +38,20 @@ pub fn run(config: Config, encryption_paths: crypto::EncryptionPaths) -> AppResu
 }
 
 fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App) -> AppResult<()> {
+    let watcher = watcher::FileWatcher::start(&app.config.journal_root);
+
     terminal.draw(|frame| render::draw(frame, &mut app))?;
 
     loop {
-        let event = match app.status_timeout() {
-            Some(timeout) => {
-                if event::poll(timeout)? {
-                    Some(event::read()?)
-                } else {
-                    None
-                }
-            }
-            None => Some(event::read()?),
+        let poll_timeout = app
+            .status_timeout()
+            .map(|t| t.min(Duration::from_millis(200)))
+            .unwrap_or(Duration::from_millis(200));
+
+        let event = if event::poll(poll_timeout)? {
+            Some(event::read()?)
+        } else {
+            None
         };
 
         let redraw = match event {
@@ -72,7 +75,13 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
             None => app.expire_status(),
         };
 
-        if redraw {
+        let watcher_changed = watcher.poll_change();
+
+        if watcher_changed {
+            app.refresh()?;
+        }
+
+        if redraw || watcher_changed {
             terminal.draw(|frame| render::draw(frame, &mut app))?;
         }
     }
