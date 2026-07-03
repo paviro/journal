@@ -195,6 +195,17 @@ impl EditTagState {
     pub(crate) fn ensure_selected_visible(&mut self, viewport_height: u16) {
         ensure_selected_visible(&mut self.list_state, self.filtered.len(), viewport_height);
     }
+
+    pub(crate) fn toggle_selected(&mut self) {
+        if let Some(tag_idx) = self.selected_tag_index() {
+            let tag = self.all_tags[tag_idx].0.to_lowercase();
+            if let Some(pos) = self.selected.iter().position(|t| t == &tag) {
+                self.selected.remove(pos);
+            } else {
+                self.selected.push(tag);
+            }
+        }
+    }
 }
 
 /// State for the edit-feelings overlay.
@@ -259,6 +270,17 @@ impl EditFeelingState {
             self.all_feelings.len(),
             viewport_height,
         );
+    }
+
+    pub(crate) fn toggle_selected(&mut self) {
+        if let Some(index) = self.selected_index() {
+            let feeling = self.all_feelings[index].clone();
+            if let Some(pos) = self.selected.iter().position(|v| v == &feeling) {
+                self.selected.remove(pos);
+            } else {
+                self.selected.push(feeling);
+            }
+        }
     }
 }
 

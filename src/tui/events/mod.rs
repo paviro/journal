@@ -110,15 +110,8 @@ pub(crate) fn dispatch_action(
             }
         }
         Action::TagsToggle => {
-            if let Some(state) = app.edit_tag_state_mut()
-                && let Some(tag_idx) = state.selected_tag_index()
-            {
-                let tag = state.all_tags[tag_idx].0.to_lowercase();
-                if let Some(pos) = state.selected.iter().position(|t| t == &tag) {
-                    state.selected.remove(pos);
-                } else {
-                    state.selected.push(tag);
-                }
+            if let Some(state) = app.edit_tag_state_mut() {
+                state.toggle_selected();
             }
         }
         Action::TagsSwitchFocus => {
@@ -182,15 +175,8 @@ pub(crate) fn dispatch_action(
             }
         }
         Action::FeelingsToggle => {
-            if let Some(state) = app.edit_feeling_state_mut()
-                && let Some(index) = state.selected_index()
-            {
-                let feeling = state.all_feelings[index].clone();
-                if let Some(pos) = state.selected.iter().position(|v| v == &feeling) {
-                    state.selected.remove(pos);
-                } else {
-                    state.selected.push(feeling);
-                }
+            if let Some(state) = app.edit_feeling_state_mut() {
+                state.toggle_selected();
             }
         }
         Action::FeelingsSave => {

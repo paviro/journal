@@ -234,7 +234,7 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
                     list_row_at(layout.list, col, row, state.offset(), filtered_len)
                 {
                     state.select_index(index);
-                    return Some(Action::TagsToggle);
+                    state.toggle_selected();
                 }
             }
             return None;
@@ -262,7 +262,8 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
             && let Some(index) = list_row_at(layout.list, col, row, state.offset(), all_len)
         {
             state.select_index(index);
-            return Some(Action::FeelingsToggle);
+            state.toggle_selected();
+            return None;
         }
         return None;
     }
