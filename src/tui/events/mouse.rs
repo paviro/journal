@@ -164,6 +164,7 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
 fn footer_click_to_action(app: &App, mouse: MouseEvent, footer: Rect) -> Option<Action> {
     let hint_id = if app.entry_view_expanded {
         render::expanded_footer_hint_id_at_point(
+            app,
             footer.x,
             footer.y,
             footer.width,
@@ -186,7 +187,7 @@ fn footer_click_to_action(app: &App, mouse: MouseEvent, footer: Rect) -> Option<
 
 fn footer_area(app: &App, area: Rect) -> Rect {
     if app.entry_view_expanded {
-        let height = render::expanded_footer_height(area.width).min(area.height);
+        let height = render::expanded_footer_height(app, area.width).min(area.height);
         return Rect {
             x: area.x,
             y: area.y + area.height.saturating_sub(height),

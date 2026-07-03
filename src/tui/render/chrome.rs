@@ -224,18 +224,24 @@ pub(crate) fn footer_hint_id_at_point(
     }
 }
 
-pub(crate) fn expanded_footer_lines(width: u16) -> Text<'static> {
+#[cfg(test)]
+pub(crate) fn expanded_footer_text(app: &App) -> String {
+    hints_text(&expanded_footer_hints(app))
+}
+
+pub(crate) fn expanded_footer_lines(app: &App, width: u16) -> Text<'static> {
     Text::from(hint_lines(
-        &expanded_footer_hints(),
+        &expanded_footer_hints(app),
         width.saturating_sub(1),
     ))
 }
 
-pub(crate) fn expanded_footer_height(width: u16) -> u16 {
-    hint_height(&expanded_footer_hints(), width.saturating_sub(1))
+pub(crate) fn expanded_footer_height(app: &App, width: u16) -> u16 {
+    hint_height(&expanded_footer_hints(app), width.saturating_sub(1))
 }
 
 pub(crate) fn expanded_footer_hint_id_at_point(
+    app: &App,
     origin_x: u16,
     origin_y: u16,
     width: u16,
@@ -243,7 +249,7 @@ pub(crate) fn expanded_footer_hint_id_at_point(
     row: u16,
 ) -> Option<HintId> {
     hint_id_at_wrapped(
-        &expanded_footer_hints(),
+        &expanded_footer_hints(app),
         origin_x.saturating_add(1),
         origin_y,
         width.saturating_sub(1),
@@ -371,16 +377,12 @@ impl HintLine {
 fn search_footer_line(app: &App) -> HintLine {
     let query = format!("Search {}: {}", app.search_scope_label(), app.search.query);
     let hints = match app.focus {
-        Focus::EntryView if app.has_selected_entry_target() => vec![
-            Hint::new("view", "enter", HintId::ViewSelected),
-            Hint::new("edit", "e", HintId::EditSelected),
-            Hint::new("delete", "d", HintId::BeginDelete),
-            Hint::new("tags", "t", HintId::BeginEditTags),
-            Hint::new("feelings", "f", HintId::BeginEditFeelings),
-            Hint::new("mood", "m", HintId::BeginEditMood),
-            Hint::new("exit search", "esc", HintId::ExitSearch),
-            Hint::new("quit", "q", HintId::Quit),
-        ],
+        Focus::EntryView if app.has_selected_entry_target() => {
+            let mut hints = selected_entry_action_hints(true);
+            hints.push(Hint::new("exit search", "esc", HintId::ExitSearch));
+            hints.push(Hint::new("quit", "q", HintId::Quit));
+            hints
+        }
         Focus::EntryView => vec![
             Hint::new("exit search", "esc", HintId::ExitSearch),
             Hint::new("quit", "q", HintId::Quit),
@@ -411,12 +413,7 @@ fn browse_footer_line(app: &App) -> HintLine {
         Focus::Entries => {
             let mut hints = vec![Hint::new("new entry", "n", HintId::NewEntry)];
             if app.has_selected_entry_target() {
-                hints.push(Hint::new("edit", "e", HintId::EditSelected));
-                hints.push(Hint::new("view", "enter", HintId::ViewSelected));
-                hints.push(Hint::new("delete", "d", HintId::BeginDelete));
-                hints.push(Hint::new("tags", "t", HintId::BeginEditTags));
-                hints.push(Hint::new("feelings", "f", HintId::BeginEditFeelings));
-                hints.push(Hint::new("mood", "m", HintId::BeginEditMood));
+                hints.extend(selected_entry_action_hints(true));
             }
             hints.push(Hint::new("search", "/", HintId::BeginSearch));
             hints.push(Hint::new("quit", "q", HintId::Quit));
@@ -425,12 +422,7 @@ fn browse_footer_line(app: &App) -> HintLine {
         Focus::EntryView => {
             let mut hints = vec![Hint::new("new entry", "n", HintId::NewEntry)];
             if app.has_selected_entry_target() {
-                hints.push(Hint::new("edit", "e", HintId::EditSelected));
-                hints.push(Hint::new("view", "enter", HintId::ViewSelected));
-                hints.push(Hint::new("delete", "d", HintId::BeginDelete));
-                hints.push(Hint::new("tags", "t", HintId::BeginEditTags));
-                hints.push(Hint::new("feelings", "f", HintId::BeginEditFeelings));
-                hints.push(Hint::new("mood", "m", HintId::BeginEditMood));
+                hints.extend(selected_entry_action_hints(true));
             }
             hints.push(Hint::new("search", "/", HintId::BeginSearch));
             hints.push(Hint::new("quit", "q", HintId::Quit));
@@ -444,12 +436,39 @@ fn browse_footer_line(app: &App) -> HintLine {
     }
 }
 
-fn expanded_footer_hints() -> [Hint; 3] {
-    [
-        Hint::new("close", "enter/esc", HintId::CancelOverlay),
-        Hint::new("edit", "e", HintId::EditSelected),
-        Hint::new("quit", "q", HintId::Quit),
-    ]
+fn selected_entry_action_hints(include_view: bool) -> Vec<Hint> {
+    let mut hints = Vec::new();
+    hints.push(Hint::new("edit", "e", HintId::EditSelected));
+    if include_view {
+        hints.push(Hint::new("view", "enter", HintId::ViewSelected));
+    }
+    hints.push(Hint::new("delete", "d", HintId::BeginDelete));
+    hints.push(Hint::new("tags", "t", HintId::BeginEditTags));
+    hints.push(Hint::new("feelings", "f", HintId::BeginEditFeelings));
+    hints.push(Hint::new("mood", "m", HintId::BeginEditMood));
+    hints
+}
+
+fn expanded_footer_hints(app: &App) -> Vec<Hint> {
+    let mut hints = Vec::new();
+    if app.mode == Mode::Browse {
+        hints.push(Hint::new("new entry", "n", HintId::NewEntry));
+    }
+    if app.has_selected_entry_target() {
+        hints.push(Hint::new("edit", "e", HintId::EditSelected));
+        hints.push(Hint::new("close", "enter/esc", HintId::CancelOverlay));
+        hints.push(Hint::new("delete", "d", HintId::BeginDelete));
+        hints.push(Hint::new("tags", "t", HintId::BeginEditTags));
+        hints.push(Hint::new("feelings", "f", HintId::BeginEditFeelings));
+        hints.push(Hint::new("mood", "m", HintId::BeginEditMood));
+    } else {
+        hints.push(Hint::new("close", "enter/esc", HintId::CancelOverlay));
+    }
+    if app.mode == Mode::Browse {
+        hints.push(Hint::new("search", "/", HintId::BeginSearch));
+    }
+    hints.push(Hint::new("quit", "q", HintId::Quit));
+    hints
 }
 
 pub(crate) fn panel_block(

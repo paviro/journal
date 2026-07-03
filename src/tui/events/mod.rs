@@ -55,11 +55,20 @@ pub(crate) fn dispatch_action(
         Action::ScrollEntryViewToStart => app.scroll.entry_view = 0,
         Action::ScrollEntryViewToEnd => app.scroll.entry_view = u16::MAX,
 
-        Action::BeginSearch => app.begin_search(),
-        Action::ExitSearch => app.exit_search(),
+        Action::BeginSearch => {
+            close_expanded_entry_view(app);
+            app.begin_search();
+        }
+        Action::ExitSearch => {
+            close_expanded_entry_view(app);
+            app.exit_search();
+        }
         Action::EditSelected => edit_selected(terminal, app)?,
         Action::ViewSelected => view_selected(app)?,
-        Action::BeginDelete => app.begin_confirm_delete(),
+        Action::BeginDelete => {
+            close_expanded_entry_view(app);
+            app.begin_confirm_delete();
+        }
         Action::ConfirmDelete => {
             delete_selected(app)?;
             app.close_overlay();
@@ -76,10 +85,22 @@ pub(crate) fn dispatch_action(
                 app.close_overlay();
             }
         }
-        Action::BeginEditTags => app.begin_edit_tags(),
-        Action::BeginEditFeelings => app.begin_edit_feelings(),
-        Action::BeginEditMood => app.begin_edit_mood(),
-        Action::NewEntry => create_entry_in_selected_journal(terminal, app)?,
+        Action::BeginEditTags => {
+            close_expanded_entry_view(app);
+            app.begin_edit_tags();
+        }
+        Action::BeginEditFeelings => {
+            close_expanded_entry_view(app);
+            app.begin_edit_feelings();
+        }
+        Action::BeginEditMood => {
+            close_expanded_entry_view(app);
+            app.begin_edit_mood();
+        }
+        Action::NewEntry => {
+            close_expanded_entry_view(app);
+            create_entry_in_selected_journal(terminal, app)?;
+        }
         Action::NewJournal => app.begin_new_journal_input(),
 
         Action::JournalInputChar(ch) => {
@@ -225,6 +246,13 @@ pub(crate) fn dispatch_action(
     }
 
     Ok(false)
+}
+
+fn close_expanded_entry_view(app: &mut App) {
+    if app.entry_view_expanded {
+        app.entry_view_expanded = false;
+        app.focus = Focus::EntryView;
+    }
 }
 
 fn terminal_area(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> AppResult<Rect> {

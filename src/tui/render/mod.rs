@@ -35,7 +35,9 @@ pub(crate) use chrome::{
     hint_id_at_wrapped, panel_block, render_scrollbar_if_needed,
 };
 #[cfg(test)]
-pub(crate) use chrome::{footer_height, footer_hint_id_at, footer_text, hint_height, hint_id_at};
+pub(crate) use chrome::{
+    expanded_footer_text, footer_height, footer_hint_id_at, footer_text, hint_height, hint_id_at,
+};
 use dialogs::{
     draw_confirm_delete, draw_edit_feelings_dialog, draw_edit_mood_dialog, draw_edit_tags_dialog,
     draw_new_journal_input,
@@ -71,7 +73,7 @@ pub(crate) fn list_state_for_render(
 pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     if app.entry_view_expanded {
         let area = frame.area();
-        let footer_height = expanded_footer_height(area.width).min(area.height);
+        let footer_height = expanded_footer_height(app, area.width).min(area.height);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(0), Constraint::Length(footer_height)])
@@ -84,7 +86,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
             ..footer_area
         };
         frame.render_widget(
-            Paragraph::new(expanded_footer_lines(footer_area.width)),
+            Paragraph::new(expanded_footer_lines(app, footer_area.width)),
             footer_text_area,
         );
         return;
@@ -876,6 +878,32 @@ mod tests {
     }
 
     #[test]
+    fn expanded_entry_footer_includes_inline_entry_actions() {
+        let mut app = app_with_entry();
+        app.focus = Focus::EntryView;
+        app.entry_view_expanded = true;
+
+        let inline_text = footer_text(&app);
+        let expanded_text = expanded_footer_text(&app);
+
+        for label in [
+            "new entry (n)",
+            "edit (e)",
+            "delete (d)",
+            "tags (t)",
+            "feelings (f)",
+            "mood (m)",
+            "search (/)",
+            "quit (q)",
+        ] {
+            assert!(inline_text.contains(label));
+            assert!(expanded_text.contains(label));
+        }
+        assert!(expanded_text.contains("close (enter/esc)"));
+        assert!(expanded_text.contains("edit (e) | close (enter/esc) | delete (d)"));
+    }
+
+    #[test]
     fn entries_footer_omits_entry_actions_without_a_selection() {
         let dir = tempdir().unwrap();
         fs::create_dir_all(dir.path().join("work")).unwrap();
@@ -951,6 +979,26 @@ mod tests {
         assert_eq!(
             footer_hint_id_at(&app, 0, text.find("edit (e)").unwrap() as u16),
             Some(HintId::EditSelected)
+        );
+    }
+
+    #[test]
+    fn expanded_footer_hint_routing_uses_typed_ids() {
+        let mut app = app_with_entry();
+        app.focus = Focus::EntryView;
+        app.entry_view_expanded = true;
+        let text = expanded_footer_text(&app);
+
+        assert_eq!(
+            expanded_footer_hint_id_at_point(
+                &app,
+                0,
+                19,
+                120,
+                1 + text.find("tags (t)").unwrap() as u16,
+                19
+            ),
+            Some(HintId::BeginEditTags)
         );
     }
 

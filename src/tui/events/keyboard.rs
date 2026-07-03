@@ -63,7 +63,13 @@ fn expanded_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Char('q') => Some(Action::Quit),
         KeyCode::Esc | KeyCode::Enter | KeyCode::Left => Some(Action::CancelOverlay),
+        KeyCode::Char('/') if app.mode == Mode::Browse => Some(Action::BeginSearch),
         KeyCode::Char('e') if app.has_selected_entry_target() => Some(Action::EditSelected),
+        KeyCode::Char('n') if app.mode == Mode::Browse => Some(Action::NewEntry),
+        KeyCode::Char('d') if app.has_selected_entry_target() => Some(Action::BeginDelete),
+        KeyCode::Char('t') if app.has_selected_entry_target() => Some(Action::BeginEditTags),
+        KeyCode::Char('f') if app.has_selected_entry_target() => Some(Action::BeginEditFeelings),
+        KeyCode::Char('m') if app.has_selected_entry_target() => Some(Action::BeginEditMood),
         code => scroll_key_to_action(code),
     }
 }
