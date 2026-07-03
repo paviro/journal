@@ -1,4 +1,5 @@
 use super::create::{WriteTarget, create_entry_file};
+use super::edit::encrypted_replacement_temp_path;
 use super::paths::entry_path_with_id;
 use super::*;
 use crate::crypto;
@@ -306,6 +307,28 @@ fn scan_entries_marks_encrypted_entry_unlocked_with_identity() {
     );
     assert_eq!(entries[0].title, "Secret");
     assert!(entries[0].content.contains("Body"));
+}
+
+#[test]
+fn encrypted_replacement_temp_path_is_beside_entry() {
+    let dir = tempdir().unwrap();
+    let path = dir
+        .path()
+        .join("work")
+        .join("2026")
+        .join("07")
+        .join("01")
+        .join("2026-07-01T10-23-00-secret.md.age");
+
+    let temp = encrypted_replacement_temp_path(&path);
+
+    assert_eq!(temp.parent(), path.parent());
+    assert_ne!(temp, path);
+    assert_eq!(
+        temp.file_name().unwrap().to_str().unwrap(),
+        ".2026-07-01T10-23-00-secret.md.age.tmp"
+    );
+    assert!(!is_entry_file(&temp));
 }
 
 #[test]

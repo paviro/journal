@@ -64,7 +64,7 @@ pub fn edit_encrypted_entry(
 ) -> AppResult<()> {
     let temp_dir = std::env::temp_dir();
     let plaintext = unique_temp_path(&temp_dir, "edit.md");
-    let encrypted = unique_temp_path(&temp_dir, "edit.age");
+    let encrypted = encrypted_replacement_temp_path(path);
     let result = (|| {
         crypto::decrypt_file(identity, path, &plaintext)?;
         open_editor_body_only(editor, &plaintext)?;
@@ -103,6 +103,15 @@ pub fn move_entry_to_trash(root: &Path, entry_path: &Path) -> AppResult<PathBuf>
     }
     fs::rename(entry_path, &trash_path)?;
     Ok(trash_path)
+}
+
+pub(super) fn encrypted_replacement_temp_path(path: &Path) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("entry.md.age");
+    parent.join(format!(".{name}.tmp"))
 }
 
 fn unique_temp_path(dir: &Path, suffix: &str) -> PathBuf {
