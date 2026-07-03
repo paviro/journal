@@ -4,13 +4,14 @@ mod keyboard;
 mod mouse;
 mod terminal;
 
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use std::io;
 
 use crate::{
     AppResult,
     tui::{
         app::{App, Focus, entry_view_is_available},
+        render,
         state::Overlay,
     },
 };
@@ -95,24 +96,23 @@ pub(crate) fn dispatch_action(
         Action::JournalInputSubmit => submit_new_journal(app)?,
 
         Action::TagsMoveUp => {
-            if let Some(state) = app.edit_tag_state_mut()
-                && state.cursor > 0
-            {
-                state.cursor -= 1;
+            let list_height = tag_dialog_list_height(terminal, app)?;
+            if let Some(state) = app.edit_tag_state_mut() {
+                state.move_up();
+                state.ensure_selected_visible(list_height);
             }
         }
         Action::TagsMoveDown => {
-            if let Some(state) = app.edit_tag_state_mut()
-                && state.cursor + 1 < state.filtered.len()
-            {
-                state.cursor += 1;
+            let list_height = tag_dialog_list_height(terminal, app)?;
+            if let Some(state) = app.edit_tag_state_mut() {
+                state.move_down();
+                state.ensure_selected_visible(list_height);
             }
         }
         Action::TagsToggle => {
             if let Some(state) = app.edit_tag_state_mut()
-                && !state.filtered.is_empty()
+                && let Some(tag_idx) = state.selected_tag_index()
             {
-                let tag_idx = state.filtered[state.cursor];
                 let tag = state.all_tags[tag_idx].0.to_lowercase();
                 if let Some(pos) = state.selected.iter().position(|t| t == &tag) {
                     state.selected.remove(pos);
@@ -168,22 +168,24 @@ pub(crate) fn dispatch_action(
         }
 
         Action::FeelingsMoveUp => {
-            if let Some(state) = app.edit_feeling_state_mut()
-                && state.cursor > 0
-            {
-                state.cursor -= 1;
+            let list_height = feelings_dialog_list_height(terminal, app)?;
+            if let Some(state) = app.edit_feeling_state_mut() {
+                state.move_up();
+                state.ensure_selected_visible(list_height);
             }
         }
         Action::FeelingsMoveDown => {
-            if let Some(state) = app.edit_feeling_state_mut()
-                && state.cursor + 1 < state.all_feelings.len()
-            {
-                state.cursor += 1;
+            let list_height = feelings_dialog_list_height(terminal, app)?;
+            if let Some(state) = app.edit_feeling_state_mut() {
+                state.move_down();
+                state.ensure_selected_visible(list_height);
             }
         }
         Action::FeelingsToggle => {
-            if let Some(state) = app.edit_feeling_state_mut() {
-                let feeling = state.all_feelings[state.cursor].clone();
+            if let Some(state) = app.edit_feeling_state_mut()
+                && let Some(index) = state.selected_index()
+            {
+                let feeling = state.all_feelings[index].clone();
                 if let Some(pos) = state.selected.iter().position(|v| v == &feeling) {
                     state.selected.remove(pos);
                 } else {
@@ -240,6 +242,37 @@ pub(crate) fn dispatch_action(
     Ok(false)
 }
 
+fn terminal_area(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> AppResult<Rect> {
+    let size = terminal.size()?;
+    Ok(Rect::new(0, 0, size.width, size.height))
+}
+
+fn tag_dialog_list_height(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &App,
+) -> AppResult<u16> {
+    let filtered_len = app.edit_tag_state().map_or(0, |state| state.filtered.len());
+    Ok(
+        render::tags_dialog_layout(terminal_area(terminal)?, filtered_len)
+            .list
+            .height,
+    )
+}
+
+fn feelings_dialog_list_height(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &App,
+) -> AppResult<u16> {
+    let all_len = app
+        .edit_feeling_state()
+        .map_or(0, |state| state.all_feelings.len());
+    Ok(
+        render::feelings_dialog_layout(terminal_area(terminal)?, all_len)
+            .list
+            .height,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +282,7 @@ mod tests {
         tui::{
             app::{App, Focus},
             render,
+            state::EditTagFocus,
         },
     };
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -307,6 +341,15 @@ mod tests {
 
     fn mouse_in_area(app: &mut App, event: MouseEvent, w: u16, h: u16) {
         mouse::handle_mouse_in_area(app, event, Rect::new(0, 0, w, h)).unwrap();
+    }
+
+    fn set_tag_dialog_items(app: &mut App, count: usize) {
+        let state = app.edit_tag_state_mut().unwrap();
+        state.all_tags = (0..count)
+            .map(|index| (format!("tag-{index:02}"), index + 1))
+            .collect();
+        state.filtered = (0..count).collect();
+        state.normalize_list_state();
     }
 
     #[test]
@@ -411,6 +454,14 @@ mod tests {
         assert_eq!(
             mouse::hint_id_to_action(&app, render::HintId::TagsToggle),
             Some(Action::TagsToggle)
+        );
+        assert_eq!(
+            mouse::hint_id_to_action(&app, render::HintId::TagsSave),
+            Some(Action::TagsSave)
+        );
+        assert_eq!(
+            mouse::hint_id_to_action(&app, render::HintId::CancelOverlay),
+            Some(Action::CancelOverlay)
         );
     }
 
@@ -626,5 +677,162 @@ mod tests {
             20,
         );
         assert!(app.entry_view_expanded);
+    }
+
+    #[test]
+    fn wheel_over_tag_dialog_list_scrolls_without_selection_or_toggle_change() {
+        let mut app = app_with_entries(1);
+        app.begin_edit_tags();
+        set_tag_dialog_items(&mut app, 20);
+        let layout = render::tags_dialog_layout(Rect::new(0, 0, 120, 20), 20);
+
+        mouse_in_area(
+            &mut app,
+            mouse(MouseEventKind::ScrollDown, layout.list.x, layout.list.y),
+            120,
+            20,
+        );
+
+        let state = app.edit_tag_state().unwrap();
+        assert_eq!(state.offset(), 1);
+        assert_eq!(state.selected_index(), Some(0));
+        assert!(state.selected.is_empty());
+    }
+
+    #[test]
+    fn click_on_tag_dialog_row_selects_and_toggles_it() {
+        let mut app = app_with_entries(1);
+        app.begin_edit_tags();
+        set_tag_dialog_items(&mut app, 5);
+        let layout = render::tags_dialog_layout(Rect::new(0, 0, 120, 20), 5);
+
+        mouse_in_area(
+            &mut app,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                layout.list.x,
+                layout.list.y + 2,
+            ),
+            120,
+            20,
+        );
+
+        let state = app.edit_tag_state().unwrap();
+        assert_eq!(state.selected_index(), Some(2));
+        assert_eq!(state.selected, vec!["tag-02"]);
+    }
+
+    #[test]
+    fn click_on_tag_dialog_placeholder_row_does_not_toggle() {
+        let mut app = app_with_entries(1);
+        app.begin_edit_tags();
+        let state = app.edit_tag_state_mut().unwrap();
+        state.all_tags = vec![("work".to_string(), 1)];
+        state.filtered.clear();
+        state.input = "missing".to_string();
+        state.normalize_list_state();
+        let layout = render::tags_dialog_layout(Rect::new(0, 0, 120, 12), 0);
+
+        mouse_in_area(
+            &mut app,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                layout.list.x,
+                layout.list.y,
+            ),
+            120,
+            12,
+        );
+
+        let state = app.edit_tag_state().unwrap();
+        assert_eq!(state.selected_index(), None);
+        assert!(state.selected.is_empty());
+    }
+
+    #[test]
+    fn click_on_tag_input_row_switches_focus_to_input() {
+        let mut app = app_with_entries(1);
+        app.begin_edit_tags();
+        set_tag_dialog_items(&mut app, 3);
+        let layout = render::tags_dialog_layout(Rect::new(0, 0, 120, 16), 3);
+
+        mouse_in_area(
+            &mut app,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                layout.input.x,
+                layout.input.y,
+            ),
+            120,
+            16,
+        );
+
+        assert_eq!(app.edit_tag_state().unwrap().focus, EditTagFocus::Input);
+    }
+
+    #[test]
+    fn click_on_feeling_dialog_row_selects_and_toggles_it() {
+        let mut app = app_with_entries(1);
+        app.begin_edit_feelings();
+        let all_len = app.edit_feeling_state().unwrap().all_feelings.len();
+        let layout = render::feelings_dialog_layout(Rect::new(0, 0, 120, 20), all_len);
+
+        mouse_in_area(
+            &mut app,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                layout.list.x,
+                layout.list.y + 1,
+            ),
+            120,
+            20,
+        );
+
+        let state = app.edit_feeling_state().unwrap();
+        assert_eq!(state.selected_index(), Some(1));
+        assert_eq!(state.selected, vec![state.all_feelings[1].clone()]);
+    }
+
+    #[test]
+    fn click_and_drag_on_mood_bar_set_nearest_scores() {
+        let mut app = app_with_entries(1);
+        app.begin_edit_mood();
+        let layout = render::mood_dialog_layout(Rect::new(0, 0, 120, 20));
+
+        mouse_in_area(
+            &mut app,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                layout.bar.x,
+                layout.bar.y,
+            ),
+            120,
+            20,
+        );
+        assert_eq!(app.edit_mood_state().unwrap().draft, -5);
+
+        mouse_in_area(
+            &mut app,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                layout.bar.x + layout.bar.width / 2,
+                layout.bar.y,
+            ),
+            120,
+            20,
+        );
+        assert_eq!(app.edit_mood_state().unwrap().draft, 0);
+
+        mouse_in_area(
+            &mut app,
+            mouse(
+                MouseEventKind::Drag(MouseButton::Left),
+                layout.bar.x + layout.bar.width - 1,
+                layout.bar.y,
+            ),
+            120,
+            20,
+        );
+        assert_eq!(app.edit_mood_state().unwrap().draft, 5);
     }
 }

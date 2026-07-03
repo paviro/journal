@@ -19,11 +19,12 @@ pub(crate) fn handle_mouse(
     let size = terminal.size()?;
     let area = Rect::new(0, 0, size.width, size.height);
 
+    if app.has_overlay() {
+        handle_overlay_mouse(Some(terminal), app, mouse, area)?;
+        return Ok(false);
+    }
+
     if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
-        if app.has_overlay() {
-            handle_dialog_hint_click(terminal, app, mouse, area)?;
-            return Ok(false);
-        }
         let layout = render::tui_layout(area, app);
         if render::point_in_rect(layout.footer, mouse.column, mouse.row) {
             if let Some(action) = footer_click_to_action(app, mouse, layout) {
@@ -39,6 +40,7 @@ pub(crate) fn handle_mouse(
 
 pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
     if app.has_overlay() {
+        handle_overlay_mouse(None, app, mouse, area)?;
         return Ok(());
     }
 
@@ -178,55 +180,164 @@ fn footer_click_to_action(
     hint_id.and_then(|id| hint_id_to_action(app, id))
 }
 
-// ── Dialog hint click routing ─────────────────────────────────────────────────
+// ── Dialog mouse routing ──────────────────────────────────────────────────────
 
-fn handle_dialog_hint_click(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+fn handle_overlay_mouse(
+    terminal: Option<&mut Terminal<CrosstermBackend<io::Stdout>>>,
     app: &mut App,
     mouse: MouseEvent,
     area: Rect,
 ) -> AppResult<()> {
+    let action = match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => overlay_left_click(app, mouse, area),
+        MouseEventKind::Drag(MouseButton::Left) => {
+            handle_overlay_drag(app, mouse, area);
+            None
+        }
+        MouseEventKind::ScrollUp => {
+            handle_overlay_wheel(app, mouse, area, -1);
+            None
+        }
+        MouseEventKind::ScrollDown => {
+            handle_overlay_wheel(app, mouse, area, 1);
+            None
+        }
+        _ => None,
+    };
+
+    if let Some(action) = action
+        && let Some(terminal) = terminal
+    {
+        super::dispatch_action(terminal, app, action)?;
+    }
+
+    Ok(())
+}
+
+fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Action> {
     let col = mouse.column;
     let row = mouse.row;
 
     if let Some(focus) = app.edit_tag_state().map(|s| s.focus) {
         let filtered_len = app.edit_tag_state().map_or(0, |s| s.filtered.len());
-        let dialog = render::tags_dialog_area(area, filtered_len);
-        let inner = render::panel_inner(dialog);
-        if row == inner.y + inner.height.saturating_sub(1)
-            && let Some(id) = render::hint_id_at(render::tags_dialog_hints(focus), inner.x + 1, col)
-            && let Some(action) = hint_id_to_action(app, id)
+        let layout = render::tags_dialog_layout(area, filtered_len);
+        if row == layout.hints.y
+            && let Some(id) =
+                render::hint_id_at(render::tags_dialog_hints(focus), layout.hints.x + 1, col)
         {
-            super::dispatch_action(terminal, app, action)?;
+            return hint_id_to_action(app, id);
         }
-        return Ok(());
+        if render::point_in_rect(layout.list, col, row) {
+            if let Some(state) = app.edit_tag_state_mut() {
+                state.focus = crate::tui::state::EditTagFocus::List;
+                if let Some(index) =
+                    list_row_at(layout.list, col, row, state.offset(), filtered_len)
+                {
+                    state.select_index(index);
+                    return Some(Action::TagsToggle);
+                }
+            }
+            return None;
+        }
+        if render::point_in_rect(layout.input, col, row) {
+            if let Some(state) = app.edit_tag_state_mut() {
+                state.focus = crate::tui::state::EditTagFocus::Input;
+            }
+            return None;
+        }
+        return None;
     }
 
     if app.edit_feeling_state().is_some() {
         let all_len = app.edit_feeling_state().map_or(0, |s| s.all_feelings.len());
-        let dialog = render::feelings_dialog_area(area, all_len);
-        let inner = render::panel_inner(dialog);
-        if row == inner.y + inner.height.saturating_sub(1)
-            && let Some(id) = render::hint_id_at(render::feelings_dialog_hints(), inner.x + 1, col)
-            && let Some(action) = hint_id_to_action(app, id)
+        let layout = render::feelings_dialog_layout(area, all_len);
+        if row == layout.hints.y
+            && let Some(id) =
+                render::hint_id_at(render::feelings_dialog_hints(), layout.hints.x + 1, col)
         {
-            super::dispatch_action(terminal, app, action)?;
+            return hint_id_to_action(app, id);
         }
-        return Ok(());
+        if render::point_in_rect(layout.list, col, row)
+            && let Some(state) = app.edit_feeling_state_mut()
+            && let Some(index) = list_row_at(layout.list, col, row, state.offset(), all_len)
+        {
+            state.select_index(index);
+            return Some(Action::FeelingsToggle);
+        }
+        return None;
     }
 
     if app.edit_mood_state().is_some() {
-        let dialog = render::mood_dialog_area(area);
-        let inner = render::panel_inner(dialog);
-        if row == inner.y + inner.height.saturating_sub(1)
-            && let Some(id) = render::hint_id_at(render::mood_dialog_hints(), inner.x + 1, col)
-            && let Some(action) = hint_id_to_action(app, id)
+        let layout = render::mood_dialog_layout(area);
+        if row == layout.hints.y
+            && let Some(id) =
+                render::hint_id_at(render::mood_dialog_hints(), layout.hints.x + 1, col)
         {
-            super::dispatch_action(terminal, app, action)?;
+            return hint_id_to_action(app, id);
+        }
+        if render::point_in_rect(layout.bar, col, row)
+            && let Some(state) = app.edit_mood_state_mut()
+        {
+            state.draft = mood_score_at(layout.bar, col);
         }
     }
 
-    Ok(())
+    None
+}
+
+fn handle_overlay_drag(app: &mut App, mouse: MouseEvent, area: Rect) {
+    if app.edit_mood_state().is_none() {
+        return;
+    }
+
+    let layout = render::mood_dialog_layout(area);
+    if render::point_in_rect(layout.bar, mouse.column, mouse.row)
+        && let Some(state) = app.edit_mood_state_mut()
+    {
+        state.draft = mood_score_at(layout.bar, mouse.column);
+    }
+}
+
+fn handle_overlay_wheel(app: &mut App, mouse: MouseEvent, area: Rect, delta: i16) {
+    if app.edit_tag_state().is_some() {
+        let filtered_len = app.edit_tag_state().map_or(0, |s| s.filtered.len());
+        let layout = render::tags_dialog_layout(area, filtered_len);
+        if render::point_in_rect(layout.list, mouse.column, mouse.row)
+            && let Some(state) = app.edit_tag_state_mut()
+        {
+            state.scroll_by(delta, layout.list.height);
+        }
+        return;
+    }
+
+    if app.edit_feeling_state().is_some() {
+        let all_len = app.edit_feeling_state().map_or(0, |s| s.all_feelings.len());
+        let layout = render::feelings_dialog_layout(area, all_len);
+        if render::point_in_rect(layout.list, mouse.column, mouse.row)
+            && let Some(state) = app.edit_feeling_state_mut()
+        {
+            state.scroll_by(delta, layout.list.height);
+        }
+    }
+}
+
+fn list_row_at(list: Rect, _col: u16, row: u16, offset: usize, len: usize) -> Option<usize> {
+    let relative_row = row.checked_sub(list.y)? as usize;
+    if relative_row >= list.height as usize {
+        return None;
+    }
+    let index = offset.saturating_add(relative_row);
+    (index < len).then_some(index)
+}
+
+fn mood_score_at(bar: Rect, column: u16) -> i8 {
+    if bar.width <= 1 {
+        return 0;
+    }
+
+    let relative = column.saturating_sub(bar.x).min(bar.width - 1);
+    let scaled = (relative as f32 / (bar.width - 1) as f32 * 10.0).round() as i8;
+    (scaled - 5).clamp(-5, 5)
 }
 
 /// Pure: maps a typed hint id to an Action.

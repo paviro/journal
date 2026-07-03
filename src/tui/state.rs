@@ -4,6 +4,7 @@
 use std::time::{Duration, Instant};
 
 use crate::storage::SearchHit;
+use ratatui::widgets::ListState;
 
 use super::app::SearchScope;
 
@@ -97,7 +98,7 @@ impl Default for SearchState {
 }
 
 /// Which part of the edit-tags dialog has keyboard focus.
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditTagFocus {
     #[default]
     List,
@@ -112,10 +113,8 @@ pub(crate) struct EditTagState {
     pub(crate) filtered: Vec<usize>,
     /// Tags currently selected for the entry (lowercased for look-up).
     pub(crate) selected: Vec<String>,
-    /// Index into `filtered` for the list cursor.
-    pub(crate) cursor: usize,
-    /// Scroll offset for the tag list inside the dialog.
-    pub(crate) scroll: u16,
+    /// Stateful list selection and scroll offset.
+    pub(crate) list_state: ListState,
     /// Text input for filtering tags and adding new ones.
     pub(crate) input: String,
     /// Whether keyboard events go to the list or to the input.
@@ -123,6 +122,23 @@ pub(crate) struct EditTagState {
 }
 
 impl EditTagState {
+    pub(crate) fn new(
+        all_tags: Vec<(String, usize)>,
+        filtered: Vec<usize>,
+        selected: Vec<String>,
+    ) -> Self {
+        let mut state = Self {
+            all_tags,
+            filtered,
+            selected,
+            list_state: ListState::default(),
+            input: String::new(),
+            focus: EditTagFocus::List,
+        };
+        state.normalize_list_state();
+        state
+    }
+
     pub(crate) fn rebuild_filter(&mut self) {
         let query = self.input.to_lowercase();
         self.filtered = self
@@ -132,8 +148,52 @@ impl EditTagState {
             .filter(|(_, (tag, _))| tag.to_lowercase().contains(&query))
             .map(|(i, _)| i)
             .collect();
-        self.cursor = self.cursor.min(self.filtered.len().saturating_sub(1));
-        self.scroll = 0;
+        *self.list_state.offset_mut() = 0;
+        self.normalize_list_state();
+    }
+
+    pub(crate) fn selected_index(&self) -> Option<usize> {
+        self.list_state.selected()
+    }
+
+    pub(crate) fn selected_tag_index(&self) -> Option<usize> {
+        self.selected_index()
+            .and_then(|index| self.filtered.get(index).copied())
+    }
+
+    pub(crate) fn offset(&self) -> usize {
+        self.list_state.offset()
+    }
+
+    pub(crate) fn normalize_list_state(&mut self) {
+        normalize_list_state(&mut self.list_state, self.filtered.len());
+    }
+
+    pub(crate) fn select_index(&mut self, index: usize) {
+        if index < self.filtered.len() {
+            self.list_state.select(Some(index));
+        }
+    }
+
+    pub(crate) fn move_up(&mut self) {
+        move_list_selection(&mut self.list_state, self.filtered.len(), -1);
+    }
+
+    pub(crate) fn move_down(&mut self) {
+        move_list_selection(&mut self.list_state, self.filtered.len(), 1);
+    }
+
+    pub(crate) fn scroll_by(&mut self, delta: i16, viewport_height: u16) {
+        scroll_list_offset(
+            &mut self.list_state,
+            delta,
+            self.filtered.len(),
+            viewport_height,
+        );
+    }
+
+    pub(crate) fn ensure_selected_visible(&mut self, viewport_height: u16) {
+        ensure_selected_visible(&mut self.list_state, self.filtered.len(), viewport_height);
     }
 }
 
@@ -143,10 +203,125 @@ pub(crate) struct EditFeelingState {
     pub(crate) all_feelings: Vec<String>,
     /// Feelings currently selected for the entry.
     pub(crate) selected: Vec<String>,
-    /// Cursor index into `all_feelings`.
-    pub(crate) cursor: usize,
-    /// Scroll offset for the feelings list inside the dialog.
-    pub(crate) scroll: u16,
+    /// Stateful list selection and scroll offset.
+    pub(crate) list_state: ListState,
+}
+
+impl EditFeelingState {
+    pub(crate) fn new(all_feelings: Vec<String>, selected: Vec<String>) -> Self {
+        let mut state = Self {
+            all_feelings,
+            selected,
+            list_state: ListState::default(),
+        };
+        state.normalize_list_state();
+        state
+    }
+
+    pub(crate) fn selected_index(&self) -> Option<usize> {
+        self.list_state.selected()
+    }
+
+    pub(crate) fn offset(&self) -> usize {
+        self.list_state.offset()
+    }
+
+    pub(crate) fn normalize_list_state(&mut self) {
+        normalize_list_state(&mut self.list_state, self.all_feelings.len());
+    }
+
+    pub(crate) fn select_index(&mut self, index: usize) {
+        if index < self.all_feelings.len() {
+            self.list_state.select(Some(index));
+        }
+    }
+
+    pub(crate) fn move_up(&mut self) {
+        move_list_selection(&mut self.list_state, self.all_feelings.len(), -1);
+    }
+
+    pub(crate) fn move_down(&mut self) {
+        move_list_selection(&mut self.list_state, self.all_feelings.len(), 1);
+    }
+
+    pub(crate) fn scroll_by(&mut self, delta: i16, viewport_height: u16) {
+        scroll_list_offset(
+            &mut self.list_state,
+            delta,
+            self.all_feelings.len(),
+            viewport_height,
+        );
+    }
+
+    pub(crate) fn ensure_selected_visible(&mut self, viewport_height: u16) {
+        ensure_selected_visible(
+            &mut self.list_state,
+            self.all_feelings.len(),
+            viewport_height,
+        );
+    }
+}
+
+fn normalize_list_state(state: &mut ListState, len: usize) {
+    if len == 0 {
+        state.select(None);
+        return;
+    }
+
+    let selected = state.selected().unwrap_or(0).min(len - 1);
+    state.select(Some(selected));
+    if state.offset() >= len {
+        *state.offset_mut() = len - 1;
+    }
+}
+
+fn move_list_selection(state: &mut ListState, len: usize, delta: isize) {
+    if len == 0 {
+        state.select(None);
+        return;
+    }
+
+    let selected = state.selected().unwrap_or(0);
+    let next = (selected as isize + delta).clamp(0, len as isize - 1) as usize;
+    state.select(Some(next));
+}
+
+fn scroll_list_offset(state: &mut ListState, delta: i16, len: usize, viewport_height: u16) {
+    if len == 0 || viewport_height == 0 {
+        *state.offset_mut() = 0;
+        return;
+    }
+
+    let max_offset = len.saturating_sub(viewport_height as usize);
+    let offset = if delta < 0 {
+        state.offset().saturating_sub(delta.unsigned_abs() as usize)
+    } else {
+        state.offset().saturating_add(delta as usize)
+    };
+    *state.offset_mut() = offset.min(max_offset);
+}
+
+fn ensure_selected_visible(state: &mut ListState, len: usize, viewport_height: u16) {
+    if len == 0 || viewport_height == 0 {
+        *state.offset_mut() = 0;
+        return;
+    }
+
+    let Some(selected) = state.selected().map(|index| index.min(len - 1)) else {
+        return;
+    };
+    let viewport_height = viewport_height as usize;
+    let offset = state.offset();
+    let max_offset = len.saturating_sub(viewport_height);
+    let next_offset = if selected < offset {
+        selected
+    } else if selected >= offset.saturating_add(viewport_height) {
+        selected.saturating_add(1).saturating_sub(viewport_height)
+    } else {
+        offset
+    };
+
+    *state.offset_mut() = next_offset.min(max_offset);
 }
 
 /// State for the edit-mood overlay.
@@ -168,4 +343,43 @@ pub(crate) enum Overlay {
     EditTags(EditTagState),
     EditFeelings(EditFeelingState),
     EditMood(EditMoodState),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tag_state(count: usize) -> EditTagState {
+        let all_tags: Vec<(String, usize)> = (0..count)
+            .map(|index| (format!("tag-{index:02}"), index))
+            .collect();
+        let filtered: Vec<usize> = (0..count).collect();
+        EditTagState::new(all_tags, filtered, Vec::new())
+    }
+
+    #[test]
+    fn tag_keyboard_selection_scrolls_down_to_remain_visible() {
+        let mut state = tag_state(10);
+
+        for _ in 0..5 {
+            state.move_down();
+            state.ensure_selected_visible(4);
+        }
+
+        assert_eq!(state.selected_index(), Some(5));
+        assert_eq!(state.offset(), 2);
+    }
+
+    #[test]
+    fn tag_keyboard_selection_scrolls_up_to_remain_visible() {
+        let mut state = tag_state(10);
+        state.select_index(5);
+        *state.list_state.offset_mut() = 5;
+
+        state.move_up();
+        state.ensure_selected_visible(4);
+
+        assert_eq!(state.selected_index(), Some(4));
+        assert_eq!(state.offset(), 4);
+    }
 }

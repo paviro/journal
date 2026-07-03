@@ -3,7 +3,9 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{
+        Block, Borders, Clear, HighlightSpacing, List, ListItem, ListState, Paragraph, Wrap,
+    },
 };
 
 use crate::tui::state::{EditFeelingState, EditMoodState, EditTagFocus, EditTagState};
@@ -88,6 +90,168 @@ pub(crate) fn mood_dialog_area(frame_area: Rect) -> Rect {
     super::centered_rect_fixed_height(44, 8, frame_area)
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct TagsDialogLayout {
+    pub(crate) area: Rect,
+    pub(crate) inner: Rect,
+    pub(crate) list_top_separator: Rect,
+    pub(crate) list: Rect,
+    pub(crate) list_bottom_separator: Rect,
+    pub(crate) input: Rect,
+    pub(crate) hints: Rect,
+}
+
+pub(crate) fn tags_dialog_layout(frame_area: Rect, filtered_len: usize) -> TagsDialogLayout {
+    let area = tags_dialog_area(frame_area, filtered_len);
+    let inner = super::panel_inner(area);
+    let list_height = inner.height.saturating_sub(6);
+    let list = Rect {
+        x: inner.x,
+        y: inner.y + 2,
+        width: inner.width,
+        height: list_height,
+    };
+    let list_top_separator = Rect {
+        x: inner.x,
+        y: inner.y + 1,
+        width: inner.width,
+        height: 1,
+    };
+    let list_bottom_separator = Rect {
+        x: inner.x,
+        y: list.y + list.height,
+        width: inner.width,
+        height: 1,
+    };
+    let input = Rect {
+        x: inner.x,
+        y: list_bottom_separator.y + 1,
+        width: inner.width,
+        height: 1,
+    };
+    let hints = Rect {
+        x: inner.x,
+        y: inner.y + inner.height.saturating_sub(1),
+        width: inner.width,
+        height: 1,
+    };
+
+    TagsDialogLayout {
+        area,
+        inner,
+        list_top_separator,
+        list,
+        list_bottom_separator,
+        input,
+        hints,
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct FeelingsDialogLayout {
+    pub(crate) area: Rect,
+    pub(crate) inner: Rect,
+    pub(crate) list_top_separator: Rect,
+    pub(crate) list: Rect,
+    pub(crate) list_bottom_separator: Rect,
+    pub(crate) hints: Rect,
+}
+
+pub(crate) fn feelings_dialog_layout(frame_area: Rect, all_len: usize) -> FeelingsDialogLayout {
+    let area = feelings_dialog_area(frame_area, all_len);
+    let inner = super::panel_inner(area);
+    let list = Rect {
+        x: inner.x,
+        y: inner.y + 2,
+        width: inner.width,
+        height: inner.height.saturating_sub(4),
+    };
+    let list_top_separator = Rect {
+        x: inner.x,
+        y: inner.y + 1,
+        width: inner.width,
+        height: 1,
+    };
+    let list_bottom_separator = Rect {
+        x: inner.x,
+        y: list.y + list.height,
+        width: inner.width,
+        height: 1,
+    };
+    let hints = Rect {
+        x: inner.x,
+        y: inner.y + inner.height.saturating_sub(1),
+        width: inner.width,
+        height: 1,
+    };
+
+    FeelingsDialogLayout {
+        area,
+        inner,
+        list_top_separator,
+        list,
+        list_bottom_separator,
+        hints,
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct MoodDialogLayout {
+    pub(crate) area: Rect,
+    pub(crate) inner: Rect,
+    pub(crate) bar: Rect,
+    pub(crate) value: Rect,
+    pub(crate) hints: Rect,
+}
+
+pub(crate) fn mood_dialog_layout(frame_area: Rect) -> MoodDialogLayout {
+    let area = mood_dialog_area(frame_area);
+    let inner = super::panel_inner(area);
+    let right_w = " Blissful".len() as u16;
+    let bar_row = Rect {
+        x: inner.x,
+        y: inner.y + 1,
+        width: inner.width,
+        height: 1,
+    };
+    let bar_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(10),
+            Constraint::Min(3),
+            Constraint::Length(right_w),
+        ])
+        .split(bar_row);
+    let value_row = Rect {
+        x: inner.x,
+        y: inner.y + 3,
+        width: inner.width,
+        height: 1,
+    };
+    let value_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(10),
+            Constraint::Min(3),
+            Constraint::Length(right_w),
+        ])
+        .split(value_row);
+    let hints = Rect {
+        x: inner.x,
+        y: inner.y + inner.height.saturating_sub(1),
+        width: inner.width,
+        height: 1,
+    };
+
+    MoodDialogLayout {
+        area,
+        inner,
+        bar: bar_chunks[1],
+        value: value_chunks[1],
+        hints,
+    }
+}
+
 // ── Shared render helpers ─────────────────────────────────────────────────────
 
 fn render_lines_in_area<'a>(
@@ -122,6 +286,37 @@ fn render_dialog_scrollbar(
     render_scrollbar_if_needed(frame, area, list_lines as usize, max_visible, scroll);
 }
 
+fn render_separator(frame: &mut Frame<'_>, area: Rect) {
+    let area = Rect {
+        x: area.x.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        ..area
+    };
+    if area.width == 0 {
+        return;
+    }
+
+    frame.render_widget(
+        Paragraph::new("─".repeat(area.width as usize))
+            .style(Style::default().add_modifier(Modifier::DIM)),
+        Rect { height: 1, ..area },
+    );
+}
+
+fn list_state_for_render(
+    selected: Option<usize>,
+    offset: usize,
+    viewport_height: u16,
+    highlight_active: bool,
+) -> ListState {
+    let visible_end = offset.saturating_add(viewport_height as usize);
+    let visible_selection =
+        selected.filter(|index| highlight_active && *index >= offset && *index < visible_end);
+    ListState::default()
+        .with_offset(offset)
+        .with_selected(visible_selection)
+}
+
 // ── Dialog draw functions ─────────────────────────────────────────────────────
 
 pub(super) fn draw_confirm_delete(frame: &mut Frame<'_>) {
@@ -147,65 +342,37 @@ pub(super) fn draw_new_journal_input(frame: &mut Frame<'_>, input: &str) {
 }
 
 pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagState) {
-    let area = tags_dialog_area(frame.area(), state.filtered.len());
-    let inner = super::panel_inner(area);
+    let layout = tags_dialog_layout(frame.area(), state.filtered.len());
 
     let list_focused = state.focus == EditTagFocus::List;
     let input_focused = state.focus == EditTagFocus::Input;
 
-    let list_lines = state.filtered.len() as u16;
-    const TAG_DIALOG_FIXED_ROWS: u16 = 6;
-    let max_visible = inner.height.saturating_sub(TAG_DIALOG_FIXED_ROWS);
+    state.normalize_list_state();
+    let list_lines = state.filtered.len();
+    let max_visible = layout.list.height;
+    let max_offset = list_lines.saturating_sub(max_visible as usize);
+    let scroll = state.offset().min(max_offset);
+    *state.list_state.offset_mut() = scroll;
 
-    // Keep the cursor visible
-    if state.cursor < state.scroll as usize {
-        state.scroll = state.cursor as u16;
-    }
-    let last_visible = state.scroll as usize + max_visible as usize;
-    if state.cursor >= last_visible.saturating_sub(1) && list_lines > max_visible {
-        state.scroll = state
-            .cursor
-            .saturating_add(1)
-            .saturating_sub(max_visible as usize)
-            .min(list_lines.saturating_sub(max_visible) as usize) as u16;
-    }
-
-    let scroll = state.scroll.min(list_lines.saturating_sub(max_visible));
-    let end = (scroll + max_visible).min(list_lines);
-
-    let mut lines: Vec<Line<'_>> = Vec::new();
-
-    lines.push(Line::from(Span::styled(
-        " Tags ",
-        Style::default().add_modifier(Modifier::BOLD),
-    )));
-    lines.push(Line::from(""));
-
-    if state.filtered.is_empty() {
-        lines.push(Line::from(if state.input.is_empty() {
+    let items: Vec<ListItem<'_>> = if state.filtered.is_empty() {
+        let text = if state.input.is_empty() {
             " (no tags yet)"
         } else {
             " (no matches)"
-        }));
+        };
+        vec![ListItem::new(Line::from(text))]
     } else {
-        for i in scroll..end {
-            let idx = state.filtered[i as usize];
-            let (tag, freq) = &state.all_tags[idx];
-            let checked = state.selected.iter().any(|t| t.eq_ignore_ascii_case(tag));
-            let marker = if checked { "[x]" } else { "[ ]" };
-            let is_cursor = i as usize == state.cursor && list_focused;
-            let prefix = if is_cursor { ">" } else { " " };
-            let text = format!("{prefix}{marker} {tag} ({freq})");
-            let style = if is_cursor {
-                Style::default().add_modifier(Modifier::REVERSED)
-            } else {
-                Style::default()
-            };
-            lines.push(Line::from(Span::styled(text, style)));
-        }
-    }
-
-    lines.push(Line::from(""));
+        state
+            .filtered
+            .iter()
+            .map(|idx| {
+                let (tag, freq) = &state.all_tags[*idx];
+                let checked = state.selected.iter().any(|t| t.eq_ignore_ascii_case(tag));
+                let marker = if checked { "[x]" } else { "[ ]" };
+                ListItem::new(Line::from(format!("{marker} {tag} ({freq})")))
+            })
+            .collect()
+    };
 
     let input_text = format!(
         "{}Search / new tag: {}",
@@ -217,40 +384,70 @@ pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagSt
     } else {
         Style::default()
     };
-    lines.push(Line::from(Span::styled(input_text, input_style)));
-    lines.push(Line::from(""));
-    lines.push(Line::from(tags_dialog_text(state.focus)));
 
-    frame.render_widget(Clear, area);
+    frame.render_widget(Clear, layout.area);
     frame.render_widget(
         Block::default().title(" Edit Tags ").borders(Borders::ALL),
-        area,
+        layout.area,
     );
-    render_lines_in_area(frame, lines, inner);
-    render_dialog_scrollbar(frame, area, list_lines, max_visible, scroll);
+    render_lines_in_area(
+        frame,
+        [Line::from(Span::styled(
+            " Tags ",
+            Style::default().add_modifier(Modifier::BOLD),
+        ))],
+        layout.inner,
+    );
+    render_separator(frame, layout.list_top_separator);
+    let list = List::new(items)
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .highlight_symbol(">")
+        .highlight_spacing(HighlightSpacing::Always);
+    let mut render_state = list_state_for_render(
+        state.selected_index(),
+        scroll,
+        layout.list.height,
+        list_focused && !state.filtered.is_empty(),
+    );
+    frame.render_stateful_widget(list, layout.list, &mut render_state);
+    render_separator(frame, layout.list_bottom_separator);
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(input_text, input_style))),
+        layout.input,
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(tags_dialog_text(state.focus))),
+        layout.hints,
+    );
+    render_dialog_scrollbar(
+        frame,
+        layout.area,
+        list_lines as u16,
+        max_visible,
+        scroll as u16,
+    );
 }
 
 pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState) {
-    let area = mood_dialog_area(frame.area());
-    let inner = super::panel_inner(area);
+    let layout = mood_dialog_layout(frame.area());
 
-    frame.render_widget(Clear, area);
+    frame.render_widget(Clear, layout.area);
     frame.render_widget(
         Block::default().title(" Edit Mood ").borders(Borders::ALL),
-        area,
+        layout.area,
     );
 
     let right_label = " Blissful";
 
     // Empty spacer row
-    let spacer_y = inner.y;
-    if spacer_y < inner.y + inner.height {
+    let spacer_y = layout.inner.y;
+    if spacer_y < layout.inner.y + layout.inner.height {
         frame.render_widget(
             Paragraph::new(Line::from("")),
             Rect {
-                x: inner.x,
+                x: layout.inner.x,
                 y: spacer_y,
-                width: inner.width,
+                width: layout.inner.width,
                 height: 1,
             },
         );
@@ -258,12 +455,12 @@ pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState
 
     // Mood bar row
     let right_w = right_label.len() as u16;
-    let bar_y = inner.y + 1;
-    if bar_y < inner.y + inner.height {
+    let bar_y = layout.inner.y + 1;
+    if bar_y < layout.inner.y + layout.inner.height {
         let bar_rect = Rect {
-            x: inner.x,
+            x: layout.inner.x,
             y: bar_y,
-            width: inner.width,
+            width: layout.inner.width,
             height: 1,
         };
         let chunks = Layout::default()
@@ -280,97 +477,72 @@ pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState
     }
 
     // Value number centred below the bar
-    let value_y = inner.y + 3;
-    if value_y < inner.y + inner.height {
-        let value_rect = Rect {
-            x: inner.x,
-            y: value_y,
-            width: inner.width,
-            height: 1,
-        };
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(10),
-                Constraint::Min(3),
-                Constraint::Length(right_w),
-            ])
-            .split(value_rect);
+    if layout.value.y < layout.inner.y + layout.inner.height {
         frame.render_widget(
             Paragraph::new(Line::from(format!("{}", state.draft))).alignment(Alignment::Center),
-            chunks[1],
+            layout.value,
         );
     }
 
     // Hint line
-    let hint_y = inner.y + inner.height.saturating_sub(1);
-    if hint_y < inner.y + inner.height {
-        frame.render_widget(
-            Paragraph::new(Line::from(mood_dialog_text())),
-            Rect {
-                x: inner.x,
-                y: hint_y,
-                width: inner.width,
-                height: 1,
-            },
-        );
+    if layout.hints.y < layout.inner.y + layout.inner.height {
+        frame.render_widget(Paragraph::new(Line::from(mood_dialog_text())), layout.hints);
     }
 }
 
 pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditFeelingState) {
-    let area = feelings_dialog_area(frame.area(), state.all_feelings.len());
-    let inner = super::panel_inner(area);
+    let layout = feelings_dialog_layout(frame.area(), state.all_feelings.len());
 
-    let list_lines = state.all_feelings.len() as u16;
-    let max_visible = inner.height.saturating_sub(4);
+    state.normalize_list_state();
+    let list_lines = state.all_feelings.len();
+    let max_visible = layout.list.height;
+    let max_offset = list_lines.saturating_sub(max_visible as usize);
+    let scroll = state.offset().min(max_offset);
+    *state.list_state.offset_mut() = scroll;
 
-    if state.cursor < state.scroll as usize {
-        state.scroll = state.cursor as u16;
-    }
-    let last_visible = state.scroll as usize + max_visible as usize;
-    if state.cursor >= last_visible.saturating_sub(1) && list_lines > max_visible {
-        state.scroll = state
-            .cursor
-            .saturating_add(1)
-            .saturating_sub(max_visible as usize)
-            .min(list_lines.saturating_sub(max_visible) as usize) as u16;
-    }
+    let items: Vec<ListItem<'_>> = state
+        .all_feelings
+        .iter()
+        .map(|feeling| {
+            let checked = state.selected.iter().any(|value| value == feeling);
+            let marker = if checked { "[x]" } else { "[ ]" };
+            ListItem::new(Line::from(format!("{marker} {feeling}")))
+        })
+        .collect();
 
-    let scroll = state.scroll.min(list_lines.saturating_sub(max_visible));
-    let end = (scroll + max_visible).min(list_lines);
-
-    let mut lines: Vec<Line<'_>> = Vec::new();
-    lines.push(Line::from(Span::styled(
-        " Feelings ",
-        Style::default().add_modifier(Modifier::BOLD),
-    )));
-    lines.push(Line::from(""));
-
-    for i in scroll..end {
-        let feeling = &state.all_feelings[i as usize];
-        let checked = state.selected.iter().any(|value| value == feeling);
-        let marker = if checked { "[x]" } else { "[ ]" };
-        let is_cursor = i as usize == state.cursor;
-        let prefix = if is_cursor { ">" } else { " " };
-        let text = format!("{prefix}{marker} {feeling}");
-        let style = if is_cursor {
-            Style::default().add_modifier(Modifier::REVERSED)
-        } else {
-            Style::default()
-        };
-        lines.push(Line::from(Span::styled(text, style)));
-    }
-
-    lines.push(Line::from(""));
-    lines.push(Line::from(feelings_dialog_text()));
-
-    frame.render_widget(Clear, area);
+    frame.render_widget(Clear, layout.area);
     frame.render_widget(
         Block::default()
             .title(" Edit Feelings ")
             .borders(Borders::ALL),
-        area,
+        layout.area,
     );
-    render_lines_in_area(frame, lines, inner);
-    render_dialog_scrollbar(frame, area, list_lines, max_visible, scroll);
+    render_lines_in_area(
+        frame,
+        [Line::from(Span::styled(
+            " Feelings ",
+            Style::default().add_modifier(Modifier::BOLD),
+        ))],
+        layout.inner,
+    );
+    render_separator(frame, layout.list_top_separator);
+    let list = List::new(items)
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .highlight_symbol(">")
+        .highlight_spacing(HighlightSpacing::Always);
+    let mut render_state =
+        list_state_for_render(state.selected_index(), scroll, layout.list.height, true);
+    frame.render_stateful_widget(list, layout.list, &mut render_state);
+    render_separator(frame, layout.list_bottom_separator);
+    frame.render_widget(
+        Paragraph::new(Line::from(feelings_dialog_text())),
+        layout.hints,
+    );
+    render_dialog_scrollbar(
+        frame,
+        layout.area,
+        list_lines as u16,
+        max_visible,
+        scroll as u16,
+    );
 }

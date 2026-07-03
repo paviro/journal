@@ -41,8 +41,8 @@ use dialogs::{
     draw_new_journal_input,
 };
 pub(crate) use dialogs::{
-    feelings_dialog_area, feelings_dialog_hints, mood_dialog_area, mood_dialog_hints,
-    tags_dialog_area, tags_dialog_hints,
+    feelings_dialog_hints, feelings_dialog_layout, mood_dialog_hints, mood_dialog_layout,
+    tags_dialog_hints, tags_dialog_layout,
 };
 use entries::draw_entry_list;
 use journals::draw_journals;
@@ -433,15 +433,7 @@ mod tests {
             .collect();
         let filtered: Vec<usize> = (0..all_tags.len()).collect();
         let rendered = render_edit_tags_dialog_text(
-            EditTagState {
-                all_tags,
-                filtered,
-                selected: Vec::new(),
-                cursor: 0,
-                scroll: 0,
-                input: String::new(),
-                focus: EditTagFocus::List,
-            },
+            EditTagState::new(all_tags, filtered, Vec::new()),
             200,
             20,
         );
@@ -451,20 +443,25 @@ mod tests {
     }
 
     #[test]
+    fn edit_tags_dialog_keeps_list_gutter_when_selection_is_scrolled_out() {
+        let all_tags: Vec<(String, usize)> = (0..20)
+            .map(|index| (format!("tag-{index:02}"), index))
+            .collect();
+        let filtered: Vec<usize> = (0..all_tags.len()).collect();
+        let mut state = EditTagState::new(all_tags, filtered, Vec::new());
+        *state.list_state.offset_mut() = 5;
+
+        let rendered = render_edit_tags_dialog_text(state, 200, 20);
+
+        assert!(rendered.contains(" [ ] tag-05 (5)"));
+    }
+
+    #[test]
     fn edit_tags_dialog_counts_no_matches_row_when_sizing() {
-        let rendered = render_edit_tags_dialog_text(
-            EditTagState {
-                all_tags: vec![("work".to_string(), 1)],
-                filtered: Vec::new(),
-                selected: Vec::new(),
-                cursor: 0,
-                scroll: 0,
-                input: "missing".to_string(),
-                focus: EditTagFocus::Input,
-            },
-            200,
-            12,
-        );
+        let mut state = EditTagState::new(vec![("work".to_string(), 1)], Vec::new(), Vec::new());
+        state.input = "missing".to_string();
+        state.focus = EditTagFocus::Input;
+        let rendered = render_edit_tags_dialog_text(state, 200, 12);
 
         assert!(rendered.contains(" (no matches)"));
         assert!(rendered.contains(" add (enter) | list (tab) | cancel (esc)"));

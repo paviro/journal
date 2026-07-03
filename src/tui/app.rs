@@ -12,8 +12,7 @@ use crate::{
 use std::{path::PathBuf, time::Duration};
 
 use super::state::{
-    EditFeelingState, EditMoodState, EditTagFocus, EditTagState, Overlay, ScrollState, SearchState,
-    StatusBar,
+    EditFeelingState, EditMoodState, EditTagState, Overlay, ScrollState, SearchState, StatusBar,
 };
 
 pub(crate) const JOURNAL_LIST_WIDTH: u16 = 18;
@@ -445,25 +444,15 @@ impl App {
             .into_iter()
             .map(|t| t.to_lowercase())
             .collect();
-        self.overlay = Overlay::EditTags(EditTagState {
-            all_tags,
-            filtered,
-            selected: entry_tags,
-            cursor: 0,
-            scroll: 0,
-            input: String::new(),
-            focus: EditTagFocus::List,
-        });
+        self.overlay = Overlay::EditTags(EditTagState::new(all_tags, filtered, entry_tags));
     }
 
     pub(crate) fn begin_edit_feelings(&mut self) {
         let selected = self.selected_entry_feelings();
-        self.overlay = Overlay::EditFeelings(EditFeelingState {
-            all_feelings: FEELINGS.iter().map(|feeling| feeling.to_string()).collect(),
+        self.overlay = Overlay::EditFeelings(EditFeelingState::new(
+            FEELINGS.iter().map(|feeling| feeling.to_string()).collect(),
             selected,
-            cursor: 0,
-            scroll: 0,
-        });
+        ));
     }
 
     pub(crate) fn begin_tag_search(&mut self, tag: &str) {
