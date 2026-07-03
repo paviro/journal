@@ -33,7 +33,7 @@ pub(crate) fn entry_timestamp_label(entry: &Entry) -> String {
                 timestamp.format("%H:%M")
             )
         })
-        .or_else(|| entry_date_from_path(&entry.path).map(|date| format_date_human(date)))
+        .or_else(|| entry_date_from_path(&entry.path).map(format_date_human))
         .unwrap_or_else(|| "Entry".to_string())
 }
 
