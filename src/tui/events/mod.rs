@@ -503,7 +503,7 @@ mod tests {
     fn journal_panel_click_without_row_focuses_journals_without_changing_selection() {
         let mut app = app_with_journals(&["alpha"]);
         app.focus = Focus::Entries;
-        let layout = render::tui_layout(Rect::new(0, 0, 120, 20), &app);
+        let layout = render::tui_layout(Rect::new(0, 0, 130, 20), &app);
         let journals = layout.journals.unwrap().content;
 
         mouse_in_area(
@@ -513,7 +513,7 @@ mod tests {
                 journals.x,
                 journals.y + 4,
             ),
-            120,
+            130,
             20,
         );
 
@@ -525,13 +525,13 @@ mod tests {
     fn wheel_over_journals_scrolls_without_changing_selection() {
         let mut app = app_with_journals(&["a", "b", "c", "d", "e", "f", "g"]);
         app.focus = Focus::Entries;
-        let layout = render::tui_layout(Rect::new(0, 0, 120, 8), &app);
+        let layout = render::tui_layout(Rect::new(0, 0, 130, 8), &app);
         let journals = layout.journals.unwrap().content;
 
         mouse_in_area(
             &mut app,
             mouse(MouseEventKind::ScrollDown, journals.x, journals.y),
-            120,
+            130,
             8,
         );
 
@@ -544,13 +544,13 @@ mod tests {
     fn wheel_over_entries_scrolls_without_changing_selection() {
         let mut app = app_with_entries(8);
         app.focus = Focus::Journals;
-        let layout = render::tui_layout(Rect::new(0, 0, 80, 8), &app);
+        let layout = render::tui_layout(Rect::new(0, 0, 90, 8), &app);
         let entries = layout.entries.unwrap().panel.content;
 
         mouse_in_area(
             &mut app,
             mouse(MouseEventKind::ScrollDown, entries.x, entries.y),
-            80,
+            90,
             8,
         );
 
@@ -609,7 +609,7 @@ mod tests {
     fn entry_panel_empty_space_click_focuses_entries_without_opening_viewer() {
         let mut app = app_with_entries(1);
         app.focus = Focus::EntryView;
-        let layout = render::tui_layout(Rect::new(0, 0, 120, 12), &app);
+        let layout = render::tui_layout(Rect::new(0, 0, 130, 12), &app);
         let entries = layout.entries.unwrap().panel.content;
 
         mouse_in_area(
@@ -619,7 +619,7 @@ mod tests {
                 entries.x,
                 entries.y + 5,
             ),
-            120,
+            130,
             12,
         );
 

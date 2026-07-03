@@ -19,12 +19,11 @@ use super::state::{
 };
 use crate::tui::entry_rows::EntryRowMeta;
 
-pub(crate) const JOURNAL_LIST_WIDTH: u16 = 18;
+pub(crate) const JOURNAL_LIST_WIDTH: u16 = 22;
 pub(crate) const ENTRY_LIST_INLINE_WIDTH: u16 = 42;
 pub(crate) const ENTRY_LIST_MIN_WIDTH: u16 = 40;
-pub(crate) const TWO_PANEL_MIN_WIDTH: u16 = JOURNAL_LIST_WIDTH + ENTRY_LIST_MIN_WIDTH;
-pub(crate) const INLINE_ENTRY_VIEW_MIN_WIDTH: u16 =
-    JOURNAL_LIST_WIDTH + ENTRY_LIST_INLINE_WIDTH + ENTRY_LIST_MIN_WIDTH;
+pub(crate) const TWO_PANEL_MIN_WIDTH: u16 = 87;
+pub(crate) const INLINE_ENTRY_VIEW_MIN_WIDTH: u16 = 125;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Focus {

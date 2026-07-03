@@ -209,15 +209,15 @@ mod tests {
         let mut app = app_with_entry();
         app.focus = Focus::Entries;
 
-        let layout = tui_layout(Rect::new(0, 0, 120, 20), &app);
+        let layout = tui_layout(Rect::new(0, 0, 140, 20), &app);
 
         assert!(!layout.single_panel);
         assert!(layout.entry_view.is_some());
         assert!(layout.stats.is_none());
-        assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 18, 19));
-        assert_eq!(layout.entries.unwrap().panel.area, Rect::new(18, 0, 42, 19));
-        assert_eq!(layout.entry_view.unwrap().area, Rect::new(60, 0, 60, 19));
-        assert_eq!(layout.footer, Rect::new(0, 19, 120, 1));
+        assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 22, 19));
+        assert_eq!(layout.entries.unwrap().panel.area, Rect::new(22, 0, 42, 19));
+        assert_eq!(layout.entry_view.unwrap().area, Rect::new(64, 0, 76, 19));
+        assert_eq!(layout.footer, Rect::new(0, 19, 140, 1));
     }
 
     #[test]
@@ -230,9 +230,9 @@ mod tests {
         assert!(!layout.single_panel);
         assert!(layout.entry_view.is_some());
         assert!(layout.stats.is_none());
-        assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 18, 19));
-        assert_eq!(layout.entries.unwrap().panel.area, Rect::new(18, 0, 42, 19));
-        assert_eq!(layout.entry_view.unwrap().area, Rect::new(60, 0, 40, 19));
+        assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 22, 19));
+        assert_eq!(layout.entries.unwrap().panel.area, Rect::new(22, 0, 42, 19));
+        assert_eq!(layout.entry_view.unwrap().area, Rect::new(64, 0, 61, 19));
     }
 
     #[test]
@@ -240,13 +240,13 @@ mod tests {
         let mut app = app_with_entry();
         app.focus = Focus::Journals;
 
-        let layout = tui_layout(Rect::new(0, 0, 80, 20), &app);
+        let layout = tui_layout(Rect::new(0, 0, 90, 20), &app);
 
         assert!(!layout.single_panel);
         assert!(layout.entry_view.is_none());
         assert!(layout.stats.is_none());
-        assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 18, 19));
-        assert_eq!(layout.entries.unwrap().panel.area, Rect::new(18, 0, 62, 19));
+        assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 22, 19));
+        assert_eq!(layout.entries.unwrap().panel.area, Rect::new(22, 0, 68, 19));
     }
 
     #[test]
@@ -254,14 +254,14 @@ mod tests {
         let mut app = app_with_entry();
         app.focus = Focus::Entries;
 
-        let layout = tui_layout(Rect::new(0, 0, 80, 20), &app);
+        let layout = tui_layout(Rect::new(0, 0, 90, 20), &app);
 
         assert!(!layout.single_panel);
         assert!(layout.entry_view.is_some());
         assert!(layout.stats.is_none());
         assert!(layout.journals.is_none());
         assert_eq!(layout.entries.unwrap().panel.area, Rect::new(0, 0, 42, 19));
-        assert_eq!(layout.entry_view.unwrap().area, Rect::new(42, 0, 38, 19));
+        assert_eq!(layout.entry_view.unwrap().area, Rect::new(42, 0, 48, 19));
     }
 
     #[test]
@@ -616,14 +616,14 @@ mod tests {
     fn two_column_render_follows_active_column_pair() {
         let mut journals_app = app_with_entry();
         journals_app.focus = Focus::Journals;
-        let journals = render_text(journals_app, 80, 16);
+        let journals = render_text(journals_app, 90, 16);
         assert!(journals.contains(">> Journals"));
         assert!(journals.contains(" Entries "));
         assert!(!journals.contains("2026-07-01 10:00"));
 
         let mut entries_app = app_with_entry();
         entries_app.focus = Focus::Entries;
-        let entries = render_text(entries_app, 80, 16);
+        let entries = render_text(entries_app, 90, 16);
         assert!(entries.contains(">> Entries"));
         assert!(!entries.contains(" Journals "));
         assert!(entries.contains("Wednesday, 1 July 2026, 10:00"));
@@ -634,7 +634,7 @@ mod tests {
         let mut app = app_with_entry();
         app.focus = Focus::EntryView;
 
-        let backend = render_app(app, 120, 20);
+        let backend = render_app(app, 130, 20);
         let buffer = backend.buffer();
 
         assert!(
@@ -646,7 +646,7 @@ mod tests {
         );
         assert!(
             buffer
-                .cell((20, 6))
+                .cell((24, 6))
                 .unwrap()
                 .modifier
                 .contains(Modifier::REVERSED)
