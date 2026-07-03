@@ -43,6 +43,13 @@ const TAGS_DIALOG_INPUT_HINTS: [Hint; 3] = [
     Hint::new("cancel", "esc", HintId::CancelOverlay),
 ];
 
+const LIST_DIALOG_WIDTH: u16 = 44;
+const MOOD_DIALOG_WIDTH: u16 = 90;
+const CONFIRM_DIALOG_WIDTH: u16 = 42;
+const NEW_JOURNAL_DIALOG_WIDTH: u16 = 56;
+const TAGS_DIALOG_MAX_VISIBLE_ROWS: u16 = 14;
+const FEELINGS_DIALOG_MAX_VISIBLE_ROWS: u16 = 16;
+
 pub(crate) fn feelings_dialog_hints() -> &'static [Hint] {
     &FEELINGS_DIALOG_HINTS
 }
@@ -63,37 +70,44 @@ pub(crate) fn tags_dialog_hints(focus: EditTagFocus) -> &'static [Hint] {
 pub(crate) fn tags_dialog_area(frame_area: Rect, filtered_len: usize) -> Rect {
     const FIXED: u16 = 7;
     let hint_height = tag_dialog_hint_height(frame_area);
-    let visible = (filtered_len as u16).clamp(1, 10);
+    let visible = (filtered_len as u16).clamp(1, TAGS_DIALOG_MAX_VISIBLE_ROWS);
     let h = (FIXED + hint_height + visible).min(frame_area.height.saturating_sub(2));
-    super::centered_rect_fixed_height(40, h, frame_area)
+    super::centered_rect_fixed_size(LIST_DIALOG_WIDTH, h, frame_area)
 }
 
 pub(crate) fn feelings_dialog_area(frame_area: Rect, all_len: usize) -> Rect {
     const FIXED: u16 = 5;
     let hint_height = feelings_dialog_hint_height(frame_area);
-    let visible = (all_len as u16).min(11);
+    let visible = (all_len as u16).min(FEELINGS_DIALOG_MAX_VISIBLE_ROWS);
     let h = (FIXED + hint_height + visible).min(frame_area.height.saturating_sub(2));
-    super::centered_rect_fixed_height(40, h, frame_area)
+    super::centered_rect_fixed_size(LIST_DIALOG_WIDTH, h, frame_area)
 }
 
 pub(crate) fn mood_dialog_area(frame_area: Rect) -> Rect {
     let h = 7 + mood_dialog_hint_height(frame_area);
-    super::centered_rect_fixed_height(44, h.min(frame_area.height.saturating_sub(2)), frame_area)
+    super::centered_rect_fixed_size(
+        MOOD_DIALOG_WIDTH,
+        h.min(frame_area.height.saturating_sub(2)),
+        frame_area,
+    )
 }
 
-fn dialog_hint_width(frame_area: Rect, percent_x: u16) -> u16 {
-    let area = super::centered_rect_fixed_height(percent_x, 1, frame_area);
+fn dialog_hint_width(frame_area: Rect, width: u16) -> u16 {
+    let area = super::centered_rect_fixed_size(width, 1, frame_area);
     let inner = super::panel_inner(area);
     inner.width.saturating_sub(1)
 }
 
 fn tag_dialog_hint_height(frame_area: Rect) -> u16 {
-    let width = dialog_hint_width(frame_area, 40);
+    let width = dialog_hint_width(frame_area, LIST_DIALOG_WIDTH);
     hint_height(&TAGS_DIALOG_LIST_HINTS, width).max(hint_height(&TAGS_DIALOG_INPUT_HINTS, width))
 }
 
 fn feelings_dialog_hint_height(frame_area: Rect) -> u16 {
-    hint_height(&FEELINGS_DIALOG_HINTS, dialog_hint_width(frame_area, 40))
+    hint_height(
+        &FEELINGS_DIALOG_HINTS,
+        dialog_hint_width(frame_area, LIST_DIALOG_WIDTH),
+    )
 }
 
 fn mood_dialog_hint_height(frame_area: Rect) -> u16 {
@@ -332,20 +346,27 @@ fn render_hint_line(frame: &mut Frame<'_>, hints: &[Hint], area: Rect) {
 // ── Dialog draw functions ─────────────────────────────────────────────────────
 
 pub(super) fn draw_confirm_delete(frame: &mut Frame<'_>) {
-    let area = super::centered_rect(50, 20, frame.area());
+    let area = super::centered_rect_fixed_size(CONFIRM_DIALOG_WIDTH, 5, frame.area());
     frame.render_widget(Clear, area);
-    let dialog = Paragraph::new("Move selected file to trash? y/n")
-        .block(
-            Block::default()
-                .title("Confirm Delete")
-                .borders(Borders::ALL),
-        )
-        .wrap(Wrap { trim: true });
-    frame.render_widget(dialog, area);
+    let block = Block::default()
+        .title("Confirm Delete")
+        .borders(Borders::ALL);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let message_area = Rect {
+        y: inner.y + inner.height.saturating_sub(1) / 2,
+        height: inner.height.min(1),
+        ..inner
+    };
+    frame.render_widget(
+        Paragraph::new("Move selected file to trash? y/n").alignment(Alignment::Center),
+        message_area,
+    );
 }
 
 pub(super) fn draw_new_journal_input(frame: &mut Frame<'_>, input: &str) {
-    let area = super::centered_rect(60, 20, frame.area());
+    let area = super::centered_rect_fixed_size(NEW_JOURNAL_DIALOG_WIDTH, 5, frame.area());
     frame.render_widget(Clear, area);
     let dialog = Paragraph::new(format!("Name: {input}\n\nEnter saves | Esc cancels"))
         .block(Block::default().title("New Journal").borders(Borders::ALL))

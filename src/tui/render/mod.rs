@@ -30,7 +30,7 @@ pub(crate) use super::surface::{
 #[cfg(test)]
 pub(crate) use chrome::panel_title;
 pub(crate) use chrome::{
-    HintId, centered_rect, centered_rect_fixed_height, count_label, expanded_footer_height,
+    HintId, centered_rect_fixed_size, count_label, expanded_footer_height,
     expanded_footer_hint_id_at_point, expanded_footer_lines, footer_hint_id_at_point, footer_lines,
     hint_id_at_wrapped, panel_block, render_scrollbar_if_needed,
 };
@@ -212,6 +212,23 @@ mod tests {
             .content()
             .iter()
             .map(|cell| cell.symbol())
+            .collect()
+    }
+
+    fn render_confirm_delete_rows(width: u16, height: u16) -> Vec<String> {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| dialogs::draw_confirm_delete(frame))
+            .unwrap();
+
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .chunks(width as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
             .collect()
     }
 
@@ -455,6 +472,47 @@ mod tests {
     }
 
     #[test]
+    fn list_dialogs_keep_preferred_width_until_they_hit_edges() {
+        let wide_tags = tags_dialog_layout(Rect::new(0, 0, 120, 30), 20);
+        assert_eq!(wide_tags.area.width, 44);
+        assert_eq!(wide_tags.list.height, 14);
+
+        let narrow_tags = tags_dialog_layout(Rect::new(0, 0, 40, 30), 20);
+        assert_eq!(narrow_tags.area.x, 0);
+        assert_eq!(narrow_tags.area.width, 40);
+
+        let wide_feelings = feelings_dialog_layout(Rect::new(0, 0, 120, 30), 24);
+        assert_eq!(wide_feelings.area.width, 44);
+        assert_eq!(wide_feelings.list.height, 16);
+
+        let wide_mood = mood_dialog_layout(Rect::new(0, 0, 120, 30));
+        assert_eq!(wide_mood.area.width, 90);
+
+        let narrow_mood = mood_dialog_layout(Rect::new(0, 0, 80, 30));
+        assert_eq!(narrow_mood.area.x, 0);
+        assert_eq!(narrow_mood.area.width, 80);
+    }
+
+    #[test]
+    fn confirm_delete_message_is_centered_in_dialog_body() {
+        let rows = render_confirm_delete_rows(80, 20);
+        let message_row = rows
+            .iter()
+            .position(|row| row.contains("Move selected file to trash? y/n"))
+            .unwrap();
+        let title_row = rows
+            .iter()
+            .position(|row| row.contains("Confirm Delete"))
+            .unwrap();
+        let message_col = rows[message_row]
+            .find("Move selected file to trash? y/n")
+            .unwrap();
+
+        assert_eq!(message_row, title_row + 2);
+        assert_eq!(message_col, 26);
+    }
+
+    #[test]
     fn edit_tags_dialog_keeps_help_visible_below_spacer() {
         let all_tags: Vec<(String, usize)> = (0..20)
             .map(|index| (format!("tag-{index:02}"), index))
@@ -467,7 +525,10 @@ mod tests {
         );
 
         assert!(rendered.contains(">[ ] tag-00 (0)"));
-        assert!(rendered.contains(" toggle (space) | input (tab) | save (enter) | cancel (esc)"));
+        assert!(rendered.contains("toggle (space)"));
+        assert!(rendered.contains("input (tab)"));
+        assert!(rendered.contains("save (enter)"));
+        assert!(rendered.contains("cancel (esc)"));
     }
 
     #[test]

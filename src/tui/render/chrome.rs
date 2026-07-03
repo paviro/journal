@@ -525,21 +525,11 @@ pub(crate) fn render_scrollbar_if_needed(
     }
 }
 
-pub(crate) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let [row] = Layout::vertical([Constraint::Percentage(percent_y)])
+pub(crate) fn centered_rect_fixed_size(width: u16, height: u16, area: Rect) -> Rect {
+    let [row] = Layout::vertical([Constraint::Length(height.min(area.height))])
         .flex(Flex::Center)
         .areas(area);
-    let [cell] = Layout::horizontal([Constraint::Percentage(percent_x)])
-        .flex(Flex::Center)
-        .areas(row);
-    cell
-}
-
-pub(crate) fn centered_rect_fixed_height(percent_x: u16, height: u16, area: Rect) -> Rect {
-    let [row] = Layout::vertical([Constraint::Length(height)])
-        .flex(Flex::Center)
-        .areas(area);
-    let [cell] = Layout::horizontal([Constraint::Percentage(percent_x)])
+    let [cell] = Layout::horizontal([Constraint::Length(width.min(area.width))])
         .flex(Flex::Center)
         .areas(row);
     cell
