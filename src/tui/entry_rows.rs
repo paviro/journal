@@ -67,12 +67,18 @@ fn browse_entry_rows(app: &App, text_width: u16) -> Vec<EntryListRow> {
                 rows.push(EntryListRow {
                     entry_index: None,
                     lines: vec![
-                        Line::from(Span::raw("─".repeat(200))),
+                        Line::from(Span::styled(
+                            "─".repeat(200),
+                            Style::default().add_modifier(Modifier::DIM),
+                        )),
                         Line::from(Span::styled(
                             month,
                             Style::default().add_modifier(Modifier::BOLD),
                         )),
-                        Line::from(Span::raw("─".repeat(200))),
+                        Line::from(Span::styled(
+                            "─".repeat(200),
+                            Style::default().add_modifier(Modifier::DIM),
+                        )),
                     ],
                     selected: false,
                 });
