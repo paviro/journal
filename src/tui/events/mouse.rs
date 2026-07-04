@@ -4,7 +4,7 @@ use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use std::io;
 
 use crate::tui::{
-    app::{App, Focus, Mode, entry_view_is_available, inline_entry_view_is_visible},
+    app::{App, Focus, Mode, inline_entry_view_is_visible, single_panel_is_active},
     events::actions::view_selected,
     render,
 };
@@ -44,17 +44,7 @@ pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect)
         return Ok(());
     }
 
-    app.normalize_focus(entry_view_is_available(area.width));
     let layout = render::tui_layout(area, app);
-
-    if app.entry_view_expanded {
-        match mouse.kind {
-            MouseEventKind::ScrollUp => app.scroll_entry_view(-1),
-            MouseEventKind::ScrollDown => app.scroll_entry_view(1),
-            _ => {}
-        }
-        return Ok(());
-    }
 
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => handle_left_click(app, mouse, layout)?,
@@ -162,7 +152,7 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
 // ── Footer click ──────────────────────────────────────────────────────────────
 
 fn footer_click_to_action(app: &App, mouse: MouseEvent, footer: Rect) -> Option<Action> {
-    let hint_id = if app.entry_view_expanded {
+    let hint_id = if single_panel_is_active(footer.width) && app.focus == Focus::EntryView {
         render::expanded_footer_hint_id_at_point(
             app,
             footer.x,
@@ -186,7 +176,7 @@ fn footer_click_to_action(app: &App, mouse: MouseEvent, footer: Rect) -> Option<
 }
 
 fn footer_area(app: &App, area: Rect) -> Rect {
-    if app.entry_view_expanded {
+    if single_panel_is_active(area.width) && app.focus == Focus::EntryView {
         let height = render::expanded_footer_height(app, area.width).min(area.height);
         return Rect {
             x: area.x,

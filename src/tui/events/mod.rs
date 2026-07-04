@@ -56,11 +56,9 @@ pub(crate) fn dispatch_action(
         Action::ScrollEntryViewToEnd => app.scroll.entry_view = u16::MAX,
 
         Action::BeginSearch => {
-            close_expanded_entry_view(app);
             app.begin_search();
         }
         Action::ExitSearch => {
-            close_expanded_entry_view(app);
             app.exit_search();
         }
         Action::EditSelected => {
@@ -77,9 +75,6 @@ pub(crate) fn dispatch_action(
                     app.set_status("Cancelled");
                 }
                 app.close_overlay();
-            } else if app.entry_view_expanded {
-                app.entry_view_expanded = false;
-                app.focus = Focus::Entries;
             }
         }
         Action::BeginEditTags => app.begin_edit_tags(),
@@ -89,12 +84,11 @@ pub(crate) fn dispatch_action(
             let snapshot = EntryViewSnapshot::capture(app);
             let restore_to_viewer = snapshot
                 .as_ref()
-                .is_some_and(|snapshot| snapshot.entry_view_expanded);
+                .is_some_and(|snapshot| snapshot.focus == Focus::EntryView);
             let created = create_entry_in_selected_journal(terminal, app)?;
             if restore_to_viewer {
                 if let Some(path) = created {
                     if app.select_entry_path(&path, true) {
-                        app.entry_view_expanded = true;
                         app.focus = Focus::EntryView;
                     } else {
                         restore_entry_view_or_close(app, snapshot);
@@ -259,17 +253,9 @@ pub(crate) fn dispatch_action(
     Ok(false)
 }
 
-fn close_expanded_entry_view(app: &mut App) {
-    if app.entry_view_expanded {
-        app.entry_view_expanded = false;
-        app.focus = Focus::EntryView;
-    }
-}
-
 struct EntryViewSnapshot {
     path: PathBuf,
     focus: Focus,
-    entry_view_expanded: bool,
     entry_view_scroll: u16,
 }
 
@@ -279,7 +265,6 @@ impl EntryViewSnapshot {
         Some(Self {
             path: target.path,
             focus: app.focus,
-            entry_view_expanded: app.entry_view_expanded,
             entry_view_scroll: app.scroll.entry_view,
         })
     }
@@ -289,7 +274,6 @@ impl EntryViewSnapshot {
             return false;
         }
         app.focus = self.focus;
-        app.entry_view_expanded = self.entry_view_expanded;
         app.scroll.entry_view = self.entry_view_scroll;
         true
     }
@@ -299,9 +283,8 @@ fn restore_entry_view_or_close(app: &mut App, snapshot: Option<EntryViewSnapshot
     let Some(snapshot) = snapshot else {
         return;
     };
-    let was_expanded = snapshot.entry_view_expanded;
-    if !snapshot.restore(app) && was_expanded {
-        app.entry_view_expanded = false;
+    let was_in_viewer = snapshot.focus == Focus::EntryView;
+    if !snapshot.restore(app) && was_in_viewer {
         app.focus = Focus::Entries;
         app.scroll.reset_entry_view();
     }
@@ -310,7 +293,6 @@ fn restore_entry_view_or_close(app: &mut App, snapshot: Option<EntryViewSnapshot
 fn confirm_delete(app: &mut App) -> AppResult<()> {
     delete_selected(app)?;
     app.close_overlay();
-    app.entry_view_expanded = false;
     app.focus = Focus::Entries;
     app.scroll.reset_entry_view();
     app.refresh()
@@ -459,7 +441,6 @@ mod tests {
         // Right on Entries when not entry_view_available → ViewSelected → view_selected
         view_selected(&mut app).unwrap();
 
-        assert!(app.entry_view_expanded);
         assert_eq!(app.focus, Focus::EntryView);
     }
 
@@ -498,7 +479,6 @@ mod tests {
         // Right on Entries when entry_view_available → FocusRight → focus to EntryView
         move_focus_right(&mut app, true);
 
-        assert!(!app.entry_view_expanded);
         assert_eq!(app.focus, Focus::EntryView);
     }
 
@@ -667,7 +647,6 @@ mod tests {
 
         assert_eq!(app.focus, Focus::Entries);
         assert_eq!(app.selected_entry_index, 0);
-        assert!(!app.entry_view_expanded);
     }
 
     #[test]
@@ -690,7 +669,6 @@ mod tests {
 
         assert_eq!(app.focus, Focus::Entries);
         assert_eq!(app.selected_entry_index, 0);
-        assert!(!app.entry_view_expanded);
     }
 
     #[test]
@@ -713,7 +691,6 @@ mod tests {
 
         assert_eq!(app.focus, Focus::Entries);
         assert_eq!(app.selected_entry_index, 0);
-        assert!(!app.entry_view_expanded);
     }
 
     #[test]
@@ -750,7 +727,7 @@ mod tests {
             80,
             20,
         );
-        assert!(app.entry_view_expanded);
+        assert_eq!(app.focus, Focus::EntryView);
     }
 
     #[test]
@@ -765,7 +742,6 @@ mod tests {
         restore_entry_view_or_close(&mut app, snapshot);
         app.close_overlay();
 
-        assert!(app.entry_view_expanded);
         assert_eq!(app.focus, Focus::EntryView);
         assert_eq!(app.scroll.entry_view, 7);
         assert_eq!(app.selected_entry_tags(), vec!["work".to_string()]);
@@ -779,11 +755,10 @@ mod tests {
         app.scroll.entry_view = 5;
         app.begin_confirm_delete();
 
-        assert!(app.entry_view_expanded);
+        assert_eq!(app.focus, Focus::EntryView);
 
         confirm_delete(&mut app).unwrap();
 
-        assert!(!app.entry_view_expanded);
         assert_eq!(app.focus, Focus::Entries);
         assert_eq!(app.scroll.entry_view, 0);
         assert_eq!(app.current_entry_list_len(), 0);
@@ -791,15 +766,13 @@ mod tests {
     }
 
     #[test]
-    fn search_from_expanded_entry_dismisses_viewer_at_start() {
+    fn search_from_entry_view_resets_focus_and_scroll() {
         let mut app = app_with_entries(1);
         view_selected(&mut app).unwrap();
         app.scroll.entry_view = 5;
 
-        close_expanded_entry_view(&mut app);
         app.begin_search();
 
-        assert!(!app.entry_view_expanded);
         assert_eq!(app.focus, Focus::Entries);
         assert_eq!(app.mode, crate::tui::app::Mode::Search);
         assert_eq!(app.scroll.entry_view, 0);
@@ -827,10 +800,8 @@ mod tests {
             crate::storage::create_entry_with_body(&root, "work", "# Created\nBody\n").unwrap();
         app.refresh().unwrap();
         assert!(app.select_entry_path(&created, true));
-        app.entry_view_expanded = true;
         app.focus = Focus::EntryView;
 
-        assert!(app.entry_view_expanded);
         assert_eq!(app.focus, Focus::EntryView);
         assert_eq!(app.scroll.entry_view, 0);
         assert_eq!(app.selected_entry_target().unwrap().path, created);

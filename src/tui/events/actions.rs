@@ -148,7 +148,6 @@ pub(super) fn view_selected(app: &mut App) -> AppResult<()> {
     if !ensure_identity_available(app, is_encrypted_entry_file(&target.path)) {
         return Ok(());
     }
-    app.entry_view_expanded = true;
     app.focus = Focus::EntryView;
     Ok(())
 }
@@ -322,7 +321,6 @@ mod tests {
         view_selected(&mut app).unwrap();
 
         assert_eq!(app.status(), "Encryption identity not available");
-        assert!(!app.entry_view_expanded);
     }
 
     #[test]

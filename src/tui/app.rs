@@ -68,7 +68,6 @@ pub(crate) struct App {
     pub(crate) search: SearchState,
     pub(crate) overlay: Overlay,
     pub(crate) status_bar: StatusBar,
-    pub(crate) entry_view_expanded: bool,
 }
 
 impl App {
@@ -98,7 +97,6 @@ impl App {
             search: SearchState::default(),
             overlay: Overlay::None,
             status_bar: StatusBar::default(),
-            entry_view_expanded: false,
         };
         app.load_entries(entry_paths)?;
         Ok(app)
@@ -359,12 +357,6 @@ impl App {
 
     pub(crate) fn can_act_on_selected_entry(&self) -> bool {
         matches!(self.focus, Focus::Entries | Focus::EntryView) && self.has_selected_entry_target()
-    }
-
-    pub(crate) fn normalize_focus(&mut self, entry_view_available: bool) {
-        if self.focus == Focus::EntryView && !entry_view_available {
-            self.focus = Focus::Entries;
-        }
     }
 
     pub(crate) fn selected_entry_view(&self) -> Option<(String, String)> {
@@ -857,28 +849,6 @@ mod tests {
 
         app.focus = Focus::Entries;
         assert!(app.can_act_on_selected_entry());
-    }
-
-    #[test]
-    fn hidden_entry_view_focus_falls_back_to_entries() {
-        let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
-        let mut app = new_app(config);
-        app.focus = Focus::EntryView;
-
-        app.normalize_focus(false);
-
-        assert_eq!(app.focus, Focus::Entries);
-    }
-
-    #[test]
-    fn available_entry_view_focus_is_preserved() {
-        let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
-        let mut app = new_app(config);
-        app.focus = Focus::EntryView;
-
-        app.normalize_focus(true);
-
-        assert_eq!(app.focus, Focus::EntryView);
     }
 
     #[test]

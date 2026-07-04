@@ -17,7 +17,6 @@ pub(crate) fn handle_key(
     key: KeyEvent,
 ) -> AppResult<bool> {
     let entry_view_available = entry_view_is_available(terminal.size()?.width);
-    app.normalize_focus(entry_view_available);
 
     if let Some(action) = key_to_action(app, key, entry_view_available) {
         super::dispatch_action(terminal, app, action)
@@ -32,7 +31,6 @@ pub(super) fn key_to_action(
     entry_view_available: bool,
 ) -> Option<Action> {
     match &app.overlay {
-        Overlay::None if app.entry_view_expanded => expanded_key_to_action(app, key),
         Overlay::None if app.mode == Mode::Search => {
             search_key_to_action(app, key, entry_view_available)
         }
@@ -45,8 +43,6 @@ pub(super) fn key_to_action(
     }
 }
 
-/// Shared scroll-key mapping for the entry view — used by both the expanded
-/// entry handler and the normal browse/search handler when focus==EntryView.
 fn scroll_key_to_action(key: KeyCode) -> Option<Action> {
     match key {
         KeyCode::Up | KeyCode::Char('k') => Some(Action::ScrollEntryView(-1)),
@@ -56,21 +52,6 @@ fn scroll_key_to_action(key: KeyCode) -> Option<Action> {
         KeyCode::Home => Some(Action::ScrollEntryViewToStart),
         KeyCode::End => Some(Action::ScrollEntryViewToEnd),
         _ => None,
-    }
-}
-
-fn expanded_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Char('q') => Some(Action::Quit),
-        KeyCode::Esc | KeyCode::Enter | KeyCode::Left => Some(Action::CancelOverlay),
-        KeyCode::Char('/') if app.mode == Mode::Browse => Some(Action::BeginSearch),
-        KeyCode::Char('e') if app.has_selected_entry_target() => Some(Action::EditSelected),
-        KeyCode::Char('n') if app.mode == Mode::Browse => Some(Action::NewEntry),
-        KeyCode::Char('d') if app.has_selected_entry_target() => Some(Action::BeginDelete),
-        KeyCode::Char('t') if app.has_selected_entry_target() => Some(Action::BeginEditTags),
-        KeyCode::Char('f') if app.has_selected_entry_target() => Some(Action::BeginEditFeelings),
-        KeyCode::Char('m') if app.has_selected_entry_target() => Some(Action::BeginEditMood),
-        code => scroll_key_to_action(code),
     }
 }
 
@@ -92,6 +73,8 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
             Some(Action::ViewSelected)
         }
         KeyCode::Right => Some(Action::FocusRight),
+        KeyCode::Esc if app.focus == Focus::EntryView => Some(Action::FocusLeft),
+        KeyCode::Enter if app.focus == Focus::EntryView => Some(Action::FocusLeft),
         KeyCode::Enter if app.focus == Focus::Journals => Some(Action::FocusRight),
         KeyCode::Enter if app.can_act_on_selected_entry() => Some(Action::ViewSelected),
         KeyCode::Up => Some(Action::MoveUp),

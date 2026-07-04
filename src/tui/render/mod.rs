@@ -12,7 +12,7 @@ use ratatui::{
     widgets::{ListState, Paragraph},
 };
 
-use super::app::{App, entry_view_is_available};
+use super::app::{App, Focus, single_panel_is_active};
 #[cfg(test)]
 pub(crate) use super::entry_rows::{
     EntryRowMeta, entry_day_label, entry_list_lines, entry_month_label,
@@ -71,8 +71,9 @@ pub(crate) fn list_state_for_render(
 }
 
 pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
-    if app.entry_view_expanded {
-        let area = frame.area();
+    let area = frame.area();
+
+    if single_panel_is_active(area.width) && app.focus == Focus::EntryView {
         let footer_height = expanded_footer_height(app, area.width).min(area.height);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -93,8 +94,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
         return;
     }
 
-    app.normalize_focus(entry_view_is_available(frame.area().width));
-    let layout = tui_layout(frame.area(), app);
+    let layout = tui_layout(area, app);
 
     if let Some(area) = layout.journals {
         draw_journals(frame, area, app);
@@ -479,7 +479,6 @@ mod tests {
         let mut app = new_app(config);
         app.select_journal_by_name("work");
         app.focus = Focus::EntryView;
-        app.entry_view_expanded = true;
 
         let tags = vec![
             "work".to_string(),
@@ -830,9 +829,9 @@ mod tests {
         let mut entry_view_focus_app = app_with_entry();
         entry_view_focus_app.focus = Focus::EntryView;
         let entry_view_focus = render_text(entry_view_focus_app, 57, 16);
-        assert!(entry_view_focus.contains(" Entries "));
+        assert!(!entry_view_focus.contains(" Entries "));
         assert!(!entry_view_focus.contains(" Journals "));
-        assert!(!entry_view_focus.contains("2026-07-01 10:00"));
+        assert!(entry_view_focus.contains("Body"));
     }
 
     #[test]
@@ -974,7 +973,6 @@ mod tests {
     fn expanded_entry_footer_includes_inline_entry_actions() {
         let mut app = app_with_entry();
         app.focus = Focus::EntryView;
-        app.entry_view_expanded = true;
 
         let inline_text = footer_text(&app);
         let expanded_text = expanded_footer_text(&app);
@@ -1000,7 +998,6 @@ mod tests {
     fn expanded_entry_draws_confirm_delete_overlay() {
         let mut app = app_with_entry();
         app.focus = Focus::EntryView;
-        app.entry_view_expanded = true;
         app.begin_confirm_delete();
 
         let text = render_text(app, 80, 20);
@@ -1092,7 +1089,6 @@ mod tests {
     fn expanded_footer_hint_routing_uses_typed_ids() {
         let mut app = app_with_entry();
         app.focus = Focus::EntryView;
-        app.entry_view_expanded = true;
         let text = expanded_footer_text(&app);
 
         assert_eq!(
