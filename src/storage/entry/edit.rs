@@ -114,7 +114,7 @@ pub(super) fn encrypted_replacement_temp_path(path: &Path) -> PathBuf {
     parent.join(format!(".{name}.tmp"))
 }
 
-fn unique_temp_path(dir: &Path, suffix: &str) -> PathBuf {
+pub(super) fn unique_temp_path(dir: &Path, suffix: &str) -> PathBuf {
     dir.join(format!(
         ".journal-{}-{}.{}",
         std::process::id(),

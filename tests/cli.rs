@@ -11,7 +11,11 @@ fn journal_bin() -> &'static str {
 }
 
 fn write_config(path: &Path, root: &Path, default_journal: Option<&str>) {
-    let mut config = journal::config::Config::new(root.to_path_buf(), "true");
+    write_config_with_editor(path, root, default_journal, "true");
+}
+
+fn write_config_with_editor(path: &Path, root: &Path, default_journal: Option<&str>, editor: &str) {
+    let mut config = journal::config::Config::new(root.to_path_buf(), editor);
     config.default_journal = default_journal.map(str::to_string);
     journal::config::save_config(path, &config).unwrap();
 }
@@ -69,7 +73,7 @@ fn generate_age_cli_identity(dir: &Path) -> (std::path::PathBuf, String) {
 }
 
 #[test]
-fn positional_entry_command_creates_entry_in_default_journal() {
+fn log_command_creates_entry_in_default_journal() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
@@ -79,6 +83,7 @@ fn positional_entry_command_creates_entry_in_default_journal() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("Some text")
         .output()
         .unwrap();
@@ -90,7 +95,7 @@ fn positional_entry_command_creates_entry_in_default_journal() {
 }
 
 #[test]
-fn entry_command_writes_tags() {
+fn log_command_writes_tags() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
@@ -100,6 +105,7 @@ fn entry_command_writes_tags() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("--tag")
         .arg("rust")
         .arg("--tag")
@@ -119,7 +125,7 @@ fn entry_command_writes_tags() {
 }
 
 #[test]
-fn entry_command_accepts_comma_separated_tags() {
+fn log_command_accepts_comma_separated_tags() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
@@ -129,6 +135,7 @@ fn entry_command_accepts_comma_separated_tags() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("--tag")
         .arg("rust,open source")
         .arg("Some text")
@@ -145,7 +152,7 @@ fn entry_command_accepts_comma_separated_tags() {
 }
 
 #[test]
-fn entry_command_accepts_comma_separated_feelings() {
+fn log_command_accepts_comma_separated_feelings() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
@@ -155,6 +162,7 @@ fn entry_command_accepts_comma_separated_feelings() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("--feeling")
         .arg("calm,focused")
         .arg("Some text")
@@ -171,7 +179,7 @@ fn entry_command_accepts_comma_separated_feelings() {
 }
 
 #[test]
-fn entry_command_writes_repeatable_feelings() {
+fn log_command_writes_repeatable_feelings() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
@@ -181,6 +189,7 @@ fn entry_command_writes_repeatable_feelings() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("--feeling")
         .arg("Calm")
         .arg("--feeling")
@@ -200,7 +209,7 @@ fn entry_command_writes_repeatable_feelings() {
 }
 
 #[test]
-fn entry_command_rejects_unknown_feeling() {
+fn log_command_rejects_unknown_feeling() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
@@ -210,6 +219,7 @@ fn entry_command_rejects_unknown_feeling() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("--feeling")
         .arg("sparkly")
         .arg("Some text")
@@ -222,7 +232,7 @@ fn entry_command_rejects_unknown_feeling() {
 }
 
 #[test]
-fn piped_entry_command_creates_entry_in_default_journal() {
+fn piped_log_command_creates_entry_in_default_journal() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
@@ -232,6 +242,7 @@ fn piped_entry_command_creates_entry_in_default_journal() {
     let mut child = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -251,6 +262,116 @@ fn piped_entry_command_creates_entry_in_default_journal() {
 }
 
 #[test]
+fn editor_log_command_creates_entry_in_default_journal() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    let config = dir.path().join("config.toml");
+    fs::create_dir_all(root.join("work")).unwrap();
+
+    let script = dir.path().join("fake-editor.sh");
+    fs::write(
+        &script,
+        "#!/bin/sh\nprintf '# Edited\\nBody from fake editor\\n' >> \"$1\"\n",
+    )
+    .unwrap();
+    let chmod = Command::new("chmod")
+        .arg("+x")
+        .arg(&script)
+        .status()
+        .unwrap();
+    assert!(chmod.success());
+    write_config_with_editor(&config, &root, Some("work"), script.to_str().unwrap());
+
+    let output = Command::new(journal_bin())
+        .arg("--config")
+        .arg(&config)
+        .arg("log")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let entries = entry_texts(&root, "work");
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].contains("# Edited\nBody from fake editor\n"));
+}
+
+#[test]
+fn editor_log_command_creates_no_entry_when_body_is_empty() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    let config = dir.path().join("config.toml");
+    fs::create_dir_all(root.join("work")).unwrap();
+    write_config(&config, &root, Some("work"));
+
+    let output = Command::new(journal_bin())
+        .arg("--config")
+        .arg(&config)
+        .arg("log")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert!(entry_texts(&root, "work").is_empty());
+}
+
+#[test]
+fn bare_text_requires_log_command() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    let config = dir.path().join("config.toml");
+    fs::create_dir_all(root.join("work")).unwrap();
+    write_config(&config, &root, Some("work"));
+
+    let output = Command::new(journal_bin())
+        .arg("--config")
+        .arg(&config)
+        .arg("Some text")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("journal log"));
+    assert!(entry_texts(&root, "work").is_empty());
+}
+
+#[test]
+fn bare_piped_stdin_requires_log_command() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    let config = dir.path().join("config.toml");
+    fs::create_dir_all(root.join("work")).unwrap();
+    write_config(&config, &root, Some("work"));
+
+    let mut child = Command::new(journal_bin())
+        .arg("--config")
+        .arg(&config)
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"Pipe text")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("journal log"));
+    assert!(entry_texts(&root, "work").is_empty());
+}
+
+#[test]
 fn journal_flag_overrides_default_journal() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
@@ -262,6 +383,7 @@ fn journal_flag_overrides_default_journal() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("--journal")
         .arg("personal")
         .arg("Override text")
@@ -297,7 +419,7 @@ fn set_default_journal_persists_to_config() {
 }
 
 #[test]
-fn entry_command_without_default_or_journal_fails() {
+fn log_command_without_default_or_journal_fails() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
@@ -307,6 +429,7 @@ fn entry_command_without_default_or_journal_fails() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("Some text")
         .output()
         .unwrap();
@@ -317,7 +440,7 @@ fn entry_command_without_default_or_journal_fails() {
 }
 
 #[test]
-fn entry_command_rejects_text_and_piped_stdin_together() {
+fn log_command_rejects_text_and_piped_stdin_together() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
@@ -327,6 +450,7 @@ fn entry_command_rejects_text_and_piped_stdin_together() {
     let mut child = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("Arg text")
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
@@ -437,6 +561,7 @@ fn encrypt_command_converts_workspace_and_entry_command_writes_encrypted_files()
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("--journal")
         .arg("work")
         .arg("New encrypted body")
@@ -612,6 +737,7 @@ fn encrypted_entry_command_writes_age_files_without_unlocking() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("--journal")
         .arg("work")
         .arg("age readable body")
@@ -637,6 +763,55 @@ fn encrypted_entry_command_writes_age_files_without_unlocking() {
 }
 
 #[test]
+fn encrypted_editor_log_command_writes_age_files_without_unlocking() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    let config = dir.path().join("config.toml");
+    let (paths, _recipient) = generate_identity_store(&config, &root, "secret");
+    let unlocked = journal::crypto::unlock_identity(&paths, "secret").unwrap();
+    fs::remove_file(&paths.identity_file).unwrap();
+    fs::create_dir_all(root.join("work")).unwrap();
+
+    let script = dir.path().join("fake-editor.sh");
+    fs::write(
+        &script,
+        "#!/bin/sh\nprintf '# Encrypted editor body\\n' >> \"$1\"\n",
+    )
+    .unwrap();
+    let chmod = Command::new("chmod")
+        .arg("+x")
+        .arg(&script)
+        .status()
+        .unwrap();
+    assert!(chmod.success());
+    write_config_with_editor(&config, &root, Some("work"), script.to_str().unwrap());
+
+    let output = Command::new(journal_bin())
+        .arg("--config")
+        .arg(&config)
+        .arg("log")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let encrypted = Path::new(std::str::from_utf8(&output.stdout).unwrap().trim()).to_path_buf();
+    assert!(
+        encrypted
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .ends_with(".md.age")
+    );
+    let decrypted = journal::crypto::decrypt_to_string(&unlocked, &encrypted).unwrap();
+
+    assert!(decrypted.contains("# Encrypted editor body"));
+}
+
+#[test]
 fn encrypted_entries_can_be_decrypted_with_age_cli() {
     if !age_cli_available() {
         return;
@@ -655,6 +830,7 @@ fn encrypted_entries_can_be_decrypted_with_age_cli() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
+        .arg("log")
         .arg("--journal")
         .arg("work")
         .arg("age CLI readable body")

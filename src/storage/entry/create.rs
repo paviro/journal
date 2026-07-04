@@ -1,4 +1,6 @@
-use super::edit::{edit_encrypted_entry, open_editor_body_only, set_updated_at_now};
+use super::edit::{
+    edit_encrypted_entry, open_editor_body_only, set_updated_at_now, unique_temp_path,
+};
 use super::paths::{ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_path_with_id};
 use crate::{AppResult, crypto, markdown::entry_has_body};
 use chrono::{DateTime, Local};
@@ -55,6 +57,45 @@ pub fn create_encrypted_entry(
     } else {
         Ok(None)
     }
+}
+
+pub fn create_entry_with_editor_and_feelings(
+    root: &Path,
+    journal: &str,
+    editor: &str,
+    tags: &[String],
+    feelings: &[String],
+    mood: Option<i8>,
+) -> AppResult<Option<PathBuf>> {
+    create_entry_from_editor(
+        root,
+        journal,
+        editor,
+        tags,
+        feelings,
+        mood,
+        WriteTarget::Plain,
+    )
+}
+
+pub fn create_encrypted_entry_with_editor_and_feelings(
+    root: &Path,
+    journal: &str,
+    editor: &str,
+    tags: &[String],
+    feelings: &[String],
+    mood: Option<i8>,
+    paths: &crypto::EncryptionPaths,
+) -> AppResult<Option<PathBuf>> {
+    create_entry_from_editor(
+        root,
+        journal,
+        editor,
+        tags,
+        feelings,
+        mood,
+        WriteTarget::Encrypted(paths),
+    )
 }
 
 pub fn create_entry_with_body(root: &Path, journal: &str, body: &str) -> AppResult<PathBuf> {
@@ -117,6 +158,34 @@ pub fn create_encrypted_entry_with_body_and_feelings(
         WriteTarget::Encrypted(paths),
         || nanoid!(ENTRY_ID_LEN),
     )
+}
+
+fn create_entry_from_editor(
+    root: &Path,
+    journal: &str,
+    editor: &str,
+    tags: &[String],
+    feelings: &[String],
+    mood: Option<i8>,
+    target: WriteTarget<'_>,
+) -> AppResult<Option<PathBuf>> {
+    let now = Local::now();
+    let temp_path = unique_temp_path(&std::env::temp_dir(), "new-entry.md");
+    let result = (|| {
+        fs::write(&temp_path, entry_with_body(now, "", tags, feelings, mood))?;
+        open_editor_body_only(editor, &temp_path)?;
+        if !entry_has_body(&fs::read_to_string(&temp_path)?) {
+            return Ok(None);
+        }
+        set_updated_at_now(&temp_path)?;
+        let content = fs::read_to_string(&temp_path)?;
+        create_entry_file(root, journal, now, &content, target, || {
+            nanoid!(ENTRY_ID_LEN)
+        })
+        .map(Some)
+    })();
+    let _ = fs::remove_file(&temp_path);
+    result
 }
 
 fn entry_with_body(

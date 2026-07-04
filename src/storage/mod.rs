@@ -10,11 +10,12 @@ pub(crate) use dates::{entry_group_date, entry_timestamp_label, parse_entry_time
 pub(crate) use entry::entry_date_from_path;
 pub use entry::{
     Entry, EntryEncryptionState, EntryPath, collect_entry_paths, create_encrypted_entry,
-    create_encrypted_entry_with_body, create_encrypted_entry_with_body_and_feelings, create_entry,
-    create_entry_with_body, create_entry_with_body_and_feelings, edit_encrypted_entry, entry_path,
-    entry_template, is_encrypted_entry_file, is_entry_file, is_plain_entry_file,
-    move_entry_to_trash, open_editor, open_editor_body_only, read_entries, read_entry,
-    read_entry_content_with_identity, read_entry_with_identity, scan_entries,
+    create_encrypted_entry_with_body, create_encrypted_entry_with_body_and_feelings,
+    create_encrypted_entry_with_editor_and_feelings, create_entry, create_entry_with_body,
+    create_entry_with_body_and_feelings, create_entry_with_editor_and_feelings,
+    edit_encrypted_entry, entry_path, entry_template, is_encrypted_entry_file, is_entry_file,
+    is_plain_entry_file, move_entry_to_trash, open_editor, open_editor_body_only, read_entries,
+    read_entry, read_entry_content_with_identity, read_entry_with_identity, scan_entries,
     scan_entries_with_identity, set_updated_at_now,
 };
 pub use journals::{Journal, create_journal, list_journals, validate_journal_name};
