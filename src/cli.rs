@@ -41,7 +41,7 @@ enum CliCommand {
     /// Create a journal entry from text, stdin, or the configured editor
     Log(LogArgs),
     /// Set the default journal for new entries
-    Default {
+    Use {
         #[arg(value_name = "NAME")]
         name: String,
     },
@@ -103,7 +103,7 @@ fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppRe
             validate_no_legacy_entry_args(cli)?;
             create_entry_from_log_command(cli, args, stdin_is_pipe)
         }
-        CliCommand::Default { name } => {
+        CliCommand::Use { name } => {
             validate_no_legacy_entry_args(cli)?;
             set_default_journal(cli, name)
         }
@@ -159,7 +159,7 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
         .journal
         .as_deref()
         .or(config.default_journal.as_deref())
-        .ok_or("no journal specified; pass --journal or set one with `journal default <name>`")?;
+        .ok_or("no journal specified; pass --journal or set one with `journal use <name>`")?;
     validate_existing_journal(&config.journal_root, journal)?;
     let tags: Vec<String> = args
         .tag
