@@ -5,7 +5,7 @@ mod mouse;
 mod terminal;
 
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
-use std::io;
+use std::{io, path::PathBuf};
 
 use crate::{
     AppResult,
@@ -63,43 +63,46 @@ pub(crate) fn dispatch_action(
             close_expanded_entry_view(app);
             app.exit_search();
         }
-        Action::EditSelected => edit_selected(terminal, app)?,
+        Action::EditSelected => {
+            let snapshot = EntryViewSnapshot::capture(app);
+            edit_selected(terminal, app)?;
+            restore_entry_view_or_close(app, snapshot);
+        }
         Action::ViewSelected => view_selected(app)?,
-        Action::BeginDelete => {
-            close_expanded_entry_view(app);
-            app.begin_confirm_delete();
-        }
-        Action::ConfirmDelete => {
-            delete_selected(app)?;
-            app.close_overlay();
-            app.refresh()?;
-        }
+        Action::BeginDelete => app.begin_confirm_delete(),
+        Action::ConfirmDelete => confirm_delete(app)?,
         Action::CancelOverlay => {
-            if app.entry_view_expanded {
-                app.entry_view_expanded = false;
-                app.focus = Focus::Entries;
-            } else {
+            if app.has_overlay() {
                 if matches!(app.overlay, Overlay::NewJournal(_)) {
                     app.set_status("Cancelled");
                 }
                 app.close_overlay();
+            } else if app.entry_view_expanded {
+                app.entry_view_expanded = false;
+                app.focus = Focus::Entries;
             }
         }
-        Action::BeginEditTags => {
-            close_expanded_entry_view(app);
-            app.begin_edit_tags();
-        }
-        Action::BeginEditFeelings => {
-            close_expanded_entry_view(app);
-            app.begin_edit_feelings();
-        }
-        Action::BeginEditMood => {
-            close_expanded_entry_view(app);
-            app.begin_edit_mood();
-        }
+        Action::BeginEditTags => app.begin_edit_tags(),
+        Action::BeginEditFeelings => app.begin_edit_feelings(),
+        Action::BeginEditMood => app.begin_edit_mood(),
         Action::NewEntry => {
-            close_expanded_entry_view(app);
-            create_entry_in_selected_journal(terminal, app)?;
+            let snapshot = EntryViewSnapshot::capture(app);
+            let restore_to_viewer = snapshot
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.entry_view_expanded);
+            let created = create_entry_in_selected_journal(terminal, app)?;
+            if restore_to_viewer {
+                if let Some(path) = created {
+                    if app.select_entry_path(&path, true) {
+                        app.entry_view_expanded = true;
+                        app.focus = Focus::EntryView;
+                    } else {
+                        restore_entry_view_or_close(app, snapshot);
+                    }
+                } else {
+                    restore_entry_view_or_close(app, snapshot);
+                }
+            }
         }
         Action::NewJournal => app.begin_new_journal_input(),
 
@@ -172,11 +175,13 @@ pub(crate) fn dispatch_action(
             }
         }
         Action::TagsSave => {
+            let snapshot = EntryViewSnapshot::capture(app);
             let tags = app
                 .edit_tag_state()
                 .map(|s| s.selected.clone())
                 .unwrap_or_default();
             set_tags_on_entry(app, &tags)?;
+            restore_entry_view_or_close(app, snapshot);
             app.close_overlay();
         }
 
@@ -200,11 +205,13 @@ pub(crate) fn dispatch_action(
             }
         }
         Action::FeelingsSave => {
+            let snapshot = EntryViewSnapshot::capture(app);
             let feelings = app
                 .edit_feeling_state()
                 .map(|s| s.selected.clone())
                 .unwrap_or_default();
             set_feelings_on_entry(app, &feelings)?;
+            restore_entry_view_or_close(app, snapshot);
             app.close_overlay();
         }
 
@@ -223,15 +230,19 @@ pub(crate) fn dispatch_action(
             }
         }
         Action::MoodSave => {
+            let snapshot = EntryViewSnapshot::capture(app);
             let mood = app.edit_mood_state().map(|s| s.draft);
             set_mood_on_entry(app, mood)?;
+            restore_entry_view_or_close(app, snapshot);
             app.close_overlay();
         }
         Action::MoodClear => {
+            let snapshot = EntryViewSnapshot::capture(app);
             let mood = app.edit_mood_state().and_then(|s| s.saved);
             if mood.is_some() {
                 set_mood_on_entry(app, None)?;
             }
+            restore_entry_view_or_close(app, snapshot);
             app.close_overlay();
         }
 
@@ -253,6 +264,56 @@ fn close_expanded_entry_view(app: &mut App) {
         app.entry_view_expanded = false;
         app.focus = Focus::EntryView;
     }
+}
+
+struct EntryViewSnapshot {
+    path: PathBuf,
+    focus: Focus,
+    entry_view_expanded: bool,
+    entry_view_scroll: u16,
+}
+
+impl EntryViewSnapshot {
+    fn capture(app: &App) -> Option<Self> {
+        let target = app.selected_entry_target()?;
+        Some(Self {
+            path: target.path,
+            focus: app.focus,
+            entry_view_expanded: app.entry_view_expanded,
+            entry_view_scroll: app.scroll.entry_view,
+        })
+    }
+
+    fn restore(self, app: &mut App) -> bool {
+        if !app.select_entry_path(&self.path, false) {
+            return false;
+        }
+        app.focus = self.focus;
+        app.entry_view_expanded = self.entry_view_expanded;
+        app.scroll.entry_view = self.entry_view_scroll;
+        true
+    }
+}
+
+fn restore_entry_view_or_close(app: &mut App, snapshot: Option<EntryViewSnapshot>) {
+    let Some(snapshot) = snapshot else {
+        return;
+    };
+    let was_expanded = snapshot.entry_view_expanded;
+    if !snapshot.restore(app) && was_expanded {
+        app.entry_view_expanded = false;
+        app.focus = Focus::Entries;
+        app.scroll.reset_entry_view();
+    }
+}
+
+fn confirm_delete(app: &mut App) -> AppResult<()> {
+    delete_selected(app)?;
+    app.close_overlay();
+    app.entry_view_expanded = false;
+    app.focus = Focus::Entries;
+    app.scroll.reset_entry_view();
+    app.refresh()
 }
 
 fn terminal_area(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> AppResult<Rect> {
@@ -690,6 +751,89 @@ mod tests {
             20,
         );
         assert!(app.entry_view_expanded);
+    }
+
+    #[test]
+    fn metadata_refresh_restores_expanded_entry_view_and_scroll() {
+        let mut app = app_with_entries(1);
+        view_selected(&mut app).unwrap();
+        app.scroll.entry_view = 7;
+
+        let snapshot = EntryViewSnapshot::capture(&app);
+        app.begin_edit_tags();
+        super::actions::set_tags_on_entry(&mut app, &["work".to_string()]).unwrap();
+        restore_entry_view_or_close(&mut app, snapshot);
+        app.close_overlay();
+
+        assert!(app.entry_view_expanded);
+        assert_eq!(app.focus, Focus::EntryView);
+        assert_eq!(app.scroll.entry_view, 7);
+        assert_eq!(app.selected_entry_tags(), vec!["work".to_string()]);
+        assert!(!app.has_overlay());
+    }
+
+    #[test]
+    fn confirmed_delete_from_expanded_entry_closes_viewer() {
+        let mut app = app_with_entries(1);
+        view_selected(&mut app).unwrap();
+        app.scroll.entry_view = 5;
+        app.begin_confirm_delete();
+
+        assert!(app.entry_view_expanded);
+
+        confirm_delete(&mut app).unwrap();
+
+        assert!(!app.entry_view_expanded);
+        assert_eq!(app.focus, Focus::Entries);
+        assert_eq!(app.scroll.entry_view, 0);
+        assert_eq!(app.current_entry_list_len(), 0);
+        assert!(!app.has_overlay());
+    }
+
+    #[test]
+    fn search_from_expanded_entry_dismisses_viewer_at_start() {
+        let mut app = app_with_entries(1);
+        view_selected(&mut app).unwrap();
+        app.scroll.entry_view = 5;
+
+        close_expanded_entry_view(&mut app);
+        app.begin_search();
+
+        assert!(!app.entry_view_expanded);
+        assert_eq!(app.focus, Focus::Entries);
+        assert_eq!(app.mode, crate::tui::app::Mode::Search);
+        assert_eq!(app.scroll.entry_view, 0);
+    }
+
+    #[test]
+    fn select_created_entry_path_opens_expanded_entry_view() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let entry_dir = root.join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(
+            entry_dir.join("a.md"),
+            "+++\ntags = []\n+++\n\n# Existing\nBody\n",
+        )
+        .unwrap();
+
+        let config = Config::new(root.clone(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+        view_selected(&mut app).unwrap();
+        app.scroll.entry_view = 9;
+
+        let created =
+            crate::storage::create_entry_with_body(&root, "work", "# Created\nBody\n").unwrap();
+        app.refresh().unwrap();
+        assert!(app.select_entry_path(&created, true));
+        app.entry_view_expanded = true;
+        app.focus = Focus::EntryView;
+
+        assert!(app.entry_view_expanded);
+        assert_eq!(app.focus, Focus::EntryView);
+        assert_eq!(app.scroll.entry_view, 0);
+        assert_eq!(app.selected_entry_target().unwrap().path, created);
     }
 
     #[test]

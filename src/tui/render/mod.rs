@@ -89,6 +89,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
             Paragraph::new(expanded_footer_lines(app, footer_area.width)),
             footer_text_area,
         );
+        draw_overlays(frame, app);
         return;
     }
 
@@ -110,6 +111,10 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let footer = Paragraph::new(footer_lines(app, layout.footer.width));
     frame.render_widget(footer, layout.footer);
 
+    draw_overlays(frame, app);
+}
+
+fn draw_overlays(frame: &mut Frame<'_>, app: &mut App) {
     if app.is_confirming_delete() {
         draw_confirm_delete(frame);
     }
@@ -901,6 +906,19 @@ mod tests {
         }
         assert!(expanded_text.contains("close (enter/esc)"));
         assert!(expanded_text.contains("edit (e) | close (enter/esc) | delete (d)"));
+    }
+
+    #[test]
+    fn expanded_entry_draws_confirm_delete_overlay() {
+        let mut app = app_with_entry();
+        app.focus = Focus::EntryView;
+        app.entry_view_expanded = true;
+        app.begin_confirm_delete();
+
+        let text = render_text(app, 80, 20);
+
+        assert!(text.contains("Confirm Delete"));
+        assert!(text.contains("Move selected file to trash? y/n"));
     }
 
     #[test]

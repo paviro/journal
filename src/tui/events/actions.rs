@@ -11,7 +11,10 @@ use crate::{
     },
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::{fs, io, path::Path};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use super::terminal::suspend_terminal;
 use crate::tui::app::{App, Focus};
@@ -77,26 +80,26 @@ pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
 pub(super) fn create_entry_in_selected_journal(
     terminal: &mut Term,
     app: &mut App,
-) -> AppResult<()> {
+) -> AppResult<Option<PathBuf>> {
     if app.selected_journal().is_some() {
         new_entry(terminal, app)
     } else {
         app.set_status("Create a journal first with n");
-        Ok(())
+        Ok(None)
     }
 }
 
-fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<()> {
+fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<Option<PathBuf>> {
     let Some(journal) = app.selected_journal().cloned() else {
         app.set_status("No journal selected");
-        return Ok(());
+        return Ok(None);
     };
 
     let root = app.config.journal_root.clone();
     let editor = app.config.editor.clone();
     let journal_name = journal.name;
     if !ensure_identity_available(app, crypto::should_encrypt(&app.encryption_paths)) {
-        return Ok(());
+        return Ok(None);
     }
     let created = suspend_terminal(terminal, || {
         if crypto::should_encrypt(&app.encryption_paths) {
@@ -115,7 +118,7 @@ fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<()> {
         app.set_status("Entry saved");
     }
     app.refresh()?;
-    Ok(())
+    Ok(created)
 }
 
 pub(super) fn edit_selected(terminal: &mut Term, app: &mut App) -> AppResult<()> {

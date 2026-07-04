@@ -9,7 +9,10 @@ use crate::{
         entry_timestamp_label, search_loaded_entries,
     },
 };
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use ratatui::widgets::ListState;
 
@@ -244,6 +247,46 @@ impl App {
             self.selected_entry_index = index;
             self.scroll.entry_view = 0;
         }
+    }
+
+    pub(crate) fn select_entry_path(&mut self, path: &Path, reset_entry_scroll: bool) -> bool {
+        let index = match self.mode {
+            Mode::Search => self.search.hits.iter().position(|hit| hit.path == path),
+            Mode::Browse => self
+                .journal_name_for_entry_path(path)
+                .and_then(|journal_name| {
+                    self.entries
+                        .iter()
+                        .filter(|entry| entry.journal == journal_name)
+                        .position(|entry| entry.path == path)
+                }),
+        };
+        let Some(index) = index else { return false };
+
+        if self.selected_entry_index != index {
+            self.selected_entry_index = index;
+        }
+        if reset_entry_scroll {
+            self.scroll.entry_view = 0;
+        }
+        true
+    }
+
+    fn journal_name_for_entry_path(&mut self, path: &Path) -> Option<String> {
+        let journal_name = self
+            .entries
+            .iter()
+            .find(|entry| entry.path == path)
+            .map(|entry| entry.journal.clone())?;
+        let journal_index = self
+            .journals
+            .iter()
+            .position(|journal| journal.name == journal_name)?;
+        if self.selected_journal_index() != journal_index {
+            self.journal_list.select(Some(journal_index));
+            *self.entry_list.offset_mut() = 0;
+        }
+        Some(journal_name)
     }
 
     fn selected_entry(&self) -> Option<&Entry> {
