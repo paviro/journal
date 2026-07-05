@@ -1177,7 +1177,8 @@ mod tests {
 
         let text = footer_text(&app);
 
-        assert!(text.contains("Search all: body"));
+        // The query now lives on the entry panel's top-right border, not the footer.
+        assert!(!text.contains("Search all: body"));
         assert!(text.contains("view (enter)"));
         assert!(text.contains("exit search (esc)"));
         assert!(!text.contains("type query"));

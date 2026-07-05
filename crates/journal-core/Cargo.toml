@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
+nucleo = "0.5.0"
 serde = { version = "1", features = ["derive"] }

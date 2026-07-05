@@ -252,14 +252,10 @@ pub(crate) fn dispatch_action(
         Action::ImageViewerNext => app.image_viewer_step(1),
         Action::ImageViewerPrev => app.image_viewer_step(-1),
 
-        Action::SearchInput(ch) => {
-            app.search.query.push(ch);
-            app.update_search_results();
-        }
-        Action::SearchBackspace => {
-            app.search.query.pop();
-            app.update_search_results();
-        }
+        Action::SearchInput(ch) => app.search_insert(ch),
+        Action::SearchBackspace => app.search_backspace(),
+        Action::SearchCursorLeft => app.search_cursor_left(),
+        Action::SearchCursorRight => app.search_cursor_right(),
 
         Action::ToggleHints => {
             app.config.show_hints = !app.config.show_hints;

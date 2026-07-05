@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::{
-    app::{App, Focus},
+    app::{App, Focus, Mode, SearchScope},
     entry_rows::{border_line, box_inner_line},
     render::{
         PanelGeometry, count_label, list_state_for_render, panel_block, render_scrollbar_if_needed,
@@ -40,7 +40,11 @@ pub(crate) fn journals_per_page(content_height: u16) -> u16 {
 
 pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app: &mut App) {
     let focused = app.focus == Focus::Journals;
-    let highlight_active = true;
+    // An all-journals search covers everything, so highlight every journal
+    // rather than implying it's scoped to the selected one. A journal-scoped
+    // search keeps the single highlight.
+    let select_all = app.mode == Mode::Search && app.search.scope == SearchScope::AllJournals;
+    let highlight_active = !select_all;
     let block = panel_block(
         "Journals",
         focused,
@@ -55,14 +59,22 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
     *app.journal_list.offset_mut() = offset;
 
     let inner_width = list_area.width.saturating_sub(4) as usize;
+    let highlight_style = Style::default().add_modifier(Modifier::REVERSED);
     let items: Vec<ListItem> = app
         .journals
         .iter()
-        .map(|journal| ListItem::new(journal_box_lines(&journal.name, inner_width)))
+        .map(|journal| {
+            let item = ListItem::new(journal_box_lines(&journal.name, inner_width));
+            if select_all {
+                item.style(highlight_style)
+            } else {
+                item
+            }
+        })
         .collect();
 
     let list = List::new(items)
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .highlight_style(highlight_style)
         .highlight_spacing(HighlightSpacing::Never);
 
     let mut render_state = list_state_for_render(

@@ -75,6 +75,8 @@ impl StatusBar {
 /// Search query, scope and the hits it currently matches.
 pub(crate) struct SearchState {
     pub(crate) query: String,
+    /// Caret position as a char index into `query`, in `0..=query.chars().count()`.
+    pub(crate) cursor: usize,
     pub(crate) scope: SearchScope,
     pub(crate) hits: Vec<SearchHit>,
 }
@@ -83,6 +85,7 @@ impl Default for SearchState {
     fn default() -> Self {
         Self {
             query: String::new(),
+            cursor: 0,
             scope: SearchScope::AllJournals,
             hits: Vec::new(),
         }

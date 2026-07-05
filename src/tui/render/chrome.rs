@@ -395,7 +395,8 @@ impl HintLine {
 }
 
 fn search_footer_line(app: &App) -> HintLine {
-    let query = format!("Search {}: {}", app.search_scope_label(), app.search.query);
+    // The query now lives on the entry panel's top-right border (see
+    // `draw_entry_list`), so the footer only carries the action hints.
     let hints = match app.focus {
         Focus::EntryView if app.has_selected_entry_target() => {
             let mut hints = selected_entry_action_hints(true);
@@ -419,7 +420,7 @@ fn search_footer_line(app: &App) -> HintLine {
     };
 
     HintLine {
-        prefix: Some(query),
+        prefix: None,
         hints,
     }
 }

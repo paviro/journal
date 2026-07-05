@@ -1,7 +1,7 @@
 use ratatui::{
     Frame,
     style::{Modifier, Style},
-    text::Line,
+    text::{Line, Span},
     widgets::{HighlightSpacing, List},
 };
 
@@ -40,6 +40,12 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
     );
     *app.entry_list.offset_mut() = pixel_offset as usize;
 
+    // In search mode, show the live query on the panel's top-right border so it
+    // reads as the search field, rather than tucking it into the footer.
+    if app.mode == Mode::Search {
+        block = block.title(search_field_title(app).right_aligned());
+    }
+
     // iOS-style sticky section header: once a month's divider scrolls above the
     // viewport, pin that month's label to the panel's top-right border so the
     // current month stays visible while browsing.
@@ -72,6 +78,50 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
         viewport_height,
         pixel_offset,
     );
+}
+
+/// The search query drawn on the panel's top-right border. While the field is
+/// the active focus it carries a blinking block caret (`search_cursor_visible`)
+/// at the edit position; once focus moves off the field the caret is hidden and
+/// only the query text remains.
+fn search_field_title(app: &App) -> Line<'static> {
+    let show_caret = app.is_search_input_active();
+    let caret_style = if app.search_cursor_visible {
+        Style::default().add_modifier(Modifier::REVERSED)
+    } else {
+        Style::default()
+    };
+
+    if app.search.query.is_empty() {
+        let mut spans = vec![Span::raw(" ")];
+        if show_caret {
+            spans.push(Span::styled(" ", caret_style));
+        }
+        spans.push(Span::styled(
+            "type to search ",
+            Style::default().add_modifier(Modifier::DIM),
+        ));
+        return Line::from(spans);
+    }
+
+    if !show_caret {
+        return Line::from(format!(" {} ", app.search.query));
+    }
+
+    let chars: Vec<char> = app.search.query.chars().collect();
+    let cursor = app.search.cursor.min(chars.len());
+    let before: String = chars[..cursor].iter().collect();
+    let mut spans = vec![Span::raw(" "), Span::raw(before)];
+    if cursor < chars.len() {
+        spans.push(Span::styled(chars[cursor].to_string(), caret_style));
+        let after: String = chars[cursor + 1..].iter().collect();
+        spans.push(Span::raw(after));
+    } else {
+        // Caret sits past the last char: draw it as an inverted trailing block.
+        spans.push(Span::styled(" ", caret_style));
+    }
+    spans.push(Span::raw(" "));
+    Line::from(spans)
 }
 
 /// The month label to pin on the panel border. The first month rides the border

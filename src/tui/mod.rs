@@ -21,8 +21,11 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::path::PathBuf;
 use std::{
     io::{self, Write},
-    time::Duration,
+    time::{Duration, Instant},
 };
+
+/// Blink half-period for the search caret.
+const CURSOR_BLINK: Duration = Duration::from_millis(530);
 
 use app::App;
 
@@ -82,6 +85,7 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
 
     terminal.draw(|frame| render::draw(frame, &mut app))?;
     let mut overlay_was_visible = app.has_overlay();
+    let mut last_blink = Instant::now();
 
     loop {
         // A newly finished image build makes the frame stale; repaint below.
@@ -95,12 +99,17 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         if app.images.has_pending() {
             poll_timeout = poll_timeout.min(Duration::from_millis(30));
         }
+        // Wake often enough to blink the search caret while typing in the field.
+        if app.is_search_input_active() {
+            poll_timeout = poll_timeout.min(CURSOR_BLINK);
+        }
 
         let event = if event::poll(poll_timeout)? {
             Some(event::read()?)
         } else {
             None
         };
+        let is_key_event = matches!(&event, Some(Event::Key(_)));
 
         let redraw = match event {
             Some(Event::Key(key)) => {
@@ -144,7 +153,26 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         // ellipsis keeps animating.
         let animate_loading = app.image_viewer_state().is_some() && app.images.has_pending();
 
-        if redraw || watcher_changed || images_ready || animate_loading {
+        // Drive the search caret's blink: keystrokes hold it solid, idle toggles
+        // it on the blink half-period, and outside the field it stays visible.
+        let mut blink_toggled = false;
+        if app.is_search_input_active() {
+            if is_key_event {
+                last_blink = Instant::now();
+                if !app.search_cursor_visible {
+                    app.search_cursor_visible = true;
+                    blink_toggled = true;
+                }
+            } else if last_blink.elapsed() >= CURSOR_BLINK {
+                last_blink = Instant::now();
+                app.search_cursor_visible = !app.search_cursor_visible;
+                blink_toggled = true;
+            }
+        } else if !app.search_cursor_visible {
+            app.search_cursor_visible = true;
+        }
+
+        if redraw || watcher_changed || images_ready || animate_loading || blink_toggled {
             if overlay_closed && app.images.uses_graphics() {
                 terminal.clear()?;
             }

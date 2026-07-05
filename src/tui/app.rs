@@ -70,6 +70,9 @@ pub(crate) struct App {
     pub(crate) focus: Focus,
     pub(crate) mode: Mode,
     pub(crate) search: SearchState,
+    /// Blink phase of the search caret; toggled on a timer by the event loop and
+    /// read when rendering the search field. `true` = caret block shown.
+    pub(crate) search_cursor_visible: bool,
     pub(crate) overlay: Overlay,
     pub(crate) status_bar: StatusBar,
     pub(crate) images: ImageRuntime,
@@ -119,6 +122,7 @@ impl App {
             focus: Focus::Journals,
             mode: Mode::Browse,
             search: SearchState::default(),
+            search_cursor_visible: true,
             overlay: Overlay::None,
             status_bar: StatusBar::default(),
             images: ImageRuntime::default(),
@@ -804,6 +808,7 @@ impl App {
         self.mode = Mode::Search;
         self.focus = Focus::Entries;
         self.search.query = format!("tags:{tag}");
+        self.search.cursor = self.search.query.chars().count();
         self.search.hits = self.search_results_by_metadata(MetadataKind::Tags, tag);
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
@@ -825,6 +830,7 @@ impl App {
         self.mode = Mode::Search;
         self.focus = Focus::Entries;
         self.search.query = format!("{}:{value}", kind.search_prefix());
+        self.search.cursor = self.search.query.chars().count();
         self.search.hits = self.search_results_by_metadata(kind, value);
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
@@ -838,6 +844,7 @@ impl App {
         self.mode = Mode::Search;
         self.focus = Focus::Entries;
         self.search.query = format!("feelings:{feeling}");
+        self.search.cursor = self.search.query.chars().count();
         self.search.hits = self.search_results_by_feeling(feeling);
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
@@ -854,6 +861,7 @@ impl App {
         self.mode = Mode::Search;
         self.focus = Focus::Entries;
         self.search.query.clear();
+        self.search.cursor = 0;
         self.search.hits.clear();
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
@@ -863,6 +871,7 @@ impl App {
         self.mode = Mode::Browse;
         self.search.scope = SearchScope::AllJournals;
         self.search.query.clear();
+        self.search.cursor = 0;
         self.search.hits.clear();
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
@@ -874,11 +883,47 @@ impl App {
         self.reset_entry_scroll();
     }
 
-    pub(crate) fn search_scope_label(&self) -> String {
-        match &self.search.scope {
-            SearchScope::AllJournals => "all".to_string(),
-            SearchScope::CurrentJournal(journal) => journal.clone(),
+    /// The search caret is active (blinking) only while typing in the field.
+    pub(crate) fn is_search_input_active(&self) -> bool {
+        self.mode == Mode::Search && self.focus == Focus::Entries
+    }
+
+    /// Byte offset in `query` for the current caret char index, clamped to the end.
+    fn search_cursor_byte(&self) -> usize {
+        self.search
+            .query
+            .char_indices()
+            .nth(self.search.cursor)
+            .map(|(byte, _)| byte)
+            .unwrap_or(self.search.query.len())
+    }
+
+    /// Insert a typed char at the caret and advance it.
+    pub(crate) fn search_insert(&mut self, ch: char) {
+        let byte = self.search_cursor_byte();
+        self.search.query.insert(byte, ch);
+        self.search.cursor += 1;
+        self.update_search_results();
+    }
+
+    /// Delete the char before the caret (Backspace).
+    pub(crate) fn search_backspace(&mut self) {
+        if self.search.cursor == 0 {
+            return;
         }
+        self.search.cursor -= 1;
+        let byte = self.search_cursor_byte();
+        self.search.query.remove(byte);
+        self.update_search_results();
+    }
+
+    pub(crate) fn search_cursor_left(&mut self) {
+        self.search.cursor = self.search.cursor.saturating_sub(1);
+    }
+
+    pub(crate) fn search_cursor_right(&mut self) {
+        let max = self.search.query.chars().count();
+        self.search.cursor = (self.search.cursor + 1).min(max);
     }
 
     pub(crate) fn search_hit_label(&self, hit: &SearchHit) -> String {

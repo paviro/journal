@@ -129,6 +129,16 @@ fn search_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
         KeyCode::Esc => Some(Action::ExitSearch),
         KeyCode::Char('q') => Some(Action::Quit),
         KeyCode::Left if app.focus == Focus::EntryView => Some(Action::FocusLeft),
+        // In the search field, Left/Right move the caret. Right only claims the key
+        // while the caret can still advance; at the end of the query it falls
+        // through to the view/focus arms below.
+        KeyCode::Left if app.focus == Focus::Entries => Some(Action::SearchCursorLeft),
+        KeyCode::Right
+            if app.focus == Focus::Entries
+                && app.search.cursor < app.search.query.chars().count() =>
+        {
+            Some(Action::SearchCursorRight)
+        }
         KeyCode::Right
             if app.focus == Focus::Entries
                 && !entry_view_available
