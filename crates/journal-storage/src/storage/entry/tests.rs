@@ -154,7 +154,7 @@ fn entry_journal_is_read_context_not_front_matter() {
 }
 
 #[test]
-fn entry_title_uses_first_markdown_line_and_preview_uses_next_line() {
+fn entry_preview_collapses_body_with_markdown_stripped() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("entry.md");
     fs::write(
@@ -165,8 +165,7 @@ fn entry_title_uses_first_markdown_line_and_preview_uses_next_line() {
 
     let entry = read_entry("journal", &path).unwrap();
 
-    assert_eq!(entry.title, "Hi how is it going?");
-    assert_eq!(entry.preview, "This is a test entry");
+    assert_eq!(entry.preview, "Hi how is it going? This is a test entry");
 }
 
 #[test]
@@ -243,7 +242,7 @@ fn create_entry_with_body_and_metadata_writes_metadata() {
 }
 
 #[test]
-fn plain_entry_title_and_preview_use_first_two_markdown_lines() {
+fn plain_entry_preview_is_the_whole_body() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("entry.md");
     fs::write(
@@ -254,12 +253,12 @@ fn plain_entry_title_and_preview_use_first_two_markdown_lines() {
 
     let entry = read_entry("journal", &path).unwrap();
 
-    assert_eq!(entry.title, "Plain title");
-    assert_eq!(entry.preview, "Plain preview");
+    assert_eq!(entry.preview, "Plain title Plain preview");
+    assert_eq!(entry.display_label(), "Plain title Plain preview");
 }
 
 #[test]
-fn empty_entry_uses_timestamp_title_and_empty_preview() {
+fn empty_entry_preview_is_empty_and_label_falls_back_to_timestamp() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("entry.md");
     fs::write(
@@ -270,8 +269,8 @@ fn empty_entry_uses_timestamp_title_and_empty_preview() {
 
     let entry = read_entry("journal", &path).unwrap();
 
-    assert_eq!(entry.title, "2026-07-01T10:00:00+02:00");
     assert_eq!(entry.preview, "");
+    assert_eq!(entry.display_label(), "2026-07-01T10:00:00+02:00");
 }
 
 #[test]
@@ -301,7 +300,7 @@ fn scan_entries_skips_trash() {
     let entries = scan_entries(dir.path()).unwrap();
 
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].title, "Active");
+    assert_eq!(entries[0].preview, "Active");
 }
 
 #[test]
@@ -324,8 +323,7 @@ fn scan_entries_returns_locked_placeholder_for_encrypted_entry_without_key() {
         entries[0].encryption_state,
         EntryEncryptionState::EncryptedLocked
     );
-    assert_eq!(entries[0].title, "[locked] Encrypted entry");
-    assert_eq!(entries[0].preview, "Encryption identity not available");
+    assert_eq!(entries[0].preview, "[locked] Encrypted entry");
     assert_eq!(entries[0].content, "Encryption identity not available");
     assert_eq!(
         crate::storage::entry_group_date(&entries[0]),
@@ -358,7 +356,7 @@ fn scan_entries_marks_encrypted_entry_unlocked_with_identity() {
         entries[0].encryption_state,
         EntryEncryptionState::EncryptedUnlocked
     );
-    assert_eq!(entries[0].title, "Secret");
+    assert_eq!(entries[0].preview, "Secret Body");
     assert!(entries[0].content.contains("Body"));
 }
 

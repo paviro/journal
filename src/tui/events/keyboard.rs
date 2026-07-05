@@ -282,7 +282,9 @@ pub(super) fn keep_selection_visible(
     let layout = render::tui_layout(Rect::new(0, 0, size.width, size.height), app);
     if app.focus == Focus::Journals && app.mode == Mode::Browse {
         if let Some(area) = layout.journals {
-            app.journal_list_ensure_visible(area.content.height);
+            app.journal_list_ensure_visible(render::journals_per_page(
+                render::journal_list_rect(area.content).height,
+            ));
         }
     } else if let Some(area) = layout.entries {
         let rows = render::entry_row_metadata(app, area.text_width);

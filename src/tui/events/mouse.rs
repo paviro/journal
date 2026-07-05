@@ -71,9 +71,8 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
         } else {
             Focus::Journals
         };
-        if let Some(index) = list_row_at(
+        if let Some(index) = journal_box_at(
             area.content,
-            mouse.column,
             mouse.row,
             app.journal_list.offset(),
             app.journals.len(),
@@ -171,7 +170,10 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
         && let Some(area) = layout.journals
         && render::point_in_rect(area.area, mouse.column, mouse.row)
     {
-        app.journal_list_scroll(delta, area.content.height);
+        app.journal_list_scroll(
+            delta,
+            render::journals_per_page(render::journal_list_rect(area.content).height),
+        );
     }
 }
 
@@ -376,6 +378,18 @@ fn handle_overlay_wheel(app: &mut App, mouse: MouseEvent, area: Rect, delta: i16
             state.scroll_by(delta, layout.list.height);
         }
     }
+}
+
+/// Maps a click row inside the journal panel content to a journal index,
+/// accounting for the leading offset and each journal's multi-row bordered box.
+fn journal_box_at(content: Rect, row: u16, offset: usize, len: usize) -> Option<usize> {
+    let list = render::journal_list_rect(content);
+    let relative_row = row.checked_sub(list.y)?;
+    if relative_row >= list.height {
+        return None;
+    }
+    let index = offset.saturating_add((relative_row / render::JOURNAL_BOX_HEIGHT) as usize);
+    (index < len).then_some(index)
 }
 
 fn list_row_at(list: Rect, _col: u16, row: u16, offset: usize, len: usize) -> Option<usize> {

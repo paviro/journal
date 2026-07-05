@@ -16,7 +16,7 @@ use ratatui::{
 use super::app::{App, EntryViewImageHits, Focus, single_panel_is_active};
 #[cfg(test)]
 pub(crate) use super::entry_rows::{
-    EntryRowMeta, entry_day_label, entry_list_lines, entry_month_label,
+    EntryRowMeta, entry_box_lines, entry_day_label, entry_list_lines, entry_month_label,
 };
 pub(crate) use super::entry_rows::{entry_row_metadata, total_entry_row_height};
 #[cfg(test)]
@@ -53,6 +53,7 @@ pub(crate) use dialogs::{
 use entries::draw_entry_list;
 use image_viewer::draw_image_viewer;
 use journals::draw_journals;
+pub(crate) use journals::{JOURNAL_BOX_HEIGHT, journal_list_rect, journals_per_page};
 pub(crate) use layout::{TuiLayout, tui_layout};
 use markdown_panel::draw_selected_entry_view;
 #[cfg(test)]
@@ -165,7 +166,7 @@ mod tests {
         },
     };
     use journal_storage::{Entry, EntryEncryptionState, JournalStore, SearchHit};
-    use ratatui::{Terminal, backend::TestBackend, layout::Rect, style::Modifier};
+    use ratatui::{Terminal, backend::TestBackend, layout::Rect, style::Modifier, text::Line};
     use ratatui_029::style::Color as MarkdownColor;
     use std::fs;
     use std::path::PathBuf;
@@ -372,11 +373,12 @@ mod tests {
 
         assert_eq!(
             entries.text_width,
-            entries.panel.content.width.saturating_sub(7)
+            entries.panel.content.width.saturating_sub(4)
         );
 
         let rows = entry_row_metadata(&app, entries.text_width);
-        let click_y = entries.panel.content.y + 4;
+        // Row 0 is the month divider; the single entry's box occupies rows 1-3.
+        let click_y = entries.panel.content.y + 2;
 
         assert_eq!(
             entry_index_at(
@@ -401,11 +403,13 @@ mod tests {
         let layout = tui_layout(Rect::new(0, 0, 120, 20), &app);
         let journals = layout.journals.unwrap();
 
+        // The first journal box sits one row below the content top (the leading
+        // offset that aligns it with the entry list's first box).
         assert_eq!(
             journal_index_at(
                 journals,
                 journals.content.x,
-                journals.content.y,
+                journals.content.y + 1,
                 app.journal_list.offset() as u16,
                 app.journals.len()
             ),
@@ -723,7 +727,7 @@ mod tests {
     }
 
     #[test]
-    fn entry_hit_testing_ignores_headers_and_maps_three_line_entries() {
+    fn entry_hit_testing_ignores_month_divider_and_maps_boxed_entries() {
         let dir = tempdir().unwrap();
         let entry_dir = dir.path().join("work").join("2026-07-01");
         fs::create_dir_all(&entry_dir).unwrap();
@@ -740,8 +744,11 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        let area = EntryListGeometry::new(Rect::new(0, 0, 40, 10));
-        // text_width=10 gives entries height 3 (title + 2 preview lines)
+        let area = EntryListGeometry::new(Rect::new(0, 0, 40, 16));
+        // text_width=10 wraps each preview onto 2 lines, so a box is 4 rows tall
+        // (top border + 2 preview lines + bottom border). A single month divider
+        // row leads the list; the day rides on the first entry's border, and a
+        // blank spacer row separates consecutive entries.
         let rows = entry_row_metadata(&app, 10);
 
         assert_eq!(
@@ -749,31 +756,83 @@ mod tests {
             vec![
                 EntryRowMeta {
                     entry_index: None,
-                    height: 3,
+                    height: 1,
+                },
+                EntryRowMeta {
+                    entry_index: Some(0),
+                    height: 4,
                 },
                 EntryRowMeta {
                     entry_index: None,
                     height: 1,
                 },
                 EntryRowMeta {
-                    entry_index: Some(0),
-                    height: 3,
-                },
-                EntryRowMeta {
                     entry_index: Some(1),
-                    height: 3,
+                    height: 4,
                 },
             ]
         );
+        // Rows: month divider (y 1), entry 0 (y 2-5), spacer (y 6), entry 1 (y 7-10).
         assert_eq!(entry_index_at(area, 2, 1, 0, &rows), None);
-        assert_eq!(entry_index_at(area, 2, 2, 0, &rows), None);
-        assert_eq!(entry_index_at(area, 2, 3, 0, &rows), None);
-        assert_eq!(entry_index_at(area, 2, 4, 0, &rows), None);
+        assert_eq!(entry_index_at(area, 2, 2, 0, &rows), Some(0));
         assert_eq!(entry_index_at(area, 2, 5, 0, &rows), Some(0));
-        assert_eq!(entry_index_at(area, 2, 6, 0, &rows), Some(0));
-        assert_eq!(entry_index_at(area, 2, 7, 0, &rows), Some(0));
-        assert_eq!(entry_index_at(area, 2, 8, 0, &rows), Some(1));
-        assert_eq!(entry_index_at(area, 2, 1, 2, &rows), None);
+        assert_eq!(entry_index_at(area, 2, 6, 0, &rows), None);
+        assert_eq!(entry_index_at(area, 2, 7, 0, &rows), Some(1));
+        assert_eq!(entry_index_at(area, 2, 10, 0, &rows), Some(1));
+    }
+
+    #[test]
+    fn first_month_rides_border_and_next_month_takes_over_after_scrolling() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        // Two July entries (newest, listed first) over many June entries. The
+        // June entries give the list a viewport-full of rows below the June
+        // divider so it can actually be scrolled above the top.
+        let mut days = vec![("2026-07-02", "2026-07-02T10:00:00+02:00")];
+        days.push(("2026-07-01", "2026-07-01T10:00:00+02:00"));
+        for day in 1..=10 {
+            days.push((
+                Box::leak(format!("2026-06-{day:02}").into_boxed_str()),
+                Box::leak(format!("2026-06-{day:02}T10:00:00+02:00").into_boxed_str()),
+            ));
+        }
+        for (index, (dir_day, ts)) in days.iter().enumerate() {
+            let entry_dir = root.join("work").join(dir_day);
+            fs::create_dir_all(&entry_dir).unwrap();
+            fs::write(
+                entry_dir.join(format!("e{index}.md")),
+                format!("+++\ncreated_at = \"{ts}\"\n+++\n\n# e{index}\nBody text\n"),
+            )
+            .unwrap();
+        }
+
+        // Before scrolling, the first month (July) already rides the border and
+        // its divider is absent from the list body (row 0 is the leading blank).
+        let top_unscrolled = render_top_border(app_for(&dir), 57, 12);
+        assert!(top_unscrolled.contains("July 2026"), "{top_unscrolled:?}");
+
+        // Scroll far enough that the June divider clears the top; June takes over.
+        let mut app = app_for(&dir);
+        *app.entry_list.offset_mut() = 100;
+        let backend = render_app(app, 57, 12);
+        let top = (0..57)
+            .map(|x| backend.buffer().cell((x, 0)).unwrap().symbol().to_string())
+            .collect::<String>();
+        assert!(top.contains("June 2026"), "top border was: {top:?}");
+    }
+
+    fn app_for(dir: &tempfile::TempDir) -> App {
+        let mut app = new_app(Config::new(dir.path().to_path_buf(), "true"));
+        app.select_journal_by_name("work");
+        app.focus = Focus::Entries;
+        app
+    }
+
+    fn render_top_border(app: App, width: u16, height: u16) -> String {
+        let backend = render_app(app, width, height);
+        (0..width)
+            .map(|x| backend.buffer().cell((x, 0)).unwrap().symbol().to_string())
+            .collect()
     }
 
     #[test]
@@ -931,16 +990,18 @@ mod tests {
         let backend = render_app(app, 130, 20);
         let buffer = backend.buffer();
 
+        // Journal box 0 spans rows 2-4 (after the leading offset); its inside is
+        // reversed while selected.
         assert!(
             buffer
-                .cell((2, 1))
+                .cell((2, 3))
                 .unwrap()
                 .modifier
                 .contains(Modifier::REVERSED)
         );
         assert!(
             buffer
-                .cell((24, 6))
+                .cell((24, 3))
                 .unwrap()
                 .modifier
                 .contains(Modifier::REVERSED)
@@ -955,16 +1016,18 @@ mod tests {
         let backend = render_app(app, 120, 20);
         let buffer = backend.buffer();
 
+        // The selected journal box (rows 2-4) is reversed, but no entry in the
+        // entries column is, since journals hold focus.
         assert!(
             buffer
-                .cell((2, 1))
+                .cell((2, 3))
                 .unwrap()
                 .modifier
                 .contains(Modifier::REVERSED)
         );
         assert!(
             !buffer
-                .cell((19, 3))
+                .cell((24, 3))
                 .unwrap()
                 .modifier
                 .contains(Modifier::REVERSED)
@@ -1107,6 +1170,7 @@ mod tests {
         app.search.hits = vec![SearchHit {
             id: app.entries[0].id.clone(),
             journal: "work".to_string(),
+            created_at: None,
             title: "A".to_string(),
             preview: "Body".to_string(),
         }];
@@ -1229,6 +1293,7 @@ mod tests {
         let hit = SearchHit {
             id: app.entries[0].id.clone(),
             journal: "work".to_string(),
+            created_at: None,
             title: "A".to_string(),
             preview: "Body".to_string(),
         };
@@ -1242,6 +1307,7 @@ mod tests {
         let hit = SearchHit {
             id: app.entries[0].id.clone(),
             journal: "work".to_string(),
+            created_at: None,
             title: "A".to_string(),
             preview: "Body".to_string(),
         };
@@ -1249,27 +1315,8 @@ mod tests {
         assert_eq!(app.search_hit_label(&hit), "work/A");
     }
 
-    #[test]
-    fn entry_list_lines_use_time_gutter_and_content() {
-        let entry = Entry {
-            id: "id".to_string(),
-            journal: "work".to_string(),
-            path: PathBuf::from("id.md"),
-            encryption_state: EntryEncryptionState::Plain,
-            created_at: Some("2026-07-01T10:23:00+02:00".to_string()),
-            updated_at: None,
-            title: "Title".to_string(),
-            preview: "Preview".to_string(),
-            tags: Vec::new(),
-            people: Vec::new(),
-            activities: Vec::new(),
-            feelings: Vec::new(),
-            mood: None,
-            content: String::new(),
-        };
-
-        let lines = entry_list_lines(&entry, 30);
-        let rendered: Vec<String> = lines
+    fn rendered_lines(lines: &[Line<'static>]) -> Vec<String> {
+        lines
             .iter()
             .map(|line| {
                 line.spans
@@ -1277,84 +1324,78 @@ mod tests {
                     .map(|span| span.content.as_ref())
                     .collect::<String>()
             })
-            .collect();
+            .collect()
+    }
 
-        assert_eq!(rendered.len(), 2);
-        assert_eq!(rendered[0], "10:23  Title");
-        assert_eq!(rendered[1], "       Preview");
+    fn plain_entry(created_at: Option<&str>, preview: &str) -> Entry {
+        Entry {
+            id: "id".to_string(),
+            journal: "work".to_string(),
+            path: PathBuf::from("id.md"),
+            encryption_state: EntryEncryptionState::Plain,
+            created_at: created_at.map(str::to_string),
+            updated_at: None,
+            preview: preview.to_string(),
+            tags: Vec::new(),
+            people: Vec::new(),
+            activities: Vec::new(),
+            feelings: Vec::new(),
+            mood: None,
+            content: String::new(),
+        }
     }
 
     #[test]
-    fn entry_list_lines_wrap_long_title_onto_second_line() {
-        let entry = Entry {
-            id: "id".to_string(),
-            journal: "work".to_string(),
-            path: PathBuf::from("id.md"),
-            encryption_state: EntryEncryptionState::Plain,
-            created_at: Some("2026-07-01T10:23:00+02:00".to_string()),
-            updated_at: None,
-            title: "A very long title".to_string(),
-            preview: "preview text".to_string(),
-            tags: Vec::new(),
-            people: Vec::new(),
-            activities: Vec::new(),
-            feelings: Vec::new(),
-            mood: None,
-            content: String::new(),
-        };
+    fn entry_list_lines_put_time_on_right_of_border() {
+        let entry = plain_entry(Some("2026-07-01T10:23:00+02:00"), "Preview");
 
-        // text_width=12: "A very long title preview text" flows across three lines.
-        // Line 1: "A very long" (break at space pos 11), line 2: "title", line 3: "preview text"
-        let lines = entry_list_lines(&entry, 12);
-        let rendered: Vec<String> = lines
-            .iter()
-            .map(|line| {
-                line.spans
-                    .iter()
-                    .map(|span| span.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect();
+        let rendered = rendered_lines(&entry_list_lines(&entry, None, 30));
 
         assert_eq!(rendered.len(), 3);
-        assert_eq!(rendered[0], "10:23  A very long");
-        assert_eq!(rendered[1], "       title");
-        assert_eq!(rendered[2], "       preview text");
+        // No date on the first line here, so the time sits alone on the right.
+        assert!(rendered[0].starts_with('┌'));
+        assert!(rendered[0].ends_with("10:23 ┐"));
+        assert!(!rendered[0].contains('·'));
+        assert!(rendered[1].starts_with("│ Preview"));
+        assert!(rendered[1].ends_with('│'));
+        assert!(rendered[2].starts_with('└'));
+        assert!(rendered[2].ends_with('┘'));
     }
 
     #[test]
-    fn locked_entry_list_lines_include_structural_marker() {
-        let entry = Entry {
-            id: "id".to_string(),
-            journal: "work".to_string(),
-            path: PathBuf::from("work/2026/07/01/2026-07-01T10-23-00-id.md.age"),
-            encryption_state: EntryEncryptionState::EncryptedLocked,
-            created_at: None,
-            updated_at: None,
-            title: "[locked] Encrypted entry".to_string(),
-            preview: "Encryption identity not available".to_string(),
-            tags: Vec::new(),
-            people: Vec::new(),
-            activities: Vec::new(),
-            feelings: Vec::new(),
-            mood: None,
-            content: "Encryption identity not available".to_string(),
-        };
+    fn entry_list_lines_put_day_left_and_time_right() {
+        let entry = plain_entry(Some("2026-07-05T14:30:00+02:00"), "Body");
 
-        let lines = entry_list_lines(&entry, 100);
-        let rendered: Vec<String> = lines
-            .iter()
-            .map(|line| {
-                line.spans
-                    .iter()
-                    .map(|span| span.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect();
+        let rendered = rendered_lines(&entry_list_lines(&entry, Some("Sunday 05"), 30));
 
-        assert_eq!(rendered.len(), 2);
-        assert_eq!(rendered[0], "       [locked] Encrypted entry");
-        assert_eq!(rendered[1], "       Encryption identity not available");
+        assert!(rendered[0].starts_with("┌ Sunday 05 "));
+        assert!(rendered[0].ends_with("14:30 ┐"));
+        assert!(!rendered[0].contains('·'));
+    }
+
+    #[test]
+    fn entry_box_lines_without_timestamp_render_plain_top_border() {
+        let rendered = rendered_lines(&entry_box_lines(None, "", "just a preview", None, 30));
+
+        assert_eq!(rendered[0], format!("┌{}┐", "─".repeat(32)));
+        assert!(rendered[1].starts_with("│ just a preview"));
+    }
+
+    #[test]
+    fn search_hit_box_shows_date_time_and_journal() {
+        let rendered = rendered_lines(&entry_box_lines(
+            Some("Sun 05 Jul 2026"),
+            "14:30",
+            "hit body",
+            Some("work"),
+            30,
+        ));
+
+        assert!(rendered[0].starts_with("┌ Sun 05 Jul 2026 "));
+        assert!(rendered[0].ends_with("14:30 ┐"));
+        assert!(rendered[1].starts_with("│ hit body"));
+        // Journal on the bottom-left.
+        assert!(rendered.last().unwrap().starts_with("└ work "));
     }
 
     #[test]
@@ -1366,7 +1407,6 @@ mod tests {
             encryption_state: EntryEncryptionState::Plain,
             created_at: Some("2026-07-01T10:23:00+02:00".to_string()),
             updated_at: None,
-            title: "Title".to_string(),
             preview: String::new(),
             tags: Vec::new(),
             people: Vec::new(),
@@ -1389,7 +1429,6 @@ mod tests {
             encryption_state: EntryEncryptionState::Plain,
             created_at: None,
             updated_at: None,
-            title: "Title".to_string(),
             preview: String::new(),
             tags: Vec::new(),
             people: Vec::new(),

@@ -1,7 +1,9 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use unicode_width::UnicodeWidthStr;
 
-pub(crate) const ENTRY_TIME_GUTTER_WIDTH: u16 = 7;
+/// Per-entry box chrome consumed horizontally: a left/right border plus one
+/// space of padding on each side (`│ … │`).
+pub(crate) const ENTRY_BOX_H_OVERHEAD: u16 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PanelGeometry {
@@ -28,7 +30,7 @@ impl EntryListGeometry {
     pub(crate) fn new(area: Rect) -> Self {
         let panel = PanelGeometry::new(area);
         Self {
-            text_width: panel.content.width.saturating_sub(ENTRY_TIME_GUTTER_WIDTH),
+            text_width: panel.content.width.saturating_sub(ENTRY_BOX_H_OVERHEAD),
             viewport_height: panel.content.height,
             panel,
         }

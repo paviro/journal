@@ -50,7 +50,6 @@ mod tests {
             encryption_state: journal_core::EntryEncryptionState::Plain,
             created_at: created_at.map(str::to_string),
             updated_at: None,
-            title: "Title".to_string(),
             preview: String::new(),
             tags: Vec::new(),
             people: Vec::new(),

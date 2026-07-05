@@ -19,7 +19,12 @@ pub(crate) fn journal_index_at(
         return None;
     }
 
-    let index = scroll as usize + y.saturating_sub(geometry.content.y) as usize;
+    let list = super::render::journal_list_rect(geometry.content);
+    let relative = y.checked_sub(list.y)?;
+    if relative >= list.height {
+        return None;
+    }
+    let index = scroll as usize + (relative / super::render::JOURNAL_BOX_HEIGHT) as usize;
     (index < journal_count).then_some(index)
 }
 

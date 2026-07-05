@@ -25,7 +25,8 @@ pub fn search_loaded_entries(
             hits.push(SearchHit {
                 id: entry.id.clone(),
                 journal: entry.journal.clone(),
-                title: entry.title.clone(),
+                created_at: entry.created_at.clone(),
+                title: entry.display_label(),
                 preview: entry.preview.clone(),
             });
         }
@@ -48,7 +49,6 @@ mod tests {
             encryption_state: EntryEncryptionState::Plain,
             created_at: None,
             updated_at: None,
-            title: id.to_string(),
             preview: String::new(),
             tags: Vec::new(),
             people: Vec::new(),

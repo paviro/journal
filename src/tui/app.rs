@@ -384,7 +384,7 @@ impl App {
                 Some(EntryTarget {
                     id: entry.id.clone(),
                     path: entry.path.clone(),
-                    title: entry.title.clone(),
+                    title: entry.display_label(),
                     locked: entry.encryption_state == EntryEncryptionState::EncryptedLocked,
                 })
             }
@@ -923,7 +923,8 @@ impl App {
             .map(|entry| SearchHit {
                 id: entry.id.clone(),
                 journal: entry.journal.clone(),
-                title: entry.title.clone(),
+                created_at: entry.created_at.clone(),
+                title: entry.display_label(),
                 preview: entry.preview.clone(),
             })
             .collect()
@@ -949,7 +950,8 @@ impl App {
             .map(|entry| SearchHit {
                 id: entry.id.clone(),
                 journal: entry.journal.clone(),
-                title: entry.title.clone(),
+                created_at: entry.created_at.clone(),
+                title: entry.display_label(),
                 preview: entry.preview.clone(),
             })
             .collect()

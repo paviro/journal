@@ -85,16 +85,64 @@ pub fn front_matter_value(front_matter: &str, key: &str) -> Option<String> {
     }
 }
 
-pub fn display_title_and_preview(body: &str, timestamp_fallback: &str) -> (String, String) {
-    let mut lines = body.lines().filter_map(display_line_text);
-    let title = lines
-        .next()
-        .filter(|line| !line.is_empty())
-        .unwrap_or(timestamp_fallback)
-        .to_string();
-    let preview = lines.next().map(truncate_preview).unwrap_or_default();
+/// A one-line summary of the body: display lines collapsed onto a single line,
+/// with markdown markers stripped and space-wasting constructs redacted to short
+/// placeholders (fenced code -> `[code]`, images -> `[image]`, links -> `[link]`).
+pub fn display_preview(body: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut in_code = false;
 
-    (title, preview)
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            if !in_code {
+                parts.push("[code]".to_string());
+            }
+            in_code = !in_code;
+            continue;
+        }
+        if in_code {
+            continue;
+        }
+        if let Some(text) = display_line_text(line) {
+            parts.push(redact_inline(text));
+        }
+    }
+
+    truncate_preview(&parts.join(" "))
+}
+
+/// Replace markdown images (`![alt](url)`) with `[image]` and links
+/// (`[text](url)`) with `[link]` so their URLs don't waste preview space.
+fn redact_inline(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+
+    while i < chars.len() {
+        let is_image = chars[i] == '!' && chars.get(i + 1) == Some(&'[');
+        let bracket = if is_image { i + 1 } else { i };
+        if (is_image || chars[i] == '[')
+            && let Some(close) = find_char(&chars, bracket + 1, ']')
+            && chars.get(close + 1) == Some(&'(')
+            && let Some(end) = find_char(&chars, close + 2, ')')
+        {
+            out.push_str(if is_image { "[image]" } else { "[link]" });
+            i = end + 1;
+            continue;
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+
+    out
+}
+
+fn find_char(chars: &[char], start: usize, target: char) -> Option<usize> {
+    chars[start..]
+        .iter()
+        .position(|&c| c == target)
+        .map(|offset| start + offset)
 }
 
 pub fn set_front_matter_value(content: &str, key: &str, value: &str) -> String {
@@ -204,7 +252,7 @@ fn markdown_heading_text(line: &str) -> Option<&str> {
 }
 
 fn truncate_preview(line: &str) -> String {
-    line.chars().take(120).collect()
+    line.chars().take(200).collect()
 }
 
 #[cfg(test)]
@@ -212,19 +260,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_title_uses_heading_then_next_line_as_preview() {
-        let (title, preview) = display_title_and_preview("## Real Title\nBody text", "timestamp");
-
-        assert_eq!(title, "Real Title");
-        assert_eq!(preview, "Body text");
+    fn display_preview_collapses_body_with_markdown_stripped() {
+        assert_eq!(
+            display_preview("## Real Title\nBody text\nMore body"),
+            "Real Title Body text More body"
+        );
     }
 
     #[test]
-    fn display_title_falls_back_to_timestamp_when_empty() {
-        let (title, preview) = display_title_and_preview("\n\n", "2026-07-01T23:30:00+02:00");
+    fn display_preview_is_empty_when_body_blank() {
+        assert_eq!(display_preview("\n\n"), "");
+    }
 
-        assert_eq!(title, "2026-07-01T23:30:00+02:00");
-        assert_eq!(preview, "");
+    #[test]
+    fn display_preview_redacts_fenced_code_blocks() {
+        let body = "Before\n```rust\nfn main() {}\nlet x = 1;\n```\nAfter";
+        assert_eq!(display_preview(body), "Before [code] After");
+    }
+
+    #[test]
+    fn display_preview_redacts_images_and_links() {
+        let body = "See ![a cat](cat.png) and [the docs](https://example.com/x) here";
+        assert_eq!(display_preview(body), "See [image] and [link] here");
     }
 
     #[test]

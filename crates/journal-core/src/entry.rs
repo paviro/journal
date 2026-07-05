@@ -8,7 +8,6 @@ pub struct Entry {
     pub encryption_state: EntryEncryptionState,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
-    pub title: String,
     pub preview: String,
     pub tags: Vec<String>,
     pub people: Vec<String>,
@@ -16,6 +15,18 @@ pub struct Entry {
     pub feelings: Vec<String>,
     pub mood: Option<i8>,
     pub content: String,
+}
+
+impl Entry {
+    /// A non-empty label for the entry: the start of the preview, else the
+    /// created timestamp, else the id.
+    pub fn display_label(&self) -> String {
+        let preview = self.preview.trim();
+        if !preview.is_empty() {
+            return preview.chars().take(80).collect();
+        }
+        self.created_at.clone().unwrap_or_else(|| self.id.clone())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +54,7 @@ pub struct EntryPath {
 pub struct SearchHit {
     pub id: String,
     pub journal: String,
+    pub created_at: Option<String>,
     pub title: String,
     pub preview: String,
 }

@@ -596,12 +596,14 @@ mod tests {
         let layout = render::tui_layout(Rect::new(0, 0, 120, 20), &app);
         let journals = layout.journals.unwrap().content;
 
+        // Row 0 is the leading offset, rows 1-3 the first journal box, so the
+        // second journal box starts at row 4.
         mouse_in_area(
             &mut app,
             mouse(
                 MouseEventKind::Down(MouseButton::Left),
                 journals.x,
-                journals.y + 1,
+                journals.y + 4,
             ),
             120,
             20,
@@ -725,12 +727,13 @@ mod tests {
     }
 
     #[test]
-    fn entry_panel_click_without_entry_row_deselects_to_journal_stats() {
+    fn entry_panel_month_divider_click_deselects_to_journal_stats() {
         let mut app = app_with_entries(1);
         app.focus = Focus::EntryView;
         let layout = render::tui_layout(Rect::new(0, 0, 120, 12), &app);
         let entries = layout.entries.unwrap().panel.content;
 
+        // The top row is the month divider, not an entry.
         mouse_in_area(
             &mut app,
             mouse(

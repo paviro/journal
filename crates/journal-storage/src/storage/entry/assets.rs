@@ -728,7 +728,10 @@ mod tests {
     fn unescape_shell_path_handles_escapes_and_quotes() {
         assert_eq!(unescape_shell_path("/a/IMG\\ 2.jpeg"), "/a/IMG 2.jpeg");
         assert_eq!(unescape_shell_path("'/a/My Photo.png'"), "/a/My Photo.png");
-        assert_eq!(unescape_shell_path("\"/a/My Photo.png\""), "/a/My Photo.png");
+        assert_eq!(
+            unescape_shell_path("\"/a/My Photo.png\""),
+            "/a/My Photo.png"
+        );
         assert_eq!(unescape_shell_path("/a/plain.png"), "/a/plain.png");
         assert_eq!(unescape_shell_path("/a/b\\(1\\).png"), "/a/b(1).png");
     }

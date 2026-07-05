@@ -1,4 +1,4 @@
-use journal_storage::{Entry, entry_group_date, parse_entry_timestamp};
+use journal_storage::{Entry, SearchHit, entry_group_date, parse_entry_timestamp};
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
@@ -30,30 +30,57 @@ impl EntryListRow {
 
 pub(crate) fn entry_list_rows(app: &App, text_width: u16) -> Vec<EntryListRow> {
     match app.mode {
-        Mode::Search => app
-            .search
-            .hits
-            .iter()
-            .enumerate()
-            .map(|(index, hit)| EntryListRow {
-                entry_index: Some(index),
-                lines: vec![
-                    Line::from(app.search_hit_label(hit)),
-                    Line::from(Span::styled(
-                        hit.preview.clone(),
-                        Style::default().add_modifier(Modifier::DIM),
-                    )),
-                ],
-            })
-            .collect(),
+        Mode::Search => {
+            let mut rows = Vec::new();
+            for (index, hit) in app.search.hits.iter().enumerate() {
+                if index > 0 {
+                    rows.push(spacer_row());
+                }
+                rows.push(EntryListRow {
+                    entry_index: Some(index),
+                    lines: search_hit_lines(hit, text_width),
+                });
+            }
+            rows
+        }
         Mode::Browse => browse_entry_rows(app, text_width),
     }
 }
 
+/// A one-line blank gap between entries.
+fn spacer_row() -> EntryListRow {
+    EntryListRow {
+        entry_index: None,
+        lines: vec![Line::from(String::new())],
+    }
+}
+
+/// Search hits reuse the browse box design. Without month/day headers they carry
+/// the full date (including year) on the top border and the journal on the bottom.
+fn search_hit_lines(hit: &SearchHit, text_width: u16) -> Vec<Line<'static>> {
+    let (date, time) = match hit.created_at.as_deref().and_then(parse_entry_timestamp) {
+        Some(timestamp) => (
+            Some(timestamp.format("%a %d %b %Y").to_string()),
+            timestamp.format("%H:%M").to_string(),
+        ),
+        None => (None, String::new()),
+    };
+    entry_box_lines(
+        date.as_deref(),
+        &time,
+        &hit.preview,
+        Some(&hit.journal),
+        text_width,
+    )
+}
+
 fn browse_entry_rows(app: &App, text_width: u16) -> Vec<EntryListRow> {
+    let box_width = text_width as usize + 4;
     let mut rows = Vec::new();
     let mut current_month = None;
     let mut current_day = None;
+    let mut prev_was_entry = false;
+    let mut is_first_month = true;
 
     for (index, entry) in app.selected_entries().iter().enumerate() {
         let month = entry_month_label(entry);
@@ -61,53 +88,116 @@ fn browse_entry_rows(app: &App, text_width: u16) -> Vec<EntryListRow> {
             current_month = month.clone();
             current_day = None;
             if let Some(month) = month {
-                rows.push(EntryListRow {
-                    entry_index: None,
-                    lines: vec![
-                        Line::from(Span::styled(
-                            "─".repeat(200),
-                            Style::default().add_modifier(Modifier::DIM),
-                        )),
-                        Line::from(Span::styled(
-                            month,
-                            Style::default().add_modifier(Modifier::BOLD),
-                        )),
-                        Line::from(Span::styled(
-                            "─".repeat(200),
-                            Style::default().add_modifier(Modifier::DIM),
-                        )),
-                    ],
-                });
+                // The first month rides the panel border from the start, so its
+                // divider is replaced by a leading blank line (matching the
+                // journals column). Later months keep their in-list divider,
+                // padded by a blank line above and below, and take over the
+                // border once it scrolls above the top.
+                if is_first_month {
+                    rows.push(spacer_row());
+                } else {
+                    rows.push(spacer_row());
+                    rows.push(EntryListRow {
+                        entry_index: None,
+                        lines: vec![month_divider(box_width, &month)],
+                    });
+                    rows.push(spacer_row());
+                }
+                is_first_month = false;
+                prev_was_entry = false;
             }
         }
 
-        let day = entry_day_label(entry);
-        if day != current_day {
-            if current_day.is_some() {
-                rows.push(EntryListRow {
-                    entry_index: None,
-                    lines: vec![Line::from(vec![])],
-                });
-            }
-            current_day = day.clone();
-            if let Some(day) = day {
-                rows.push(EntryListRow {
-                    entry_index: None,
-                    lines: vec![Line::from(Span::styled(
-                        day,
-                        Style::default().add_modifier(Modifier::UNDERLINED),
-                    ))],
-                });
-            }
+        // One blank line between consecutive entries (not after a month divider).
+        if prev_was_entry {
+            rows.push(spacer_row());
         }
+
+        // The first entry of a day carries the weekday on its border.
+        let day = entry_day_label(entry);
+        let day_label = if day != current_day {
+            current_day = day.clone();
+            day
+        } else {
+            None
+        };
 
         rows.push(EntryListRow {
             entry_index: Some(index),
-            lines: entry_list_lines(entry, text_width),
+            lines: entry_list_lines(entry, day_label.as_deref(), text_width),
         });
+        prev_was_entry = true;
     }
 
     rows
+}
+
+/// Month sections in the browse list's pixel space: the row offset of each
+/// month's divider (or, for the first month, its leading blank line), paired
+/// with its label. Mirrors the row sequencing in [`browse_entry_rows`] so the
+/// sticky border label switches over in step with the scrolled list. Empty
+/// outside browse mode.
+pub(crate) fn entry_month_sections(app: &App, text_width: u16) -> Vec<(usize, String)> {
+    if app.mode != Mode::Browse {
+        return Vec::new();
+    }
+
+    let mut sections = Vec::new();
+    let mut current_month = None;
+    let mut current_day = None;
+    let mut prev_was_entry = false;
+    let mut is_first_month = true;
+    let mut y = 0usize;
+
+    for entry in app.selected_entries().iter() {
+        let month = entry_month_label(entry);
+        if month != current_month {
+            current_month = month.clone();
+            current_day = None;
+            if let Some(month) = month {
+                if is_first_month {
+                    sections.push((y, month)); // leading blank line
+                    y += 1;
+                } else {
+                    y += 1; // blank line above the divider
+                    sections.push((y, month)); // the divider row
+                    y += 2; // divider + blank line below
+                }
+                is_first_month = false;
+                prev_was_entry = false;
+            }
+        }
+
+        if prev_was_entry {
+            y += 1; // blank spacer between consecutive entries
+        }
+
+        let day = entry_day_label(entry);
+        let day_label = if day != current_day {
+            current_day = day.clone();
+            day
+        } else {
+            None
+        };
+
+        y += entry_list_lines(entry, day_label.as_deref(), text_width).len();
+        prev_was_entry = true;
+    }
+
+    sections
+}
+
+/// A month separator with the label pinned to the right edge over a heavy rule:
+/// `━━━━━━━━━━━━━━━━━━━━━ July 2026`.
+fn month_divider(box_width: usize, month: &str) -> Line<'static> {
+    let fill = box_width.saturating_sub(month.chars().count() + 1);
+    Line::from(vec![
+        Span::styled(format!("{} ", "━".repeat(fill)), border_style()),
+        Span::styled(
+            month.to_string(),
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+    ])
 }
 
 pub(crate) fn entry_row_metadata(app: &App, text_width: u16) -> Vec<EntryRowMeta> {
@@ -172,136 +262,170 @@ pub(crate) fn entry_day_label(entry: &Entry) -> Option<String> {
     entry_group_date(entry).map(|date| date.format("%A %d").to_string())
 }
 
-pub(crate) fn entry_list_lines(entry: &Entry, text_width: u16) -> Vec<Line<'static>> {
-    let timestamp = entry.created_at.as_deref().and_then(parse_entry_timestamp);
-    let time = timestamp
-        .as_ref()
+/// Max preview lines shown inside an entry's box.
+const ENTRY_BOX_PREVIEW_LINES: usize = 3;
+
+/// Renders one browse entry as a bordered box: the day (on the first entry of a
+/// day) and time sit on the top border, the word count on the bottom border, and
+/// the preview flows inside.
+pub(crate) fn entry_list_lines(
+    entry: &Entry,
+    day: Option<&str>,
+    text_width: u16,
+) -> Vec<Line<'static>> {
+    let time = entry
+        .created_at
+        .as_deref()
+        .and_then(parse_entry_timestamp)
         .map(|timestamp| timestamp.format("%H:%M").to_string())
         .unwrap_or_default();
 
-    let tw = text_width as usize;
+    entry_box_lines(
+        day,
+        &time,
+        &entry.preview,
+        Some(&word_count_label(&entry.content)),
+        text_width,
+    )
+}
 
-    let blank_gutter: Vec<Span<'static>> = vec![Span::raw(" ".repeat(7))];
-    let gutter: Vec<Span<'static>> = if !time.is_empty() {
-        vec![
-            Span::styled(
-                format!("{time:<5}"),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("  "),
-        ]
-    } else {
-        blank_gutter.clone()
-    };
+fn word_count_label(body: &str) -> String {
+    match body.split_whitespace().count() {
+        1 => "1 word".to_string(),
+        count => format!("{count} words"),
+    }
+}
 
-    let title: Vec<char> = entry.title.chars().collect();
-    let title_len = title.len();
-    let has_preview = !entry.preview.is_empty();
+/// The shared box shape: a `date … time` top border (date left, time right) over
+/// wrapped preview lines, closed by a bottom border that may carry a footer label
+/// on its left (used to show the journal for search hits).
+pub(crate) fn entry_box_lines(
+    date_label: Option<&str>,
+    time: &str,
+    preview: &str,
+    footer_label: Option<&str>,
+    text_width: u16,
+) -> Vec<Line<'static>> {
+    let inner_width = text_width as usize;
+    if inner_width == 0 {
+        return vec![Line::from(String::new())];
+    }
+    let box_width = inner_width + 4;
 
-    // Find the best word-boundary break at or before `limit` chars into `chars`.
-    let word_break = |chars: &[char], limit: usize| -> usize {
-        if chars.len() <= limit {
-            return chars.len();
+    let time = (!time.is_empty()).then_some(time);
+    let mut lines = vec![border_line('┌', '┐', box_width, date_label, time)];
+    for text in wrap_text(preview, inner_width, ENTRY_BOX_PREVIEW_LINES) {
+        lines.push(box_inner_line(text, inner_width));
+    }
+    lines.push(border_line('└', '┘', box_width, footer_label, None));
+    lines
+}
+
+fn border_style() -> Style {
+    Style::default().add_modifier(Modifier::DIM)
+}
+
+/// A box border with optional bold labels on the left and right, separated by a
+/// dim rule: `┌ Sunday 05 ──────── 14:30 ┐`.
+fn border_line(
+    open: char,
+    close: char,
+    box_width: usize,
+    left: Option<&str>,
+    right: Option<&str>,
+) -> Line<'static> {
+    let border = border_style();
+    let bold = Style::default().add_modifier(Modifier::BOLD);
+    let left = left.filter(|label| !label.is_empty());
+    let right = right.filter(|label| !label.is_empty());
+    let left_width = left.map_or(0, |label| label.chars().count() + 2);
+    let right_width = right.map_or(0, |label| label.chars().count() + 2);
+
+    if box_width < left_width + right_width + 2 {
+        return Line::from(Span::styled(
+            format!("{open}{}{close}", "─".repeat(box_width.saturating_sub(2))),
+            border,
+        ));
+    }
+
+    let dashes = box_width - 2 - left_width - right_width;
+    let mut spans = vec![Span::styled(open.to_string(), border)];
+    if let Some(left) = left {
+        spans.push(Span::styled(" ".to_string(), border));
+        spans.push(Span::styled(left.to_string(), bold));
+        spans.push(Span::styled(" ".to_string(), border));
+    }
+    spans.push(Span::styled("─".repeat(dashes), border));
+    if let Some(right) = right {
+        spans.push(Span::styled(" ".to_string(), border));
+        spans.push(Span::styled(right.to_string(), bold));
+        spans.push(Span::styled(" ".to_string(), border));
+    }
+    spans.push(Span::styled(close.to_string(), border));
+    Line::from(spans)
+}
+
+fn box_inner_line(text: String, inner_width: usize) -> Line<'static> {
+    let content: String = text.chars().take(inner_width).collect();
+    let pad = inner_width - content.chars().count();
+    Line::from(vec![
+        Span::styled("│ ".to_string(), border_style()),
+        Span::raw(content),
+        Span::styled(format!("{} │", " ".repeat(pad)), border_style()),
+    ])
+}
+
+/// Greedy word-wrap into at most `max_lines`, ellipsizing the last line when the
+/// text overflows.
+fn wrap_text(text: &str, width: usize, max_lines: usize) -> Vec<String> {
+    let text = text.trim();
+    if text.is_empty() || width == 0 || max_lines == 0 {
+        return Vec::new();
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    let mut lines = Vec::new();
+    let mut pos = 0;
+    while pos < chars.len() && lines.len() < max_lines {
+        if chars.len() - pos <= width {
+            lines.push(chars[pos..].iter().collect());
+            break;
         }
-        chars[..limit]
+        if lines.len() + 1 == max_lines {
+            lines.push(truncate_ellipsis(
+                &chars[pos..].iter().collect::<String>(),
+                width,
+            ));
+            break;
+        }
+        let brk = chars[pos..pos + width]
             .iter()
             .rposition(|&c| c == ' ')
-            .unwrap_or(limit)
-    };
-
-    // Advance past a leading space at `pos` in `chars`.
-    let skip_space = |chars: &[char], pos: usize| -> usize {
+            .unwrap_or(width);
+        lines.push(chars[pos..pos + brk].iter().collect());
+        pos += brk;
         if chars.get(pos) == Some(&' ') {
-            pos + 1
-        } else {
-            pos
+            pos += 1;
         }
-    };
-
-    if tw == 0 {
-        return vec![Line::from(gutter)];
     }
+    lines
+}
 
-    if title_len <= tw {
-        // Title fits on line 1; preview flows across lines 2 and 3.
-        let mut line1 = gutter.clone();
-        line1.push(Span::raw(entry.title.clone()));
-
-        if !has_preview {
-            return vec![Line::from(line1)];
-        }
-
-        let preview_chars: Vec<char> = entry.preview.chars().collect();
-
-        // Line 2
-        let break2 = word_break(&preview_chars, tw);
-        let mut line2 = blank_gutter.clone();
-        line2.push(Span::raw(
-            preview_chars[..break2].iter().collect::<String>(),
-        ));
-
-        if break2 >= preview_chars.len() {
-            return vec![Line::from(line1), Line::from(line2)];
-        }
-
-        // Line 3
-        let rest3 = &preview_chars[skip_space(&preview_chars, break2)..];
-        let mut line3 = blank_gutter.clone();
-        if rest3.len() <= tw {
-            line3.push(Span::raw(rest3.iter().collect::<String>()));
-        } else {
-            let break3 = word_break(rest3, tw.saturating_sub(3));
-            line3.push(Span::raw(rest3[..break3].iter().collect::<String>()));
-            line3.push(Span::raw("..."));
-        }
-
-        return vec![Line::from(line1), Line::from(line2), Line::from(line3)];
+/// Truncates `text` to `max` display cells, ending with `…` when it overflows.
+fn truncate_ellipsis(text: &str, max: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= max {
+        return chars.iter().collect();
     }
-
-    // Title doesn't fit: flow title + preview as continuous text across three lines.
-    let combined: Vec<char> = if has_preview {
-        let mut v = title.clone();
-        v.push(' ');
-        v.extend(entry.preview.chars());
-        v
-    } else {
-        title.clone()
-    };
-
-    let make_span =
-        |slice: &[char]| -> Span<'static> { Span::raw(slice.iter().collect::<String>()) };
-
-    // Line 1
-    let break1 = word_break(&combined, tw);
-    let rest2 = &combined[skip_space(&combined, break1)..];
-
-    // Line 2
-    let break2 = word_break(rest2, tw);
-    let rest3 = &rest2[skip_space(rest2, break2)..];
-
-    // Line 3
-    let (line3_slice, has_more) = if rest3.len() <= tw {
-        (rest3, false)
-    } else {
-        (
-            rest3[..word_break(rest3, tw.saturating_sub(3))].as_ref(),
-            true,
-        )
-    };
-
-    let mut line1 = gutter.clone();
-    line1.push(make_span(&combined[..break1]));
-
-    let mut line2 = blank_gutter.clone();
-    line2.push(make_span(&rest2[..break2]));
-
-    let mut line3 = blank_gutter.clone();
-    line3.push(make_span(line3_slice));
-    if has_more {
-        line3.push(Span::raw("..."));
+    if max <= 1 {
+        return "…".to_string();
     }
-
-    vec![Line::from(line1), Line::from(line2), Line::from(line3)]
+    let mut truncated: String = chars[..max - 1].iter().collect();
+    while truncated.ends_with(' ') {
+        truncated.pop();
+    }
+    truncated.push('…');
+    truncated
 }
 
 pub(crate) fn ensure_entry_visible(

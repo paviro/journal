@@ -4,9 +4,8 @@ use crate::storage::{journals::is_hidden_name, list_journals};
 use crate::{
     AppResult, crypto,
     markdown::{
-        display_title_and_preview, front_matter_activities, front_matter_feelings,
-        front_matter_mood, front_matter_people, front_matter_tags, front_matter_value,
-        split_front_matter,
+        display_preview, front_matter_activities, front_matter_feelings, front_matter_mood,
+        front_matter_people, front_matter_tags, front_matter_value, split_front_matter,
     },
 };
 use journal_core::feelings::normalize_feelings;
@@ -109,7 +108,7 @@ pub fn read_entry_with_identity(
         .unwrap_or_default();
     let mood = front_matter.and_then(front_matter_mood);
     let id = entry_id(path).ok_or("entry file has no UTF-8 stem")?;
-    let (title, preview) = display_title_and_preview(body, created_at.as_deref().unwrap_or(""));
+    let preview = display_preview(body);
     let body = body.trim_start_matches('\n').to_string();
 
     Ok(Entry {
@@ -119,7 +118,6 @@ pub fn read_entry_with_identity(
         encryption_state,
         created_at,
         updated_at,
-        title,
         preview,
         tags,
         people,
@@ -139,8 +137,7 @@ fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {
         encryption_state: EntryEncryptionState::EncryptedLocked,
         created_at: None,
         updated_at: None,
-        title: "[locked] Encrypted entry".to_string(),
-        preview: "Encryption identity not available".to_string(),
+        preview: "[locked] Encrypted entry".to_string(),
         tags: Vec::new(),
         people: Vec::new(),
         activities: Vec::new(),

@@ -149,10 +149,14 @@ fn build_body_lines(
     entry_path: Option<&Path>,
 ) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
     let Some(entry_path) = entry_path else {
-        return (render_text_chunk(content, renderer, theme), Vec::new());
+        let mut lines = vec![Line::from("")];
+        lines.extend(render_text_chunk(content, renderer, theme));
+        return (lines, Vec::new());
     };
 
-    let mut lines: Vec<Line<'static>> = Vec::new();
+    // A leading blank row so the body starts one line below the border, matching
+    // the blank that leads the journal and entry columns.
+    let mut lines: Vec<Line<'static>> = vec![Line::from("")];
     let mut labels = Vec::new();
     let mut buffer = String::new();
     let mut image_index = 0usize;
@@ -844,6 +848,7 @@ mod image_tests {
         assert_eq!(
             rendered,
             vec![
+                String::new(),
                 "Text above".to_string(),
                 String::new(),
                 "[Image 1: a shot - click here or press 1]".to_string(),
@@ -853,7 +858,7 @@ mod image_tests {
                 "Text below".to_string(),
             ],
         );
-        assert_eq!(labels, vec![(2, 0), (4, 1)]);
+        assert_eq!(labels, vec![(3, 0), (5, 1)]);
     }
 
     /// Without an entry path (no selected entry) the body renders untouched.
