@@ -327,7 +327,7 @@ fn border_style() -> Style {
 
 /// A box border with optional bold labels on the left and right, separated by a
 /// dim rule: `┌ Sunday 05 ──────── 14:30 ┐`.
-fn border_line(
+pub(crate) fn border_line(
     open: char,
     close: char,
     box_width: usize,
@@ -365,7 +365,7 @@ fn border_line(
     Line::from(spans)
 }
 
-fn box_inner_line(text: String, inner_width: usize) -> Line<'static> {
+pub(crate) fn box_inner_line(text: String, inner_width: usize) -> Line<'static> {
     let content: String = text.chars().take(inner_width).collect();
     let pad = inner_width - content.chars().count();
     Line::from(vec![

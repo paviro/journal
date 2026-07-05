@@ -2,12 +2,13 @@ use ratatui::{
     Frame,
     layout::Rect,
     style::{Modifier, Style},
-    text::{Line, Span},
+    text::Line,
     widgets::{HighlightSpacing, List, ListItem},
 };
 
 use crate::tui::{
     app::{App, Focus},
+    entry_rows::{border_line, box_inner_line},
     render::{
         PanelGeometry, count_label, list_state_for_render, panel_block, render_scrollbar_if_needed,
     },
@@ -83,22 +84,13 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
 }
 
 /// One journal rendered as a bordered box with the name inside, mirroring the
-/// entry list. The name is truncated to fit the inner width.
+/// entry list. Shares the entry list's box primitives so the shape stays in sync;
+/// journals carry no border labels. The name is truncated to fit the inner width.
 fn journal_box_lines(name: &str, inner_width: usize) -> Vec<Line<'static>> {
-    let border = Style::default().add_modifier(Modifier::DIM);
     let box_width = inner_width + 4;
-    let rule = "─".repeat(box_width.saturating_sub(2));
-
-    let content: String = name.chars().take(inner_width).collect();
-    let pad = inner_width.saturating_sub(content.chars().count());
-
     vec![
-        Line::from(Span::styled(format!("┌{rule}┐"), border)),
-        Line::from(vec![
-            Span::styled("│ ".to_string(), border),
-            Span::raw(content),
-            Span::styled(format!("{} │", " ".repeat(pad)), border),
-        ]),
-        Line::from(Span::styled(format!("└{rule}┘"), border)),
+        border_line('┌', '┐', box_width, None, None),
+        box_inner_line(name.to_string(), inner_width),
+        border_line('└', '┘', box_width, None, None),
     ]
 }
