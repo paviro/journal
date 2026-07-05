@@ -1,4 +1,4 @@
-use crate::storage::{Entry, entry_group_date, parse_entry_timestamp};
+use journal_storage::{Entry, entry_group_date, parse_entry_timestamp};
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},

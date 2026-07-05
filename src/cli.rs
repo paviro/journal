@@ -1,5 +1,7 @@
-use crate::{AppResult, config, crypto, feelings, migrate, storage, tui};
+use crate::{AppResult, config, editor, migrate, tui};
 use clap::{Args, Parser, Subcommand};
+use journal_core::feelings;
+use journal_storage::{EntryMetadata, JournalStore};
 use std::{
     io::{self, Read},
     path::{Path, PathBuf},
@@ -51,9 +53,9 @@ enum CliCommand {
         #[arg(value_name = "NAME")]
         name: String,
     },
-    /// Encrypt every plaintext entry in the workspace
+    /// Encrypt every plaintext entry in the store
     Encrypt,
-    /// Decrypt every encrypted entry in the workspace
+    /// Decrypt every encrypted entry in the store
     Decrypt,
 }
 
@@ -111,10 +113,10 @@ pub fn run() -> AppResult<()> {
     }
 
     let (config_path, config) = config::load_or_setup_with_path(cli.config.as_deref())?;
-    storage::ensure_workspace(&config.journal_root)?;
+    let store = JournalStore::for_config(&config_path, &config.journal_root)?;
+    store.ensure()?;
 
-    let encryption_paths = crypto::EncryptionPaths::for_config(&config_path, &config.journal_root)?;
-    tui::run(config_path, config, encryption_paths)
+    tui::run(config_path, config, store)
 }
 
 fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppResult<()> {
@@ -130,12 +132,12 @@ fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppRe
         CliCommand::Encrypt => {
             validate_no_legacy_entry_args(cli)?;
             let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-            migrate::encrypt_workspace(&config_path, &config)
+            migrate::encrypt_store(&config_path, &config)
         }
         CliCommand::Decrypt => {
             validate_no_legacy_entry_args(cli)?;
             let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-            migrate::decrypt_workspace(&config_path, &config)
+            migrate::decrypt_store(&config_path, &config)
         }
     }
 }
@@ -205,7 +207,7 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
     } else {
         None
     };
-    let metadata = storage::EntryMetadata {
+    let metadata = EntryMetadata {
         tags: &tags,
         people: &people,
         activities: &activities,
@@ -213,7 +215,7 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
         mood,
     };
 
-    let paths = crypto::EncryptionPaths::for_config(&config_path, &config.journal_root)?;
+    let store = JournalStore::for_config(&config_path, &config.journal_root)?;
     let path = if body_from_args || stdin_is_pipe {
         let body = if body_from_args {
             args.body.join(" ")
@@ -223,37 +225,12 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
             body
         };
 
-        Some(if crypto::should_encrypt(&paths) {
-            storage::create_encrypted_entry_with_body_and_metadata(
-                &config.journal_root,
-                journal,
-                &body,
-                metadata,
-                &paths,
-            )?
-        } else {
-            storage::create_entry_with_body_and_metadata(
-                &config.journal_root,
-                journal,
-                &body,
-                metadata,
-            )?
-        })
-    } else if crypto::should_encrypt(&paths) {
-        storage::create_encrypted_entry_with_editor_and_metadata(
-            &config.journal_root,
-            journal,
-            &config.editor,
-            metadata,
-            &paths,
-        )?
+        Some(store.create_entry_with_body(journal, &body, metadata)?)
     } else {
-        storage::create_entry_with_editor_and_metadata(
-            &config.journal_root,
-            journal,
-            &config.editor,
-            metadata,
-        )?
+        let editor_cmd = config.editor.clone();
+        store.create_entry_via_editor(journal, metadata, |body| {
+            editor::edit_body(&editor_cmd, body)
+        })?
     };
     if let Some(path) = path {
         println!("{}", path.display());
@@ -287,7 +264,7 @@ fn stdin_has_command_input() -> bool {
 }
 
 fn validate_existing_journal(root: &Path, journal: &str) -> AppResult<()> {
-    let journal = storage::validate_journal_name(journal)?;
+    let journal = JournalStore::validate_journal_name(journal)?;
     let path = root.join(&journal);
     if !path.is_dir() {
         return Err(format!("journal '{journal}' does not exist").into());

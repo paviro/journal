@@ -7,10 +7,8 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use crate::{
-    storage::{Entry, entry_group_date},
-    tui::{app::App, render::panel_block},
-};
+use crate::tui::{app::App, render::panel_block};
+use journal_storage::{Entry, entry_group_date};
 
 pub(crate) fn draw_journal_stats(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let panel = panel_block("Journal Stats", false, None);

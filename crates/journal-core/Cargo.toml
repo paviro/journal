@@ -1,0 +1,8 @@
+[package]
+name = "journal-core"
+version = "2026.7.1"
+edition = "2024"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }

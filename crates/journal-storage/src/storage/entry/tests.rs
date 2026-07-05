@@ -15,6 +15,16 @@ fn local_time(y: i32, m: u32, d: u32, h: u32, min: u32) -> DateTime<Local> {
     }
 }
 
+fn empty_metadata() -> EntryMetadata<'static> {
+    EntryMetadata {
+        tags: &[],
+        people: &[],
+        activities: &[],
+        feelings: &[],
+        mood: None,
+    }
+}
+
 #[test]
 fn entry_path_uses_year_month_day_folder_and_datetime_short_id_filename() {
     let dir = tempdir().unwrap();
@@ -64,7 +74,9 @@ fn create_entry_file_retries_without_overwriting_existing_path() {
 fn create_entry_with_body_writes_body_after_front_matter() {
     let dir = tempdir().unwrap();
 
-    let created = create_entry_with_body(dir.path(), "work", "Some text").unwrap();
+    let created =
+        create_entry_with_body_and_metadata(dir.path(), "work", "Some text", empty_metadata())
+            .unwrap();
     let text = fs::read_to_string(created).unwrap();
 
     assert!(text.starts_with("+++\ncreated_at = \""));
@@ -80,7 +92,13 @@ fn create_entry_with_body_writes_body_after_front_matter() {
 fn create_entry_with_body_preserves_multiline_body_and_trailing_newline() {
     let dir = tempdir().unwrap();
 
-    let created = create_entry_with_body(dir.path(), "work", "Line one\n\nLine three\n").unwrap();
+    let created = create_entry_with_body_and_metadata(
+        dir.path(),
+        "work",
+        "Line one\n\nLine three\n",
+        empty_metadata(),
+    )
+    .unwrap();
     let text = fs::read_to_string(created).unwrap();
 
     assert!(text.ends_with("\n\nLine three\n"));
@@ -322,8 +340,14 @@ fn scan_entries_marks_encrypted_entry_unlocked_with_identity() {
     let root = dir.path().join("journals");
     let paths = crypto::EncryptionPaths::for_config(&config, &root).unwrap();
     crypto::generate_identity_store(&paths, "secret").unwrap();
-    let encrypted =
-        create_encrypted_entry_with_body(&root, "work", "# Secret\nBody", &paths).unwrap();
+    let encrypted = create_encrypted_entry_with_body_and_metadata(
+        &root,
+        "work",
+        "# Secret\nBody",
+        empty_metadata(),
+        &paths,
+    )
+    .unwrap();
     let identity = crypto::unlock_identity(&paths, "secret").unwrap();
 
     let entries = scan_entries_with_identity(&root, Some(&identity)).unwrap();

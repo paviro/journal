@@ -1,3 +1,4 @@
+use journal_storage::{Entry, EntryMetadata, JournalStore};
 use std::{
     env, fs,
     io::Write,
@@ -20,23 +21,27 @@ fn write_config_with_editor(path: &Path, root: &Path, default_journal: Option<&s
     journal::config::save_config(path, &config).unwrap();
 }
 
-fn entry_texts(root: &Path, journal: &str) -> Vec<String> {
-    let mut entries = journal::storage::scan_entries(root).unwrap();
+fn scan_entries_for(root: &Path, journal: &str) -> Vec<Entry> {
+    let store = JournalStore::for_config(&root.join("config.toml"), root).unwrap();
+    let mut entries = store.scan_entries().unwrap();
     entries.retain(|entry| entry.journal == journal);
     entries
-        .into_iter()
-        .map(|entry| fs::read_to_string(entry.path).unwrap())
-        .collect()
 }
 
-fn generate_identity_store(
-    config: &Path,
-    root: &Path,
-    passphrase: &str,
-) -> (journal::crypto::EncryptionPaths, String) {
-    let paths = journal::crypto::EncryptionPaths::for_config(config, root).unwrap();
-    let recipient = journal::crypto::generate_identity_store(&paths, passphrase).unwrap();
-    (paths, recipient)
+fn generate_identity_store(config: &Path, root: &Path, passphrase: &str) -> (JournalStore, String) {
+    let store = JournalStore::for_config(config, root).unwrap();
+    let recipient = store.initialize_encryption(passphrase).unwrap();
+    (store, recipient)
+}
+
+fn empty_metadata() -> EntryMetadata<'static> {
+    EntryMetadata {
+        tags: &[],
+        people: &[],
+        activities: &[],
+        feelings: &[],
+        mood: None,
+    }
 }
 
 fn age_cli_available() -> bool {
@@ -89,9 +94,9 @@ fn log_command_creates_entry_in_default_journal() {
         .unwrap();
 
     assert!(output.status.success());
-    let entries = entry_texts(&root, "work");
+    let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].contains("\n+++\n\nSome text\n"));
+    assert!(entries[0].content.contains("Some text"));
 }
 
 #[test]
@@ -115,13 +120,9 @@ fn log_command_writes_tags() {
         .unwrap();
 
     assert!(output.status.success());
-    let entries = entry_texts(&root, "work");
+    let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
-    let (front_matter, _) = journal::markdown::split_front_matter(&entries[0]);
-    assert_eq!(
-        front_matter.map(journal::markdown::front_matter_tags),
-        Some(vec!["rust".to_string(), "open source".to_string()])
-    );
+    assert_eq!(entries[0].tags, vec!["rust".to_string(), "open source".to_string()]);
 }
 
 #[test]
@@ -143,12 +144,8 @@ fn log_command_accepts_comma_separated_tags() {
         .unwrap();
 
     assert!(output.status.success());
-    let entries = entry_texts(&root, "work");
-    let (front_matter, _) = journal::markdown::split_front_matter(&entries[0]);
-    assert_eq!(
-        front_matter.map(journal::markdown::front_matter_tags),
-        Some(vec!["rust".to_string(), "open source".to_string()])
-    );
+    let entries = scan_entries_for(&root, "work");
+    assert_eq!(entries[0].tags, vec!["rust".to_string(), "open source".to_string()]);
 }
 
 #[test]
@@ -174,15 +171,11 @@ fn log_command_writes_people_and_activities() {
         .unwrap();
 
     assert!(output.status.success());
-    let entries = entry_texts(&root, "work");
-    let (front_matter, _) = journal::markdown::split_front_matter(&entries[0]);
+    let entries = scan_entries_for(&root, "work");
+    assert_eq!(entries[0].people, vec!["alex".to_string(), "sam".to_string()]);
     assert_eq!(
-        front_matter.map(journal::markdown::front_matter_people),
-        Some(vec!["alex".to_string(), "sam".to_string()])
-    );
-    assert_eq!(
-        front_matter.map(journal::markdown::front_matter_activities),
-        Some(vec!["programming".to_string(), "cycling".to_string()])
+        entries[0].activities,
+        vec!["programming".to_string(), "cycling".to_string()]
     );
 }
 
@@ -205,12 +198,8 @@ fn log_command_accepts_comma_separated_feelings() {
         .unwrap();
 
     assert!(output.status.success());
-    let entries = entry_texts(&root, "work");
-    let (front_matter, _) = journal::markdown::split_front_matter(&entries[0]);
-    assert_eq!(
-        front_matter.map(journal::markdown::front_matter_feelings),
-        Some(vec!["calm".to_string(), "focused".to_string()])
-    );
+    let entries = scan_entries_for(&root, "work");
+    assert_eq!(entries[0].feelings, vec!["calm".to_string(), "focused".to_string()]);
 }
 
 #[test]
@@ -234,13 +223,9 @@ fn log_command_writes_repeatable_feelings() {
         .unwrap();
 
     assert!(output.status.success());
-    let entries = entry_texts(&root, "work");
+    let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
-    let (front_matter, _) = journal::markdown::split_front_matter(&entries[0]);
-    assert_eq!(
-        front_matter.map(journal::markdown::front_matter_feelings),
-        Some(vec!["calm".to_string(), "focused".to_string()])
-    );
+    assert_eq!(entries[0].feelings, vec!["calm".to_string(), "focused".to_string()]);
 }
 
 #[test]
@@ -263,7 +248,7 @@ fn log_command_rejects_unknown_feeling() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("unknown feeling 'sparkly'"));
-    assert!(entry_texts(&root, "work").is_empty());
+    assert!(scan_entries_for(&root, "work").is_empty());
 }
 
 #[test]
@@ -291,9 +276,9 @@ fn piped_log_command_creates_entry_in_default_journal() {
     let output = child.wait_with_output().unwrap();
 
     assert!(output.status.success());
-    let entries = entry_texts(&root, "work");
+    let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].ends_with("Line one\n\nLine three\n"));
+    assert!(entries[0].content.contains("Line one\n\nLine three"));
 }
 
 #[test]
@@ -329,9 +314,9 @@ fn editor_log_command_creates_entry_in_default_journal() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let entries = entry_texts(&root, "work");
+    let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].contains("# Edited\nBody from fake editor\n"));
+    assert!(entries[0].content.contains("# Edited"));
 }
 
 #[test]
@@ -355,7 +340,7 @@ fn editor_log_command_creates_no_entry_when_body_is_empty() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(entry_texts(&root, "work").is_empty());
+    assert!(scan_entries_for(&root, "work").is_empty());
 }
 
 #[test]
@@ -375,7 +360,7 @@ fn bare_text_requires_log_command() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("journal log"));
-    assert!(entry_texts(&root, "work").is_empty());
+    assert!(scan_entries_for(&root, "work").is_empty());
 }
 
 #[test]
@@ -403,7 +388,7 @@ fn bare_piped_stdin_requires_log_command() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("journal log"));
-    assert!(entry_texts(&root, "work").is_empty());
+    assert!(scan_entries_for(&root, "work").is_empty());
 }
 
 #[test]
@@ -426,10 +411,10 @@ fn journal_flag_overrides_default_journal() {
         .unwrap();
 
     assert!(output.status.success());
-    assert!(entry_texts(&root, "work").is_empty());
-    let entries = entry_texts(&root, "personal");
+    assert!(scan_entries_for(&root, "work").is_empty());
+    let entries = scan_entries_for(&root, "personal");
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].contains("Override text\n"));
+    assert!(entries[0].content.contains("Override text"));
 }
 
 #[test]
@@ -471,7 +456,7 @@ fn log_command_without_default_or_journal_fails() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("no journal specified"));
-    assert!(entry_texts(&root, "work").is_empty());
+    assert!(scan_entries_for(&root, "work").is_empty());
 }
 
 #[test]
@@ -501,7 +486,7 @@ fn log_command_rejects_text_and_piped_stdin_together() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("piped stdin"));
-    assert!(entry_texts(&root, "work").is_empty());
+    assert!(scan_entries_for(&root, "work").is_empty());
 }
 
 #[test]
@@ -522,7 +507,11 @@ fn fake_editor_command_edits_entry_files_in_place() {
         .unwrap();
     assert!(chmod.success());
 
-    let entry = journal::storage::create_entry(root.path(), "work", script.to_str().unwrap())
+    let store = JournalStore::for_config(&root.path().join("config.toml"), root.path()).unwrap();
+    let entry = store
+        .create_entry_via_editor("work", empty_metadata(), |body| {
+            journal::editor::edit_body(script.to_str().unwrap(), body)
+        })
         .unwrap()
         .unwrap();
     let entry_text = fs::read_to_string(entry).unwrap();
@@ -530,11 +519,11 @@ fn fake_editor_command_edits_entry_files_in_place() {
 }
 
 #[test]
-fn encrypt_command_converts_workspace_and_entry_command_writes_encrypted_files() {
+fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
-    let (paths, _recipient) = generate_identity_store(&config, &root, "secret");
+    let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
     let entry_dir = root.join("work").join("2026").join("07").join("02");
     let trash_dir = root
         .join("work")
@@ -567,23 +556,25 @@ fn encrypt_command_converts_workspace_and_entry_command_writes_encrypted_files()
     assert!(!entry.exists());
     assert!(encrypted_entry.exists());
     assert!(encrypted_trash.exists());
-    let unlocked = journal::crypto::unlock_identity(&paths, "secret").unwrap();
+    store.unlock("secret").unwrap();
     assert!(
-        journal::crypto::decrypt_to_string(&unlocked, &encrypted_entry)
+        store
+            .read_entry_content(&encrypted_entry)
             .unwrap()
             .contains("# Secret")
     );
     assert_eq!(
-        paths
+        store
+            .paths()
             .recipients_file
             .file_name()
             .and_then(|name| name.to_str()),
         Some("recipients.txt")
     );
-    assert_eq!(paths.recipients_file, root.join("recipients.txt"));
-    assert_eq!(paths.identity_file, dir.path().join("identity.age"));
-    assert!(paths.recipients_file.exists());
-    assert!(paths.identity_file.exists());
+    assert_eq!(store.paths().recipients_file, root.join("recipients.txt"));
+    assert_eq!(store.paths().identity_file, dir.path().join("identity.age"));
+    assert!(store.paths().recipients_file.exists());
+    assert!(store.paths().identity_file.exists());
     assert!(!dir.path().join("encryption").exists());
     assert!(!fs::read_dir(dir.path()).unwrap().any(|entry| {
         entry
@@ -617,21 +608,22 @@ fn encrypt_command_converts_workspace_and_entry_command_writes_encrypted_files()
             .ends_with(".md.age")
     );
     assert!(
-        journal::crypto::decrypt_to_string(&unlocked, &created)
+        store
+            .read_entry_content(&created)
             .unwrap()
             .contains("New encrypted body")
     );
 }
 
 #[test]
-fn encrypt_command_can_be_rerun_when_workspace_is_already_encrypted() {
+fn encrypt_command_can_be_rerun_when_store_is_already_encrypted() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
-    let (paths, _recipient) = generate_identity_store(&config, &root, "secret");
-    let encrypted =
-        journal::storage::create_encrypted_entry_with_body(&root, "work", "# Secret\nBody", &paths)
-            .unwrap();
+    let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
+    let encrypted = store
+        .create_entry_with_body("work", "# Secret\nBody", empty_metadata())
+        .unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -647,9 +639,10 @@ fn encrypt_command_can_be_rerun_when_workspace_is_already_encrypted() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(encrypted.exists());
-    let unlocked = journal::crypto::unlock_identity(&paths, "secret").unwrap();
+    store.unlock("secret").unwrap();
     assert!(
-        journal::crypto::decrypt_to_string(&unlocked, &encrypted)
+        store
+            .read_entry_content(&encrypted)
             .unwrap()
             .contains("# Secret")
     );
@@ -667,10 +660,10 @@ fn encrypt_command_finishes_partial_encryption_without_touching_existing_age_fil
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
-    let (paths, _recipient) = generate_identity_store(&config, &root, "secret");
-    let existing_encrypted =
-        journal::storage::create_encrypted_entry_with_body(&root, "work", "# Existing", &paths)
-            .unwrap();
+    let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
+    let existing_encrypted = store
+        .create_entry_with_body("work", "# Existing", empty_metadata())
+        .unwrap();
     let entry_dir = root.join("work").join("2026").join("07").join("02");
     fs::create_dir_all(&entry_dir).unwrap();
     let remaining_plain = entry_dir.join("remaining.md");
@@ -693,14 +686,16 @@ fn encrypt_command_finishes_partial_encryption_without_touching_existing_age_fil
     assert!(existing_encrypted.exists());
     assert!(!remaining_plain.exists());
     assert!(remaining_encrypted.exists());
-    let unlocked = journal::crypto::unlock_identity(&paths, "secret").unwrap();
+    store.unlock("secret").unwrap();
     assert!(
-        journal::crypto::decrypt_to_string(&unlocked, &existing_encrypted)
+        store
+            .read_entry_content(&existing_encrypted)
             .unwrap()
             .contains("# Existing")
     );
     assert!(
-        journal::crypto::decrypt_to_string(&unlocked, &remaining_encrypted)
+        store
+            .read_entry_content(&remaining_encrypted)
             .unwrap()
             .contains("# Remaining")
     );
@@ -711,13 +706,13 @@ fn encrypt_command_fails_when_plain_entry_target_age_file_already_exists() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
-    let (paths, _recipient) = generate_identity_store(&config, &root, "secret");
+    let (_store, _recipient) = generate_identity_store(&config, &root, "secret");
     let entry_dir = root.join("work").join("2026").join("07").join("02");
     fs::create_dir_all(&entry_dir).unwrap();
     let plain = entry_dir.join("entry.md");
     let encrypted = entry_dir.join("entry.md.age");
     fs::write(&plain, "+++\ntags = []\n+++\n\n# Plain\n").unwrap();
-    journal::crypto::encrypt_to_file(&paths, b"# Existing encrypted\n", &encrypted).unwrap();
+    fs::write(&encrypted, "# Existing encrypted\n").unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -738,11 +733,11 @@ fn encrypt_command_fails_when_encrypted_entries_exist_without_recipients_file() 
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
-    let (paths, _recipient) = generate_identity_store(&config, &root, "secret");
-    let encrypted =
-        journal::storage::create_encrypted_entry_with_body(&root, "work", "# Secret", &paths)
-            .unwrap();
-    fs::remove_file(&paths.recipients_file).unwrap();
+    let (store, _recipient) = generate_identity_store(&config, &root, "secret");
+    let encrypted = store
+        .create_entry_with_body("work", "# Secret", empty_metadata())
+        .unwrap();
+    fs::remove_file(&store.paths().recipients_file).unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -755,7 +750,7 @@ fn encrypt_command_fails_when_encrypted_entries_exist_without_recipients_file() 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("recipients file is missing"));
     assert!(encrypted.exists());
-    assert!(!paths.recipients_file.exists());
+    assert!(!store.paths().recipients_file.exists());
 }
 
 #[test]
@@ -763,9 +758,9 @@ fn encrypted_entry_command_writes_age_files_without_unlocking() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
-    let (paths, _recipient) = generate_identity_store(&config, &root, "secret");
-    let unlocked = journal::crypto::unlock_identity(&paths, "secret").unwrap();
-    fs::remove_file(&paths.identity_file).unwrap();
+    let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
+    store.unlock("secret").unwrap();
+    fs::remove_file(&store.paths().identity_file).unwrap();
     fs::create_dir_all(root.join("work")).unwrap();
     write_config(&config, &root, Some("work"));
 
@@ -792,7 +787,7 @@ fn encrypted_entry_command_writes_age_files_without_unlocking() {
             .to_string_lossy()
             .ends_with(".md.age")
     );
-    let decrypted = journal::crypto::decrypt_to_string(&unlocked, &encrypted).unwrap();
+    let decrypted = store.read_entry_content(&encrypted).unwrap();
 
     assert!(decrypted.contains("age readable body"));
 }
@@ -802,9 +797,9 @@ fn encrypted_editor_log_command_writes_age_files_without_unlocking() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
-    let (paths, _recipient) = generate_identity_store(&config, &root, "secret");
-    let unlocked = journal::crypto::unlock_identity(&paths, "secret").unwrap();
-    fs::remove_file(&paths.identity_file).unwrap();
+    let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
+    store.unlock("secret").unwrap();
+    fs::remove_file(&store.paths().identity_file).unwrap();
     fs::create_dir_all(root.join("work")).unwrap();
 
     let script = dir.path().join("fake-editor.sh");
@@ -841,7 +836,7 @@ fn encrypted_editor_log_command_writes_age_files_without_unlocking() {
             .to_string_lossy()
             .ends_with(".md.age")
     );
-    let decrypted = journal::crypto::decrypt_to_string(&unlocked, &encrypted).unwrap();
+    let decrypted = store.read_entry_content(&encrypted).unwrap();
 
     assert!(decrypted.contains("# Encrypted editor body"));
 }
@@ -856,10 +851,10 @@ fn encrypted_entries_can_be_decrypted_with_age_cli() {
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
     let (identity, recipient) = generate_age_cli_identity(dir.path());
-    let paths = journal::crypto::EncryptionPaths::for_config(&config, &root).unwrap();
+    let store = JournalStore::for_config(&config, &root).unwrap();
     fs::create_dir_all(root.join("work")).unwrap();
     fs::create_dir_all(&root).unwrap();
-    fs::write(&paths.recipients_file, format!("{recipient}\n")).unwrap();
+    fs::write(&store.paths().recipients_file, format!("{recipient}\n")).unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())

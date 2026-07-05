@@ -1,4 +1,5 @@
 use chrono::{DateTime, Local, NaiveDate};
+#[cfg(test)]
 use nanoid::nanoid;
 use std::{
     ffi::OsStr,
@@ -7,6 +8,7 @@ use std::{
 
 pub(crate) const ENTRY_ID_LEN: usize = 12;
 
+#[cfg(test)]
 pub fn entry_path(root: &Path, journal: &str, now: DateTime<Local>) -> PathBuf {
     entry_path_with_id(root, journal, now, &nanoid!(ENTRY_ID_LEN))
 }
@@ -47,7 +49,7 @@ pub fn is_entry_file(path: &Path) -> bool {
     is_plain_entry_file(path) || is_encrypted_entry_file(path)
 }
 
-pub(crate) fn entry_id(path: &Path) -> Option<String> {
+pub fn entry_id(path: &Path) -> Option<String> {
     let name = path.file_name()?.to_str()?;
     name.strip_suffix(".md.age")
         .or_else(|| name.strip_suffix(".md"))

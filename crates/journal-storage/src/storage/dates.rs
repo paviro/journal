@@ -2,13 +2,13 @@ use chrono::{DateTime, Local, NaiveDate};
 
 use super::{Entry, entry_date_from_path};
 
-pub(crate) fn parse_entry_timestamp(value: &str) -> Option<DateTime<Local>> {
+pub fn parse_entry_timestamp(value: &str) -> Option<DateTime<Local>> {
     DateTime::parse_from_rfc3339(value)
         .ok()
         .map(|timestamp| timestamp.with_timezone(&Local))
 }
 
-pub(crate) fn entry_group_date(entry: &Entry) -> Option<NaiveDate> {
+pub fn entry_group_date(entry: &Entry) -> Option<NaiveDate> {
     entry
         .created_at
         .as_deref()
@@ -21,7 +21,7 @@ fn format_date_human(date: NaiveDate) -> String {
     date.format("%A, %-d %B %Y").to_string()
 }
 
-pub(crate) fn entry_timestamp_label(entry: &Entry) -> String {
+pub fn entry_timestamp_label(entry: &Entry) -> String {
     entry
         .created_at
         .as_deref()
@@ -47,7 +47,7 @@ mod tests {
             id: "id".to_string(),
             journal: "work".to_string(),
             path: PathBuf::from(path),
-            encryption_state: crate::storage::EntryEncryptionState::Plain,
+            encryption_state: journal_core::EntryEncryptionState::Plain,
             created_at: created_at.map(str::to_string),
             updated_at: None,
             title: "Title".to_string(),

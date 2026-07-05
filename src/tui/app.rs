@@ -1,18 +1,10 @@
-use crate::{
-    AppResult,
-    config::Config,
-    crypto,
-    feelings::{FEELINGS, normalize_feeling},
-    markdown::{entry_has_body, split_front_matter},
-    storage::{
-        self, Entry, EntryEncryptionState, Journal, SearchHit, SearchScopeFilter,
-        entry_timestamp_label, search_loaded_entries,
-    },
+use crate::{AppResult, config::Config};
+use journal_core::feelings::{FEELINGS, normalize_feeling};
+use journal_storage::{
+    Entry, EntryEncryptionState, EntryPath, Journal, JournalStore, SearchHit, SearchScopeFilter,
+    entry_timestamp_label, search_loaded_entries,
 };
-use std::{
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{path::PathBuf, time::Duration};
 
 use ratatui::widgets::ListState;
 
@@ -50,15 +42,17 @@ pub(crate) enum SearchScope {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EntryTarget {
+    pub(crate) id: String,
     pub(crate) path: PathBuf,
     pub(crate) title: String,
+    /// Encrypted entry whose identity is not loaded — cannot be read or written.
+    pub(crate) locked: bool,
 }
 
 pub(crate) struct App {
     pub(crate) config_path: PathBuf,
     pub(crate) config: Config,
-    pub(crate) encryption_paths: crypto::EncryptionPaths,
-    pub(crate) unlocked_identity: Option<crypto::UnlockedIdentity>,
+    pub(crate) store: JournalStore,
     pub(crate) journals: Vec<Journal>,
     pub(crate) entries: Vec<Entry>,
     pub(crate) journal_list: ListState,
@@ -76,20 +70,18 @@ impl App {
     pub(crate) fn new(
         config_path: PathBuf,
         config: Config,
-        encryption_paths: crypto::EncryptionPaths,
+        mut store: JournalStore,
     ) -> AppResult<Self> {
-        storage::ensure_workspace(&config.journal_root)?;
-        let entry_paths = storage::collect_entry_paths(&config.journal_root)?;
-        let unlocked_identity = if crypto::can_decrypt(&encryption_paths) {
-            Some(crypto::prompt_unlock_identity(&encryption_paths)?)
-        } else {
-            None
-        };
+        store.ensure()?;
+        let entry_paths = store.collect_entry_paths()?;
+        if store.unlock_available() {
+            let passphrase = crate::migrate::prompt_unlock_passphrase()?;
+            store.unlock(&passphrase)?;
+        }
         let mut app = Self {
             config_path,
             config,
-            encryption_paths,
-            unlocked_identity,
+            store,
             journals: Vec::new(),
             entries: Vec::new(),
             journal_list: ListState::default(),
@@ -107,14 +99,14 @@ impl App {
     }
 
     pub(crate) fn refresh(&mut self) -> AppResult<()> {
-        storage::ensure_workspace(&self.config.journal_root)?;
-        let entry_paths = storage::collect_entry_paths(&self.config.journal_root)?;
+        self.store.ensure()?;
+        let entry_paths = self.store.collect_entry_paths()?;
         self.load_entries(entry_paths)
     }
 
-    fn load_entries(&mut self, entry_paths: Vec<storage::EntryPath>) -> AppResult<()> {
-        self.journals = storage::list_journals(&self.config.journal_root)?;
-        self.entries = storage::read_entries(entry_paths, self.unlocked_identity.as_ref())?;
+    fn load_entries(&mut self, entry_paths: Vec<EntryPath>) -> AppResult<()> {
+        self.journals = self.store.list_journals()?;
+        self.entries = self.store.read_entries(entry_paths)?;
         normalize_list_state(&mut self.journal_list, self.journals.len());
         if !self.search.query.is_empty() {
             self.search.hits = self.search_results();
@@ -251,17 +243,15 @@ impl App {
         }
     }
 
-    pub(crate) fn select_entry_path(&mut self, path: &Path, reset_entry_scroll: bool) -> bool {
+    pub(crate) fn select_entry_by_id(&mut self, id: &str, reset_entry_scroll: bool) -> bool {
         let index = match self.mode {
-            Mode::Search => self.search.hits.iter().position(|hit| hit.path == path),
-            Mode::Browse => self
-                .journal_name_for_entry_path(path)
-                .and_then(|journal_name| {
-                    self.entries
-                        .iter()
-                        .filter(|entry| entry.journal == journal_name)
-                        .position(|entry| entry.path == path)
-                }),
+            Mode::Search => self.search.hits.iter().position(|hit| hit.id == id),
+            Mode::Browse => self.journal_name_for_entry_id(id).and_then(|journal_name| {
+                self.entries
+                    .iter()
+                    .filter(|entry| entry.journal == journal_name)
+                    .position(|entry| entry.id == id)
+            }),
         };
         let Some(index) = index else { return false };
 
@@ -274,11 +264,11 @@ impl App {
         true
     }
 
-    fn journal_name_for_entry_path(&mut self, path: &Path) -> Option<String> {
+    fn journal_name_for_entry_id(&mut self, id: &str) -> Option<String> {
         let journal_name = self
             .entries
             .iter()
-            .find(|entry| entry.path == path)
+            .find(|entry| entry.id == id)
             .map(|entry| entry.journal.clone())?;
         let journal_index = self
             .journals
@@ -304,16 +294,21 @@ impl App {
         match self.mode {
             Mode::Search => {
                 let hit = self.selected_search_hit()?;
+                let entry = self.entries.iter().find(|entry| entry.id == hit.id)?;
                 Some(EntryTarget {
-                    path: hit.path.clone(),
+                    id: entry.id.clone(),
+                    path: entry.path.clone(),
                     title: self.search_hit_label(hit),
+                    locked: entry.encryption_state == EntryEncryptionState::EncryptedLocked,
                 })
             }
             Mode::Browse => {
                 let entry = self.selected_entry()?;
                 Some(EntryTarget {
+                    id: entry.id.clone(),
                     path: entry.path.clone(),
                     title: entry.title.clone(),
+                    locked: entry.encryption_state == EntryEncryptionState::EncryptedLocked,
                 })
             }
         }
@@ -338,7 +333,7 @@ impl App {
                 .and_then(|hit| {
                     self.entries
                         .iter()
-                        .find(|entry| entry.path == hit.path)
+                        .find(|entry| entry.id == hit.id)
                         .map(|entry| metadata_values(entry, kind).to_vec())
                 })
                 .unwrap_or_default(),
@@ -356,7 +351,7 @@ impl App {
                 .and_then(|hit| {
                     self.entries
                         .iter()
-                        .find(|entry| entry.path == hit.path)
+                        .find(|entry| entry.id == hit.id)
                         .map(|entry| entry.feelings.clone())
                 })
                 .unwrap_or_default(),
@@ -376,28 +371,20 @@ impl App {
     }
 
     pub(crate) fn selected_entry_view(&self) -> Option<(String, String)> {
-        match self.mode {
+        let entry = match self.mode {
             Mode::Search => {
                 let hit = self.selected_search_hit()?;
-                let entry = storage::read_entry_with_identity(
-                    &hit.journal,
-                    &hit.path,
-                    self.unlocked_identity.as_ref(),
-                )
-                .ok()?;
-                Some((entry_timestamp_label(&entry), markdown_body(&entry.content)))
+                self.entries.iter().find(|entry| entry.id == hit.id)?
             }
-            Mode::Browse => {
-                let entry = self.selected_entry()?;
-                if entry.encryption_state == EntryEncryptionState::EncryptedLocked {
-                    return Some((
-                        entry_timestamp_label(entry),
-                        "Encryption identity not available".to_string(),
-                    ));
-                }
-                Some((entry_timestamp_label(entry), markdown_body(&entry.content)))
-            }
+            Mode::Browse => self.selected_entry()?,
+        };
+        if entry.encryption_state == EntryEncryptionState::EncryptedLocked {
+            return Some((
+                entry_timestamp_label(entry),
+                "Encryption identity not available".to_string(),
+            ));
         }
+        Some((entry_timestamp_label(entry), entry.content.clone()))
     }
 
     pub(crate) fn begin_new_journal_input(&mut self) {
@@ -452,7 +439,7 @@ impl App {
             Mode::Search => self.selected_search_hit().and_then(|hit| {
                 self.entries
                     .iter()
-                    .find(|entry| entry.path == hit.path)
+                    .find(|entry| entry.id == hit.id)
                     .and_then(|entry| entry.mood)
             }),
             Mode::Browse => self.selected_entry().and_then(|entry| entry.mood),
@@ -489,7 +476,7 @@ impl App {
     fn begin_confirm_delete_entry(&mut self) {
         let has_body = self
             .selected_entry()
-            .map(|e| entry_has_body(&e.content))
+            .map(|e| !e.content.trim().is_empty())
             .unwrap_or(false);
         self.overlay = Overlay::ConfirmDelete(DeleteContext::Entry { has_body });
     }
@@ -502,12 +489,12 @@ impl App {
         let trash_count = self
             .entries
             .iter()
-            .filter(|e| e.journal == name && entry_has_body(&e.content))
+            .filter(|e| e.journal == name && !e.content.trim().is_empty())
             .count();
         let delete_count = self
             .entries
             .iter()
-            .filter(|e| e.journal == name && !entry_has_body(&e.content))
+            .filter(|e| e.journal == name && e.content.trim().is_empty())
             .count();
         self.overlay = Overlay::ConfirmDelete(DeleteContext::Journal {
             name,
@@ -727,7 +714,7 @@ impl App {
                 SearchScope::CurrentJournal(ref journal) => entry.journal == *journal,
             })
             .map(|entry| SearchHit {
-                path: entry.path.clone(),
+                id: entry.id.clone(),
                 journal: entry.journal.clone(),
                 title: entry.title.clone(),
                 preview: entry.preview.clone(),
@@ -753,7 +740,7 @@ impl App {
                 SearchScope::CurrentJournal(ref journal) => entry.journal == *journal,
             })
             .map(|entry| SearchHit {
-                path: entry.path.clone(),
+                id: entry.id.clone(),
                 journal: entry.journal.clone(),
                 title: entry.title.clone(),
                 preview: entry.preview.clone(),
@@ -819,11 +806,6 @@ fn metadata_values(entry: &Entry, kind: MetadataKind) -> &[String] {
     }
 }
 
-pub(crate) fn markdown_body(content: &str) -> String {
-    let (_, body) = split_front_matter(content);
-    body.trim_start().to_string()
-}
-
 pub(crate) fn inline_entry_view_is_visible(width: u16) -> bool {
     width >= INLINE_ENTRY_VIEW_MIN_WIDTH
 }
@@ -844,9 +826,8 @@ mod tests {
 
     fn new_app(config: Config) -> App {
         let config_path = config.journal_root.join("config.toml");
-        let encryption_paths =
-            crypto::EncryptionPaths::for_config(&config_path, &config.journal_root).unwrap();
-        App::new(config_path, config, encryption_paths).unwrap()
+        let store = JournalStore::for_config(&config_path, &config.journal_root).unwrap();
+        App::new(config_path, config, store).unwrap()
     }
 
     #[test]
@@ -866,13 +847,6 @@ mod tests {
         app.move_selection(1);
 
         assert_eq!(app.scroll.entry_view, 0);
-    }
-
-    #[test]
-    fn markdown_body_strips_front_matter_for_entry_view() {
-        let content = "+++\ntags = []\n+++\n\n# Title\nBody\n";
-
-        assert_eq!(markdown_body(content), "# Title\nBody\n");
     }
 
     #[test]

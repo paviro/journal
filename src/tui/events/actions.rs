@@ -1,60 +1,23 @@
-use crate::{
-    AppResult, crypto,
-    markdown::{
-        entry_has_body, set_activities_in_front_matter, set_feelings_in_front_matter,
-        set_mood_in_front_matter, set_people_in_front_matter, set_tags_in_front_matter,
-    },
-    storage::{
-        create_encrypted_entry, create_entry, create_journal, delete_journal, edit_encrypted_entry,
-        is_encrypted_entry_file, move_entry_to_trash, open_editor_body_only,
-        read_entry_content_with_identity, set_updated_at_now,
-    },
-};
+use crate::{AppResult, editor};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
-    fs, io,
+    io,
     path::{Path, PathBuf},
 };
 
 use super::terminal::suspend_terminal;
-use crate::tui::app::{App, Focus};
+use crate::tui::app::{App, EntryTarget, Focus};
 use crate::tui::state::MetadataKind;
 
 type Term = Terminal<CrosstermBackend<io::Stdout>>;
 
-/// Returns `true` if the caller may proceed. When an encryption identity is
-/// required but not unlocked, sets a status message and returns `false`.
-fn ensure_identity_available(app: &mut App, needs_identity: bool) -> bool {
-    if needs_identity && app.unlocked_identity.is_none() {
-        app.set_status("Encryption identity not available");
-        return false;
-    }
-    true
-}
-
 /// Open the entry at `path` in the editor, transparently handling encrypted
 /// entries (decrypt to a temp file, edit, re-encrypt) and plaintext ones.
 /// Returns `true` if the entry was kept, `false` if it was deleted for being empty.
-fn edit_entry_at(terminal: &mut Term, app: &App, path: &Path, editor: &str) -> AppResult<bool> {
+fn edit_entry_at(terminal: &mut Term, app: &App, path: &Path, editor_cmd: &str) -> AppResult<bool> {
     suspend_terminal(terminal, || {
-        if is_encrypted_entry_file(path) {
-            edit_encrypted_entry(
-                path,
-                editor,
-                &app.encryption_paths,
-                unlocked_identity(app)?,
-                true,
-            )?;
-            Ok(path.exists())
-        } else {
-            open_editor_body_only(editor, path)?;
-            if !entry_has_body(&fs::read_to_string(path)?) {
-                fs::remove_file(path)?;
-                return Ok(false);
-            }
-            set_updated_at_now(path)?;
-            Ok(true)
-        }
+        app.store
+            .edit_entry_via_editor(path, true, |body| editor::edit_body(editor_cmd, body))
     })
 }
 
@@ -70,7 +33,7 @@ pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
         return Ok(());
     }
 
-    let journal = create_journal(&app.config.journal_root, &value)?;
+    let journal = app.store.create_journal(&value)?;
     app.refresh()?;
     app.select_journal_by_name(&journal.name);
     app.set_status(format!("Created journal {}", journal.name));
@@ -96,24 +59,20 @@ fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<Option<PathBuf>> {
         return Ok(None);
     };
 
-    let root = app.config.journal_root.clone();
-    let editor = app.config.editor.clone();
+    let editor_cmd = app.config.editor.clone();
     let journal_name = journal.name;
-    if !ensure_identity_available(app, crypto::should_encrypt(&app.encryption_paths)) {
-        return Ok(None);
-    }
     let created = suspend_terminal(terminal, || {
-        if crypto::should_encrypt(&app.encryption_paths) {
-            create_encrypted_entry(
-                &root,
-                &journal_name,
-                &editor,
-                &app.encryption_paths,
-                unlocked_identity(app)?,
-            )
-        } else {
-            create_entry(&root, &journal_name, &editor)
-        }
+        app.store.create_entry_via_editor(
+            &journal_name,
+            journal_storage::EntryMetadata {
+                tags: &[],
+                people: &[],
+                activities: &[],
+                feelings: &[],
+                mood: None,
+            },
+            |body| editor::edit_body(&editor_cmd, body),
+        )
     })?;
     if created.is_some() {
         app.set_status("Entry saved");
@@ -122,19 +81,29 @@ fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<Option<PathBuf>> {
     Ok(created)
 }
 
+/// Reports a friendly status and returns `false` when the target is a locked
+/// encrypted entry that cannot be read or written without the identity.
+fn reject_if_locked(app: &mut App, target: &EntryTarget) -> bool {
+    if target.locked {
+        app.set_status("Encryption identity not available");
+        return false;
+    }
+    true
+}
+
 pub(super) fn edit_selected(terminal: &mut Term, app: &mut App) -> AppResult<()> {
     let Some(target) = app.selected_entry_target() else {
         return Ok(());
     };
 
-    if !ensure_identity_available(app, is_encrypted_entry_file(&target.path)) {
+    if !reject_if_locked(app, &target) {
         return Ok(());
     }
 
     let editor = app.config.editor.clone();
     let kept = edit_entry_at(terminal, app, &target.path, &editor)?;
     if kept {
-        app.set_status(format!("Edited {}", target.path.display()));
+        app.set_status(format!("Edited {}", target.title));
     } else {
         app.set_status("Empty entry deleted");
     }
@@ -146,17 +115,11 @@ pub(super) fn view_selected(app: &mut App) -> AppResult<()> {
     let Some(target) = app.selected_entry_target() else {
         return Ok(());
     };
-    if !ensure_identity_available(app, is_encrypted_entry_file(&target.path)) {
+    if !reject_if_locked(app, &target) {
         return Ok(());
     }
     app.focus = Focus::EntryView;
     Ok(())
-}
-
-fn unlocked_identity(app: &App) -> AppResult<&crate::crypto::UnlockedIdentity> {
-    app.unlocked_identity
-        .as_ref()
-        .ok_or_else(|| "encrypted entry requires unlocked journal encryption identity".into())
 }
 
 pub(super) fn delete_selected(app: &mut App) -> AppResult<()> {
@@ -167,14 +130,14 @@ pub(super) fn delete_selected(app: &mut App) -> AppResult<()> {
         .entries
         .iter()
         .find(|e| e.path == target.path)
-        .map(|e| entry_has_body(&e.content))
+        .map(|e| !e.content.trim().is_empty())
         .unwrap_or(false);
 
     if has_body {
-        move_entry_to_trash(&app.config.journal_root, &target.path)?;
+        app.store.move_entry_to_trash(&target.path)?;
         app.set_status("Moved to trash");
     } else {
-        fs::remove_file(&target.path)?;
+        app.store.delete_empty_entry(&target.path)?;
         app.set_status("Deleted");
     }
     Ok(())
@@ -186,16 +149,16 @@ pub(super) fn delete_selected_journal(app: &mut App) -> AppResult<()> {
     };
     let journal_name = journal.name.clone();
     let journal_path = journal.path.clone();
-    let root = app.config.journal_root.clone();
 
     let entries: Vec<(PathBuf, bool)> = app
         .entries
         .iter()
         .filter(|e| e.journal == journal_name)
-        .map(|e| (e.path.clone(), entry_has_body(&e.content)))
+        .map(|e| (e.path.clone(), !e.content.trim().is_empty()))
         .collect();
 
-    delete_journal(&root, &journal_name, &journal_path, &entries)?;
+    app.store
+        .delete_journal(&journal_name, &journal_path, &entries)?;
     app.set_status(format!("Deleted journal {journal_name}"));
     Ok(())
 }
@@ -209,34 +172,14 @@ pub(super) fn set_metadata_on_entry(
         return Ok(());
     };
 
-    if is_encrypted_entry_file(&target.path) {
-        let Some(ref identity) = app.unlocked_identity else {
-            app.set_status("Encryption identity not available");
-            return Ok(());
-        };
-        let content = read_entry_content_with_identity(&target.path, Some(identity))?;
-        let Some(new_content) = set_metadata_in_front_matter(kind, &content, values) else {
-            return Ok(());
-        };
-        let temp_path = std::env::temp_dir().join(format!(
-            ".journal-{}-{}-{}",
-            kind.search_prefix(),
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        fs::write(&temp_path, &new_content)?;
-        crypto::encrypt_file(&app.encryption_paths, &temp_path, &target.path)?;
-        let _ = fs::remove_file(&temp_path);
-    } else {
-        let content = fs::read_to_string(&target.path)?;
-        let Some(new_content) = set_metadata_in_front_matter(kind, &content, values) else {
-            return Ok(());
-        };
-        fs::write(&target.path, new_content)?;
-        set_updated_at_now(&target.path)?;
+    if !reject_if_locked(app, &target) {
+        return Ok(());
+    }
+
+    match kind {
+        MetadataKind::Tags => app.store.set_entry_tags(&target.path, values)?,
+        MetadataKind::People => app.store.set_entry_people(&target.path, values)?,
+        MetadataKind::Activities => app.store.set_entry_activities(&target.path, values)?,
     }
 
     app.set_status(format!("{} saved", kind.title()));
@@ -244,51 +187,16 @@ pub(super) fn set_metadata_on_entry(
     Ok(())
 }
 
-fn set_metadata_in_front_matter(
-    kind: MetadataKind,
-    content: &str,
-    values: &[String],
-) -> Option<String> {
-    match kind {
-        MetadataKind::Tags => set_tags_in_front_matter(content, values),
-        MetadataKind::People => set_people_in_front_matter(content, values),
-        MetadataKind::Activities => set_activities_in_front_matter(content, values),
-    }
-}
-
 pub(super) fn set_feelings_on_entry(app: &mut App, feelings: &[String]) -> AppResult<()> {
     let Some(target) = app.selected_entry_target() else {
         return Ok(());
     };
 
-    if is_encrypted_entry_file(&target.path) {
-        let Some(ref identity) = app.unlocked_identity else {
-            app.set_status("Encryption identity not available");
-            return Ok(());
-        };
-        let content = read_entry_content_with_identity(&target.path, Some(identity))?;
-        let Some(new_content) = set_feelings_in_front_matter(&content, feelings) else {
-            return Ok(());
-        };
-        let temp_path = std::env::temp_dir().join(format!(
-            ".journal-feelings-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        fs::write(&temp_path, &new_content)?;
-        crypto::encrypt_file(&app.encryption_paths, &temp_path, &target.path)?;
-        let _ = fs::remove_file(&temp_path);
-    } else {
-        let content = fs::read_to_string(&target.path)?;
-        let Some(new_content) = set_feelings_in_front_matter(&content, feelings) else {
-            return Ok(());
-        };
-        fs::write(&target.path, new_content)?;
-        set_updated_at_now(&target.path)?;
+    if !reject_if_locked(app, &target) {
+        return Ok(());
     }
+
+    app.store.set_entry_feelings(&target.path, feelings)?;
 
     app.set_status("Feelings saved");
     app.refresh()?;
@@ -300,34 +208,11 @@ pub(super) fn set_mood_on_entry(app: &mut App, mood: Option<i8>) -> AppResult<()
         return Ok(());
     };
 
-    if is_encrypted_entry_file(&target.path) {
-        let Some(ref identity) = app.unlocked_identity else {
-            app.set_status("Encryption identity not available");
-            return Ok(());
-        };
-        let content = read_entry_content_with_identity(&target.path, Some(identity))?;
-        let Some(new_content) = set_mood_in_front_matter(&content, mood) else {
-            return Ok(());
-        };
-        let temp_path = std::env::temp_dir().join(format!(
-            ".journal-mood-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        fs::write(&temp_path, &new_content)?;
-        crypto::encrypt_file(&app.encryption_paths, &temp_path, &target.path)?;
-        let _ = fs::remove_file(&temp_path);
-    } else {
-        let content = fs::read_to_string(&target.path)?;
-        let Some(new_content) = set_mood_in_front_matter(&content, mood) else {
-            return Ok(());
-        };
-        fs::write(&target.path, new_content)?;
-        set_updated_at_now(&target.path)?;
+    if !reject_if_locked(app, &target) {
+        return Ok(());
     }
+
+    app.store.set_entry_mood(&target.path, mood)?;
 
     app.set_status("Mood saved");
     app.refresh()?;
@@ -337,15 +222,15 @@ pub(super) fn set_mood_on_entry(app: &mut App, mood: Option<i8>) -> AppResult<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::Config, crypto};
+    use crate::config::Config;
+    use journal_storage::JournalStore;
     use std::fs;
     use tempfile::tempdir;
 
     fn new_app(config: Config) -> App {
         let config_path = config.journal_root.join("config.toml");
-        let encryption_paths =
-            crypto::EncryptionPaths::for_config(&config_path, &config.journal_root).unwrap();
-        App::new(config_path, config, encryption_paths).unwrap()
+        let store = JournalStore::for_config(&config_path, &config.journal_root).unwrap();
+        App::new(config_path, config, store).unwrap()
     }
 
     #[test]
@@ -385,12 +270,6 @@ mod tests {
 
         set_feelings_on_entry(&mut app, &feelings).unwrap();
 
-        let content = fs::read_to_string(path).unwrap();
-        let (front_matter, _) = crate::markdown::split_front_matter(&content);
-        assert_eq!(
-            front_matter.map(crate::markdown::front_matter_feelings),
-            Some(feelings.clone())
-        );
         assert_eq!(app.selected_entry_feelings(), feelings);
     }
 }

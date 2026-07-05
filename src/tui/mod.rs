@@ -8,13 +8,14 @@ mod state;
 mod surface;
 mod watcher;
 
-use crate::{AppResult, config::Config, crypto};
+use crate::{AppResult, config::Config};
 use crossterm::{
     cursor::Show,
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use journal_storage::JournalStore;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::path::PathBuf;
 use std::{
@@ -24,12 +25,8 @@ use std::{
 
 use app::App;
 
-pub fn run(
-    config_path: PathBuf,
-    config: Config,
-    encryption_paths: crypto::EncryptionPaths,
-) -> AppResult<()> {
-    let app = App::new(config_path, config, encryption_paths)?;
+pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResult<()> {
+    let app = App::new(config_path, config, store)?;
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;

@@ -1280,23 +1280,44 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 name = "journal"
 version = "2026.7.1"
 dependencies = [
- "age",
  "chrono",
  "clap",
  "crossterm 0.29.0",
  "dirs",
- "nanoid",
+ "journal-core",
+ "journal-storage",
  "notify",
  "ratatui 0.29.0",
  "ratatui 0.30.2",
  "ratatui-markdown",
- "rayon",
  "rpassword",
  "serde",
  "shell-words",
  "tempfile",
  "toml 1.1.2+spec-1.1.0",
  "unicode-width 0.2.0",
+]
+
+[[package]]
+name = "journal-core"
+version = "2026.7.1"
+dependencies = [
+ "chrono",
+ "serde",
+]
+
+[[package]]
+name = "journal-storage"
+version = "2026.7.1"
+dependencies = [
+ "age",
+ "chrono",
+ "journal-core",
+ "nanoid",
+ "rayon",
+ "serde",
+ "tempfile",
+ "toml 1.1.2+spec-1.1.0",
 ]
 
 [[package]]

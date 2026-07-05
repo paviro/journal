@@ -1,0 +1,16 @@
+[package]
+name = "journal-storage"
+version = "2026.7.1"
+edition = "2024"
+
+[dependencies]
+journal-core = { path = "../journal-core" }
+age = { version = "0.11.3", default-features = false }
+chrono = { version = "0.4", features = ["serde"] }
+nanoid = "0.5.0"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "1.1"
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,4 +1,5 @@
 use crate::AppResult;
+use journal_storage::JournalStore;
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
@@ -64,7 +65,7 @@ pub fn load_or_setup_with_path(path_override: Option<&Path>) -> AppResult<(PathB
 
     if config_path.exists() {
         let config = load_config(&config_path)?;
-        crate::storage::ensure_workspace(&config.journal_root)?;
+        JournalStore::for_config(&config_path, &config.journal_root)?.ensure()?;
         return Ok((config_path, config));
     }
 
@@ -83,7 +84,7 @@ pub fn load_existing(path_override: Option<&Path>) -> AppResult<(PathBuf, Config
     }
 
     let config = load_config(&config_path)?;
-    crate::storage::ensure_workspace(&config.journal_root)?;
+    JournalStore::for_config(&config_path, &config.journal_root)?.ensure()?;
     Ok((config_path, config))
 }
 
@@ -137,17 +138,18 @@ fn interactive_setup(config_path: &Path) -> AppResult<Config> {
             stdout,
             "Generating a passphrase-protected journal age identity."
         )?;
-        let paths = crate::crypto::EncryptionPaths::for_config(config_path, &config.journal_root)?;
-        crate::crypto::generate_identity_store_interactive(&paths)?;
+        let store = JournalStore::for_config(config_path, &config.journal_root)?;
+        let passphrase = crate::migrate::prompt_new_passphrase()?;
+        store.initialize_encryption(&passphrase)?;
         writeln!(
             stdout,
             "Age identity: {}. Back it up; without it encrypted journal files cannot be decrypted.",
-            paths.identity_file.display()
+            store.paths().identity_file.display()
         )?;
     }
 
     save_config(config_path, &config)?;
-    crate::storage::ensure_workspace(&config.journal_root)?;
+    JournalStore::for_config(config_path, &config.journal_root)?.ensure()?;
     Ok(config)
 }
 

@@ -3,7 +3,6 @@ use age::{
     secrecy::{ExposeSecret, SecretString},
     x25519,
 };
-use rpassword::prompt_password;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
@@ -53,28 +52,6 @@ pub fn can_decrypt(paths: &EncryptionPaths) -> bool {
 pub fn public_recipient(paths: &EncryptionPaths) -> AppResult<String> {
     let recipient_text = fs::read_to_string(&paths.recipients_file)?;
     Ok(first_recipient(&recipient_text)?.to_string())
-}
-
-pub fn prompt_new_passphrase() -> AppResult<String> {
-    let passphrase = prompt_password("New journal encryption passphrase: ")?;
-    if passphrase.is_empty() {
-        return Err("encryption passphrase cannot be empty".into());
-    }
-    let confirm = prompt_password("Confirm journal encryption passphrase: ")?;
-    if passphrase != confirm {
-        return Err("encryption passphrases did not match".into());
-    }
-    Ok(passphrase)
-}
-
-pub fn prompt_unlock_identity(paths: &EncryptionPaths) -> AppResult<UnlockedIdentity> {
-    let passphrase = prompt_password("Journal encryption passphrase: ")?;
-    unlock_identity(paths, &passphrase)
-}
-
-pub fn generate_identity_store_interactive(paths: &EncryptionPaths) -> AppResult<String> {
-    let passphrase = prompt_new_passphrase()?;
-    generate_identity_store(paths, &passphrase)
 }
 
 pub fn generate_identity_store(paths: &EncryptionPaths, passphrase: &str) -> AppResult<String> {

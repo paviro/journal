@@ -1,6 +1,5 @@
 use super::paths::{entry_id, is_encrypted_entry_file, is_entry_file};
-use super::{Entry, EntryEncryptionState};
-use crate::feelings::normalize_feelings;
+use super::{Entry, EntryEncryptionState, EntryPath};
 use crate::storage::{journals::is_hidden_name, list_journals};
 use crate::{
     AppResult, crypto,
@@ -10,22 +9,14 @@ use crate::{
         split_front_matter,
     },
 };
+use journal_core::feelings::normalize_feelings;
 use rayon::prelude::*;
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
-/// Location of an entry file on disk, together with the journal it belongs to.
-///
-/// Produced by [`collect_entry_paths`] as a cheap first pass that touches only
-/// directory listings, so callers can decide what to do (e.g. prompt for a
-/// passphrase) before paying the cost of reading and decrypting entry contents.
-pub struct EntryPath {
-    pub journal: String,
-    pub path: PathBuf,
-}
-
+#[cfg(test)]
 pub fn scan_entries(root: &Path) -> AppResult<Vec<Entry>> {
     scan_entries_with_identity(root, None)
 }
@@ -88,6 +79,7 @@ pub fn read_entries(
     Ok(entries)
 }
 
+#[cfg(test)]
 pub fn read_entry(journal: &str, path: &Path) -> AppResult<Entry> {
     read_entry_with_identity(journal, path, None)
 }
@@ -121,6 +113,7 @@ pub fn read_entry_with_identity(
     let mood = front_matter.and_then(front_matter_mood);
     let id = entry_id(path).ok_or("entry file has no UTF-8 stem")?;
     let (title, preview) = display_title_and_preview(body, created_at.as_deref().unwrap_or(""));
+    let body = body.trim_start_matches('\n').to_string();
 
     Ok(Entry {
         id,
@@ -136,7 +129,7 @@ pub fn read_entry_with_identity(
         activities,
         feelings,
         mood,
-        content,
+        content: body,
     })
 }
 

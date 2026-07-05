@@ -5,7 +5,7 @@ mod mouse;
 mod terminal;
 
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
-use std::{io, path::PathBuf};
+use std::io;
 
 use crate::{
     AppResult,
@@ -90,8 +90,11 @@ pub(crate) fn dispatch_action(
                 .is_some_and(|snapshot| snapshot.focus == Focus::EntryView);
             let created = create_entry_in_selected_journal(terminal, app)?;
             if restore_to_viewer {
-                if let Some(path) = created {
-                    if app.select_entry_path(&path, true) {
+                let created_id = created
+                    .as_deref()
+                    .and_then(journal_storage::entry_id);
+                if let Some(id) = created_id {
+                    if app.select_entry_by_id(&id, true) {
                         app.focus = Focus::EntryView;
                     } else {
                         restore_entry_view_or_close(app, snapshot);
@@ -266,7 +269,7 @@ pub(crate) fn dispatch_action(
 }
 
 struct EntryViewSnapshot {
-    path: PathBuf,
+    id: String,
     focus: Focus,
     entry_view_scroll: u16,
 }
@@ -275,14 +278,14 @@ impl EntryViewSnapshot {
     fn capture(app: &App) -> Option<Self> {
         let target = app.selected_entry_target()?;
         Some(Self {
-            path: target.path,
+            id: target.id,
             focus: app.focus,
             entry_view_scroll: app.scroll.entry_view,
         })
     }
 
     fn restore(self, app: &mut App) -> bool {
-        if !app.select_entry_path(&self.path, false) {
+        if !app.select_entry_by_id(&self.id, false) {
             return false;
         }
         app.focus = self.focus;
@@ -358,7 +361,6 @@ mod tests {
     use super::*;
     use crate::{
         config::Config,
-        crypto,
         tui::{
             app::{App, Focus},
             render,
@@ -368,6 +370,7 @@ mod tests {
     use crossterm::event::{
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
+    use journal_storage::JournalStore;
     use ratatui::layout::Rect;
     use std::fs;
     use tempfile::tempdir;
@@ -383,9 +386,8 @@ mod tests {
 
     fn new_app(config: Config) -> App {
         let config_path = config.journal_root.join("config.toml");
-        let encryption_paths =
-            crypto::EncryptionPaths::for_config(&config_path, &config.journal_root).unwrap();
-        App::new(config_path, config, encryption_paths).unwrap()
+        let store = JournalStore::for_config(&config_path, &config.journal_root).unwrap();
+        App::new(config_path, config, store).unwrap()
     }
 
     fn app_with_journals(names: &[&str]) -> App {
@@ -853,10 +855,23 @@ mod tests {
         view_selected(&mut app).unwrap();
         app.scroll.entry_view = 9;
 
-        let created =
-            crate::storage::create_entry_with_body(&root, "work", "# Created\nBody\n").unwrap();
+        let store = JournalStore::for_config(&root.join("config.toml"), &root).unwrap();
+        let created = store
+            .create_entry_with_body(
+                "work",
+                "# Created\nBody\n",
+                journal_storage::EntryMetadata {
+                    tags: &[],
+                    people: &[],
+                    activities: &[],
+                    feelings: &[],
+                    mood: None,
+                },
+            )
+            .unwrap();
         app.refresh().unwrap();
-        assert!(app.select_entry_path(&created, true));
+        let created_id = journal_storage::entry_id(&created).unwrap();
+        assert!(app.select_entry_by_id(&created_id, true));
         app.focus = Focus::EntryView;
 
         assert_eq!(app.focus, Focus::EntryView);

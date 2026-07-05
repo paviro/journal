@@ -144,13 +144,12 @@ mod tests {
     use super::*;
     use crate::{
         config::Config,
-        crypto,
-        storage::{Entry, EntryEncryptionState},
         tui::{
             app::{Focus, INLINE_ENTRY_VIEW_MIN_WIDTH, Mode},
             state::{EditTagFocus, EditTagState, MetadataKind},
         },
     };
+    use journal_storage::{Entry, EntryEncryptionState, JournalStore, SearchHit};
     use ratatui::{Terminal, backend::TestBackend, layout::Rect, style::Modifier};
     use ratatui_029::style::Color as MarkdownColor;
     use std::fs;
@@ -160,9 +159,8 @@ mod tests {
 
     fn new_app(config: Config) -> App {
         let config_path = config.journal_root.join("config.toml");
-        let encryption_paths =
-            crypto::EncryptionPaths::for_config(&config_path, &config.journal_root).unwrap();
-        App::new(config_path, config, encryption_paths).unwrap()
+        let store = JournalStore::for_config(&config_path, &config.journal_root).unwrap();
+        App::new(config_path, config, store).unwrap()
     }
 
     fn app_with_entry() -> App {
@@ -1087,8 +1085,8 @@ mod tests {
         app.mode = Mode::Search;
         app.focus = Focus::Entries;
         app.search.query = "body".to_string();
-        app.search.hits = vec![crate::storage::SearchHit {
-            path: app.entries[0].path.clone(),
+        app.search.hits = vec![SearchHit {
+            id: app.entries[0].id.clone(),
             journal: "work".to_string(),
             title: "A".to_string(),
             preview: "Body".to_string(),
@@ -1209,8 +1207,8 @@ mod tests {
     fn scoped_search_hit_labels_omit_journal_prefix() {
         let mut app = app_with_entry();
         app.search.scope = crate::tui::app::SearchScope::CurrentJournal("work".to_string());
-        let hit = crate::storage::SearchHit {
-            path: app.entries[0].path.clone(),
+        let hit = SearchHit {
+            id: app.entries[0].id.clone(),
             journal: "work".to_string(),
             title: "A".to_string(),
             preview: "Body".to_string(),
@@ -1222,8 +1220,8 @@ mod tests {
     #[test]
     fn global_search_hit_labels_include_journal_prefix() {
         let app = app_with_entry();
-        let hit = crate::storage::SearchHit {
-            path: app.entries[0].path.clone(),
+        let hit = SearchHit {
+            id: app.entries[0].id.clone(),
             journal: "work".to_string(),
             title: "A".to_string(),
             preview: "Body".to_string(),

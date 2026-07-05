@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::storage::SearchHit;
+use journal_storage::SearchHit;
 use ratatui::widgets::ListState;
 
 use super::app::SearchScope;

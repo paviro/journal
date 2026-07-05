@@ -85,11 +85,6 @@ pub fn front_matter_value(front_matter: &str, key: &str) -> Option<String> {
     }
 }
 
-pub fn entry_has_body(content: &str) -> bool {
-    let (_, body) = split_front_matter(content);
-    !body.trim().is_empty()
-}
-
 pub fn display_title_and_preview(body: &str, timestamp_fallback: &str) -> (String, String) {
     let mut lines = body.lines().filter_map(display_line_text);
     let title = lines
@@ -102,7 +97,7 @@ pub fn display_title_and_preview(body: &str, timestamp_fallback: &str) -> (Strin
     (title, preview)
 }
 
-pub(crate) fn set_front_matter_value(content: &str, key: &str, value: &str) -> String {
+pub fn set_front_matter_value(content: &str, key: &str, value: &str) -> String {
     let (front_matter, body) = split_front_matter(content);
     let Some(front_matter) = front_matter else {
         return content.to_string();
@@ -120,7 +115,7 @@ pub(crate) fn set_front_matter_value(content: &str, key: &str, value: &str) -> S
 
 /// Replace the `tags` field in the TOML front matter with the given list.
 /// Returns `None` when there is no front matter.
-pub(crate) fn set_tags_in_front_matter(content: &str, tags: &[String]) -> Option<String> {
+pub fn set_tags_in_front_matter(content: &str, tags: &[String]) -> Option<String> {
     let (front_matter, body) = split_front_matter(content);
     let front_matter = front_matter?;
     let mut metadata = parse_front_matter(front_matter)?;
@@ -130,7 +125,7 @@ pub(crate) fn set_tags_in_front_matter(content: &str, tags: &[String]) -> Option
 
 /// Replace the `people` field in the TOML front matter with the given list.
 /// Returns `None` when there is no front matter.
-pub(crate) fn set_people_in_front_matter(content: &str, people: &[String]) -> Option<String> {
+pub fn set_people_in_front_matter(content: &str, people: &[String]) -> Option<String> {
     let (front_matter, body) = split_front_matter(content);
     let front_matter = front_matter?;
     let mut metadata = parse_front_matter(front_matter)?;
@@ -140,10 +135,7 @@ pub(crate) fn set_people_in_front_matter(content: &str, people: &[String]) -> Op
 
 /// Replace the `activities` field in the TOML front matter with the given list.
 /// Returns `None` when there is no front matter.
-pub(crate) fn set_activities_in_front_matter(
-    content: &str,
-    activities: &[String],
-) -> Option<String> {
+pub fn set_activities_in_front_matter(content: &str, activities: &[String]) -> Option<String> {
     let (front_matter, body) = split_front_matter(content);
     let front_matter = front_matter?;
     let mut metadata = parse_front_matter(front_matter)?;
@@ -153,7 +145,7 @@ pub(crate) fn set_activities_in_front_matter(
 
 /// Replace the `feelings` field in the TOML front matter with the given list.
 /// Returns `None` when there is no front matter.
-pub(crate) fn set_feelings_in_front_matter(content: &str, feelings: &[String]) -> Option<String> {
+pub fn set_feelings_in_front_matter(content: &str, feelings: &[String]) -> Option<String> {
     let (front_matter, body) = split_front_matter(content);
     let front_matter = front_matter?;
     let mut metadata = parse_front_matter(front_matter)?;
@@ -163,7 +155,7 @@ pub(crate) fn set_feelings_in_front_matter(content: &str, feelings: &[String]) -
 
 /// Set or remove the `mood` field in the TOML front matter.
 /// Returns `None` when there is no front matter.
-pub(crate) fn set_mood_in_front_matter(content: &str, mood: Option<i8>) -> Option<String> {
+pub fn set_mood_in_front_matter(content: &str, mood: Option<i8>) -> Option<String> {
     let (front_matter, body) = split_front_matter(content);
     let front_matter = front_matter?;
     let mut metadata = parse_front_matter(front_matter)?;
@@ -173,6 +165,10 @@ pub(crate) fn set_mood_in_front_matter(content: &str, mood: Option<i8>) -> Optio
 
 fn parse_front_matter(front_matter: &str) -> Option<FrontMatter> {
     toml::from_str(front_matter).ok()
+}
+
+pub fn set_updated_at_now_in_content(content: &str) -> String {
+    set_front_matter_value(content, "updated_at", &chrono::Local::now().to_rfc3339())
 }
 
 fn render_content_with_front_matter(metadata: &FrontMatter, body: &str) -> String {
