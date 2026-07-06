@@ -233,13 +233,7 @@ pub(crate) struct App {
     pub(crate) image: ImageState,
     /// Clickable `[Image N …]` label positions from the last entry-view render.
     pub(crate) entry_view_image_hits: EntryViewImageHits,
-    /// Which pane's scrollbar is currently being dragged, if any. Set on press,
-    /// cleared on release; lets a drag keep scrolling even after the cursor drifts
-    /// off the one-column bar.
-    pub(crate) scrollbar_drag: Option<ScrollbarDrag>,
-    /// Rows between the top of the thumb and the point where it was grabbed, so the
-    /// grabbed point tracks the cursor during a scrollbar drag.
-    pub(crate) scrollbar_grab: u16,
+    pub(crate) scrollbar: ScrollbarDragState,
     /// Per-frame render memo caches (rows, rendered body, journal stats) and the
     /// version counters that invalidate them. See [`RenderCaches`].
     caches: RenderCaches,
@@ -268,6 +262,18 @@ pub(crate) enum ScrollbarDrag {
     Journals,
     EntryList,
     EntryView,
+}
+
+/// The in-progress scrollbar drag, if any. A drag keeps scrolling even after the
+/// cursor drifts off the one-column bar, so the target pane and the grab offset
+/// outlive the initial press.
+#[derive(Default)]
+pub(crate) struct ScrollbarDragState {
+    /// Which pane's scrollbar is being dragged; set on press, cleared on release.
+    pub(crate) active: Option<ScrollbarDrag>,
+    /// Rows between the top of the thumb and the point where it was grabbed, so the
+    /// grabbed point tracks the cursor during the drag.
+    pub(crate) grab: u16,
 }
 
 impl App {
@@ -302,8 +308,7 @@ impl App {
             status_bar: StatusBar::default(),
             image: ImageState::default(),
             entry_view_image_hits: EntryViewImageHits::default(),
-            scrollbar_drag: None,
-            scrollbar_grab: 0,
+            scrollbar: ScrollbarDragState::default(),
             caches: RenderCaches::default(),
             search_dirty: false,
             search_last_edit: None,

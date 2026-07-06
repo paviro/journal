@@ -1108,13 +1108,13 @@ mod tests {
         // The down arrow steps one line down; no drag begins.
         mouse_in_area(&mut app, mouse(down(), bar.x, down_arrow), 120, 20);
         assert_eq!(app.entry_list.offset(), 1);
-        assert!(app.scrollbar_drag.is_none());
+        assert!(app.scrollbar.active.is_none());
         assert_eq!(app.focus, Focus::Entries);
 
         // The up arrow steps back.
         mouse_in_area(&mut app, mouse(down(), bar.x, up_arrow), 120, 20);
         assert_eq!(app.entry_list.offset(), 0);
-        assert!(app.scrollbar_drag.is_none());
+        assert!(app.scrollbar.active.is_none());
         assert!(max > 1);
     }
 
@@ -1143,7 +1143,7 @@ mod tests {
             20,
         );
         assert_eq!(app.entry_list.offset(), before);
-        assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::EntryList));
+        assert_eq!(app.scrollbar.active, Some(ScrollbarDrag::EntryList));
     }
 
     #[test]
@@ -1160,7 +1160,7 @@ mod tests {
 
         // Press empty track near the bottom → thumb jumps down under the cursor.
         mouse_in_area(&mut app, mouse(down(), bar.x, bottom_track), 120, 20);
-        assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::EntryList));
+        assert_eq!(app.scrollbar.active, Some(ScrollbarDrag::EntryList));
         assert!(
             app.entry_list.offset() > max / 2,
             "expected a large jump, got {}",
@@ -1173,13 +1173,13 @@ mod tests {
 
         // Release clears the drag.
         mouse_in_area(&mut app, mouse(up(), 0, top_track), 120, 20);
-        assert!(app.scrollbar_drag.is_none());
+        assert!(app.scrollbar.active.is_none());
 
         // The grab region spans the bar column plus one on each side.
         for col in [bar.x - 1, bar.x + 1] {
             assert!(col >= area.x && col < area.x + area.width + 1);
             mouse_in_area(&mut app, mouse(down(), col, bottom_track), 120, 20);
-            assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::EntryList));
+            assert_eq!(app.scrollbar.active, Some(ScrollbarDrag::EntryList));
             mouse_in_area(&mut app, mouse(up(), col, bottom_track), 120, 20);
         }
     }
@@ -1205,7 +1205,7 @@ mod tests {
             120,
             20,
         );
-        assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::Journals));
+        assert_eq!(app.scrollbar.active, Some(ScrollbarDrag::Journals));
         assert!(app.journal_list.offset() > 0);
     }
 }

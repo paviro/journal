@@ -58,7 +58,7 @@ pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect)
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => handle_scrollbar_drag(app, mouse, &layout),
-        MouseEventKind::Up(MouseButton::Left) => app.scrollbar_drag = None,
+        MouseEventKind::Up(MouseButton::Left) => app.scrollbar.active = None,
         MouseEventKind::ScrollUp => handle_wheel(app, mouse, layout, -1),
         MouseEventKind::ScrollDown => handle_wheel(app, mouse, layout, 1),
         _ => {}
@@ -218,13 +218,13 @@ fn step_pane_scroll(app: &mut App, target: &ScrollbarTarget, delta: i16) {
 }
 
 /// Map the dragged cursor row to a scroll offset so the grabbed point of the thumb
-/// (`scrollbar_grab` rows below its top) tracks the cursor. The cursor column is
+/// (`scrollbar.grab` rows below its top) tracks the cursor. The cursor column is
 /// ignored, so the drag survives drifting off the narrow bar.
 fn apply_thumb_drag(app: &mut App, target: &ScrollbarTarget, row: u16) {
     let (_, thumb_len) = target.thumb();
     let track_top = target.bar.y.saturating_add(1);
     let track_len = target.bar.height.saturating_sub(2);
-    let thumb_top = row.saturating_sub(app.scrollbar_grab);
+    let thumb_top = row.saturating_sub(app.scrollbar.grab);
     let offset = crate::tui::scroll::scroll_from_thumb_top(
         thumb_top,
         track_top,
@@ -255,14 +255,14 @@ fn try_scrollbar_press(app: &mut App, mouse: MouseEvent, layout: &render::TuiLay
     }
 
     let (thumb_top, thumb_len) = target.thumb();
-    app.scrollbar_drag = Some(target.which);
+    app.scrollbar.active = Some(target.which);
     if mouse.row >= thumb_top && mouse.row < thumb_top + thumb_len {
         // Grabbing the thumb itself: remember where, and leave the scroll untouched so
         // a click straight on the handle doesn't jump.
-        app.scrollbar_grab = mouse.row - thumb_top;
+        app.scrollbar.grab = mouse.row - thumb_top;
     } else {
         // Empty track: centre the thumb on the cursor and jump there.
-        app.scrollbar_grab = thumb_len / 2;
+        app.scrollbar.grab = thumb_len / 2;
         apply_thumb_drag(app, &target, mouse.row);
     }
     true
@@ -270,7 +270,7 @@ fn try_scrollbar_press(app: &mut App, mouse: MouseEvent, layout: &render::TuiLay
 
 /// While a scrollbar drag is active, map the cursor row to the pane's scroll offset.
 fn handle_scrollbar_drag(app: &mut App, mouse: MouseEvent, layout: &render::TuiLayout) {
-    let Some(which) = app.scrollbar_drag else {
+    let Some(which) = app.scrollbar.active else {
         return;
     };
     if let Some(target) = pane_target(app, which, layout) {
