@@ -9,13 +9,17 @@ mod dayone;
 
 use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use chrono::{DateTime, Local};
-use journal_storage::{AppResult, EntryMetadata, JournalStore};
+use journal_storage::{AppResult, AssetFailure, EntryMetadata, JournalStore};
 
-use dayone::body::{html_images_to_markdown, rewrite_moments, unescape_markdown};
-use dayone::model::{DayOneEntry, DayOneExport, Moment};
+use dayone::model::DayOneExport;
+use dayone::moments::{MediaIndex, rewrite_moments};
+use dayone::richtext;
+use dayone::text::{
+    merge_code_fences, normalize_whitespace, recover_html_embeds, unescape_markdown,
+};
 
 /// Summary of a Day One import, printed to the user.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -91,18 +95,21 @@ pub fn import_dayone(
             .unwrap_or(created_at);
 
         let media = MediaIndex::build(entry, media_root);
-        let text = entry.text.as_deref().unwrap_or_default();
-        // Day One bodies mix Markdown escaping, HTML `<img>` tags (older entries),
-        // and `dayone-moment://` links. Normalize in that order so every image
-        // ends up as a Markdown reference the moment/asset steps understand.
-        let normalized = html_images_to_markdown(&unescape_markdown(text));
-        let rewrite = rewrite_moments(
-            &normalized,
-            &media.photos,
-            &media.audio,
-            &media.video,
-            &media.pdf,
-        );
+        // Prefer Day One's structured `richText` (clean, faithful) when present;
+        // otherwise clean up its lossy `text`. `richtext::render` yields `None`
+        // when `richText` is absent *or* parses to empty, so either way we fall
+        // through to the `text` path. Both leave images as `dayone-moment://`
+        // references for `rewrite_moments` below.
+        let body = entry
+            .rich_text
+            .as_deref()
+            .and_then(richtext::render)
+            .unwrap_or_else(|| {
+                let text = entry.text.as_deref().unwrap_or_default();
+                let cleaned = normalize_whitespace(&unescape_markdown(text));
+                recover_html_embeds(&merge_code_fences(&cleaned))
+            });
+        let rewrite = rewrite_moments(&body, &media);
 
         let tags = entry.tags.clone();
         let metadata = EntryMetadata {
@@ -113,8 +120,14 @@ pub fn import_dayone(
             mood: None,
         };
 
-        let path =
-            store.create_imported_entry(journal, &rewrite.body, metadata, created_at, updated_at, &import_id)?;
+        let path = store.create_imported_entry(
+            journal,
+            &rewrite.body,
+            metadata,
+            created_at,
+            updated_at,
+            &import_id,
+        )?;
         // Replace un-fetchable images with a placeholder only when we actually
         // tried to download — otherwise remote links are kept so they can be
         // fetched by a later `--download-images` run.
@@ -122,16 +135,17 @@ pub fn import_dayone(
 
         report.images_stored += assets.stored;
         for failure in assets.failed {
-            // A remote link we chose not to (or couldn't) fetch — download off,
-            // or the host is gone — is left in the body as a link, not a failure.
-            // (Messages are prefixed with the source URL, so match by substring.)
-            if failure.contains("remote downloads disabled")
-                || failure.contains("host unreachable")
-            {
-                report.remote_images_skipped += 1;
-            } else {
-                report.images_failed += 1;
-                report.failures.push(format!("{}: {failure}", entry.uuid));
+            match failure {
+                // A remote link we chose not to (or couldn't) fetch — download
+                // off, or the host is gone — is left in the body as a link, not
+                // a failure.
+                AssetFailure::RemoteUnavailable { .. } => report.remote_images_skipped += 1,
+                AssetFailure::Ingest { source, error } => {
+                    report.images_failed += 1;
+                    report
+                        .failures
+                        .push(format!("{}: {source}: {error}", entry.uuid));
+                }
             }
         }
         for id in &rewrite.unresolved {
@@ -145,46 +159,6 @@ pub fn import_dayone(
     }
 
     Ok(report)
-}
-
-/// Identifier → on-disk location for an entry's media, split by kind. Photos map
-/// to an absolute path (only files that exist); the other kinds are identifier
-/// sets used to classify and count skipped attachments.
-struct MediaIndex {
-    photos: std::collections::HashMap<String, PathBuf>,
-    audio: HashSet<String>,
-    video: HashSet<String>,
-    pdf: HashSet<String>,
-}
-
-impl MediaIndex {
-    fn build(entry: &DayOneEntry, media_root: &Path) -> Self {
-        let mut photos = std::collections::HashMap::new();
-        for photo in &entry.photos {
-            if let Some(path) = moment_path(photo, media_root, "photos")
-                && path.is_file()
-            {
-                photos.insert(photo.identifier.clone(), path);
-            }
-        }
-        Self {
-            photos,
-            audio: identifier_set(&entry.audios),
-            video: identifier_set(&entry.videos),
-            pdf: identifier_set(&entry.pdf_attachments),
-        }
-    }
-}
-
-fn identifier_set(moments: &[Moment]) -> HashSet<String> {
-    moments.iter().map(|m| m.identifier.clone()).collect()
-}
-
-/// The on-disk path for a moment: `<media_root>/<folder>/<md5>.<type>`.
-fn moment_path(moment: &Moment, media_root: &Path, folder: &str) -> Option<PathBuf> {
-    let md5 = moment.md5.as_ref()?;
-    let kind = moment.kind.as_ref()?;
-    Some(media_root.join(folder).join(format!("{md5}.{kind}")))
 }
 
 fn parse_date(value: &str) -> Option<DateTime<Local>> {

@@ -43,8 +43,21 @@ pub struct AssetReport {
     pub stored: usize,
     /// Orphaned assets deleted during cleanup.
     pub removed: usize,
-    /// Human-readable messages for sources that could not be ingested.
-    pub failed: Vec<String>,
+    /// Sources that could not be ingested, tagged by cause so callers can tell a
+    /// benign remote skip from a genuine failure without parsing message text.
+    pub failed: Vec<AssetFailure>,
+}
+
+/// Why an external image reference was not stored, carrying enough to report it.
+#[derive(Debug, PartialEq, Eq)]
+pub enum AssetFailure {
+    /// A remote source deliberately not fetched (downloads disabled) or whose
+    /// host was unreachable. Benign: the reference is kept, or replaced with the
+    /// offline placeholder — not a real ingestion failure.
+    RemoteUnavailable { source: String },
+    /// A source that should have ingested but errored: missing local file,
+    /// unsupported/undecodable image, or a write failure.
+    Ingest { source: String, error: String },
 }
 
 impl AssetReport {
@@ -224,11 +237,19 @@ fn store_source(source: &str, alt: &str, ctx: &mut IngestContext<'_>) -> Option<
         return Some(markdown_image(alt, ctx.dir_name, file_name));
     }
 
-    let result = fetch_source(source, ctx.download_remote);
-    let (bytes, ext) = match result {
+    let (bytes, ext) = match fetch_source(source, ctx.download_remote) {
         Ok(value) => value,
-        Err(message) => {
-            ctx.report.failed.push(message);
+        Err(FetchError::RemoteUnavailable) => {
+            ctx.report.failed.push(AssetFailure::RemoteUnavailable {
+                source: source.to_string(),
+            });
+            return None;
+        }
+        Err(FetchError::Ingest(error)) => {
+            ctx.report.failed.push(AssetFailure::Ingest {
+                source: source.to_string(),
+                error,
+            });
             return None;
         }
     };
@@ -241,7 +262,10 @@ fn store_source(source: &str, alt: &str, ctx: &mut IngestContext<'_>) -> Option<
             Some(markdown_image(alt, ctx.dir_name, &file_name))
         }
         Err(error) => {
-            ctx.report.failed.push(format!("{source}: {error}"));
+            ctx.report.failed.push(AssetFailure::Ingest {
+                source: source.to_string(),
+                error: error.to_string(),
+            });
             None
         }
     }
@@ -251,33 +275,41 @@ fn markdown_image(alt: &str, dir_name: &str, file_name: &str) -> String {
     format!("![{alt}]({dir_name}/{file_name})")
 }
 
+/// Categorized fetch failure so `store_source` can build the right
+/// [`AssetFailure`] without parsing message text. `RemoteUnavailable` is benign
+/// (downloads off or host down); `Ingest` is a genuine failure worth surfacing.
+enum FetchError {
+    RemoteUnavailable,
+    Ingest(String),
+}
+
 /// Read a local file or download a URL, returning its bytes and image extension.
-fn fetch_source(source: &str, download_remote: bool) -> Result<(Vec<u8>, String), String> {
+fn fetch_source(source: &str, download_remote: bool) -> Result<(Vec<u8>, String), FetchError> {
     if is_url(source) {
         if !download_remote {
-            return Err(format!("remote downloads disabled: {source}"));
+            return Err(FetchError::RemoteUnavailable);
         }
-        let bytes = download(source).map_err(|error| format!("{source}: {error}"))?;
+        let bytes = download(source)?;
         let ext = image_extension(url_path(source), &bytes)
-            .ok_or_else(|| format!("{source}: not a supported image"))?;
+            .ok_or_else(|| FetchError::Ingest("not a supported image".to_string()))?;
         Ok((bytes, ext))
     } else {
         let path = expand_user(source);
-        let bytes = fs::read(&path).map_err(|error| format!("{source}: {error}"))?;
+        let bytes = fs::read(&path).map_err(|error| FetchError::Ingest(error.to_string()))?;
         let ext = image_extension(source, &bytes)
-            .ok_or_else(|| format!("{source}: not a supported image"))?;
+            .ok_or_else(|| FetchError::Ingest("not a supported image".to_string()))?;
         Ok((bytes, ext))
     }
 }
 
-fn download(url: &str) -> Result<Vec<u8>, String> {
+fn download(url: &str) -> Result<Vec<u8>, FetchError> {
     // Probe the host first (once per host, cached). A bulk import can reference
     // hundreds of links on a server that no longer exists; without this each
     // one would block for the full `REMOTE_TIMEOUT` before failing.
     if let Some((host, port)) = host_port(url)
         && !host_reachable(&host, port)
     {
-        return Err(format!("host unreachable: {host}"));
+        return Err(FetchError::RemoteUnavailable);
     }
 
     let config = ureq::Agent::config_builder()
@@ -287,12 +319,12 @@ fn download(url: &str) -> Result<Vec<u8>, String> {
     let bytes = agent
         .get(url)
         .call()
-        .map_err(|error| error.to_string())?
+        .map_err(|error| FetchError::Ingest(error.to_string()))?
         .body_mut()
         .with_config()
         .limit(MAX_REMOTE_IMAGE_BYTES)
         .read_to_vec()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| FetchError::Ingest(error.to_string()))?;
     Ok(bytes)
 }
 
@@ -1042,7 +1074,12 @@ mod tests {
 
         assert!(changed.is_none());
         assert_eq!(report.stored, 0);
-        assert_eq!(report.failed.len(), 1);
+        assert_eq!(
+            report.failed,
+            vec![AssetFailure::RemoteUnavailable {
+                source: "https://example.com/pic.png".to_string(),
+            }]
+        );
     }
 
     #[test]

@@ -1729,6 +1729,7 @@ dependencies = [
  "chrono",
  "journal-core",
  "journal-storage",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

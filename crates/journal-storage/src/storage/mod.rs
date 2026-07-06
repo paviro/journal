@@ -6,7 +6,7 @@ mod entry;
 mod journals;
 
 pub use dates::{entry_group_date, entry_timestamp_label, parse_entry_timestamp};
-pub use entry::AssetReport;
+pub use entry::{AssetFailure, AssetReport};
 pub use entry::Entry;
 pub(crate) use entry::entry_date_from_path;
 pub use entry::entry_id;

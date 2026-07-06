@@ -27,6 +27,11 @@ pub struct DayOneEntry {
     /// Markdown body. Day One escapes literal punctuation with backslashes.
     #[serde(default)]
     pub text: Option<String>,
+    /// Clean structured body, present on newer entries. A JSON string (Day One's
+    /// `ZRICHTEXTJSON`) that renders to faithful Markdown — preferred over `text`
+    /// when available. See [`crate::dayone::richtext`].
+    #[serde(default)]
+    pub rich_text: Option<String>,
     /// RFC3339 (UTC) creation timestamp.
     pub creation_date: Option<String>,
     /// RFC3339 (UTC) last-modified timestamp.
