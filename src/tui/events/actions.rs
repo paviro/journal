@@ -65,13 +65,7 @@ fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<Option<PathBuf>> {
     let created = suspend_terminal(terminal, || {
         app.store.create_entry_via_editor(
             &journal_name,
-            journal_storage::EntryMetadata {
-                tags: &[],
-                people: &[],
-                activities: &[],
-                feelings: &[],
-                mood: None,
-            },
+            &journal_storage::Metadata::default(),
             |body| editor::edit_body(&editor_cmd, body),
         )
     })?;

@@ -11,9 +11,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-use journal_storage::{
-    AppResult, AssetFailure, EntryMetadata, JournalStore, parse_entry_timestamp,
-};
+use journal_storage::{AppResult, AssetFailure, JournalStore, Metadata, parse_entry_timestamp};
 
 use dayone::model::DayOneExport;
 use dayone::moments::{MediaIndex, rewrite_moments};
@@ -74,7 +72,6 @@ pub fn import_dayone(
         .collect();
 
     let mut report = ImportReport::default();
-    let empty: &[String] = &[];
 
     for entry in &export.entries {
         let import_id = format!("dayone:{}", entry.uuid);
@@ -116,19 +113,15 @@ pub fn import_dayone(
             });
         let rewrite = rewrite_moments(&body, &media);
 
-        let tags = entry.tags.clone();
-        let metadata = EntryMetadata {
-            tags: &tags,
-            people: empty,
-            activities: empty,
-            feelings: empty,
-            mood: None,
+        let metadata = Metadata {
+            tags: entry.tags.clone(),
+            ..Metadata::default()
         };
 
         let path = store.create_imported_entry(
             journal,
             &rewrite.body,
-            metadata,
+            &metadata,
             created_at,
             updated_at,
             &import_id,

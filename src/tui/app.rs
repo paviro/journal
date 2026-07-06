@@ -764,7 +764,7 @@ impl App {
 
     pub(crate) fn selected_entry_feelings(&self) -> Vec<String> {
         self.resolved_selected_entry()
-            .map(|entry| entry.feelings.clone())
+            .map(|entry| entry.metadata.feelings.clone())
             .unwrap_or_default()
     }
 
@@ -835,7 +835,8 @@ impl App {
     }
 
     pub(crate) fn selected_entry_mood(&self) -> Option<i8> {
-        self.resolved_selected_entry().and_then(|entry| entry.mood)
+        self.resolved_selected_entry()
+            .and_then(|entry| entry.metadata.mood)
     }
 
     pub(crate) fn begin_edit_mood(&mut self) {
@@ -1301,6 +1302,7 @@ impl App {
         };
         self.search_results_matching(|entry| {
             entry
+                .metadata
                 .feelings
                 .iter()
                 .any(|entry_feeling| entry_feeling == &feeling)
@@ -1369,9 +1371,9 @@ fn journal_for_path(root: &Path, path: &Path) -> Option<String> {
 
 fn metadata_values(entry: &Entry, kind: MetadataKind) -> &[String] {
     match kind {
-        MetadataKind::Tags => &entry.tags,
-        MetadataKind::People => &entry.people,
-        MetadataKind::Activities => &entry.activities,
+        MetadataKind::Tags => &entry.metadata.tags,
+        MetadataKind::People => &entry.metadata.people,
+        MetadataKind::Activities => &entry.metadata.activities,
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::{AppResult, config, editor, migrate, tui};
 use clap::{Args, Parser, Subcommand};
 use journal_core::feelings;
-use journal_storage::{EntryMetadata, JournalStore};
+use journal_storage::{JournalStore, MOOD_RANGE, Metadata};
 use std::{
     io::{self, Read},
     path::{Path, PathBuf},
@@ -288,18 +288,23 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
             .filter(|f| !f.is_empty()),
     )?;
     let mood = if let Some(score) = args.mood {
-        if !(-5..=5).contains(&score) {
-            return Err(format!("--mood must be between -5 and +5, got {score}").into());
+        if !MOOD_RANGE.contains(&score) {
+            return Err(format!(
+                "--mood must be between {} and {}, got {score}",
+                MOOD_RANGE.start(),
+                MOOD_RANGE.end()
+            )
+            .into());
         }
         Some(score)
     } else {
         None
     };
-    let metadata = EntryMetadata {
-        tags: &tags,
-        people: &people,
-        activities: &activities,
-        feelings: &feelings,
+    let metadata = Metadata {
+        tags,
+        people,
+        activities,
+        feelings,
         mood,
     };
 
@@ -313,10 +318,10 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
             body
         };
 
-        Some(store.create_entry_with_body(journal, &body, metadata)?)
+        Some(store.create_entry_with_body(journal, &body, &metadata)?)
     } else {
         let editor_cmd = config.editor.clone();
-        store.create_entry_via_editor(journal, metadata, |body| {
+        store.create_entry_via_editor(journal, &metadata, |body| {
             editor::edit_body(&editor_cmd, body)
         })?
     };

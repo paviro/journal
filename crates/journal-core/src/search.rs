@@ -86,11 +86,7 @@ mod tests {
             created: None,
             updated_at: None,
             preview: String::new(),
-            tags: Vec::new(),
-            people: Vec::new(),
-            activities: Vec::new(),
-            feelings: Vec::new(),
-            mood: None,
+            metadata: crate::entry::Metadata::default(),
             import_id: None,
             content: content.to_string(),
             word_count: content.split_whitespace().count(),
@@ -148,16 +144,16 @@ mod tests {
     #[test]
     fn search_matches_metadata_without_prefix() {
         let mut tagged = plain_entry("a", "work", "nothing relevant");
-        tagged.tags = vec!["project-x".to_string()];
+        tagged.metadata.tags = vec!["project-x".to_string()];
         tagged.rebuild_search_haystack();
         let mut person = plain_entry("b", "work", "nothing relevant");
-        person.people = vec!["Alice".to_string()];
+        person.metadata.people = vec!["Alice".to_string()];
         person.rebuild_search_haystack();
         let mut activity = plain_entry("c", "work", "nothing relevant");
-        activity.activities = vec!["running".to_string()];
+        activity.metadata.activities = vec!["running".to_string()];
         activity.rebuild_search_haystack();
         let mut feeling = plain_entry("d", "work", "nothing relevant");
-        feeling.feelings = vec!["happy".to_string()];
+        feeling.metadata.feelings = vec!["happy".to_string()];
         feeling.rebuild_search_haystack();
 
         let entries = vec![tagged, person, activity, feeling];
@@ -183,7 +179,7 @@ mod tests {
     #[test]
     fn multi_word_query_matches_across_body_and_metadata() {
         let mut entry = plain_entry("a", "work", "hello this is a test");
-        entry.tags = vec!["love".to_string()];
+        entry.metadata.tags = vec!["love".to_string()];
         entry.rebuild_search_haystack();
 
         // Every space-separated atom must match somewhere in the merged haystack.

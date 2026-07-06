@@ -69,7 +69,7 @@ fn create_entry_with_body_writes_body_after_front_matter() {
         dir.path(),
         "work",
         "Some text",
-        EntryMetadata::empty(),
+        &Metadata::default(),
     )
     .unwrap();
     let text = fs::read_to_string(created).unwrap();
@@ -78,7 +78,7 @@ fn create_entry_with_body_writes_body_after_front_matter() {
 
     assert!(fields.created_at.is_some());
     assert!(fields.updated_at.is_some());
-    assert!(fields.tags.is_empty());
+    assert!(fields.metadata.tags.is_empty());
     assert_eq!(body.trim_start_matches('\n'), "Some text\n");
 }
 
@@ -91,7 +91,7 @@ fn create_entry_with_body_preserves_multiline_body_and_trailing_newline() {
         dir.path(),
         "work",
         "Line one\n\nLine three\n",
-        EntryMetadata::empty(),
+        &Metadata::default(),
     )
     .unwrap();
     let text = fs::read_to_string(created).unwrap();
@@ -157,7 +157,7 @@ fn entry_tags_read_toml_list() {
 
     let entry = read_entry("journal", &path, None).unwrap();
 
-    assert_eq!(entry.tags, vec!["work", "deep focus"]);
+    assert_eq!(entry.metadata.tags, vec!["work", "deep focus"]);
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn entry_feelings_read_known_values_only() {
 
     let entry = read_entry("journal", &path, None).unwrap();
 
-    assert_eq!(entry.feelings, vec!["calm", "focused"]);
+    assert_eq!(entry.metadata.feelings, vec!["calm", "focused"]);
 }
 
 #[test]
@@ -188,11 +188,11 @@ fn create_entry_with_body_and_metadata_writes_metadata() {
         dir.path(),
         "work",
         "Some text",
-        EntryMetadata {
-            tags: &tags,
-            people: &people,
-            activities: &activities,
-            feelings: &feelings,
+        &Metadata {
+            tags: tags.clone(),
+            people: people.clone(),
+            activities: activities.clone(),
+            feelings: feelings.clone(),
             mood: None,
         },
     )
@@ -201,13 +201,19 @@ fn create_entry_with_body_and_metadata_writes_metadata() {
     let (front_matter, _) = crate::markdown::split_front_matter(&text);
 
     let fields = front_matter.map(crate::markdown::front_matter_fields);
-    assert_eq!(fields.as_ref().map(|f| f.tags.clone()), Some(tags));
-    assert_eq!(fields.as_ref().map(|f| f.people.clone()), Some(people));
+    assert_eq!(fields.as_ref().map(|f| f.metadata.tags.clone()), Some(tags));
     assert_eq!(
-        fields.as_ref().map(|f| f.activities.clone()),
+        fields.as_ref().map(|f| f.metadata.people.clone()),
+        Some(people)
+    );
+    assert_eq!(
+        fields.as_ref().map(|f| f.metadata.activities.clone()),
         Some(activities)
     );
-    assert_eq!(fields.as_ref().map(|f| f.feelings.clone()), Some(feelings));
+    assert_eq!(
+        fields.as_ref().map(|f| f.metadata.feelings.clone()),
+        Some(feelings)
+    );
     assert!(text.ends_with("\nSome text\n"));
 }
 
@@ -313,7 +319,7 @@ fn scan_entries_marks_encrypted_entry_unlocked_with_identity() {
         &root,
         "work",
         "# Secret\nBody",
-        EntryMetadata::empty(),
+        &Metadata::default(),
     )
     .unwrap();
     let identity = crypto::unlock_identity(&paths, "secret").unwrap();

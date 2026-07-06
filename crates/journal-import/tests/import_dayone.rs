@@ -52,7 +52,7 @@ fn imports_entry_with_body_tags_and_provenance() {
     let entry = &entries[0];
     assert_eq!(entry.import_id.as_deref(), Some("dayone:ABC123"));
     assert!(entry.content.contains("Hello from Day One"));
-    assert_eq!(entry.tags, vec!["travel", "notes"]);
+    assert_eq!(entry.metadata.tags, vec!["travel", "notes"]);
     // The on-disk date folder comes from the creationDate, not today.
     assert!(entry.path.to_string_lossy().contains("2026"));
 }

@@ -1,4 +1,4 @@
-use super::EntryMetadata;
+use super::Metadata;
 use super::codec::EntryCodec;
 use super::paths::{ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_path_with_id};
 use crate::AppResult;
@@ -18,7 +18,7 @@ pub fn create_entry(
     root: &Path,
     journal: &str,
     body: &str,
-    metadata: EntryMetadata<'_>,
+    metadata: &Metadata,
 ) -> AppResult<PathBuf> {
     let now = Local::now();
     let content = entry_content(now, now, body, metadata, None);
@@ -37,7 +37,7 @@ pub fn create_imported_entry(
     root: &Path,
     journal: &str,
     body: &str,
-    metadata: EntryMetadata<'_>,
+    metadata: &Metadata,
     created_at: DateTime<Local>,
     updated_at: DateTime<Local>,
     import_id: &str,
@@ -52,17 +52,13 @@ fn entry_content(
     created_at: DateTime<Local>,
     updated_at: DateTime<Local>,
     body: &str,
-    metadata: EntryMetadata<'_>,
+    metadata: &Metadata,
     import_id: Option<&str>,
 ) -> String {
     let front_matter = crate::markdown::FrontMatter {
         created_at: Some(created_at.to_rfc3339()),
         updated_at: Some(updated_at.to_rfc3339()),
-        tags: metadata.tags.to_vec(),
-        people: metadata.people.to_vec(),
-        activities: metadata.activities.to_vec(),
-        feelings: metadata.feelings.to_vec(),
-        mood: metadata.mood,
+        metadata: metadata.clone(),
         import_id: import_id.map(str::to_string),
     };
     let mut content = crate::markdown::render_entry(&front_matter, body);

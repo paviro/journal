@@ -896,13 +896,7 @@ mod tests {
             .create_entry_with_body(
                 "work",
                 "# Created\nBody\n",
-                journal_storage::EntryMetadata {
-                    tags: &[],
-                    people: &[],
-                    activities: &[],
-                    feelings: &[],
-                    mood: None,
-                },
+                &journal_storage::Metadata::default(),
             )
             .unwrap();
         app.refresh().unwrap();

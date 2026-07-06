@@ -8,7 +8,7 @@ mod read;
 #[cfg(test)]
 mod tests;
 
-pub use journal_core::{Entry, EntryEncryptionState, EntryMetadata, EntryPath};
+pub use journal_core::{Entry, EntryEncryptionState, EntryPath, Metadata};
 
 pub use assets::{AssetFailure, AssetReport, sole_stored_image, stored_image_reference};
 pub(crate) use assets::{ingest_and_cleanup_opts, resolve_entry_asset_path};

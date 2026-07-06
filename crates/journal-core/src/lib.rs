@@ -6,7 +6,7 @@ pub mod markdown;
 pub mod search;
 
 pub use entry::{
-    Entry, EntryEncryptionState, EntryMetadata, EntryPath, MetadataField, SearchHit,
+    Entry, EntryEncryptionState, EntryPath, MOOD_RANGE, Metadata, MetadataField, SearchHit,
     SearchScopeFilter,
 };
 pub use search::search_loaded_entries;

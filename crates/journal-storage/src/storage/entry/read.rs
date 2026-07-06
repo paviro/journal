@@ -1,5 +1,5 @@
 use super::paths::{entry_id, is_assets_dir, is_encrypted_entry_file, is_entry_file};
-use super::{Entry, EntryEncryptionState, EntryPath};
+use super::{Entry, EntryEncryptionState, EntryPath, Metadata};
 use crate::storage::parse_entry_timestamp;
 use crate::storage::{journals::is_hidden_name, list_journals};
 use crate::{
@@ -88,20 +88,16 @@ pub fn read_entry(
     let FrontMatter {
         created_at,
         updated_at,
-        tags,
-        people,
-        activities,
-        feelings,
-        mood,
+        mut metadata,
         import_id,
     } = front_matter.map(front_matter_fields).unwrap_or_default();
-    let feelings = normalize_feelings(feelings.iter().map(String::as_str));
+    metadata.feelings = normalize_feelings(metadata.feelings.iter().map(String::as_str));
     let created = created_at.as_deref().and_then(parse_entry_timestamp);
     let id = entry_id(path).ok_or("entry file has no UTF-8 stem")?;
     let preview = display_preview(body);
     let body = body.trim_start_matches('\n').to_string();
     let word_count = body.split_whitespace().count();
-    let search_haystack = build_search_haystack(&body, &tags, &people, &activities, &feelings);
+    let search_haystack = build_search_haystack(&body, &metadata);
 
     Ok(Entry {
         id,
@@ -112,11 +108,7 @@ pub fn read_entry(
         created,
         updated_at,
         preview,
-        tags,
-        people,
-        activities,
-        feelings,
-        mood,
+        metadata,
         import_id,
         content: body,
         word_count,
@@ -135,11 +127,7 @@ fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {
         created: None,
         updated_at: None,
         preview: "[locked] Encrypted entry".to_string(),
-        tags: Vec::new(),
-        people: Vec::new(),
-        activities: Vec::new(),
-        feelings: Vec::new(),
-        mood: None,
+        metadata: Metadata::default(),
         import_id: None,
         content: "Encryption identity not available".to_string(),
         word_count: 0,

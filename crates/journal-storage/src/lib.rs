@@ -11,8 +11,8 @@ mod storage;
 
 pub use error::StorageError;
 pub use journal_core::{
-    AppResult, Entry, EntryEncryptionState, EntryMetadata, EntryPath, MetadataField, SearchHit,
-    SearchScopeFilter, search_loaded_entries,
+    AppResult, Entry, EntryEncryptionState, EntryPath, MOOD_RANGE, Metadata, MetadataField,
+    SearchHit, SearchScopeFilter, search_loaded_entries,
 };
 pub use migrate::{DecryptSummary, MigrationSummary};
 pub use storage::{
@@ -215,7 +215,7 @@ impl JournalStore {
         &self,
         journal: &str,
         body: &str,
-        metadata: EntryMetadata<'_>,
+        metadata: &Metadata,
     ) -> AppResult<PathBuf> {
         storage::create_entry(
             &self.entry_codec(),
@@ -234,7 +234,7 @@ impl JournalStore {
         &self,
         journal: &str,
         body: &str,
-        metadata: EntryMetadata<'_>,
+        metadata: &Metadata,
         created_at: chrono::DateTime<chrono::Local>,
         updated_at: chrono::DateTime<chrono::Local>,
         import_id: &str,
@@ -256,7 +256,7 @@ impl JournalStore {
     pub fn create_entry_via_editor(
         &self,
         journal: &str,
-        metadata: EntryMetadata<'_>,
+        metadata: &Metadata,
         edit: impl FnOnce(&str) -> AppResult<Option<String>>,
     ) -> AppResult<Option<PathBuf>> {
         let Some(body) = edit("")? else {

@@ -1,4 +1,4 @@
-use journal_storage::{Entry, EntryMetadata, JournalStore};
+use journal_storage::{Entry, JournalStore, Metadata};
 use std::{
     env, fs,
     io::Write,
@@ -32,16 +32,6 @@ fn generate_identity_store(config: &Path, root: &Path, passphrase: &str) -> (Jou
     let store = JournalStore::for_config(config, root).unwrap();
     let recipient = store.initialize_encryption(passphrase).unwrap();
     (store, recipient)
-}
-
-fn empty_metadata() -> EntryMetadata<'static> {
-    EntryMetadata {
-        tags: &[],
-        people: &[],
-        activities: &[],
-        feelings: &[],
-        mood: None,
-    }
 }
 
 fn png_bytes() -> Vec<u8> {
@@ -157,7 +147,7 @@ fn log_command_writes_tags() {
     let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
     assert_eq!(
-        entries[0].tags,
+        entries[0].metadata.tags,
         vec!["rust".to_string(), "open source".to_string()]
     );
 }
@@ -183,7 +173,7 @@ fn log_command_accepts_comma_separated_tags() {
     assert!(output.status.success());
     let entries = scan_entries_for(&root, "work");
     assert_eq!(
-        entries[0].tags,
+        entries[0].metadata.tags,
         vec!["rust".to_string(), "open source".to_string()]
     );
 }
@@ -213,11 +203,11 @@ fn log_command_writes_people_and_activities() {
     assert!(output.status.success());
     let entries = scan_entries_for(&root, "work");
     assert_eq!(
-        entries[0].people,
+        entries[0].metadata.people,
         vec!["alex".to_string(), "sam".to_string()]
     );
     assert_eq!(
-        entries[0].activities,
+        entries[0].metadata.activities,
         vec!["programming".to_string(), "cycling".to_string()]
     );
 }
@@ -243,7 +233,7 @@ fn log_command_accepts_comma_separated_feelings() {
     assert!(output.status.success());
     let entries = scan_entries_for(&root, "work");
     assert_eq!(
-        entries[0].feelings,
+        entries[0].metadata.feelings,
         vec!["calm".to_string(), "focused".to_string()]
     );
 }
@@ -272,7 +262,7 @@ fn log_command_writes_repeatable_feelings() {
     let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
     assert_eq!(
-        entries[0].feelings,
+        entries[0].metadata.feelings,
         vec!["calm".to_string(), "focused".to_string()]
     );
 }
@@ -557,7 +547,7 @@ fn fake_editor_command_edits_entry_files_in_place() {
 
     let store = JournalStore::for_config(&root.path().join("config.toml"), root.path()).unwrap();
     let entry = store
-        .create_entry_via_editor("work", empty_metadata(), |body| {
+        .create_entry_via_editor("work", &Metadata::default(), |body| {
             journal::editor::edit_body(script.to_str().unwrap(), body)
         })
         .unwrap()
@@ -670,7 +660,7 @@ fn encrypt_command_can_be_rerun_when_store_is_already_encrypted() {
     let config = dir.path().join("config.toml");
     let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
     let encrypted = store
-        .create_entry_with_body("work", "# Secret\nBody", empty_metadata())
+        .create_entry_with_body("work", "# Secret\nBody", &Metadata::default())
         .unwrap();
     write_config(&config, &root, Some("work"));
 
@@ -710,7 +700,7 @@ fn encrypt_command_finishes_partial_encryption_without_touching_existing_age_fil
     let config = dir.path().join("config.toml");
     let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
     let existing_encrypted = store
-        .create_entry_with_body("work", "# Existing", empty_metadata())
+        .create_entry_with_body("work", "# Existing", &Metadata::default())
         .unwrap();
     let entry_dir = root.join("work").join("2026").join("07").join("02");
     fs::create_dir_all(&entry_dir).unwrap();
@@ -783,7 +773,7 @@ fn encrypt_command_fails_when_encrypted_entries_exist_without_recipients_file() 
     let config = dir.path().join("config.toml");
     let (store, _recipient) = generate_identity_store(&config, &root, "secret");
     let encrypted = store
-        .create_entry_with_body("work", "# Secret", empty_metadata())
+        .create_entry_with_body("work", "# Secret", &Metadata::default())
         .unwrap();
     fs::remove_file(&store.paths().recipients_file).unwrap();
     write_config(&config, &root, Some("work"));

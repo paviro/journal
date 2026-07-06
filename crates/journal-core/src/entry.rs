@@ -1,5 +1,41 @@
 use chrono::{DateTime, Local};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::ops::RangeInclusive;
 use std::path::PathBuf;
+
+/// The supported mood range. Out-of-range values are dropped to `None` on read
+/// (see [`Metadata`]) and rejected at the CLI boundary.
+pub const MOOD_RANGE: RangeInclusive<i8> = -5..=5;
+
+/// The user-assignable metadata shared by an [`Entry`], its on-disk front
+/// matter, and the create/import paths: free-text tag lists plus an optional
+/// mood score. One shape, defined once.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Metadata {
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub people: Vec<String>,
+    #[serde(default)]
+    pub activities: Vec<String>,
+    #[serde(default)]
+    pub feelings: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_mood",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub mood: Option<i8>,
+}
+
+/// Read `mood` as an integer and clamp it to [`MOOD_RANGE`], dropping
+/// out-of-range values to `None` without failing the whole parse.
+fn deserialize_mood<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<i8>, D::Error> {
+    let raw = Option::<i64>::deserialize(deserializer)?;
+    Ok(raw
+        .and_then(|value| i8::try_from(value).ok())
+        .filter(|value| MOOD_RANGE.contains(value)))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
@@ -15,11 +51,7 @@ pub struct Entry {
     pub created: Option<DateTime<Local>>,
     pub updated_at: Option<String>,
     pub preview: String,
-    pub tags: Vec<String>,
-    pub people: Vec<String>,
-    pub activities: Vec<String>,
-    pub feelings: Vec<String>,
-    pub mood: Option<i8>,
+    pub metadata: Metadata,
     /// Provenance of an imported entry, e.g. `"dayone:<UUID>"`. `None` for
     /// entries created directly in the app. Used to skip re-importing and as an
     /// anchor for back-filling richer metadata once the format supports it.
@@ -60,29 +92,23 @@ impl Entry {
     /// Call after mutating any of those fields so the precomputed haystack stays
     /// in sync (the load path builds it directly instead).
     pub fn rebuild_search_haystack(&mut self) {
-        self.search_haystack = build_search_haystack(
-            &self.content,
-            &self.tags,
-            &self.people,
-            &self.activities,
-            &self.feelings,
-        );
+        self.search_haystack = build_search_haystack(&self.content, &self.metadata);
     }
 }
 
 /// Merge the body and every metadata value into one space-separated string, the
 /// haystack a prefix-less fuzzy query is scored against. Precomputed at load into
 /// [`Entry::search_haystack`].
-pub fn build_search_haystack(
-    content: &str,
-    tags: &[String],
-    people: &[String],
-    activities: &[String],
-    feelings: &[String],
-) -> String {
+pub fn build_search_haystack(content: &str, metadata: &Metadata) -> String {
     let mut buf = String::with_capacity(content.len() + 16);
     buf.push_str(content);
-    for value in tags.iter().chain(people).chain(activities).chain(feelings) {
+    for value in metadata
+        .tags
+        .iter()
+        .chain(&metadata.people)
+        .chain(&metadata.activities)
+        .chain(&metadata.feelings)
+    {
         buf.push(' ');
         buf.push_str(value);
     }
@@ -94,28 +120,6 @@ pub enum EntryEncryptionState {
     Plain,
     EncryptedUnlocked,
     EncryptedLocked,
-}
-
-#[derive(Clone, Copy)]
-pub struct EntryMetadata<'a> {
-    pub tags: &'a [String],
-    pub people: &'a [String],
-    pub activities: &'a [String],
-    pub feelings: &'a [String],
-    pub mood: Option<i8>,
-}
-
-impl EntryMetadata<'static> {
-    /// Metadata with no tags/people/activities/feelings and no mood.
-    pub const fn empty() -> Self {
-        Self {
-            tags: &[],
-            people: &[],
-            activities: &[],
-            feelings: &[],
-            mood: None,
-        }
-    }
 }
 
 /// One front-matter metadata field paired with its new value, for targeted

@@ -1,40 +1,19 @@
-use journal_core::MetadataField;
-use serde::{Deserialize, Deserializer, Serialize};
+use journal_core::{Metadata, MetadataField};
+use serde::{Deserialize, Serialize};
 
 /// Every entry front-matter field, parsed and serialized in a single TOML pass.
-/// `mood` is clamped to the supported `-5..=5` range on read; out-of-range
-/// values are dropped to `None` rather than failing the whole parse.
+/// The user metadata is the shared [`Metadata`] type, flattened so its fields
+/// sit at the top level of the front matter (mood clamped on read there).
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct FrontMatter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub people: Vec<String>,
-    #[serde(default)]
-    pub activities: Vec<String>,
-    #[serde(default)]
-    pub feelings: Vec<String>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_mood",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub mood: Option<i8>,
+    #[serde(flatten)]
+    pub metadata: Metadata,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub import_id: Option<String>,
-}
-
-/// Read `mood` as an integer and clamp it to `-5..=5`, dropping out-of-range
-/// values to `None` without erroring.
-fn deserialize_mood<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<i8>, D::Error> {
-    let raw = Option::<i64>::deserialize(deserializer)?;
-    Ok(raw
-        .and_then(|value| i8::try_from(value).ok())
-        .filter(|value| (-5..=5).contains(value)))
 }
 
 pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
@@ -133,11 +112,11 @@ fn map_front_matter(content: &str, mutate: impl FnOnce(&mut FrontMatter)) -> Opt
 pub fn with_metadata_field(content: &str, field: &MetadataField) -> Option<String> {
     map_front_matter(content, |fm| {
         match field {
-            MetadataField::Tags(values) => fm.tags = values.clone(),
-            MetadataField::People(values) => fm.people = values.clone(),
-            MetadataField::Activities(values) => fm.activities = values.clone(),
-            MetadataField::Feelings(values) => fm.feelings = values.clone(),
-            MetadataField::Mood(mood) => fm.mood = *mood,
+            MetadataField::Tags(values) => fm.metadata.tags = values.clone(),
+            MetadataField::People(values) => fm.metadata.people = values.clone(),
+            MetadataField::Activities(values) => fm.metadata.activities = values.clone(),
+            MetadataField::Feelings(values) => fm.metadata.feelings = values.clone(),
+            MetadataField::Mood(mood) => fm.metadata.mood = *mood,
         }
         fm.updated_at = Some(chrono::Local::now().to_rfc3339());
     })
@@ -226,34 +205,40 @@ mod tests {
 
     #[test]
     fn front_matter_tags_reads_list() {
-        let tags = front_matter_fields("tags = [\"foo\", \"bar\"]\n").tags;
+        let tags = front_matter_fields("tags = [\"foo\", \"bar\"]\n")
+            .metadata
+            .tags;
 
         assert_eq!(tags, vec!["foo", "bar"]);
     }
 
     #[test]
     fn front_matter_tags_handles_commas_in_values() {
-        let tags = front_matter_fields("tags = [\"foo, bar\", \"baz\"]\n").tags;
+        let tags = front_matter_fields("tags = [\"foo, bar\", \"baz\"]\n")
+            .metadata
+            .tags;
 
         assert_eq!(tags, vec!["foo, bar", "baz"]);
     }
 
     #[test]
     fn front_matter_feelings_reads_list() {
-        let feelings = front_matter_fields("feelings = [\"calm\", \"focused\"]\n").feelings;
+        let feelings = front_matter_fields("feelings = [\"calm\", \"focused\"]\n")
+            .metadata
+            .feelings;
 
         assert_eq!(feelings, vec!["calm", "focused"]);
     }
 
     #[test]
     fn mood_is_clamped_to_supported_range() {
-        assert_eq!(front_matter_fields("mood = 3\n").mood, Some(3));
-        assert_eq!(front_matter_fields("mood = -5\n").mood, Some(-5));
-        assert_eq!(front_matter_fields("mood = 5\n").mood, Some(5));
+        assert_eq!(front_matter_fields("mood = 3\n").metadata.mood, Some(3));
+        assert_eq!(front_matter_fields("mood = -5\n").metadata.mood, Some(-5));
+        assert_eq!(front_matter_fields("mood = 5\n").metadata.mood, Some(5));
         // Out of range or non-integer moods drop to None rather than failing.
-        assert_eq!(front_matter_fields("mood = 6\n").mood, None);
-        assert_eq!(front_matter_fields("mood = -42\n").mood, None);
-        assert_eq!(front_matter_fields("mood = 999\n").mood, None);
+        assert_eq!(front_matter_fields("mood = 6\n").metadata.mood, None);
+        assert_eq!(front_matter_fields("mood = -42\n").metadata.mood, None);
+        assert_eq!(front_matter_fields("mood = 999\n").metadata.mood, None);
     }
 
     #[test]
@@ -262,13 +247,17 @@ mod tests {
 
         let with_mood = with_metadata_field(content, &MetadataField::Mood(Some(4))).unwrap();
         assert_eq!(
-            front_matter_fields(split_front_matter(&with_mood).0.unwrap()).mood,
+            front_matter_fields(split_front_matter(&with_mood).0.unwrap())
+                .metadata
+                .mood,
             Some(4)
         );
 
         let cleared = with_metadata_field(&with_mood, &MetadataField::Mood(None)).unwrap();
         assert_eq!(
-            front_matter_fields(split_front_matter(&cleared).0.unwrap()).mood,
+            front_matter_fields(split_front_matter(&cleared).0.unwrap())
+                .metadata
+                .mood,
             None
         );
     }
@@ -276,7 +265,7 @@ mod tests {
     #[test]
     fn malformed_front_matter_returns_empty_metadata() {
         assert_eq!(
-            front_matter_fields("tags = [unterminated").tags,
+            front_matter_fields("tags = [unterminated").metadata.tags,
             Vec::<String>::new()
         );
         assert_eq!(
@@ -294,7 +283,7 @@ mod tests {
 
         let (front_matter, _) = split_front_matter(&updated);
         assert_eq!(
-            front_matter.map(|fm| front_matter_fields(fm).tags),
+            front_matter.map(|fm| front_matter_fields(fm).metadata.tags),
             Some(vec!["new".to_string(), "next".to_string()])
         );
         assert!(!updated.contains("old"));
@@ -314,7 +303,9 @@ mod tests {
         assert!(updated.contains("\n+++\n\n# Body\n"));
         assert!(updated.ends_with("\n# Body\n\nTrailing\n"));
         assert_eq!(
-            front_matter_fields(split_front_matter(&updated).0.unwrap()).feelings,
+            front_matter_fields(split_front_matter(&updated).0.unwrap())
+                .metadata
+                .feelings,
             vec!["calm".to_string()]
         );
         assert!(

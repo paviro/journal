@@ -3,7 +3,7 @@
 //! `decrypt_store` restores readable plaintext, drops the recipients file,
 //! disables the identity, and leaves a backup.
 
-use journal_storage::{EntryMetadata, JournalStore};
+use journal_storage::{JournalStore, Metadata};
 
 fn store_at(dir: &std::path::Path) -> JournalStore {
     JournalStore::new(
@@ -25,7 +25,7 @@ fn decrypt_store_restores_plaintext_and_disables_encryption() {
 
     store.create_journal("diary").unwrap();
     let path = store
-        .create_entry_with_body("diary", "# Secret\nhidden body", EntryMetadata::empty())
+        .create_entry_with_body("diary", "# Secret\nhidden body", &Metadata::default())
         .unwrap();
     assert_eq!(path.extension().and_then(|e| e.to_str()), Some("age"));
 
