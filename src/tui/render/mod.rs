@@ -150,7 +150,7 @@ fn draw_overlays(frame: &mut Frame<'_>, app: &mut App) {
     }
 
     if let Some(state) = app.image_viewer_state() {
-        draw_image_viewer(frame, state, &app.images);
+        draw_image_viewer(frame, state, &app.image.runtime);
     }
 }
 

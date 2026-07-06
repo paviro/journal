@@ -184,6 +184,21 @@ impl RenderCaches {
     }
 }
 
+/// The entry-view image subsystem: the terminal-image runtime plus the caches
+/// keyed by entry path (rather than by a [`RenderCaches`] version counter),
+/// invalidated together when the open entry changes or the store reloads.
+#[derive(Default)]
+pub(crate) struct ImageState {
+    pub(crate) runtime: ImageRuntime,
+    /// `(entry_path, viewer_size)` the runtime is warmed for, or `None` when no
+    /// entry view is open. Compared against the desired context each tick.
+    warm: Option<(PathBuf, Size)>,
+    /// Selected entry's in-folder images, memoized by path; `RefCell` so `&self`
+    /// render/hint/shortcut paths can read it. Re-parsed on a path change or when
+    /// `refresh` clears it.
+    selected_cache: RefCell<Option<(PathBuf, Rc<Vec<ImageAsset>>)>>,
+}
+
 pub(crate) struct App {
     pub(crate) config_path: PathBuf,
     pub(crate) config: Config,
@@ -215,10 +230,7 @@ pub(crate) struct App {
     pub(crate) search_cursor_visible: bool,
     pub(crate) overlay: Overlay,
     pub(crate) status_bar: StatusBar,
-    pub(crate) images: ImageRuntime,
-    /// `(entry_path, viewer_size)` the image cache is warmed for, or `None` when
-    /// no entry view is open. Compared against the desired context each tick.
-    image_warm: Option<(PathBuf, Size)>,
+    pub(crate) image: ImageState,
     /// Clickable `[Image N …]` label positions from the last entry-view render.
     pub(crate) entry_view_image_hits: EntryViewImageHits,
     /// Which pane's scrollbar is currently being dragged, if any. Set on press,
@@ -228,13 +240,6 @@ pub(crate) struct App {
     /// Rows between the top of the thumb and the point where it was grabbed, so the
     /// grabbed point tracks the cursor during a scrollbar drag.
     pub(crate) scrollbar_grab: u16,
-    /// Selected entry's in-folder images, memoized by path; `RefCell` so `&self`
-    /// render/hint/shortcut paths can read it. Re-parsed on a path change or when
-    /// `refresh` clears it. Part of the image subsystem (grouped with the fields
-    /// above), not [`RenderCaches`]: it is path-keyed with manual invalidation
-    /// (`.take()` on reload) and tied to the `ImageRuntime` lifecycle, rather than
-    /// invalidated by a version counter.
-    selected_images_cache: RefCell<Option<(PathBuf, Rc<Vec<ImageAsset>>)>>,
     /// Per-frame render memo caches (rows, rendered body, journal stats) and the
     /// version counters that invalidate them. See [`RenderCaches`].
     caches: RenderCaches,
@@ -295,12 +300,10 @@ impl App {
             search_cursor_visible: true,
             overlay: Overlay::None,
             status_bar: StatusBar::default(),
-            images: ImageRuntime::default(),
-            image_warm: None,
+            image: ImageState::default(),
             entry_view_image_hits: EntryViewImageHits::default(),
             scrollbar_drag: None,
             scrollbar_grab: 0,
-            selected_images_cache: RefCell::new(None),
             caches: RenderCaches::default(),
             search_dirty: false,
             search_last_edit: None,
@@ -323,11 +326,11 @@ impl App {
 
     pub(crate) fn refresh(&mut self) -> AppResult<()> {
         self.store.ensure()?;
-        self.images.clear();
+        self.image.runtime.clear();
         // Content may have changed: force `sync_image_warm` to rebuild next tick
         // and drop the memo so images are re-parsed from the reloaded body.
-        self.image_warm = None;
-        self.selected_images_cache.borrow_mut().take();
+        self.image.warm = None;
+        self.image.selected_cache.borrow_mut().take();
         let entry_paths = self.store.collect_entry_paths()?;
         self.load_entries(entry_paths)
     }
@@ -392,9 +395,9 @@ impl App {
 
         // The viewed entry's body/images may have changed: drop the image caches
         // (the version-keyed row/body/stats caches self-invalidate on the bump).
-        self.images.clear();
-        self.image_warm = None;
-        self.selected_images_cache.borrow_mut().take();
+        self.image.runtime.clear();
+        self.image.warm = None;
+        self.image.selected_cache.borrow_mut().take();
 
         for (journal, path) in targets {
             if path.exists() {
@@ -917,28 +920,28 @@ impl App {
 
         // Drop the cache when the entry that warmed it is no longer open (closed
         // or switched to another entry) or the viewer's target size changed.
-        let stale = match &self.image_warm {
+        let stale = match &self.image.warm {
             Some((warmed_path, warmed_size)) => {
                 open_entry.as_deref() != Some(warmed_path.as_path()) || *warmed_size != size
             }
             None => false,
         };
         if stale {
-            self.images.clear();
-            self.image_warm = None;
+            self.image.runtime.clear();
+            self.image.warm = None;
         }
 
         // Warm only once the viewer is actually opened. `image_warm` is `None`
         // here only when nothing valid is cached (a matching cache is never
         // stale), so this builds each entry's images at most once per session.
         if matches!(self.overlay, Overlay::ImageViewer(_))
-            && self.image_warm.is_none()
+            && self.image.warm.is_none()
             && let Some(path) = open_entry
         {
             let assets = self.selected_images();
             if !assets.is_empty() {
-                self.images.warm(&assets, size);
-                self.image_warm = Some((path, size));
+                self.image.runtime.warm(&assets, size);
+                self.image.warm = Some((path, size));
             }
         }
     }
@@ -949,7 +952,7 @@ impl App {
     fn selected_images(&self) -> Rc<Vec<ImageAsset>> {
         let target_path = self.selected_entry_target().map(|target| target.path);
 
-        if let Some((path, images)) = self.selected_images_cache.borrow().as_ref()
+        if let Some((path, images)) = self.image.selected_cache.borrow().as_ref()
             && target_path.as_deref() == Some(path.as_path())
         {
             return images.clone();
@@ -960,7 +963,7 @@ impl App {
             _ => Vec::new(),
         });
         if let Some(path) = target_path {
-            *self.selected_images_cache.borrow_mut() = Some((path, images.clone()));
+            *self.image.selected_cache.borrow_mut() = Some((path, images.clone()));
         }
         images
     }

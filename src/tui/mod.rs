@@ -42,7 +42,7 @@ pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResu
     enable_raw_mode()?;
     // Must run after raw mode: the detection query reads control-sequence
     // replies from stdin.
-    app.images = image::ImageRuntime::detect(&app.store);
+    app.image.runtime = image::ImageRuntime::detect(&app.store);
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let mut terminal_guard = TerminalRestoreGuard::new();
@@ -102,14 +102,14 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
 
     loop {
         // A newly finished image build makes the frame stale; repaint below.
-        let images_ready = app.images.poll_results();
+        let images_ready = app.image.runtime.poll_results();
 
         let mut poll_timeout = app
             .status_timeout()
             .map(|t| t.min(Duration::from_millis(200)))
             .unwrap_or(Duration::from_millis(200));
         // Poll briefly while builds are pending so results paint promptly.
-        if app.images.has_pending() {
+        if app.image.runtime.has_pending() {
             poll_timeout = poll_timeout.min(Duration::from_millis(30));
         }
         // Wake often enough to blink the search caret while typing in the field.
@@ -199,7 +199,7 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
 
         // Repaint each tick while the viewer's image builds so the loading
         // ellipsis keeps animating.
-        let animate_loading = app.image_viewer_state().is_some() && app.images.has_pending();
+        let animate_loading = app.image_viewer_state().is_some() && app.image.runtime.has_pending();
 
         // Drive the search caret's blink: keystrokes hold it solid, idle toggles
         // it on the blink half-period, and outside the field it stays visible.
@@ -227,7 +227,7 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
             || animate_loading
             || blink_toggled
         {
-            if overlay_closed && app.images.uses_graphics() {
+            if overlay_closed && app.image.runtime.uses_graphics() {
                 terminal.clear()?;
             }
             terminal.draw(|frame| render::draw(frame, &mut app))?;
