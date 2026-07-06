@@ -338,25 +338,15 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             feelings: &feelings,
             mood,
         };
-        if let Some(feeling) =
-            render::feeling_at_point(area.area, mouse.column, mouse.row, metadata)
+        if let Some((chip, value)) =
+            render::metadata_at_point(area.area, mouse.column, mouse.row, metadata)
         {
-            app.begin_feeling_search(&feeling);
-            return Ok(());
-        }
-        if let Some(person) = render::person_at_point(area.area, mouse.column, mouse.row, metadata)
-        {
-            app.begin_people_search(&person);
-            return Ok(());
-        }
-        if let Some(activity) =
-            render::activity_at_point(area.area, mouse.column, mouse.row, metadata)
-        {
-            app.begin_activity_search(&activity);
-            return Ok(());
-        }
-        if let Some(tag) = render::tag_at_point(area.area, mouse.column, mouse.row, metadata) {
-            app.begin_tag_search(&tag);
+            match chip {
+                render::MetadataChip::Feelings => app.begin_feeling_search(&value),
+                render::MetadataChip::People => app.begin_people_search(&value),
+                render::MetadataChip::Activities => app.begin_activity_search(&value),
+                render::MetadataChip::Tags => app.begin_tag_search(&value),
+            }
             return Ok(());
         }
         app.nav.focus = Focus::EntryView;

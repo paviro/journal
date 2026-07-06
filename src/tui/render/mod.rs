@@ -22,9 +22,7 @@ pub(crate) use super::entry_rows::{
 };
 #[cfg(test)]
 pub(crate) use super::hit_test::journal_index_at;
-pub(crate) use super::hit_test::{
-    activity_at_point, entry_index_at, feeling_at_point, person_at_point, tag_at_point,
-};
+pub(crate) use super::hit_test::{MetadataChip, entry_index_at, metadata_at_point};
 #[cfg(test)]
 pub(crate) use super::scroll::scrollbar_position;
 pub(crate) use super::scroll::{clamp_scroll, viewer_scroll};

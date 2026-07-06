@@ -278,22 +278,22 @@ fn metadata_hit_map_accounts_for_mood_row() {
     let tags_row = layout.tags.unwrap();
 
     assert_eq!(
-        feeling_at_point(
+        metadata_at_point(
             area,
             feelings_row.rect.x + feelings_row.prefix_width,
             feelings_row.rect.y,
             values
         ),
-        Some("focused".to_string())
+        Some((MetadataChip::Feelings, "focused".to_string()))
     );
     assert_eq!(
-        tag_at_point(
+        metadata_at_point(
             area,
             tags_row.rect.x + tags_row.prefix_width,
             tags_row.rect.y,
             values
         ),
-        Some("work".to_string())
+        Some((MetadataChip::Tags, "work".to_string()))
     );
 }
 
@@ -308,22 +308,22 @@ fn metadata_hit_map_uses_terminal_cell_width_for_wide_text() {
     let tags_row = layout.tags.unwrap();
 
     assert_eq!(
-        feeling_at_point(
+        metadata_at_point(
             area,
             feelings_row.rect.x + feelings_row.prefix_width + 5,
             feelings_row.rect.y,
             values
         ),
-        Some("嬉しい".to_string())
+        Some((MetadataChip::Feelings, "嬉しい".to_string()))
     );
     assert_eq!(
-        tag_at_point(
+        metadata_at_point(
             area,
             tags_row.rect.x + tags_row.prefix_width + 3,
             tags_row.rect.y,
             values
         ),
-        Some("集中".to_string())
+        Some((MetadataChip::Tags, "集中".to_string()))
     );
 }
 
@@ -391,17 +391,17 @@ fn entry_view_wraps_metadata_rows_without_leading_space_or_separator() {
         "p"
     );
     assert_eq!(
-        feeling_at_point(
+        metadata_at_point(
             entry_view,
             feelings_row.rect.x,
             feelings_row.rect.y + 1,
             values
         ),
-        Some("focused".to_string())
+        Some((MetadataChip::Feelings, "focused".to_string()))
     );
     assert_eq!(
-        tag_at_point(entry_view, tags_row.rect.x, tags_row.rect.y + 1, values),
-        Some("personal".to_string())
+        metadata_at_point(entry_view, tags_row.rect.x, tags_row.rect.y + 1, values),
+        Some((MetadataChip::Tags, "personal".to_string()))
     );
 }
 
