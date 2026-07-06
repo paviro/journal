@@ -196,10 +196,15 @@ mod tests {
     }
 
     #[test]
-    fn explicit_missing_config_runs_setup_path_behavior_when_saved_directly() {
+    fn save_and_load_config_round_trips_all_fields() {
         let dir = tempdir().unwrap();
+        // A nested path also exercises that save creates missing parent dirs.
         let path = dir.path().join("nested").join("config.toml");
-        let config = Config::new(dir.path().join("root"), "vim");
+        let mut config = Config::new(dir.path().join("root"), "vim");
+        config.default_journal = Some("work".to_string());
+        config.show_journals = false;
+        config.last_journal = Some("home".to_string());
+        config.download_remote_images = false;
 
         save_config(&path, &config).unwrap();
         let loaded = load_config(&path).unwrap();
@@ -208,35 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn save_and_load_config_preserves_default_journal() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        let mut config = Config::new(dir.path().join("root"), "vim");
-        config.default_journal = Some("work".to_string());
-
-        save_config(&path, &config).unwrap();
-        let loaded = load_config(&path).unwrap();
-
-        assert_eq!(loaded.default_journal.as_deref(), Some("work"));
-    }
-
-    #[test]
-    fn save_and_load_config_preserves_show_journals_and_last_journal() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        let mut config = Config::new(dir.path().join("root"), "vim");
-        config.show_journals = false;
-        config.last_journal = Some("work".to_string());
-
-        save_config(&path, &config).unwrap();
-        let loaded = load_config(&path).unwrap();
-
-        assert!(!loaded.show_journals);
-        assert_eq!(loaded.last_journal.as_deref(), Some("work"));
-    }
-
-    #[test]
-    fn missing_show_journals_defaults_to_true() {
+    fn missing_optional_fields_use_defaults() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("config.toml");
         fs::write(&path, "journal_root = \"~/Journals\"\neditor = \"nano\"\n").unwrap();
@@ -245,21 +222,6 @@ mod tests {
 
         assert!(config.show_journals);
         assert_eq!(config.last_journal, None);
-        assert!(config.download_remote_images);
-    }
-
-    #[test]
-    fn explicit_image_config_values_are_preserved() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        fs::write(
-            &path,
-            "journal_root = \"~/Journals\"\neditor = \"nano\"\ndownload_remote_images = true\n",
-        )
-        .unwrap();
-
-        let config = load_config(&path).unwrap();
-
         assert!(config.download_remote_images);
     }
 }

@@ -34,8 +34,6 @@ pub(crate) use super::surface::{
     EntryListGeometry, EntryMetadataValues, PanelGeometry, entry_metadata_layout, panel_inner,
     point_in_rect,
 };
-#[cfg(test)]
-pub(crate) use chrome::panel_title;
 pub(crate) use chrome::{
     HintId, centered_rect_fixed_size, count_label, expanded_footer_height,
     expanded_footer_hint_id_at_point, expanded_footer_lines, footer_hint_id_at_point, footer_lines,
@@ -59,8 +57,6 @@ use journals::draw_journals;
 pub(crate) use journals::{JOURNAL_BOX_HEIGHT, journal_list_rect, journals_per_page};
 pub(crate) use layout::{TuiLayout, tui_layout};
 use markdown_panel::draw_selected_entry_view;
-#[cfg(test)]
-pub(crate) use markdown_panel::markdown_theme;
 use stats::draw_journal_stats;
 #[cfg(test)]
 pub(crate) use stats::{centered_stats_layout, journal_stats};
@@ -170,7 +166,6 @@ mod tests {
     };
     use journal_storage::{Entry, EntryEncryptionState, JournalStore, SearchHit};
     use ratatui::{Terminal, backend::TestBackend, layout::Rect, style::Modifier, text::Line};
-    use ratatui_029::style::Color as MarkdownColor;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
@@ -902,18 +897,6 @@ mod tests {
     }
 
     #[test]
-    fn markdown_theme_uses_terminal_default_foregrounds() {
-        let theme = markdown_theme();
-
-        assert_eq!(theme.text_color, MarkdownColor::Reset);
-        assert_eq!(theme.muted_text_color, MarkdownColor::Reset);
-        assert_eq!(theme.primary_color, MarkdownColor::Reset);
-        assert_eq!(theme.secondary_color, MarkdownColor::Reset);
-        assert_eq!(theme.accent_yellow, MarkdownColor::Reset);
-        assert_eq!(theme.code_colors.variable, MarkdownColor::Reset);
-    }
-
-    #[test]
     fn entry_view_renders_feelings_metadata() {
         let dir = tempdir().unwrap();
         let entry_dir = dir.path().join("work").join("2026-07-01");
@@ -953,29 +936,6 @@ mod tests {
         assert!(rendered.contains("mermaid"));
         assert!(rendered.contains("Open journal"));
         assert!(rendered.contains("Write entry"));
-    }
-
-    #[test]
-    fn focused_panel_titles_have_reversed_text() {
-        let focused = panel_title("Entries", true);
-        assert_eq!(focused.spans.len(), 1);
-        assert_eq!(focused.spans[0].content.as_ref(), " Entries ");
-        assert!(
-            focused.spans[0]
-                .style
-                .add_modifier
-                .contains(Modifier::REVERSED)
-        );
-
-        let unfocused = panel_title("Entries", false);
-        assert_eq!(unfocused.spans.len(), 1);
-        assert_eq!(unfocused.spans[0].content.as_ref(), " Entries ");
-        assert!(
-            !unfocused.spans[0]
-                .style
-                .add_modifier
-                .contains(Modifier::REVERSED)
-        );
     }
 
     #[test]

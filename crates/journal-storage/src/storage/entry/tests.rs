@@ -101,32 +101,18 @@ fn create_entry_with_body_preserves_multiline_body_and_trailing_newline() {
 }
 
 #[test]
-fn entry_id_is_filename_stem_not_front_matter() {
+fn entry_id_and_journal_come_from_path_not_front_matter() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("id-from-file.md");
     fs::write(
         &path,
-        "+++\nid = \"wrong\"\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
-    )
-    .unwrap();
-
-    let entry = read_entry("journal", &path, None).unwrap();
-
-    assert_eq!(entry.id, "id-from-file");
-}
-
-#[test]
-fn entry_journal_is_read_context_not_front_matter() {
-    let dir = tempdir().unwrap();
-    let path = dir.path().join("entry.md");
-    fs::write(
-        &path,
-        "+++\njournal = \"wrong\"\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
+        "+++\nid = \"wrong\"\njournal = \"wrong\"\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
     )
     .unwrap();
 
     let entry = read_entry("folder-name", &path, None).unwrap();
 
+    assert_eq!(entry.id, "id-from-file");
     assert_eq!(entry.journal, "folder-name");
 }
 
