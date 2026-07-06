@@ -372,7 +372,7 @@ mod tests {
     use crate::{
         config::Config,
         tui::{
-            app::{App, Focus},
+            app::{App, Focus, ScrollbarDrag},
             render,
             state::EditTagFocus,
         },
@@ -1058,5 +1058,81 @@ mod tests {
             20,
         );
         assert_eq!(app.edit_mood_state().unwrap().draft, 5);
+    }
+
+    #[test]
+    fn drag_entry_list_scrollbar_jumps_and_tracks() {
+        let mut app = app_with_entries(60);
+        let (w, h) = (120, 20);
+        let entries = render::tui_layout(Rect::new(0, 0, w, h), &app)
+            .entries
+            .expect("entries panel");
+        let area = entries.panel.area;
+        let bar_col = area.x + area.width - 1;
+        let bar_top = area.y + 1;
+        let bar_bottom = area.y + area.height - 2;
+
+        let cache = app.entry_rows(entries.text_width);
+        let max = cache
+            .total_height
+            .saturating_sub(entries.viewport_height as usize);
+        assert!(max > 0, "entry list should overflow so a bar is drawn");
+
+        // Press at the bottom of the track → jump to the maximum offset and focus.
+        mouse_in_area(
+            &mut app,
+            mouse(MouseEventKind::Down(MouseButton::Left), bar_col, bar_bottom),
+            w,
+            h,
+        );
+        assert_eq!(app.entry_list.offset(), max);
+        assert_eq!(app.focus, Focus::Entries);
+        assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::EntryList));
+
+        // Drag to the top with the cursor drifted off the bar column → scroll to 0.
+        mouse_in_area(
+            &mut app,
+            mouse(MouseEventKind::Drag(MouseButton::Left), 0, bar_top),
+            w,
+            h,
+        );
+        assert_eq!(app.entry_list.offset(), 0);
+
+        // Release clears the drag state.
+        mouse_in_area(
+            &mut app,
+            mouse(MouseEventKind::Up(MouseButton::Left), 0, bar_top),
+            w,
+            h,
+        );
+        assert!(app.scrollbar_drag.is_none());
+    }
+
+    #[test]
+    fn drag_journals_scrollbar_jumps_to_bottom() {
+        let names: Vec<String> = (0..60).map(|i| format!("journal-{i:02}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut app = app_with_journals(&refs);
+        let (w, h) = (120, 20);
+        let journals = render::tui_layout(Rect::new(0, 0, w, h), &app)
+            .journals
+            .expect("journals panel");
+        let area = journals.area;
+        let bar_col = area.x + area.width - 1;
+        let bar_bottom = area.y + area.height - 2;
+
+        let per_page =
+            render::journals_per_page(render::journal_list_rect(journals.content).height);
+        let max = app.journals.len().saturating_sub(per_page as usize);
+        assert!(max > 0, "journals list should overflow so a bar is drawn");
+
+        mouse_in_area(
+            &mut app,
+            mouse(MouseEventKind::Down(MouseButton::Left), bar_col, bar_bottom),
+            w,
+            h,
+        );
+        assert_eq!(app.journal_list.offset(), max);
+        assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::Journals));
     }
 }

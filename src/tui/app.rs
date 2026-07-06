@@ -225,6 +225,10 @@ pub(crate) struct App {
     image_warm: Option<(PathBuf, Size)>,
     /// Clickable `[Image N …]` label positions from the last entry-view render.
     pub(crate) entry_view_image_hits: EntryViewImageHits,
+    /// Which pane's scrollbar is currently being dragged, if any. Set on press,
+    /// cleared on release; lets a drag keep scrolling even after the cursor drifts
+    /// off the one-column bar.
+    pub(crate) scrollbar_drag: Option<ScrollbarDrag>,
     /// Selected entry's in-folder images, memoized by path; `RefCell` so `&self`
     /// render/hint/shortcut paths can read it. Re-parsed on a path change or when
     /// `refresh` clears it. Part of the image subsystem (grouped with the fields
@@ -248,8 +252,18 @@ pub(crate) struct App {
 pub(crate) struct EntryViewImageHits {
     pub(crate) content_rect: Rect,
     pub(crate) scroll: u16,
+    /// Total rendered body line count, for mapping a scrollbar drag to a scroll offset.
+    pub(crate) line_count: usize,
     /// `(body line index, image index)` per label line.
     pub(crate) labels: Vec<(usize, usize)>,
+}
+
+/// Which pane's vertical scrollbar a mouse drag is currently manipulating.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScrollbarDrag {
+    Journals,
+    EntryList,
+    EntryView,
 }
 
 impl App {
@@ -285,6 +299,7 @@ impl App {
             images: ImageRuntime::default(),
             image_warm: None,
             entry_view_image_hits: EntryViewImageHits::default(),
+            scrollbar_drag: None,
             selected_images_cache: RefCell::new(None),
             caches: RenderCaches::default(),
             search_dirty: false,

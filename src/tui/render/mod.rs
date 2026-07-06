@@ -28,6 +28,8 @@ pub(crate) use super::hit_test::{
 #[cfg(test)]
 pub(crate) use super::scroll::scrollbar_position;
 pub(crate) use super::scroll::{clamp_scroll, viewer_scroll};
+#[cfg(test)]
+use super::scroll::{scroll_from_bar_row, scrollbar_bar_rect};
 pub(crate) use super::surface::{
     EntryListGeometry, EntryMetadataValues, PanelGeometry, entry_metadata_layout, panel_inner,
     point_in_rect,
@@ -624,6 +626,38 @@ mod tests {
     #[test]
     fn scrollbar_position_stays_at_start_when_content_fits() {
         assert_eq!(scrollbar_position(0, 4, 8), 0);
+    }
+
+    #[test]
+    fn scrollbar_bar_rect_matches_rendered_track() {
+        // Panel at (2, 3) sized 20×10: bar on the rightmost column, inset one row
+        // top and bottom (Margin { vertical: 1 }).
+        let bar = scrollbar_bar_rect(Rect::new(2, 3, 20, 10));
+        assert_eq!(bar, Rect::new(21, 4, 1, 8));
+    }
+
+    #[test]
+    fn scroll_from_bar_row_maps_track_ends_to_scroll_range() {
+        let (top, height, max) = (4, 8, 100);
+        // Top of the track → 0, bottom → max, and rows are clamped past the ends.
+        assert_eq!(scroll_from_bar_row(top, top, height, max), 0);
+        assert_eq!(scroll_from_bar_row(0, top, height, max), 0);
+        assert_eq!(scroll_from_bar_row(top + height - 1, top, height, max), max);
+        assert_eq!(scroll_from_bar_row(u16::MAX, top, height, max), max);
+    }
+
+    #[test]
+    fn scroll_from_bar_row_maps_midpoint_near_half() {
+        // Track rows 4..=11 (height 8, span 7); the middle rows land near max/2.
+        let half = scroll_from_bar_row(4 + 3, 4, 8, 100);
+        assert!((40..=60).contains(&half), "midpoint mapped to {half}");
+    }
+
+    #[test]
+    fn scroll_from_bar_row_handles_degenerate_tracks() {
+        assert_eq!(scroll_from_bar_row(5, 4, 8, 0), 0); // no overflow
+        assert_eq!(scroll_from_bar_row(5, 4, 1, 100), 0); // single-row track
+        assert_eq!(scroll_from_bar_row(5, 4, 0, 100), 0); // no track
     }
 
     #[test]

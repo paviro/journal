@@ -42,7 +42,7 @@ pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &
         let mood = app.selected_entry_mood();
         let entry_path = app.selected_entry_target().map(|target| target.path);
 
-        let (scroll, labels, content_rect) = draw_markdown_panel(
+        let (scroll, labels, content_rect, line_count) = draw_markdown_panel(
             frame,
             area,
             app,
@@ -66,6 +66,7 @@ pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &
         app.entry_view_image_hits = EntryViewImageHits {
             content_rect,
             scroll,
+            line_count,
             labels,
         };
     } else {
@@ -86,8 +87,9 @@ struct PanelEntry<'a> {
 }
 
 /// Draw the entry body and metadata, returning the applied scroll, the clickable
-/// image-label positions (`(body line index, image index)`), and the body rect
-/// (for mapping clicks back to labels).
+/// image-label positions (`(body line index, image index)`), the body rect (for
+/// mapping clicks back to labels), and the total rendered line count (for scrollbar
+/// drag mapping).
 fn draw_markdown_panel(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -96,7 +98,7 @@ fn draw_markdown_panel(
     requested_scroll: u16,
     focused: bool,
     entry_path: Option<&Path>,
-) -> (u16, Vec<(usize, usize)>, Rect) {
+) -> (u16, Vec<(usize, usize)>, Rect, usize) {
     let PanelEntry {
         title,
         content,
@@ -148,7 +150,7 @@ fn draw_markdown_panel(
         scroll as usize,
     );
 
-    (scroll, labels, content_rect)
+    (scroll, labels, content_rect, line_count)
 }
 
 fn metadata_scrolls_with_body(area: Rect) -> bool {
