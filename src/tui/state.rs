@@ -92,6 +92,51 @@ impl Default for SearchState {
     }
 }
 
+/// A `ListState` with the app's shared keyboard/scroll navigation, so overlay
+/// list states don't each re-wire selection and offset handling. The item count
+/// (`len`) is supplied per call because it lives on the owning state (a filtered
+/// view for tags, the full vocabulary for feelings).
+#[derive(Default)]
+pub(crate) struct SelectableList {
+    state: ListState,
+}
+
+impl SelectableList {
+    pub(crate) fn selected(&self) -> Option<usize> {
+        self.state.selected()
+    }
+
+    pub(crate) fn offset(&self) -> usize {
+        self.state.offset()
+    }
+
+    pub(crate) fn set_offset(&mut self, offset: usize) {
+        *self.state.offset_mut() = offset;
+    }
+
+    pub(crate) fn normalize(&mut self, len: usize) {
+        normalize_list_state(&mut self.state, len);
+    }
+
+    pub(crate) fn select(&mut self, index: usize, len: usize) {
+        if index < len {
+            self.state.select(Some(index));
+        }
+    }
+
+    pub(crate) fn move_by(&mut self, len: usize, delta: isize) {
+        move_list_selection(&mut self.state, len, delta);
+    }
+
+    pub(crate) fn scroll_by(&mut self, delta: i16, len: usize, viewport_height: u16) {
+        scroll_list_offset(&mut self.state, delta, len, viewport_height);
+    }
+
+    pub(crate) fn ensure_visible(&mut self, len: usize, viewport_height: u16) {
+        ensure_selected_visible(&mut self.state, len, viewport_height);
+    }
+}
+
 /// Which part of the edit-tags dialog has keyboard focus.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditTagFocus {
@@ -143,7 +188,7 @@ pub(crate) struct EditTagState {
     /// Values currently selected for the entry (lowercased for look-up).
     pub(crate) selected: Vec<String>,
     /// Stateful list selection and scroll offset.
-    pub(crate) list_state: ListState,
+    pub(crate) list: SelectableList,
     /// Text input for filtering values and adding new ones.
     pub(crate) input: String,
     /// Whether keyboard events go to the list or to the input.
@@ -162,7 +207,7 @@ impl EditTagState {
             all_tags,
             filtered,
             selected,
-            list_state: ListState::default(),
+            list: SelectableList::default(),
             input: String::new(),
             focus: EditTagFocus::List,
         };
@@ -179,12 +224,12 @@ impl EditTagState {
             .filter(|(_, (tag, _))| tag.to_lowercase().contains(&query))
             .map(|(i, _)| i)
             .collect();
-        *self.list_state.offset_mut() = 0;
+        self.list.set_offset(0);
         self.normalize_list_state();
     }
 
     pub(crate) fn selected_index(&self) -> Option<usize> {
-        self.list_state.selected()
+        self.list.selected()
     }
 
     pub(crate) fn selected_tag_index(&self) -> Option<usize> {
@@ -193,38 +238,33 @@ impl EditTagState {
     }
 
     pub(crate) fn offset(&self) -> usize {
-        self.list_state.offset()
+        self.list.offset()
     }
 
     pub(crate) fn normalize_list_state(&mut self) {
-        normalize_list_state(&mut self.list_state, self.filtered.len());
+        self.list.normalize(self.filtered.len());
     }
 
     pub(crate) fn select_index(&mut self, index: usize) {
-        if index < self.filtered.len() {
-            self.list_state.select(Some(index));
-        }
+        self.list.select(index, self.filtered.len());
     }
 
     pub(crate) fn move_up(&mut self) {
-        move_list_selection(&mut self.list_state, self.filtered.len(), -1);
+        self.list.move_by(self.filtered.len(), -1);
     }
 
     pub(crate) fn move_down(&mut self) {
-        move_list_selection(&mut self.list_state, self.filtered.len(), 1);
+        self.list.move_by(self.filtered.len(), 1);
     }
 
     pub(crate) fn scroll_by(&mut self, delta: i16, viewport_height: u16) {
-        scroll_list_offset(
-            &mut self.list_state,
-            delta,
-            self.filtered.len(),
-            viewport_height,
-        );
+        self.list
+            .scroll_by(delta, self.filtered.len(), viewport_height);
     }
 
     pub(crate) fn ensure_selected_visible(&mut self, viewport_height: u16) {
-        ensure_selected_visible(&mut self.list_state, self.filtered.len(), viewport_height);
+        self.list
+            .ensure_visible(self.filtered.len(), viewport_height);
     }
 
     pub(crate) fn toggle_selected(&mut self) {
@@ -246,7 +286,7 @@ pub(crate) struct EditFeelingState {
     /// Feelings currently selected for the entry.
     pub(crate) selected: Vec<String>,
     /// Stateful list selection and scroll offset.
-    pub(crate) list_state: ListState,
+    pub(crate) list: SelectableList,
 }
 
 impl EditFeelingState {
@@ -254,53 +294,44 @@ impl EditFeelingState {
         let mut state = Self {
             all_feelings,
             selected,
-            list_state: ListState::default(),
+            list: SelectableList::default(),
         };
         state.normalize_list_state();
         state
     }
 
     pub(crate) fn selected_index(&self) -> Option<usize> {
-        self.list_state.selected()
+        self.list.selected()
     }
 
     pub(crate) fn offset(&self) -> usize {
-        self.list_state.offset()
+        self.list.offset()
     }
 
     pub(crate) fn normalize_list_state(&mut self) {
-        normalize_list_state(&mut self.list_state, self.all_feelings.len());
+        self.list.normalize(self.all_feelings.len());
     }
 
     pub(crate) fn select_index(&mut self, index: usize) {
-        if index < self.all_feelings.len() {
-            self.list_state.select(Some(index));
-        }
+        self.list.select(index, self.all_feelings.len());
     }
 
     pub(crate) fn move_up(&mut self) {
-        move_list_selection(&mut self.list_state, self.all_feelings.len(), -1);
+        self.list.move_by(self.all_feelings.len(), -1);
     }
 
     pub(crate) fn move_down(&mut self) {
-        move_list_selection(&mut self.list_state, self.all_feelings.len(), 1);
+        self.list.move_by(self.all_feelings.len(), 1);
     }
 
     pub(crate) fn scroll_by(&mut self, delta: i16, viewport_height: u16) {
-        scroll_list_offset(
-            &mut self.list_state,
-            delta,
-            self.all_feelings.len(),
-            viewport_height,
-        );
+        self.list
+            .scroll_by(delta, self.all_feelings.len(), viewport_height);
     }
 
     pub(crate) fn ensure_selected_visible(&mut self, viewport_height: u16) {
-        ensure_selected_visible(
-            &mut self.list_state,
-            self.all_feelings.len(),
-            viewport_height,
-        );
+        self.list
+            .ensure_visible(self.all_feelings.len(), viewport_height);
     }
 
     pub(crate) fn toggle_selected(&mut self) {
@@ -451,7 +482,7 @@ mod tests {
     fn tag_keyboard_selection_scrolls_up_to_remain_visible() {
         let mut state = tag_state(10);
         state.select_index(5);
-        *state.list_state.offset_mut() = 5;
+        state.list.set_offset(5);
 
         state.move_up();
         state.ensure_selected_visible(4);

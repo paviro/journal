@@ -1,7 +1,6 @@
 use super::codec::EntryCodec;
-use super::paths::{ENTRY_ID_LEN, entry_assets_dir};
+use super::paths::entry_assets_dir;
 use crate::{AppResult, crypto, markdown};
-use nanoid::nanoid;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -68,14 +67,7 @@ pub fn edit_entry_body(
         return Ok(false);
     }
 
-    let new_content = if let Some(fm) = front_matter {
-        let reassembled = format!("+++\n{fm}\n+++\n\n{}", new_body.trim_start_matches('\n'));
-        markdown::set_updated_at_now_in_content(&reassembled)
-    } else {
-        new_body
-    };
-
-    codec.write_existing(path, &new_content)?;
+    codec.write_body(path, front_matter, new_body.trim_start_matches('\n'))?;
     Ok(true)
 }
 
@@ -98,7 +90,7 @@ fn remove_entry_assets(entry_path: &Path) {
 /// Overwrite a plaintext entry file atomically via a sibling temp file and a
 /// rename, cleaning up the temp file on failure.
 pub(crate) fn write_plain_atomic(path: &Path, content: &str) -> AppResult<()> {
-    let temp = unique_temp_path(path.parent().unwrap_or_else(|| Path::new(".")), "edit.md");
+    let temp = crate::sibling_temp_path(path, "edit.md");
     let result = (|| {
         fs::write(&temp, content)?;
         fs::rename(&temp, path)?;
@@ -156,7 +148,11 @@ fn preflight_entry_assets_trash(entry_path: &Path, trash_path: &Path) -> AppResu
         return Ok(());
     };
     if source.exists() && dest.exists() {
-        return Err(format!("asset trash destination already exists: {}", dest.display()).into());
+        return Err(crate::StorageError::TargetExists {
+            what: "asset trash destination",
+            path: dest,
+        }
+        .into());
     }
     Ok(())
 }
@@ -185,13 +181,4 @@ pub(super) fn encrypted_replacement_temp_path(path: &Path) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("entry.md.age");
     parent.join(format!(".{name}.tmp"))
-}
-
-fn unique_temp_path(dir: &Path, suffix: &str) -> PathBuf {
-    dir.join(format!(
-        ".journal-{}-{}.{}",
-        std::process::id(),
-        nanoid!(ENTRY_ID_LEN),
-        suffix
-    ))
 }

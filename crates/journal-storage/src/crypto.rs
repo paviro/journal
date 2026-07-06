@@ -99,11 +99,7 @@ pub fn decrypt_to_string(identity: &UnlockedIdentity, input: &Path) -> AppResult
 
 /// Decrypt an encrypted file into memory. Used for viewing encrypted binary
 /// assets (e.g. images) without ever writing a plaintext copy to disk.
-pub fn decrypt_to_bytes(identity: &UnlockedIdentity, input: &Path) -> AppResult<Vec<u8>> {
-    decrypt_file_bytes(identity, input)
-}
-
-fn decrypt_file_bytes(identity: &UnlockedIdentity, input: &Path) -> AppResult<Vec<u8>> {
+pub fn decrypt_file_bytes(identity: &UnlockedIdentity, input: &Path) -> AppResult<Vec<u8>> {
     let ciphertext = fs::read(input)?;
     decrypt_bytes_with_identity(&ciphertext, &identity.identity)
 }

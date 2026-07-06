@@ -314,22 +314,6 @@ fn render_lines_in_area<'a>(
     }
 }
 
-fn render_dialog_scrollbar(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    list_lines: u16,
-    max_visible: u16,
-    scroll: u16,
-) {
-    render_scrollbar_if_needed(
-        frame,
-        area,
-        list_lines as usize,
-        max_visible,
-        scroll as usize,
-    );
-}
-
 fn render_separator(frame: &mut Frame<'_>, area: Rect) {
     let area = Rect {
         x: area.x.saturating_add(1),
@@ -434,7 +418,7 @@ pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagSt
     let max_visible = layout.list.height;
     let max_offset = list_lines.saturating_sub(max_visible as usize);
     let scroll = state.offset().min(max_offset);
-    *state.list_state.offset_mut() = scroll;
+    state.list.set_offset(scroll);
 
     let items: Vec<ListItem<'_>> = if state.filtered.is_empty() {
         let text = if state.input.is_empty() {
@@ -504,13 +488,7 @@ pub(super) fn draw_edit_tags_dialog(frame: &mut Frame<'_>, state: &mut EditTagSt
         tags_dialog_hints(state.focus, state.input.trim().is_empty()),
         layout.hints,
     );
-    render_dialog_scrollbar(
-        frame,
-        layout.area,
-        list_lines as u16,
-        max_visible,
-        scroll as u16,
-    );
+    render_scrollbar_if_needed(frame, layout.area, list_lines, max_visible, scroll);
 }
 
 pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState) {
@@ -583,7 +561,7 @@ pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditF
     let max_visible = layout.list.height;
     let max_offset = list_lines.saturating_sub(max_visible as usize);
     let scroll = state.offset().min(max_offset);
-    *state.list_state.offset_mut() = scroll;
+    state.list.set_offset(scroll);
 
     let items: Vec<ListItem<'_>> = state
         .all_feelings
@@ -620,11 +598,5 @@ pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditF
     frame.render_stateful_widget(list, layout.list, &mut render_state);
     render_separator(frame, layout.list_bottom_separator);
     render_hint_line(frame, feelings_dialog_hints(), layout.hints);
-    render_dialog_scrollbar(
-        frame,
-        layout.area,
-        list_lines as u16,
-        max_visible,
-        scroll as u16,
-    );
+    render_scrollbar_if_needed(frame, layout.area, list_lines, max_visible, scroll);
 }

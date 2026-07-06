@@ -105,6 +105,30 @@ pub struct EntryMetadata<'a> {
     pub mood: Option<i8>,
 }
 
+impl EntryMetadata<'static> {
+    /// Metadata with no tags/people/activities/feelings and no mood.
+    pub const fn empty() -> Self {
+        Self {
+            tags: &[],
+            people: &[],
+            activities: &[],
+            feelings: &[],
+            mood: None,
+        }
+    }
+}
+
+/// One front-matter metadata field paired with its new value, for targeted
+/// single-field edits (see `set_entry_metadata_field`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetadataField {
+    Tags(Vec<String>),
+    People(Vec<String>),
+    Activities(Vec<String>),
+    Feelings(Vec<String>),
+    Mood(Option<i8>),
+}
+
 pub struct EntryPath {
     pub journal: String,
     pub path: PathBuf,

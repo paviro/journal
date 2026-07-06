@@ -152,10 +152,7 @@ fn collect_store_files_including_trash(
     Ok(())
 }
 
-fn ensure_no_migration_collisions(
-    files: &[PathBuf],
-    mode: &MigrationMode<'_>,
-) -> AppResult<()> {
+fn ensure_no_migration_collisions(files: &[PathBuf], mode: &MigrationMode<'_>) -> AppResult<()> {
     for source in files {
         let target = migration_target(source, mode)?;
         if target.exists() {
@@ -172,7 +169,7 @@ fn ensure_no_migration_collisions(
 
 fn encrypt_plain_entry(path: &Path, paths: &crypto::EncryptionPaths) -> AppResult<()> {
     let target = path.with_extension("md.age");
-    let temp = unique_temp_path(&target, "tmp.age");
+    let temp = crate::sibling_temp_path(&target, "tmp.age");
     crypto::encrypt_file(paths, path, &temp)?;
     fs::rename(&temp, &target)?;
     fs::remove_file(path)?;
@@ -181,7 +178,7 @@ fn encrypt_plain_entry(path: &Path, paths: &crypto::EncryptionPaths) -> AppResul
 
 fn decrypt_encrypted_entry(path: &Path, identity: &crypto::UnlockedIdentity) -> AppResult<()> {
     let target = decrypted_entry_path(path)?;
-    let temp = unique_temp_path(&target, "tmp.md");
+    let temp = crate::sibling_temp_path(&target, "tmp.md");
     crypto::decrypt_file(identity, path, &temp)?;
     let decrypted = fs::read_to_string(&temp)?;
     if decrypted.is_empty() {
@@ -269,16 +266,6 @@ fn disabled_identity_path_for_timestamp(identity_file: &Path, timestamp: &str) -
     parent.join(format!(
         "identity.disabled-{timestamp}-{}.age",
         Local::now().timestamp_nanos_opt().unwrap_or_default()
-    ))
-}
-
-fn unique_temp_path(target: &Path, suffix: &str) -> PathBuf {
-    let parent = target.parent().unwrap_or_else(|| Path::new("."));
-    parent.join(format!(
-        ".journal-{}-{}.{}",
-        std::process::id(),
-        Local::now().timestamp_nanos_opt().unwrap_or_default(),
-        suffix
     ))
 }
 

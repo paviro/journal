@@ -1,8 +1,9 @@
 use super::edit::{write_encrypted_entry_content, write_plain_atomic};
 use super::paths::is_encrypted_entry_file;
-use super::read::read_entry_content_with_identity;
+use super::read::read_entry_content;
 use crate::AppResult;
 use crate::crypto::{self, EncryptionPaths, UnlockedIdentity};
+use crate::markdown;
 use std::path::Path;
 
 /// The crypto material for reading and writing a store's entry files, plus the
@@ -41,14 +42,14 @@ impl EntryCodec {
     }
 
     /// The recipient/identity file locations, for the encrypt side.
-    pub(crate) fn recipients(&self) -> &EncryptionPaths {
+    pub(crate) fn encryption_paths(&self) -> &EncryptionPaths {
         &self.paths
     }
 
     /// Read an entry file to text, decrypting when it is a `.age` entry. Errors
     /// if the entry is encrypted but this codec has no identity.
     pub(crate) fn read(&self, path: &Path) -> AppResult<String> {
-        read_entry_content_with_identity(path, self.identity.as_ref())
+        read_entry_content(path, self.identity.as_ref())
     }
 
     /// Overwrite an existing entry file in place, preserving its on-disk
@@ -59,5 +60,25 @@ impl EntryCodec {
         } else {
             write_plain_atomic(path, content)
         }
+    }
+
+    /// Reassemble an entry from its (still-unparsed) `front_matter` and a new
+    /// `body`, refresh `updated_at`, and write it back in place. With no front
+    /// matter the body is written verbatim.
+    pub(crate) fn write_body(
+        &self,
+        path: &Path,
+        front_matter: Option<&str>,
+        body: &str,
+    ) -> AppResult<()> {
+        let content = match front_matter {
+            Some(front_matter) => {
+                let mut parsed = markdown::front_matter_fields(front_matter);
+                parsed.updated_at = Some(chrono::Local::now().to_rfc3339());
+                markdown::render_entry(&parsed, body)
+            }
+            None => body.to_string(),
+        };
+        self.write_existing(path, &content)
     }
 }

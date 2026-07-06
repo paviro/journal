@@ -16,8 +16,8 @@ pub use entry::{AssetFailure, AssetReport};
 pub(crate) use entry::{
     EntryCodec, collect_entry_paths, create_entry, create_imported_entry, delete_empty_entry,
     delete_journal, edit_entry_body, ingest_and_cleanup_opts, is_encrypted_entry_file,
-    is_plain_entry_file, move_entry_to_trash, read_entries, read_entry_content_with_identity,
-    read_entry_with_identity, resolve_entry_asset_path, scan_entries_with_identity,
+    is_plain_entry_file, move_entry_to_trash, read_entries, read_entry, read_entry_content,
+    resolve_entry_asset_path, scan_entries,
 };
 pub use journals::{Journal, create_journal, list_journals, validate_journal_name};
 

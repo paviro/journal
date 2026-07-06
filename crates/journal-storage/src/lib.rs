@@ -4,13 +4,15 @@ use std::{
 };
 
 mod crypto;
+mod error;
 pub(crate) mod markdown;
 mod migrate;
 mod storage;
 
+pub use error::StorageError;
 pub use journal_core::{
-    AppResult, Entry, EntryEncryptionState, EntryMetadata, EntryPath, SearchHit, SearchScopeFilter,
-    search_loaded_entries,
+    AppResult, Entry, EntryEncryptionState, EntryMetadata, EntryPath, MetadataField, SearchHit,
+    SearchScopeFilter, search_loaded_entries,
 };
 pub use migrate::{DecryptSummary, MigrationSummary};
 pub use storage::{
@@ -74,6 +76,18 @@ fn convert_to_srgb(image: &image::DynamicImage, icc: &[u8]) -> Option<image::Dyn
     )?))
 }
 
+/// A unique hidden sibling temp path next to `target`, for atomic
+/// write-then-rename. Named `.journal-<pid>-<rand>.<suffix>` in the target's
+/// directory so it lands on the same filesystem as the eventual rename target.
+pub(crate) fn sibling_temp_path(target: &Path, suffix: &str) -> PathBuf {
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    parent.join(format!(
+        ".journal-{}-{}.{suffix}",
+        std::process::id(),
+        nanoid::nanoid!(12),
+    ))
+}
+
 #[derive(Clone)]
 pub struct JournalStore {
     paths: JournalStorePaths,
@@ -135,11 +149,11 @@ impl JournalStore {
     }
 
     pub fn encryption_enabled(&self) -> bool {
-        self.encryption_status().enabled
+        crypto::should_encrypt(&self.encryption_paths())
     }
 
     pub fn unlock_available(&self) -> bool {
-        self.encryption_status().unlock_available
+        crypto::can_decrypt(&self.encryption_paths())
     }
 
     pub fn public_recipient(&self) -> AppResult<String> {
@@ -190,15 +204,15 @@ impl JournalStore {
     }
 
     pub fn scan_entries(&self) -> AppResult<Vec<Entry>> {
-        storage::scan_entries_with_identity(&self.paths.journal_root, self.identity.as_ref())
+        storage::scan_entries(&self.paths.journal_root, self.identity.as_ref())
     }
 
     pub fn read_entry(&self, journal: &str, path: &Path) -> AppResult<Entry> {
-        storage::read_entry_with_identity(journal, path, self.identity.as_ref())
+        storage::read_entry(journal, path, self.identity.as_ref())
     }
 
     pub fn read_entry_content(&self, path: &Path) -> AppResult<String> {
-        storage::read_entry_content_with_identity(path, self.identity.as_ref())
+        storage::read_entry_content(path, self.identity.as_ref())
     }
 
     pub fn create_entry_with_body(
@@ -298,47 +312,16 @@ impl JournalStore {
         storage::delete_empty_entry(path)
     }
 
-    pub fn set_entry_tags(&self, path: &Path, tags: &[String]) -> AppResult<()> {
-        self.update_entry_metadata(path, |content| {
-            markdown::set_tags_in_front_matter(content, tags)
-        })
-    }
-
-    pub fn set_entry_people(&self, path: &Path, people: &[String]) -> AppResult<()> {
-        self.update_entry_metadata(path, |content| {
-            markdown::set_people_in_front_matter(content, people)
-        })
-    }
-
-    pub fn set_entry_activities(&self, path: &Path, activities: &[String]) -> AppResult<()> {
-        self.update_entry_metadata(path, |content| {
-            markdown::set_activities_in_front_matter(content, activities)
-        })
-    }
-
-    pub fn set_entry_feelings(&self, path: &Path, feelings: &[String]) -> AppResult<()> {
-        self.update_entry_metadata(path, |content| {
-            markdown::set_feelings_in_front_matter(content, feelings)
-        })
-    }
-
-    pub fn set_entry_mood(&self, path: &Path, mood: Option<i8>) -> AppResult<()> {
-        self.update_entry_metadata(path, |content| {
-            markdown::set_mood_in_front_matter(content, mood)
-        })
-    }
-
-    pub(crate) fn update_entry_metadata(
-        &self,
-        path: &Path,
-        update: impl FnOnce(&str) -> Option<String>,
-    ) -> AppResult<()> {
+    /// Replace one metadata field of an entry's front matter (and refresh
+    /// `updated_at`), leaving the body untouched. A no-op if the file has no
+    /// front matter.
+    pub fn set_entry_metadata_field(&self, path: &Path, field: MetadataField) -> AppResult<()> {
         let codec = self.entry_codec();
         let content = codec.read(path)?;
-        let Some(new_content) = update(&content) else {
+        let Some(new_content) = markdown::set_metadata_field(&content, &field) else {
             return Ok(());
         };
-        codec.write_existing(path, &markdown::set_updated_at_now_in_content(&new_content))
+        codec.write_existing(path, &new_content)
     }
 
     /// Ingest external image references in the entry (copy/download them into
@@ -363,7 +346,7 @@ impl JournalStore {
         let (front_matter, body) = markdown::split_front_matter(&content);
         let body = body.trim_start_matches('\n');
 
-        let encryption = encrypted.then_some(codec.recipients());
+        let encryption = encrypted.then_some(codec.encryption_paths());
         let (new_body, report) = storage::ingest_and_cleanup_opts(
             path,
             body,
@@ -373,14 +356,7 @@ impl JournalStore {
         )?;
 
         if let Some(new_body) = new_body {
-            let new_content = if let Some(fm) = front_matter {
-                let reassembled =
-                    format!("+++\n{fm}\n+++\n\n{}", new_body.trim_start_matches('\n'));
-                markdown::set_updated_at_now_in_content(&reassembled)
-            } else {
-                new_body
-            };
-            codec.write_existing(path, &new_content)?;
+            codec.write_body(path, front_matter, new_body.trim_start_matches('\n'))?;
         }
 
         Ok(report)
@@ -401,8 +377,8 @@ impl JournalStore {
             let identity = self
                 .identity
                 .as_ref()
-                .ok_or("encrypted asset requires an unlocked journal encryption identity")?;
-            Ok(Some(crypto::decrypt_to_bytes(identity, &path)?))
+                .ok_or(StorageError::LockedIdentity { context: "asset" })?;
+            Ok(Some(crypto::decrypt_file_bytes(identity, &path)?))
         } else {
             Ok(Some(fs::read(path)?))
         }
@@ -412,16 +388,15 @@ impl JournalStore {
         let identity = self
             .identity
             .as_ref()
-            .ok_or("decrypting the store requires an unlocked journal encryption identity")?;
+            .ok_or(StorageError::LockedIdentity { context: "store" })?;
         migrate::decrypt_store(self, identity)
     }
 
     pub fn encrypt_store(&self) -> AppResult<migrate::MigrationSummary> {
         if !self.encryption_enabled() && migrate::store_has_encrypted_entry_files(self)? {
-            return Err(format!(
-                "encrypted entries already exist but recipients file is missing at {}; cannot safely continue encryption",
-                self.paths.recipients_file.display()
-            )
+            return Err(StorageError::RecipientsMissing {
+                path: self.paths.recipients_file.clone(),
+            }
             .into());
         }
         migrate::encrypt_store(self)

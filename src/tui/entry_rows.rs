@@ -4,11 +4,32 @@ use ratatui::{
     text::{Line, Span},
     widgets::ListItem,
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{
     app::{App, Mode},
     scroll::clamp_scroll,
 };
+
+/// Display width of `s` in terminal cells (wide/CJK characters count as 2).
+fn text_width(s: &str) -> usize {
+    UnicodeWidthStr::width(s)
+}
+
+/// The longest prefix of `s` that fits within `max` display cells, and its width.
+fn take_width(s: &str, max: usize) -> (String, usize) {
+    let mut out = String::new();
+    let mut used = 0;
+    for ch in s.chars() {
+        let cell = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + cell > max {
+            break;
+        }
+        out.push(ch);
+        used += cell;
+    }
+    (out, used)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EntryRowMeta {
@@ -226,7 +247,7 @@ pub(crate) fn entry_month_sections(app: &App, text_width: u16) -> Vec<(usize, St
 /// A month separator with the label pinned to the right edge over a heavy rule:
 /// `━━━━━━━━━━━━━━━━━━━━━ July 2026`.
 fn month_divider(box_width: usize, month: &str) -> Line<'static> {
-    let fill = box_width.saturating_sub(month.chars().count() + 1);
+    let fill = box_width.saturating_sub(text_width(month) + 1);
     Line::from(vec![
         Span::styled(format!("{} ", "━".repeat(fill)), border_style()),
         Span::styled(
@@ -375,8 +396,8 @@ pub(crate) fn border_line(
     let bold = Style::default().add_modifier(Modifier::BOLD);
     let left = left.filter(|label| !label.is_empty());
     let right = right.filter(|label| !label.is_empty());
-    let left_width = left.map_or(0, |label| label.chars().count() + 2);
-    let right_width = right.map_or(0, |label| label.chars().count() + 2);
+    let left_width = left.map_or(0, |label| text_width(label) + 2);
+    let right_width = right.map_or(0, |label| text_width(label) + 2);
 
     if box_width < left_width + right_width + 2 {
         return Line::from(Span::styled(
@@ -403,8 +424,8 @@ pub(crate) fn border_line(
 }
 
 pub(crate) fn box_inner_line(text: String, inner_width: usize) -> Line<'static> {
-    let content: String = text.chars().take(inner_width).collect();
-    let pad = inner_width - content.chars().count();
+    let (content, used) = take_width(&text, inner_width);
+    let pad = inner_width - used;
     Line::from(vec![
         Span::styled("│ ".to_string(), border_style()),
         Span::raw(content),
@@ -412,52 +433,53 @@ pub(crate) fn box_inner_line(text: String, inner_width: usize) -> Line<'static> 
     ])
 }
 
-/// Greedy word-wrap into at most `max_lines`, ellipsizing the last line when the
-/// text overflows.
+/// Greedy word-wrap by display width into at most `max_lines`, ellipsizing the
+/// last line when the text overflows.
 fn wrap_text(text: &str, width: usize, max_lines: usize) -> Vec<String> {
     let text = text.trim();
     if text.is_empty() || width == 0 || max_lines == 0 {
         return Vec::new();
     }
 
-    let chars: Vec<char> = text.chars().collect();
     let mut lines = Vec::new();
-    let mut pos = 0;
-    while pos < chars.len() && lines.len() < max_lines {
-        if chars.len() - pos <= width {
-            lines.push(chars[pos..].iter().collect());
+    let mut rest = text;
+    while !rest.is_empty() && lines.len() < max_lines {
+        if text_width(rest) <= width {
+            lines.push(rest.to_string());
             break;
         }
         if lines.len() + 1 == max_lines {
-            lines.push(truncate_ellipsis(
-                &chars[pos..].iter().collect::<String>(),
-                width,
-            ));
+            lines.push(truncate_ellipsis(rest, width));
             break;
         }
-        let brk = chars[pos..pos + width]
-            .iter()
-            .rposition(|&c| c == ' ')
-            .unwrap_or(width);
-        lines.push(chars[pos..pos + brk].iter().collect());
-        pos += brk;
-        if chars.get(pos) == Some(&' ') {
-            pos += 1;
-        }
+
+        let head = take_width(rest, width).0;
+        let (line_end, next_start) = if head.is_empty() {
+            // The first character is wider than the whole line; consume it so
+            // we always make progress and never split mid-character.
+            let end = rest.chars().next().map_or(rest.len(), char::len_utf8);
+            (end, end)
+        } else {
+            match head.rfind(' ') {
+                Some(space) => (space, space + 1),
+                None => (head.len(), head.len()),
+            }
+        };
+        lines.push(rest[..line_end].to_string());
+        rest = &rest[next_start..];
     }
     lines
 }
 
-/// Truncates `text` to `max` display cells, ending with `…` when it overflows.
+/// Truncate `text` to `max` display cells, ending with `…` when it overflows.
 fn truncate_ellipsis(text: &str, max: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() <= max {
-        return chars.iter().collect();
+    if text_width(text) <= max {
+        return text.to_string();
     }
     if max <= 1 {
         return "…".to_string();
     }
-    let mut truncated: String = chars[..max - 1].iter().collect();
+    let (mut truncated, _) = take_width(text, max - 1);
     while truncated.ends_with(' ') {
         truncated.pop();
     }
@@ -533,5 +555,20 @@ mod tests {
 
         assert_eq!(scroll, 100_000 - 20);
         assert!(scroll > u16::MAX as usize);
+    }
+
+    #[test]
+    fn wrapping_and_padding_use_display_width_not_char_count() {
+        // Each CJK character is two cells wide. A width of 4 fits exactly two of
+        // them, so a four-character run must wrap onto a second line — a
+        // char-count wrap would wrongly keep all four on one 8-cell line.
+        let wrapped = wrap_text("日本語訳", 4, 3);
+        assert_eq!(wrapped, vec!["日本".to_string(), "語訳".to_string()]);
+
+        // The padded inner content must span exactly `inner_width` cells: two
+        // wide characters (4 cells) leave a single trailing space to reach 5.
+        let line = box_inner_line("日本".to_string(), 5);
+        assert_eq!(line.spans[1].content.as_ref(), "日本");
+        assert_eq!(line.spans[2].content.as_ref(), "  │");
     }
 }

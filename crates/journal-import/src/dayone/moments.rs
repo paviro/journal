@@ -128,15 +128,15 @@ struct ParsedImage<'a> {
 /// Parse a `![alt](target)` starting at `s[0] == '!'`. Returns `None` if `s`
 /// does not begin a well-formed image tag.
 fn parse_image(s: &str) -> Option<ParsedImage<'_>> {
-    let after_bang = s.strip_prefix("![")?;
-    let alt_end = after_bang.find("](")?;
-    let alt = &after_bang[..alt_end];
-    let after_alt = &after_bang[alt_end + 2..];
-    let target_end = after_alt.find(')')?;
-    let target = &after_alt[..target_end];
-    // 2 (`![`) + alt + 2 (`](`) + target + 1 (`)`)
-    let len = 2 + alt_end + 2 + target_end + 1;
-    Some(ParsedImage { alt, target, len })
+    let span = journal_core::markdown::parse_inline_at(s)?;
+    if !span.is_image {
+        return None;
+    }
+    Some(ParsedImage {
+        alt: &s[span.text],
+        target: &s[span.target],
+        len: span.span.end,
+    })
 }
 
 fn is_moment(target: &str) -> bool {

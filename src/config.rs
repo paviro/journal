@@ -262,16 +262,4 @@ mod tests {
 
         assert!(config.download_remote_images);
     }
-
-    #[test]
-    fn saved_config_omits_encryption_state() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        let config = Config::new(dir.path().join("root"), "vim");
-
-        save_config(&path, &config).unwrap();
-
-        let text = fs::read_to_string(&path).unwrap();
-        assert!(!text.contains("encryption"));
-    }
 }

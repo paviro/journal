@@ -1112,20 +1112,7 @@ impl App {
     }
 
     pub(crate) fn begin_tag_search(&mut self, tag: &str) {
-        self.search.scope = self
-            .selected_journal()
-            .map(|journal| SearchScope::CurrentJournal(journal.name.clone()))
-            .unwrap_or(SearchScope::AllJournals);
-        self.mode = Mode::Search;
-        self.focus = Focus::Entries;
-        self.search.query = format!("tags:{tag}");
-        self.search.cursor = self.search.query.chars().count();
-        self.search.hits = self.search_results_by_metadata(MetadataKind::Tags, tag);
-        self.search_dirty = false;
-        self.search_last_edit = None;
-        self.caches.bump_rows();
-        self.selected_entry_index = Some(0);
-        self.reset_entry_scroll();
+        self.begin_metadata_search(MetadataKind::Tags, tag);
     }
 
     pub(crate) fn begin_people_search(&mut self, person: &str) {
@@ -1137,57 +1124,36 @@ impl App {
     }
 
     fn begin_metadata_search(&mut self, kind: MetadataKind, value: &str) {
-        self.search.scope = self
-            .selected_journal()
-            .map(|journal| SearchScope::CurrentJournal(journal.name.clone()))
-            .unwrap_or(SearchScope::AllJournals);
-        self.mode = Mode::Search;
-        self.focus = Focus::Entries;
-        self.search.query = format!("{}:{value}", kind.search_prefix());
-        self.search.cursor = self.search.query.chars().count();
-        self.search.hits = self.search_results_by_metadata(kind, value);
-        self.search_dirty = false;
-        self.search_last_edit = None;
-        self.caches.bump_rows();
-        self.selected_entry_index = Some(0);
-        self.reset_entry_scroll();
+        let scope = self.current_journal_scope();
+        let hits = self.search_results_by_metadata(kind, value);
+        self.enter_search(scope, format!("{}:{value}", kind.search_prefix()), hits);
     }
 
     pub(crate) fn begin_feeling_search(&mut self, feeling: &str) {
-        self.search.scope = self
-            .selected_journal()
-            .map(|journal| SearchScope::CurrentJournal(journal.name.clone()))
-            .unwrap_or(SearchScope::AllJournals);
-        self.mode = Mode::Search;
-        self.focus = Focus::Entries;
-        self.search.query = format!("feelings:{feeling}");
-        self.search.cursor = self.search.query.chars().count();
-        self.search.hits = self.search_results_by_feeling(feeling);
-        self.search_dirty = false;
-        self.search_last_edit = None;
-        self.caches.bump_rows();
-        self.selected_entry_index = Some(0);
-        self.reset_entry_scroll();
+        let scope = self.current_journal_scope();
+        let hits = self.search_results_by_feeling(feeling);
+        self.enter_search(scope, format!("feelings:{feeling}"), hits);
     }
 
     pub(crate) fn begin_search(&mut self) {
-        self.search.scope = if self.focus == Focus::Journals {
+        let scope = if self.focus == Focus::Journals {
             SearchScope::AllJournals
         } else {
-            self.selected_journal()
-                .map(|journal| SearchScope::CurrentJournal(journal.name.clone()))
-                .unwrap_or(SearchScope::AllJournals)
+            self.current_journal_scope()
         };
+        self.enter_search(scope, String::new(), Vec::new());
+    }
+
+    /// Enter search mode with a prepared `query`/`hits`, focusing the entry list
+    /// and selecting the first hit.
+    fn enter_search(&mut self, scope: SearchScope, query: String, hits: Vec<SearchHit>) {
+        self.search.scope = scope;
         self.mode = Mode::Search;
         self.focus = Focus::Entries;
-        self.search.query.clear();
-        self.search.cursor = 0;
-        self.search.hits.clear();
-        self.search_dirty = false;
-        self.search_last_edit = None;
-        self.caches.bump_rows();
-        self.selected_entry_index = Some(0);
-        self.reset_entry_scroll();
+        self.search.cursor = query.chars().count();
+        self.search.query = query;
+        self.search.hits = hits;
+        self.commit_search_selection();
     }
 
     pub(crate) fn exit_search(&mut self) {
@@ -1196,15 +1162,25 @@ impl App {
         self.search.query.clear();
         self.search.cursor = 0;
         self.search.hits.clear();
-        self.search_dirty = false;
-        self.search_last_edit = None;
-        self.caches.bump_rows();
-        self.selected_entry_index = Some(0);
-        self.reset_entry_scroll();
+        self.commit_search_selection();
     }
 
     pub(crate) fn update_search_results(&mut self) {
         self.search.hits = self.search_results();
+        self.commit_search_selection();
+    }
+
+    /// The search scope for a metadata/feeling drill-down: the selected journal,
+    /// or all journals when none is selected.
+    fn current_journal_scope(&self) -> SearchScope {
+        self.selected_journal()
+            .map(|journal| SearchScope::CurrentJournal(journal.name.clone()))
+            .unwrap_or(SearchScope::AllJournals)
+    }
+
+    /// Shared tail of every search entry/exit: clear the debounce state,
+    /// invalidate the row cache, and reset the selection to the first hit.
+    fn commit_search_selection(&mut self) {
         self.search_dirty = false;
         self.search_last_edit = None;
         self.caches.bump_rows();
@@ -1288,19 +1264,17 @@ impl App {
         }
     }
 
-    fn search_results_by_metadata(&self, kind: MetadataKind, query: &str) -> Vec<SearchHit> {
-        let query_lower = query.to_lowercase();
+    /// Build hits from the in-scope, unlocked entries matching `predicate`.
+    fn search_results_matching(&self, predicate: impl Fn(&Entry) -> bool) -> Vec<SearchHit> {
         self.entries
             .iter()
             .filter(|entry| {
                 entry.encryption_state != EntryEncryptionState::EncryptedLocked
-                    && metadata_values(entry, kind)
-                        .iter()
-                        .any(|value| value.to_lowercase().contains(&query_lower))
-            })
-            .filter(|entry| match self.search.scope {
-                SearchScope::AllJournals => true,
-                SearchScope::CurrentJournal(ref journal) => entry.journal == *journal,
+                    && match self.search.scope {
+                        SearchScope::AllJournals => true,
+                        SearchScope::CurrentJournal(ref journal) => entry.journal == *journal,
+                    }
+                    && predicate(entry)
             })
             .map(|entry| SearchHit {
                 id: entry.id.clone(),
@@ -1312,31 +1286,25 @@ impl App {
             .collect()
     }
 
+    fn search_results_by_metadata(&self, kind: MetadataKind, query: &str) -> Vec<SearchHit> {
+        let query_lower = query.to_lowercase();
+        self.search_results_matching(|entry| {
+            metadata_values(entry, kind)
+                .iter()
+                .any(|value| value.to_lowercase().contains(&query_lower))
+        })
+    }
+
     fn search_results_by_feeling(&self, feeling: &str) -> Vec<SearchHit> {
         let Some(feeling) = normalize_feeling(feeling) else {
             return Vec::new();
         };
-        self.entries
-            .iter()
-            .filter(|entry| {
-                entry.encryption_state != EntryEncryptionState::EncryptedLocked
-                    && entry
-                        .feelings
-                        .iter()
-                        .any(|entry_feeling| entry_feeling == &feeling)
-            })
-            .filter(|entry| match self.search.scope {
-                SearchScope::AllJournals => true,
-                SearchScope::CurrentJournal(ref journal) => entry.journal == *journal,
-            })
-            .map(|entry| SearchHit {
-                id: entry.id.clone(),
-                journal: entry.journal.clone(),
-                created_at: entry.created_at.clone(),
-                title: entry.display_label(),
-                preview: entry.preview.clone(),
-            })
-            .collect()
+        self.search_results_matching(|entry| {
+            entry
+                .feelings
+                .iter()
+                .any(|entry_feeling| entry_feeling == &feeling)
+        })
     }
 
     pub(crate) fn scroll_entry_view(&mut self, delta: i16) {

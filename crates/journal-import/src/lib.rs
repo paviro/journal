@@ -11,8 +11,9 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-use chrono::{DateTime, Local};
-use journal_storage::{AppResult, AssetFailure, EntryMetadata, JournalStore};
+use journal_storage::{
+    AppResult, AssetFailure, EntryMetadata, JournalStore, parse_entry_timestamp,
+};
 
 use dayone::model::DayOneExport;
 use dayone::moments::{MediaIndex, rewrite_moments};
@@ -82,7 +83,11 @@ pub fn import_dayone(
             continue;
         }
 
-        let Some(created_at) = entry.creation_date.as_deref().and_then(parse_date) else {
+        let Some(created_at) = entry
+            .creation_date
+            .as_deref()
+            .and_then(parse_entry_timestamp)
+        else {
             report
                 .failures
                 .push(format!("{}: missing or invalid creationDate", entry.uuid));
@@ -91,7 +96,7 @@ pub fn import_dayone(
         let updated_at = entry
             .modified_date
             .as_deref()
-            .and_then(parse_date)
+            .and_then(parse_entry_timestamp)
             .unwrap_or(created_at);
 
         let media = MediaIndex::build(entry, media_root);
@@ -159,10 +164,4 @@ pub fn import_dayone(
     }
 
     Ok(report)
-}
-
-fn parse_date(value: &str) -> Option<DateTime<Local>> {
-    DateTime::parse_from_rfc3339(value)
-        .ok()
-        .map(|dt| dt.with_timezone(&Local))
 }

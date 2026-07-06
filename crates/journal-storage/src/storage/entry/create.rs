@@ -55,14 +55,17 @@ fn entry_content(
     metadata: EntryMetadata<'_>,
     import_id: Option<&str>,
 ) -> String {
-    let mut content = entry_template(created_at, updated_at);
-    if let Some(updated) = crate::markdown::set_metadata(&content, &metadata) {
-        content = updated;
-    }
-    if let Some(import_id) = import_id {
-        content = crate::markdown::set_front_matter_value(&content, "import_id", import_id);
-    }
-    content.push_str(body);
+    let front_matter = crate::markdown::FrontMatter {
+        created_at: Some(created_at.to_rfc3339()),
+        updated_at: Some(updated_at.to_rfc3339()),
+        tags: metadata.tags.to_vec(),
+        people: metadata.people.to_vec(),
+        activities: metadata.activities.to_vec(),
+        feelings: metadata.feelings.to_vec(),
+        mood: metadata.mood,
+        import_id: import_id.map(str::to_string),
+    };
+    let mut content = crate::markdown::render_entry(&front_matter, body);
     if !content.ends_with('\n') {
         content.push('\n');
     }
@@ -84,7 +87,7 @@ pub(crate) fn create_entry_file(
 ) -> AppResult<PathBuf> {
     let encrypted = codec.encrypts_new_entries();
     let bytes = if encrypted {
-        crypto::encrypt_bytes(codec.recipients(), content.as_bytes())?
+        crypto::encrypt_bytes(codec.encryption_paths(), content.as_bytes())?
     } else {
         content.as_bytes().to_vec()
     };
@@ -116,12 +119,4 @@ pub(crate) fn create_entry_file(
 fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(bytes)
-}
-
-pub fn entry_template(created_at: DateTime<Local>, updated_at: DateTime<Local>) -> String {
-    format!(
-        "+++\ncreated_at = \"{}\"\nupdated_at = \"{}\"\ntags = []\npeople = []\nactivities = []\nfeelings = []\n+++\n\n",
-        created_at.to_rfc3339(),
-        updated_at.to_rfc3339()
-    )
 }

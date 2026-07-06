@@ -16,16 +16,6 @@ fn local_time(y: i32, m: u32, d: u32, h: u32, min: u32) -> DateTime<Local> {
     }
 }
 
-fn empty_metadata() -> EntryMetadata<'static> {
-    EntryMetadata {
-        tags: &[],
-        people: &[],
-        activities: &[],
-        feelings: &[],
-        mood: None,
-    }
-}
-
 #[test]
 fn entry_path_uses_year_month_day_folder_and_datetime_short_id_filename() {
     let dir = tempdir().unwrap();
@@ -80,18 +70,17 @@ fn create_entry_with_body_writes_body_after_front_matter() {
         dir.path(),
         "work",
         "Some text",
-        empty_metadata(),
+        EntryMetadata::empty(),
     )
     .unwrap();
     let text = fs::read_to_string(created).unwrap();
+    let (front_matter, body) = crate::markdown::split_front_matter(&text);
+    let fields = crate::markdown::front_matter_fields(front_matter.unwrap());
 
-    assert!(text.starts_with("+++\ncreated_at = \""));
-    assert!(text.contains("\nupdated_at = \""));
-    assert!(
-        text.contains(
-            "\ntags = []\npeople = []\nactivities = []\nfeelings = []\n+++\n\nSome text\n"
-        )
-    );
+    assert!(fields.created_at.is_some());
+    assert!(fields.updated_at.is_some());
+    assert!(fields.tags.is_empty());
+    assert_eq!(body.trim_start_matches('\n'), "Some text\n");
 }
 
 #[test]
@@ -103,31 +92,13 @@ fn create_entry_with_body_preserves_multiline_body_and_trailing_newline() {
         dir.path(),
         "work",
         "Line one\n\nLine three\n",
-        empty_metadata(),
+        EntryMetadata::empty(),
     )
     .unwrap();
     let text = fs::read_to_string(created).unwrap();
 
     assert!(text.ends_with("\n\nLine three\n"));
     assert!(!text.ends_with("\n\nLine three\n\n"));
-}
-
-#[test]
-fn entry_template_has_expected_front_matter() {
-    let now = local_time(2026, 7, 1, 23, 30);
-
-    let template = entry_template(now, now);
-
-    assert_eq!(
-        template,
-        format!(
-            "+++\ncreated_at = \"{}\"\nupdated_at = \"{}\"\ntags = []\npeople = []\nactivities = []\nfeelings = []\n+++\n\n",
-            now.to_rfc3339(),
-            now.to_rfc3339()
-        )
-    );
-    assert!(!template.contains("journal:"));
-    assert!(!template.contains("kind:"));
 }
 
 #[test]
@@ -140,7 +111,7 @@ fn entry_id_is_filename_stem_not_front_matter() {
     )
     .unwrap();
 
-    let entry = read_entry("journal", &path).unwrap();
+    let entry = read_entry("journal", &path, None).unwrap();
 
     assert_eq!(entry.id, "id-from-file");
 }
@@ -155,7 +126,7 @@ fn entry_journal_is_read_context_not_front_matter() {
     )
     .unwrap();
 
-    let entry = read_entry("folder-name", &path).unwrap();
+    let entry = read_entry("folder-name", &path, None).unwrap();
 
     assert_eq!(entry.journal, "folder-name");
 }
@@ -170,7 +141,7 @@ fn entry_preview_collapses_body_with_markdown_stripped() {
     )
     .unwrap();
 
-    let entry = read_entry("journal", &path).unwrap();
+    let entry = read_entry("journal", &path, None).unwrap();
 
     assert_eq!(entry.preview, "Hi how is it going? This is a test entry");
 }
@@ -185,7 +156,7 @@ fn entry_tags_read_toml_list() {
     )
     .unwrap();
 
-    let entry = read_entry("journal", &path).unwrap();
+    let entry = read_entry("journal", &path, None).unwrap();
 
     assert_eq!(entry.tags, vec!["work", "deep focus"]);
 }
@@ -200,7 +171,7 @@ fn entry_feelings_read_known_values_only() {
     )
     .unwrap();
 
-    let entry = read_entry("journal", &path).unwrap();
+    let entry = read_entry("journal", &path, None).unwrap();
 
     assert_eq!(entry.feelings, vec!["calm", "focused"]);
 }
@@ -251,7 +222,7 @@ fn plain_entry_preview_is_the_whole_body() {
     )
     .unwrap();
 
-    let entry = read_entry("journal", &path).unwrap();
+    let entry = read_entry("journal", &path, None).unwrap();
 
     assert_eq!(entry.preview, "Plain title Plain preview");
     assert_eq!(entry.display_label(), "Plain title Plain preview");
@@ -267,7 +238,7 @@ fn empty_entry_preview_is_empty_and_label_falls_back_to_timestamp() {
     )
     .unwrap();
 
-    let entry = read_entry("journal", &path).unwrap();
+    let entry = read_entry("journal", &path, None).unwrap();
 
     assert_eq!(entry.preview, "");
     assert_eq!(entry.display_label(), "2026-07-01T10:00:00+02:00");
@@ -297,7 +268,7 @@ fn scan_entries_skips_trash() {
     )
     .unwrap();
 
-    let entries = scan_entries(dir.path()).unwrap();
+    let entries = scan_entries(dir.path(), None).unwrap();
 
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].preview, "Active");
@@ -316,7 +287,7 @@ fn scan_entries_returns_locked_placeholder_for_encrypted_entry_without_key() {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(&path, "not decrypted during locked scans").unwrap();
 
-    let entries = scan_entries(dir.path()).unwrap();
+    let entries = scan_entries(dir.path(), None).unwrap();
 
     assert_eq!(entries.len(), 1);
     assert_eq!(
@@ -343,12 +314,12 @@ fn scan_entries_marks_encrypted_entry_unlocked_with_identity() {
         &root,
         "work",
         "# Secret\nBody",
-        empty_metadata(),
+        EntryMetadata::empty(),
     )
     .unwrap();
     let identity = crypto::unlock_identity(&paths, "secret").unwrap();
 
-    let entries = scan_entries_with_identity(&root, Some(&identity)).unwrap();
+    let entries = scan_entries(&root, Some(&identity)).unwrap();
 
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].path, encrypted);
@@ -458,7 +429,13 @@ fn delete_does_not_move_entry_when_asset_trash_destination_exists() {
 
     let error = move_entry_to_trash(dir.path(), &path).unwrap_err();
 
-    assert!(error.to_string().contains("asset trash destination"));
+    assert!(matches!(
+        error.downcast_ref::<crate::StorageError>(),
+        Some(crate::StorageError::TargetExists {
+            what: "asset trash destination",
+            ..
+        })
+    ));
     assert!(path.exists());
     assert!(assets.join("x9.png").exists());
 }

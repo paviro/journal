@@ -11,12 +11,7 @@ use journal_core::feelings::normalize_feelings;
 use rayon::prelude::*;
 use std::{fs, path::Path};
 
-#[cfg(test)]
-pub fn scan_entries(root: &Path) -> AppResult<Vec<Entry>> {
-    scan_entries_with_identity(root, None)
-}
-
-pub fn scan_entries_with_identity(
+pub fn scan_entries(
     root: &Path,
     identity: Option<&crypto::UnlockedIdentity>,
 ) -> AppResult<Vec<Entry>> {
@@ -68,18 +63,13 @@ pub fn read_entries(
 ) -> AppResult<Vec<Entry>> {
     let mut entries = paths
         .par_iter()
-        .map(|entry| read_entry_with_identity(&entry.journal, &entry.path, identity))
+        .map(|entry| read_entry(&entry.journal, &entry.path, identity))
         .collect::<AppResult<Vec<Entry>>>()?;
     entries.sort_by(|a, b| b.path.cmp(&a.path));
     Ok(entries)
 }
 
-#[cfg(test)]
-pub fn read_entry(journal: &str, path: &Path) -> AppResult<Entry> {
-    read_entry_with_identity(journal, path, None)
-}
-
-pub fn read_entry_with_identity(
+pub fn read_entry(
     journal: &str,
     path: &Path,
     identity: Option<&crypto::UnlockedIdentity>,
@@ -92,7 +82,7 @@ pub fn read_entry_with_identity(
     } else {
         EntryEncryptionState::Plain
     };
-    let content = read_entry_content_with_identity(path, identity)?;
+    let content = read_entry_content(path, identity)?;
     let (front_matter, body) = split_front_matter(&content);
     // One TOML parse per entry instead of one per field.
     let FrontMatter {
@@ -157,13 +147,12 @@ fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {
     })
 }
 
-pub fn read_entry_content_with_identity(
+pub fn read_entry_content(
     path: &Path,
     identity: Option<&crypto::UnlockedIdentity>,
 ) -> AppResult<String> {
     if is_encrypted_entry_file(path) {
-        let identity =
-            identity.ok_or("encrypted entry requires unlocked journal encryption identity")?;
+        let identity = identity.ok_or(crate::StorageError::LockedIdentity { context: "entry" })?;
         crypto::decrypt_to_string(identity, path)
     } else {
         Ok(fs::read_to_string(path)?)

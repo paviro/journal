@@ -1,4 +1,4 @@
-use journal_core::EntryMetadata;
+use journal_core::MetadataField;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Every entry front-matter field, parsed and serialized in a single TOML pass.
@@ -99,34 +99,24 @@ pub fn display_preview(body: &str) -> String {
 /// Replace markdown images (`![alt](url)`) with `[image]` and links
 /// (`[text](url)`) with `[link]` so their URLs don't waste preview space.
 fn redact_inline(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::new();
-    let mut i = 0;
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
 
-    while i < chars.len() {
-        let is_image = chars[i] == '!' && chars.get(i + 1) == Some(&'[');
-        let bracket = if is_image { i + 1 } else { i };
-        if (is_image || chars[i] == '[')
-            && let Some(close) = find_char(&chars, bracket + 1, ']')
-            && chars.get(close + 1) == Some(&'(')
-            && let Some(end) = find_char(&chars, close + 2, ')')
-        {
-            out.push_str(if is_image { "[image]" } else { "[link]" });
-            i = end + 1;
-            continue;
+    while let Some(bracket) = rest.find('[') {
+        let is_image = bracket > 0 && rest.as_bytes()[bracket - 1] == b'!';
+        let marker = if is_image { bracket - 1 } else { bracket };
+        if let Some(span) = journal_core::markdown::parse_inline_at(&rest[marker..]) {
+            out.push_str(&rest[..marker]);
+            out.push_str(if span.is_image { "[image]" } else { "[link]" });
+            rest = &rest[marker + span.span.end..];
+        } else {
+            out.push_str(&rest[..bracket + 1]);
+            rest = &rest[bracket + 1..];
         }
-        out.push(chars[i]);
-        i += 1;
     }
+    out.push_str(rest);
 
     out
-}
-
-fn find_char(chars: &[char], start: usize, target: char) -> Option<usize> {
-    chars[start..]
-        .iter()
-        .position(|&c| c == target)
-        .map(|offset| start + offset)
 }
 
 /// Parse the front matter, apply `mutate`, and re-render the whole file.
@@ -135,69 +125,35 @@ fn edit_front_matter(content: &str, mutate: impl FnOnce(&mut FrontMatter)) -> Op
     let (front_matter, body) = split_front_matter(content);
     let mut metadata = parse_front_matter(front_matter?)?;
     mutate(&mut metadata);
-    Some(render_content_with_front_matter(&metadata, body))
+    Some(render_entry(&metadata, body))
 }
 
-/// Set a single string-valued front-matter key. Leaves `content` unchanged when
-/// there is no front matter or the key is not a recognized string field.
-pub fn set_front_matter_value(content: &str, key: &str, value: &str) -> String {
-    edit_front_matter(content, |fm| match key {
-        "created_at" => fm.created_at = Some(value.to_string()),
-        "updated_at" => fm.updated_at = Some(value.to_string()),
-        "import_id" => fm.import_id = Some(value.to_string()),
-        _ => {}
-    })
-    .unwrap_or_else(|| content.to_string())
-}
-
-/// Replace every metadata list and the mood in the front matter at once.
+/// Replace one metadata field in the front matter and refresh `updated_at`.
 /// Returns `None` when there is no front matter.
-pub fn set_metadata(content: &str, metadata: &EntryMetadata<'_>) -> Option<String> {
+pub fn set_metadata_field(content: &str, field: &MetadataField) -> Option<String> {
     edit_front_matter(content, |fm| {
-        fm.tags = metadata.tags.to_vec();
-        fm.people = metadata.people.to_vec();
-        fm.activities = metadata.activities.to_vec();
-        fm.feelings = metadata.feelings.to_vec();
-        fm.mood = metadata.mood;
+        match field {
+            MetadataField::Tags(values) => fm.tags = values.clone(),
+            MetadataField::People(values) => fm.people = values.clone(),
+            MetadataField::Activities(values) => fm.activities = values.clone(),
+            MetadataField::Feelings(values) => fm.feelings = values.clone(),
+            MetadataField::Mood(mood) => fm.mood = *mood,
+        }
+        fm.updated_at = Some(chrono::Local::now().to_rfc3339());
     })
-}
-
-/// Replace the `tags` field in the front matter. `None` when there is no front matter.
-pub fn set_tags_in_front_matter(content: &str, tags: &[String]) -> Option<String> {
-    edit_front_matter(content, |fm| fm.tags = tags.to_vec())
-}
-
-/// Replace the `people` field in the front matter. `None` when there is no front matter.
-pub fn set_people_in_front_matter(content: &str, people: &[String]) -> Option<String> {
-    edit_front_matter(content, |fm| fm.people = people.to_vec())
-}
-
-/// Replace the `activities` field in the front matter. `None` when there is no front matter.
-pub fn set_activities_in_front_matter(content: &str, activities: &[String]) -> Option<String> {
-    edit_front_matter(content, |fm| fm.activities = activities.to_vec())
-}
-
-/// Replace the `feelings` field in the front matter. `None` when there is no front matter.
-pub fn set_feelings_in_front_matter(content: &str, feelings: &[String]) -> Option<String> {
-    edit_front_matter(content, |fm| fm.feelings = feelings.to_vec())
-}
-
-/// Set or remove the `mood` field in the front matter. `None` when there is no front matter.
-pub fn set_mood_in_front_matter(content: &str, mood: Option<i8>) -> Option<String> {
-    edit_front_matter(content, |fm| fm.mood = mood)
 }
 
 fn parse_front_matter(front_matter: &str) -> Option<FrontMatter> {
     toml::from_str(front_matter).ok()
 }
 
-pub fn set_updated_at_now_in_content(content: &str) -> String {
-    set_front_matter_value(content, "updated_at", &chrono::Local::now().to_rfc3339())
-}
-
-fn render_content_with_front_matter(metadata: &FrontMatter, body: &str) -> String {
-    let toml = toml::to_string(metadata).unwrap_or_default();
-    format!("+++\n{}+++\n{}", toml, body)
+/// Render an entry from its front matter and body: the one canonical framing
+/// used by create, edit, asset-rewrite, and metadata edits. Leading blank lines
+/// of `body` are dropped so a single blank line always separates the fence from
+/// the body.
+pub(crate) fn render_entry(front_matter: &FrontMatter, body: &str) -> String {
+    let toml = toml::to_string(front_matter).unwrap_or_default();
+    format!("+++\n{toml}+++\n\n{}", body.trim_start_matches('\n'))
 }
 
 fn display_line_text(line: &str) -> Option<&str> {
@@ -290,6 +246,34 @@ mod tests {
     }
 
     #[test]
+    fn mood_is_clamped_to_supported_range() {
+        assert_eq!(front_matter_fields("mood = 3\n").mood, Some(3));
+        assert_eq!(front_matter_fields("mood = -5\n").mood, Some(-5));
+        assert_eq!(front_matter_fields("mood = 5\n").mood, Some(5));
+        // Out of range or non-integer moods drop to None rather than failing.
+        assert_eq!(front_matter_fields("mood = 6\n").mood, None);
+        assert_eq!(front_matter_fields("mood = -42\n").mood, None);
+        assert_eq!(front_matter_fields("mood = 999\n").mood, None);
+    }
+
+    #[test]
+    fn set_metadata_field_writes_and_clears_mood() {
+        let content = "+++\ncreated_at = \"x\"\n+++\n\n# Body\n";
+
+        let with_mood = set_metadata_field(content, &MetadataField::Mood(Some(4))).unwrap();
+        assert_eq!(
+            front_matter_fields(split_front_matter(&with_mood).0.unwrap()).mood,
+            Some(4)
+        );
+
+        let cleared = set_metadata_field(&with_mood, &MetadataField::Mood(None)).unwrap();
+        assert_eq!(
+            front_matter_fields(split_front_matter(&cleared).0.unwrap()).mood,
+            None
+        );
+    }
+
+    #[test]
     fn malformed_front_matter_returns_empty_metadata() {
         assert_eq!(
             front_matter_fields("tags = [unterminated").tags,
@@ -302,11 +286,11 @@ mod tests {
     }
 
     #[test]
-    fn set_tags_replaces_list_without_stale_entries() {
+    fn set_metadata_field_replaces_list_without_stale_entries() {
         let content = "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\ntags = [\"old\", \"stale\"]\n+++\n\n# Body\n";
         let tags = vec!["new".to_string(), "next".to_string()];
 
-        let updated = set_tags_in_front_matter(content, &tags).unwrap();
+        let updated = set_metadata_field(content, &MetadataField::Tags(tags)).unwrap();
 
         let (front_matter, _) = split_front_matter(&updated);
         assert_eq!(
@@ -320,32 +304,23 @@ mod tests {
     }
 
     #[test]
-    fn set_feelings_replaces_list_without_stale_entries() {
-        let content = "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\nfeelings = [\"tired\", \"stale\"]\n+++\n\n# Body\n";
-        let feelings = vec!["calm".to_string(), "focused".to_string()];
-
-        let updated = set_feelings_in_front_matter(content, &feelings).unwrap();
-
-        let (front_matter, _) = split_front_matter(&updated);
-        assert_eq!(
-            front_matter.map(|fm| front_matter_fields(fm).feelings),
-            Some(vec!["calm".to_string(), "focused".to_string()])
-        );
-        assert!(!updated.contains("stale"));
-        assert!(updated.contains("\n+++\n\n# Body\n"));
-    }
-
-    #[test]
-    fn set_front_matter_value_preserves_body_exactly() {
+    fn set_metadata_field_refreshes_updated_at_and_preserves_body() {
         let content = "+++\ncreated_at = \"old\"\ntags = []\n+++\n\n# Body\n\nTrailing\n";
 
-        let updated = set_front_matter_value(content, "updated_at", "new");
+        let updated =
+            set_metadata_field(content, &MetadataField::Feelings(vec!["calm".to_string()]))
+                .unwrap();
 
         assert!(updated.contains("\n+++\n\n# Body\n"));
         assert!(updated.ends_with("\n# Body\n\nTrailing\n"));
         assert_eq!(
-            front_matter_fields(split_front_matter(&updated).0.unwrap()).updated_at,
-            Some("new".to_string())
+            front_matter_fields(split_front_matter(&updated).0.unwrap()).feelings,
+            vec!["calm".to_string()]
+        );
+        assert!(
+            front_matter_fields(split_front_matter(&updated).0.unwrap())
+                .updated_at
+                .is_some()
         );
     }
 }

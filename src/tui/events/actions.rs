@@ -1,4 +1,5 @@
 use crate::{AppResult, editor};
+use journal_storage::MetadataField;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     io,
@@ -210,11 +211,12 @@ pub(super) fn set_metadata_on_entry(
         return Ok(());
     }
 
-    match kind {
-        MetadataKind::Tags => app.store.set_entry_tags(&target.path, values)?,
-        MetadataKind::People => app.store.set_entry_people(&target.path, values)?,
-        MetadataKind::Activities => app.store.set_entry_activities(&target.path, values)?,
-    }
+    let field = match kind {
+        MetadataKind::Tags => MetadataField::Tags(values.to_vec()),
+        MetadataKind::People => MetadataField::People(values.to_vec()),
+        MetadataKind::Activities => MetadataField::Activities(values.to_vec()),
+    };
+    app.store.set_entry_metadata_field(&target.path, field)?;
 
     app.set_status(format!("{} saved", kind.title()));
     app.refresh()?;
@@ -230,7 +232,8 @@ pub(super) fn set_feelings_on_entry(app: &mut App, feelings: &[String]) -> AppRe
         return Ok(());
     }
 
-    app.store.set_entry_feelings(&target.path, feelings)?;
+    app.store
+        .set_entry_metadata_field(&target.path, MetadataField::Feelings(feelings.to_vec()))?;
 
     app.set_status("Feelings saved");
     app.refresh()?;
@@ -246,7 +249,8 @@ pub(super) fn set_mood_on_entry(app: &mut App, mood: Option<i8>) -> AppResult<()
         return Ok(());
     }
 
-    app.store.set_entry_mood(&target.path, mood)?;
+    app.store
+        .set_entry_metadata_field(&target.path, MetadataField::Mood(mood))?;
 
     app.set_status("Mood saved");
     app.refresh()?;

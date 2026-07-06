@@ -754,7 +754,7 @@ mod tests {
             .collect();
         let filtered: Vec<usize> = (0..all_tags.len()).collect();
         let mut state = EditTagState::new(MetadataKind::Tags, all_tags, filtered, Vec::new());
-        *state.list_state.offset_mut() = 5;
+        state.list.set_offset(5);
 
         let rendered = render_edit_tags_dialog_text(state, 200, 20);
 

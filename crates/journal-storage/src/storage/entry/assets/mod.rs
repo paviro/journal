@@ -485,26 +485,17 @@ fn next_markdown_image(source: &str) -> Option<MarkdownImage> {
     let mut base = 0;
     loop {
         let start = base + source[base..].find("![")?;
-        let after_bang = start + 2;
-        let alt_len = source[after_bang..].find(']')?;
-        let alt_start = after_bang;
-        let alt_end = after_bang + alt_len;
-        let paren = alt_end + 1;
-        if !source[paren..].starts_with('(') {
-            base = after_bang;
-            continue;
+        if let Some(span) = journal_core::markdown::parse_inline_at(&source[start..]) {
+            return Some(MarkdownImage {
+                start,
+                end: start + span.span.end,
+                alt_start: start + span.text.start,
+                alt_end: start + span.text.end,
+                target_start: start + span.target.start,
+                target_end: start + span.target.end,
+            });
         }
-        let target_start = paren + 1;
-        let close_rel = source[target_start..].find(')')?;
-        let target_end = target_start + close_rel;
-        return Some(MarkdownImage {
-            start,
-            end: target_end + 1,
-            alt_start,
-            alt_end,
-            target_start,
-            target_end,
-        });
+        base = start + 2;
     }
 }
 
@@ -994,7 +985,7 @@ mod tests {
             .unwrap()
             .path();
         assert!(stored.to_string_lossy().ends_with(".png.age"));
-        let decrypted = crypto::decrypt_to_bytes(&identity, &stored).unwrap();
+        let decrypted = crypto::decrypt_file_bytes(&identity, &stored).unwrap();
         assert_eq!(decrypted, original);
     }
 
