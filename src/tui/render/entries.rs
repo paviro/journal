@@ -7,10 +7,10 @@ use ratatui::{
 
 use crate::tui::{
     app::{App, Focus, Mode},
-    entry_rows::{entry_list_rows, entry_month_sections, visible_entry_items},
+    entry_rows::visible_entry_items,
     render::{
-        EntryListGeometry, clamp_scroll, count_label, entry_row_metadata, list_state_for_render,
-        panel_block, render_centered_notice, render_scrollbar_if_needed, total_entry_row_height,
+        EntryListGeometry, clamp_scroll, count_label, list_state_for_render, panel_block,
+        render_centered_notice, render_scrollbar_if_needed,
     },
 };
 
@@ -29,16 +29,11 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
         )),
     );
     let text_width = geometry.text_width;
-    let rows = entry_list_rows(app, text_width);
+    let cache = app.entry_rows(text_width);
     let viewport_height = geometry.viewport_height;
-    let meta = entry_row_metadata(app, text_width);
-    let total_height = total_entry_row_height(&meta);
-    let pixel_offset = clamp_scroll(
-        app.entry_list.offset() as u16,
-        total_height,
-        viewport_height,
-    );
-    *app.entry_list.offset_mut() = pixel_offset as usize;
+    let total_height = cache.total_height;
+    let pixel_offset = clamp_scroll(app.entry_list.offset(), total_height, viewport_height);
+    *app.entry_list.offset_mut() = pixel_offset;
 
     // In search mode, show the live query on the panel's top-right border so it
     // reads as the search field, rather than tucking it into the footer.
@@ -49,13 +44,17 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
     // iOS-style sticky section header: once a month's divider scrolls above the
     // viewport, pin that month's label to the panel's top-right border so the
     // current month stays visible while browsing.
-    if let Some(month) = sticky_month_label(app, text_width, pixel_offset) {
+    if let Some(month) = sticky_month_label(
+        &cache.month_sections,
+        app.mode == Mode::Browse,
+        pixel_offset,
+    ) {
         block = block.title(Line::from(format!(" {month} ")).right_aligned());
     }
 
     let highlight_active = app.entries_highlighted();
     let (items, selected_visible) = visible_entry_items(
-        &rows,
+        &cache.rows,
         pixel_offset,
         viewport_height,
         app.selected_entry_index,
@@ -82,7 +81,7 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
     // An empty list in search mode — whether the query is blank or simply
     // matches nothing — gets a centered notice so the column doesn't read as a
     // rendering glitch.
-    if app.mode == Mode::Search && rows.is_empty() {
+    if app.mode == Mode::Search && cache.rows.is_empty() {
         render_centered_notice(frame, geometry.panel.content, "No results");
     }
 }
@@ -136,13 +135,15 @@ fn search_field_title(app: &App) -> Line<'static> {
 /// month takes over only once its `Month Year` divider has scrolled strictly
 /// above the viewport, so the in-list divider and the border label are never
 /// shown at once. `None` outside browse mode or when there are no entries.
-fn sticky_month_label(app: &App, text_width: u16, pixel_offset: u16) -> Option<String> {
-    if app.mode != Mode::Browse {
+fn sticky_month_label(
+    sections: &[(usize, String)],
+    is_browse: bool,
+    offset: usize,
+) -> Option<String> {
+    if !is_browse {
         return None;
     }
 
-    let offset = pixel_offset as usize;
-    let sections = entry_month_sections(app, text_width);
     // The latest month whose divider has scrolled above the top, falling back to
     // the first month (which owns the border before anything scrolls past).
     sections

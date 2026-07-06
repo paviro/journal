@@ -28,6 +28,42 @@ impl EntryListRow {
     }
 }
 
+/// The fully-built entry list for one `(data version, mode, journal, text_width)`
+/// combination. [`App`](super::app::App) memoizes this so a frame that only
+/// scrolled or moved the selection reuses it instead of rebuilding every row
+/// (see `App::entry_rows`). Rows are independent of the scroll offset and the
+/// selected index — both are applied downstream in [`visible_entry_items`].
+pub(crate) struct EntryRowCache {
+    pub(crate) rows: Vec<EntryListRow>,
+    pub(crate) meta: Vec<EntryRowMeta>,
+    /// Row offset → month label, for the sticky section header. Empty outside
+    /// browse mode.
+    pub(crate) month_sections: Vec<(usize, String)>,
+    pub(crate) total_height: usize,
+}
+
+/// Build the entry list once. Runs only on a cache miss (data/journal/width
+/// change), so its O(entries) cost is paid at most once per such change rather
+/// than several times per frame.
+pub(crate) fn build_entry_row_cache(app: &App, text_width: u16) -> EntryRowCache {
+    let rows = entry_list_rows(app, text_width);
+    let meta: Vec<EntryRowMeta> = rows
+        .iter()
+        .map(|row| EntryRowMeta {
+            entry_index: row.entry_index,
+            height: row.height(),
+        })
+        .collect();
+    let total_height = meta.iter().map(|row| row.height as usize).sum();
+    let month_sections = entry_month_sections(app, text_width);
+    EntryRowCache {
+        rows,
+        meta,
+        month_sections,
+        total_height,
+    }
+}
+
 pub(crate) fn entry_list_rows(app: &App, text_width: u16) -> Vec<EntryListRow> {
     match app.mode {
         Mode::Search => {
@@ -200,6 +236,7 @@ fn month_divider(box_width: usize, month: &str) -> Line<'static> {
     ])
 }
 
+#[cfg(test)]
 pub(crate) fn entry_row_metadata(app: &App, text_width: u16) -> Vec<EntryRowMeta> {
     entry_list_rows(app, text_width)
         .into_iter()
@@ -214,7 +251,7 @@ pub(crate) fn entry_row_metadata(app: &App, text_width: u16) -> Vec<EntryRowMeta
 /// within those items (`None` if not visible or `!selection_visible`).
 pub(crate) fn visible_entry_items(
     rows: &[EntryListRow],
-    scroll: u16,
+    scroll: usize,
     viewport_height: u16,
     selected_entry_index: Option<usize>,
     selection_visible: bool,
@@ -229,15 +266,15 @@ pub(crate) fn visible_entry_items(
             break;
         }
 
-        let height = row.height();
+        let height = row.height() as usize;
         if remaining_skip >= height {
             remaining_skip -= height;
             continue;
         }
 
-        let start = remaining_skip as usize;
+        let start = remaining_skip;
         remaining_skip = 0;
-        let visible_height = height.saturating_sub(start as u16).min(remaining_height);
+        let visible_height = (height.saturating_sub(start)).min(remaining_height as usize) as u16;
         let end = start + visible_height as usize;
         let lines = row.lines[start..end].to_vec();
         remaining_height = remaining_height.saturating_sub(visible_height);
@@ -284,13 +321,13 @@ pub(crate) fn entry_list_lines(
         day,
         &time,
         &entry.preview,
-        Some(&word_count_label(&entry.content)),
+        Some(&word_count_label(entry.word_count)),
         text_width,
     )
 }
 
-fn word_count_label(body: &str) -> String {
-    match body.split_whitespace().count() {
+fn word_count_label(count: usize) -> String {
+    match count {
         1 => "1 word".to_string(),
         count => format!("{count} words"),
     }
@@ -429,7 +466,7 @@ fn truncate_ellipsis(text: &str, max: usize) -> String {
 }
 
 pub(crate) fn ensure_entry_visible(
-    scroll: &mut u16,
+    scroll: &mut usize,
     rows: &[EntryRowMeta],
     selected_entry_index: Option<usize>,
     viewport_height: u16,
@@ -444,15 +481,13 @@ pub(crate) fn ensure_entry_visible(
         return;
     }
 
-    if row_start < *scroll as usize {
-        *scroll = row_start.min(u16::MAX as usize) as u16;
+    if row_start < *scroll {
+        *scroll = row_start;
     } else {
         let row_end = row_start.saturating_add(row_height as usize);
-        let viewport_end = (*scroll as usize).saturating_add(viewport_height as usize);
+        let viewport_end = scroll.saturating_add(viewport_height as usize);
         if row_end > viewport_end {
-            *scroll = row_end
-                .saturating_sub(viewport_height as usize)
-                .min(u16::MAX as usize) as u16;
+            *scroll = row_end.saturating_sub(viewport_height as usize);
         }
     }
     *scroll = clamp_scroll(*scroll, total_entry_row_height(rows), viewport_height);
@@ -475,4 +510,28 @@ pub(crate) fn selected_entry_row_span(
 
 pub(crate) fn total_entry_row_height(rows: &[EntryRowMeta]) -> usize {
     rows.iter().map(|row| row.height as usize).sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ensure_entry_visible_scrolls_past_u16_max_for_tall_lists() {
+        // 100 boxes of 1000 rows each → 100_000 px total, far beyond u16::MAX
+        // (65535). Selecting the last one must scroll to the very bottom rather
+        // than clamping short — the "can't scroll to the end" regression.
+        let rows: Vec<EntryRowMeta> = (0..100)
+            .map(|index| EntryRowMeta {
+                entry_index: Some(index),
+                height: 1000,
+            })
+            .collect();
+
+        let mut scroll = 0usize;
+        ensure_entry_visible(&mut scroll, &rows, Some(99), 20);
+
+        assert_eq!(scroll, 100_000 - 20);
+        assert!(scroll > u16::MAX as usize);
+    }
 }

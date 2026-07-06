@@ -86,13 +86,7 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
 
     frame.render_widget(block, geometry.area);
     frame.render_stateful_widget(list, list_area, &mut render_state);
-    render_scrollbar_if_needed(
-        frame,
-        geometry.area,
-        app.journals.len(),
-        per_page,
-        offset as u16,
-    );
+    render_scrollbar_if_needed(frame, geometry.area, app.journals.len(), per_page, offset);
 }
 
 /// One journal rendered as a bordered box with the name inside, mirroring the

@@ -45,9 +45,11 @@ pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &
         let (scroll, labels, content_rect) = draw_markdown_panel(
             frame,
             area,
+            app,
             PanelEntry {
                 title: &title,
                 content: &content,
+                word_count: app.selected_entry_word_count(),
                 metadata: EntryMetadata {
                     tags: &tags,
                     people: &people,
@@ -74,14 +76,12 @@ pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &
     }
 }
 
-fn word_count(s: &str) -> usize {
-    s.split_whitespace().count()
-}
-
 /// The entry content rendered by the markdown panel.
 struct PanelEntry<'a> {
     title: &'a str,
     content: &'a str,
+    /// Precomputed on the entry, so the panel title never re-tokenizes the body.
+    word_count: usize,
     metadata: EntryMetadata<'a>,
 }
 
@@ -91,6 +91,7 @@ struct PanelEntry<'a> {
 fn draw_markdown_panel(
     frame: &mut Frame<'_>,
     area: Rect,
+    app: &App,
     entry: PanelEntry<'_>,
     requested_scroll: u16,
     focused: bool,
@@ -99,10 +100,14 @@ fn draw_markdown_panel(
     let PanelEntry {
         title,
         content,
+        word_count,
         metadata,
     } = entry;
-    let wc = word_count(content);
-    let block = panel_block(title, focused, Some(count_label(wc, "word", "words")));
+    let block = panel_block(
+        title,
+        focused,
+        Some(count_label(word_count, "word", "words")),
+    );
     let layout = entry_metadata_layout(area, metadata.values());
     let metadata_scrolls = metadata_scrolls_with_body(area);
     let content_rect = if metadata_scrolls {
@@ -112,9 +117,16 @@ fn draw_markdown_panel(
     };
 
     let width = content_rect.width.saturating_sub(1).max(1) as usize;
-    let theme = markdown_theme();
-    let renderer = MarkdownRenderer::new(width);
-    let (mut lines, labels) = build_body_lines(content, &renderer, &theme, entry_path);
+    // Memoized on (entry path, width, data version): the markdown parse + syntax
+    // highlight + render is the preview's dominant per-frame cost, so a frame that
+    // only scrolled, blinked, or ticked images reuses the rendered lines.
+    let body = app.cached_entry_body(entry_path, width, || {
+        let theme = markdown_theme();
+        let renderer = MarkdownRenderer::new(width);
+        build_body_lines(content, &renderer, &theme, entry_path)
+    });
+    let mut lines = body.0.clone();
+    let labels = body.1.clone();
     if metadata_scrolls {
         lines.extend(metadata_section_lines(content_rect.width, metadata));
     }
@@ -128,7 +140,13 @@ fn draw_markdown_panel(
         draw_metadata_section(frame, layout, metadata);
     }
 
-    render_scrollbar_if_needed(frame, area, line_count, content_rect.height, scroll);
+    render_scrollbar_if_needed(
+        frame,
+        area,
+        line_count,
+        content_rect.height,
+        scroll as usize,
+    );
 
     (scroll, labels, content_rect)
 }

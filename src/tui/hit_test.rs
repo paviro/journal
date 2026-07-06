@@ -32,14 +32,14 @@ pub(crate) fn entry_index_at(
     geometry: EntryListGeometry,
     x: u16,
     y: u16,
-    scroll: u16,
+    scroll: usize,
     rows: &[EntryRowMeta],
 ) -> Option<usize> {
     if !point_in_rect(geometry.panel.content, x, y) {
         return None;
     }
 
-    let target_y = scroll as usize + y.saturating_sub(geometry.panel.content.y) as usize;
+    let target_y = scroll + y.saturating_sub(geometry.panel.content.y) as usize;
     let mut row_y = 0usize;
     for row in rows {
         let next_y = row_y.saturating_add(row.height as usize);

@@ -321,7 +321,13 @@ fn render_dialog_scrollbar(
     max_visible: u16,
     scroll: u16,
 ) {
-    render_scrollbar_if_needed(frame, area, list_lines as usize, max_visible, scroll);
+    render_scrollbar_if_needed(
+        frame,
+        area,
+        list_lines as usize,
+        max_visible,
+        scroll as usize,
+    );
 }
 
 fn render_separator(frame: &mut Frame<'_>, area: Rect) {

@@ -24,9 +24,7 @@ pub use edit::{
 };
 #[cfg(test)]
 pub use paths::entry_path;
-#[cfg(test)]
-pub use paths::is_entry_file;
-pub use paths::{entry_id, is_encrypted_entry_file, is_plain_entry_file};
+pub use paths::{entry_id, is_encrypted_entry_file, is_entry_file, is_plain_entry_file};
 pub use read::{
     collect_entry_paths, read_entries, read_entry_content_with_identity, read_entry_with_identity,
     scan_entries_with_identity,

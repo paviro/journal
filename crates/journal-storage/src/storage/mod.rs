@@ -6,12 +6,13 @@ mod entry;
 mod journals;
 
 pub use dates::{entry_group_date, entry_timestamp_label, parse_entry_timestamp};
-pub use entry::{AssetFailure, AssetReport};
 pub use entry::Entry;
 pub(crate) use entry::entry_date_from_path;
 pub use entry::entry_id;
+pub use entry::is_entry_file;
 pub use entry::sole_stored_image;
 pub use entry::stored_image_reference;
+pub use entry::{AssetFailure, AssetReport};
 pub(crate) use entry::{
     collect_entry_paths, create_encrypted_entry_with_body_and_metadata,
     create_encrypted_imported_entry_with_body_and_metadata, create_entry_with_body_and_metadata,

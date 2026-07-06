@@ -222,22 +222,14 @@ fn create_entry_with_body_and_metadata_writes_metadata() {
     let text = fs::read_to_string(created).unwrap();
     let (front_matter, _) = crate::markdown::split_front_matter(&text);
 
+    let fields = front_matter.map(crate::markdown::front_matter_fields);
+    assert_eq!(fields.as_ref().map(|f| f.tags.clone()), Some(tags));
+    assert_eq!(fields.as_ref().map(|f| f.people.clone()), Some(people));
     assert_eq!(
-        front_matter.map(crate::markdown::front_matter_tags),
-        Some(tags)
-    );
-    assert_eq!(
-        front_matter.map(crate::markdown::front_matter_people),
-        Some(people)
-    );
-    assert_eq!(
-        front_matter.map(crate::markdown::front_matter_activities),
+        fields.as_ref().map(|f| f.activities.clone()),
         Some(activities)
     );
-    assert_eq!(
-        front_matter.map(crate::markdown::front_matter_feelings),
-        Some(feelings)
-    );
+    assert_eq!(fields.as_ref().map(|f| f.feelings.clone()), Some(feelings));
     assert!(text.ends_with("\nSome text\n"));
 }
 

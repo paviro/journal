@@ -29,8 +29,9 @@ pub fn search_loaded_entries(
 
     let pattern = Pattern::parse(trimmed, CaseMatching::Ignore, Normalization::Smart);
     let mut matcher = Matcher::new(Config::DEFAULT);
-    // Reused scratch buffers so scoring each entry doesn't reallocate.
-    let mut haystack = String::new();
+    // Reused scratch buffer for the UTF-32 transcode so scoring each entry
+    // doesn't reallocate. The haystack string itself is precomputed per entry
+    // (`Entry::search_haystack`), so this loop never rebuilds it.
     let mut char_buf = Vec::new();
 
     // Score floor scaled by the number of query characters we expect to match.
@@ -46,8 +47,7 @@ pub fn search_loaded_entries(
             continue;
         }
 
-        entry_haystack(entry, &mut haystack);
-        let candidate = Utf32Str::new(&haystack, &mut char_buf);
+        let candidate = Utf32Str::new(&entry.search_haystack, &mut char_buf);
         if let Some(score) = pattern
             .score(candidate, &mut matcher)
             .filter(|&s| s >= min_score)
@@ -70,23 +70,6 @@ pub fn search_loaded_entries(
     scored.into_iter().map(|(_, hit)| hit).collect()
 }
 
-/// Merge the entry body and all metadata values into `buf` (cleared first),
-/// space-separated so fuzzy atoms can match across fields.
-fn entry_haystack(entry: &Entry, buf: &mut String) {
-    buf.clear();
-    buf.push_str(&entry.content);
-    for value in entry
-        .tags
-        .iter()
-        .chain(&entry.people)
-        .chain(&entry.activities)
-        .chain(&entry.feelings)
-    {
-        buf.push(' ');
-        buf.push_str(value);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,12 +77,13 @@ mod tests {
     use std::path::PathBuf;
 
     fn plain_entry(id: &str, journal: &str, content: &str) -> Entry {
-        Entry {
+        let mut entry = Entry {
             id: id.to_string(),
             journal: journal.to_string(),
             path: PathBuf::from(format!("{journal}/{id}.md")),
             encryption_state: EntryEncryptionState::Plain,
             created_at: None,
+            created: None,
             updated_at: None,
             preview: String::new(),
             tags: Vec::new(),
@@ -109,7 +93,11 @@ mod tests {
             mood: None,
             import_id: None,
             content: content.to_string(),
-        }
+            word_count: content.split_whitespace().count(),
+            search_haystack: String::new(),
+        };
+        entry.rebuild_search_haystack();
+        entry
     }
 
     #[test]
@@ -161,12 +149,16 @@ mod tests {
     fn search_matches_metadata_without_prefix() {
         let mut tagged = plain_entry("a", "work", "nothing relevant");
         tagged.tags = vec!["project-x".to_string()];
+        tagged.rebuild_search_haystack();
         let mut person = plain_entry("b", "work", "nothing relevant");
         person.people = vec!["Alice".to_string()];
+        person.rebuild_search_haystack();
         let mut activity = plain_entry("c", "work", "nothing relevant");
         activity.activities = vec!["running".to_string()];
+        activity.rebuild_search_haystack();
         let mut feeling = plain_entry("d", "work", "nothing relevant");
         feeling.feelings = vec!["happy".to_string()];
+        feeling.rebuild_search_haystack();
 
         let entries = vec![tagged, person, activity, feeling];
 
@@ -192,6 +184,7 @@ mod tests {
     fn multi_word_query_matches_across_body_and_metadata() {
         let mut entry = plain_entry("a", "work", "hello this is a test");
         entry.tags = vec!["love".to_string()];
+        entry.rebuild_search_haystack();
 
         // Every space-separated atom must match somewhere in the merged haystack.
         assert_eq!(

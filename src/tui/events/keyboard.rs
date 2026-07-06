@@ -297,8 +297,8 @@ pub(super) fn keep_selection_visible(
             ));
         }
     } else if let Some(area) = layout.entries {
-        let rows = render::entry_row_metadata(app, area.text_width);
-        app.entry_list_ensure_visible(&rows, area.viewport_height);
+        let cache = app.entry_rows(area.text_width);
+        app.entry_list_ensure_visible(&cache.meta, area.viewport_height);
     }
     Ok(())
 }

@@ -47,49 +47,45 @@ pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
     (None, content)
 }
 
-pub fn front_matter_tags(front_matter: &str) -> Vec<String> {
-    parse_front_matter(front_matter)
-        .map(|fm| fm.tags)
-        .unwrap_or_default()
-}
-
-pub fn front_matter_feelings(front_matter: &str) -> Vec<String> {
-    parse_front_matter(front_matter)
-        .map(|fm| fm.feelings)
-        .unwrap_or_default()
-}
-
-pub fn front_matter_people(front_matter: &str) -> Vec<String> {
-    parse_front_matter(front_matter)
-        .map(|fm| fm.people)
-        .unwrap_or_default()
-}
-
-pub fn front_matter_activities(front_matter: &str) -> Vec<String> {
-    parse_front_matter(front_matter)
-        .map(|fm| fm.activities)
-        .unwrap_or_default()
-}
-
-pub fn front_matter_mood(front_matter: &str) -> Option<i8> {
-    parse_front_matter(front_matter)
-        .and_then(|fm| fm.mood)
-        .and_then(|v| i8::try_from(v).ok())
+/// Clamp a raw TOML `mood` integer to the supported `-5..=5` range, dropping
+/// out-of-range or non-`i8` values.
+fn clamp_mood(mood: Option<i64>) -> Option<i8> {
+    mood.and_then(|v| i8::try_from(v).ok())
         .filter(|&v| (-5..=5).contains(&v))
 }
 
-pub fn front_matter_value(front_matter: &str, key: &str) -> Option<String> {
-    let fm = parse_front_matter(front_matter)?;
-    match key {
-        "created_at" => fm.created_at,
-        "updated_at" => fm.updated_at,
-        "import_id" => fm.import_id,
-        _ => None,
-    }
+/// Every front-matter field, parsed in a single `toml::from_str` pass. The load
+/// path builds one of these per entry instead of calling the eight individual
+/// `front_matter_*` accessors, each of which re-parses the whole TOML block —
+/// so a full corpus load parses each entry's front matter once, not ~8 times.
+#[derive(Default)]
+pub struct FrontMatterFields {
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub tags: Vec<String>,
+    pub people: Vec<String>,
+    pub activities: Vec<String>,
+    pub feelings: Vec<String>,
+    pub mood: Option<i8>,
+    pub import_id: Option<String>,
 }
 
-pub fn front_matter_import_id(front_matter: &str) -> Option<String> {
-    parse_front_matter(front_matter).and_then(|fm| fm.import_id)
+/// Parse every front-matter field at once. Malformed TOML yields defaults,
+/// matching the lenient behavior of the individual accessors.
+pub fn front_matter_fields(front_matter: &str) -> FrontMatterFields {
+    let Some(fm) = parse_front_matter(front_matter) else {
+        return FrontMatterFields::default();
+    };
+    FrontMatterFields {
+        created_at: fm.created_at,
+        updated_at: fm.updated_at,
+        tags: fm.tags,
+        people: fm.people,
+        activities: fm.activities,
+        feelings: fm.feelings,
+        mood: clamp_mood(fm.mood),
+        import_id: fm.import_id,
+    }
 }
 
 /// A one-line summary of the body: display lines collapsed onto a single line,
@@ -302,21 +298,21 @@ mod tests {
 
     #[test]
     fn front_matter_tags_reads_list() {
-        let tags = front_matter_tags("tags = [\"foo\", \"bar\"]\n");
+        let tags = front_matter_fields("tags = [\"foo\", \"bar\"]\n").tags;
 
         assert_eq!(tags, vec!["foo", "bar"]);
     }
 
     #[test]
     fn front_matter_tags_handles_commas_in_values() {
-        let tags = front_matter_tags("tags = [\"foo, bar\", \"baz\"]\n");
+        let tags = front_matter_fields("tags = [\"foo, bar\", \"baz\"]\n").tags;
 
         assert_eq!(tags, vec!["foo, bar", "baz"]);
     }
 
     #[test]
     fn front_matter_feelings_reads_list() {
-        let feelings = front_matter_feelings("feelings = [\"calm\", \"focused\"]\n");
+        let feelings = front_matter_fields("feelings = [\"calm\", \"focused\"]\n").feelings;
 
         assert_eq!(feelings, vec!["calm", "focused"]);
     }
@@ -324,11 +320,11 @@ mod tests {
     #[test]
     fn malformed_front_matter_returns_empty_metadata() {
         assert_eq!(
-            front_matter_tags("tags = [unterminated"),
+            front_matter_fields("tags = [unterminated").tags,
             Vec::<String>::new()
         );
         assert_eq!(
-            front_matter_value("created_at = [unterminated", "created_at"),
+            front_matter_fields("created_at = [unterminated").created_at,
             None
         );
     }
@@ -342,7 +338,7 @@ mod tests {
 
         let (front_matter, _) = split_front_matter(&updated);
         assert_eq!(
-            front_matter.map(front_matter_tags),
+            front_matter.map(|fm| front_matter_fields(fm).tags),
             Some(vec!["new".to_string(), "next".to_string()])
         );
         assert!(!updated.contains("old"));
@@ -360,7 +356,7 @@ mod tests {
 
         let (front_matter, _) = split_front_matter(&updated);
         assert_eq!(
-            front_matter.map(front_matter_feelings),
+            front_matter.map(|fm| front_matter_fields(fm).feelings),
             Some(vec!["calm".to_string(), "focused".to_string()])
         );
         assert!(!updated.contains("stale"));
@@ -376,7 +372,7 @@ mod tests {
         assert!(updated.contains("\n+++\n\n# Body\n"));
         assert!(updated.ends_with("\n# Body\n\nTrailing\n"));
         assert_eq!(
-            front_matter_value(split_front_matter(&updated).0.unwrap(), "updated_at"),
+            front_matter_fields(split_front_matter(&updated).0.unwrap()).updated_at,
             Some("new".to_string())
         );
     }

@@ -86,13 +86,13 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
         && render::point_in_rect(area.panel.area, mouse.column, mouse.row)
     {
         app.focus = Focus::Entries;
-        let rows = render::entry_row_metadata(app, area.text_width);
+        let cache = app.entry_rows(area.text_width);
         if let Some(index) = render::entry_index_at(
             area,
             mouse.column,
             mouse.row,
-            app.entry_list.offset() as u16,
-            &rows,
+            app.entry_list.offset(),
+            &cache.meta,
         ) {
             app.select_entry_index(index);
             if !inline_entry_view_is_visible(layout.content.width) {
@@ -160,9 +160,8 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
     if let Some(area) = layout.entries
         && render::point_in_rect(area.panel.area, mouse.column, mouse.row)
     {
-        let rows = render::entry_row_metadata(app, area.text_width);
-        let total_height = render::total_entry_row_height(&rows);
-        app.entry_list_scroll(delta, total_height, area.viewport_height);
+        let cache = app.entry_rows(area.text_width);
+        app.entry_list_scroll(delta, cache.total_height, area.viewport_height);
         return;
     }
 

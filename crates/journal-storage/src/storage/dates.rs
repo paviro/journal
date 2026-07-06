@@ -10,9 +10,7 @@ pub fn parse_entry_timestamp(value: &str) -> Option<DateTime<Local>> {
 
 pub fn entry_group_date(entry: &Entry) -> Option<NaiveDate> {
     entry
-        .created_at
-        .as_deref()
-        .and_then(parse_entry_timestamp)
+        .created
         .map(|timestamp| timestamp.date_naive())
         .or_else(|| entry_date_from_path(&entry.path))
 }
@@ -23,9 +21,7 @@ fn format_date_human(date: NaiveDate) -> String {
 
 pub fn entry_timestamp_label(entry: &Entry) -> String {
     entry
-        .created_at
-        .as_deref()
-        .and_then(parse_entry_timestamp)
+        .created
         .map(|timestamp| {
             format!(
                 "{}, {}",
@@ -49,6 +45,7 @@ mod tests {
             path: PathBuf::from(path),
             encryption_state: journal_core::EntryEncryptionState::Plain,
             created_at: created_at.map(str::to_string),
+            created: created_at.and_then(parse_entry_timestamp),
             updated_at: None,
             preview: String::new(),
             tags: Vec::new(),
@@ -58,6 +55,8 @@ mod tests {
             mood: None,
             import_id: None,
             content: String::new(),
+            word_count: 0,
+            search_haystack: String::new(),
         }
     }
 

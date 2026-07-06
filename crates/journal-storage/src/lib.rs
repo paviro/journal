@@ -15,7 +15,7 @@ pub use journal_core::{
 pub use migrate::{DecryptSummary, MigrationSummary};
 pub use storage::{
     AssetFailure, AssetReport, Journal, entry_group_date, entry_id, entry_timestamp_label,
-    parse_entry_timestamp, sole_stored_image, stored_image_reference,
+    is_entry_file, parse_entry_timestamp, sole_stored_image, stored_image_reference,
 };
 
 /// Decode image bytes to a displayable sRGB image with EXIF orientation baked

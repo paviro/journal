@@ -1,11 +1,11 @@
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
-    path::Path,
-    sync::mpsc::{self, TryRecvError},
+    path::{Path, PathBuf},
+    sync::mpsc,
 };
 
 pub(crate) struct FileWatcher {
-    rx: mpsc::Receiver<()>,
+    rx: mpsc::Receiver<PathBuf>,
     _watcher: RecommendedWatcher,
 }
 
@@ -15,10 +15,12 @@ impl FileWatcher {
 
         let mut watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
-                if let Ok(event) = res
-                    && event.paths.iter().any(|p| is_relevant(p))
-                {
-                    let _ = tx.send(());
+                if let Ok(event) = res {
+                    // Forward each changed path so the app can reload just the
+                    // affected entries instead of re-reading the whole corpus.
+                    for path in event.paths.into_iter().filter(|p| is_relevant(p)) {
+                        let _ = tx.send(path);
+                    }
                 }
             },
             Config::default(),
@@ -35,15 +37,14 @@ impl FileWatcher {
         }
     }
 
-    pub(crate) fn poll_change(&self) -> bool {
-        match self.rx.try_recv() {
-            Ok(()) => {
-                while self.rx.try_recv().is_ok() {}
-                true
-            }
-            Err(TryRecvError::Empty) => false,
-            Err(TryRecvError::Disconnected) => false,
+    /// Drain and return every changed path seen since the last poll (empty when
+    /// nothing changed).
+    pub(crate) fn poll_changes(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        while let Ok(path) = self.rx.try_recv() {
+            paths.push(path);
         }
+        paths
     }
 }
 

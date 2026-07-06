@@ -2,12 +2,20 @@ use crate::{AppResult, config::Config};
 use journal_core::feelings::{FEELINGS, normalize_feeling};
 use journal_storage::{
     Entry, EntryEncryptionState, EntryPath, Journal, JournalStore, SearchHit, SearchScopeFilter,
-    entry_timestamp_label, search_loaded_entries,
+    entry_timestamp_label, is_entry_file, search_loaded_entries,
 };
-use std::{cell::RefCell, path::PathBuf, rc::Rc, time::Duration};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    ops::Range,
+    path::{Path, PathBuf},
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use ratatui::{
     layout::{Rect, Size},
+    text::Line,
     widgets::ListState,
 };
 
@@ -16,8 +24,9 @@ use super::state::{
     Overlay, ScrollState, SearchState, StatusBar, ensure_selected_visible, move_list_selection,
     normalize_list_state, scroll_list_offset,
 };
-use crate::tui::entry_rows::EntryRowMeta;
+use crate::tui::entry_rows::{EntryRowCache, EntryRowMeta, build_entry_row_cache};
 use crate::tui::image::{ImageAsset, ImageRuntime, entry_images, viewer_image_size};
+use crate::tui::render::stats::JournalStats;
 
 pub(crate) const JOURNAL_LIST_WIDTH: u16 = 22;
 pub(crate) const ENTRY_LIST_INLINE_WIDTH: u16 = 42;
@@ -53,12 +62,147 @@ pub(crate) struct EntryTarget {
     pub(crate) locked: bool,
 }
 
+/// Identifies the inputs that fully determine the entry-list rows, so a matching
+/// key means the cached [`EntryRowCache`] can be reused. Notably excludes the
+/// scroll offset and selected index — those are applied when drawing, not baked
+/// into the rows.
+#[derive(Clone, PartialEq, Eq)]
+struct EntryRowKey {
+    /// [`RenderCaches::rows_version`] — bumped whenever `entries` or
+    /// `search.hits` change, since the rows are built from the hits in Search
+    /// mode.
+    version: u64,
+    mode: Mode,
+    journal: Option<String>,
+    text_width: u16,
+}
+
+/// Rendered entry-body lines plus the clickable `(body line, image index)` label
+/// positions — the output of the markdown parse/render pipeline, memoized because
+/// it is the dominant per-frame cost of the preview pane.
+pub(crate) type RenderedEntryBody = (Vec<Line<'static>>, Vec<(usize, usize)>);
+
+/// Cache key for [`App::cached_entry_body`]: the rendered body is fully
+/// determined by which entry is shown (`path` + `version`) and the wrap width.
+/// The `version` is [`RenderCaches::entries_version`] — not the rows version —
+/// because the body depends only on entry content, not on which search hits are
+/// showing (a hit change that swaps the shown entry already changes `path`).
+#[derive(Clone, PartialEq, Eq)]
+struct EntryBodyKey {
+    version: u64,
+    path: Option<PathBuf>,
+    width: usize,
+}
+
+/// The per-frame render memo caches and the version counters that invalidate
+/// them. Grouped so `App` carries one field instead of four and the versions
+/// have a single home. All three caches are read on the `&self` render/hit-test
+/// paths, so each is a `RefCell`.
+///
+/// Two counters, because the caches have different dependencies:
+/// - [`Self::entries_version`] bumps only when the `entries` Vec changes. It
+///   keys the body and stats caches, which depend on entry content alone.
+/// - [`Self::rows_version`] bumps when entries **or** search hits change. It
+///   keys the row cache, which is built from the hits in Search mode.
+///
+/// A search recompute therefore bumps only `rows_version`, so the (more
+/// expensive) rendered-body and journal-stats memos survive keystroke-driven
+/// query edits instead of rebuilding every time.
+#[derive(Default)]
+struct RenderCaches {
+    /// Memoized entry-list rows, keyed by [`EntryRowKey`].
+    entry_row_cache: RefCell<Option<(EntryRowKey, Rc<EntryRowCache>)>>,
+    /// Memoized rendered body lines for the entry preview, keyed by
+    /// [`EntryBodyKey`]. Rebuilt only when the shown entry or wrap width changes,
+    /// so scroll/blink/image ticks reuse it.
+    entry_body_cache: RefCell<Option<(EntryBodyKey, Rc<RenderedEntryBody>)>>,
+    /// Memoized journal-stats aggregate for the `(entries_version, journal)` it
+    /// was computed for, so the stats preview doesn't rescan the journal's
+    /// entries (with a date parse each) every frame.
+    journal_stats_cache: RefCell<Option<(u64, String, Rc<JournalStats>)>>,
+    entries_version: u64,
+    rows_version: u64,
+}
+
+impl RenderCaches {
+    /// The `entries` Vec changed: both the entries-keyed (body, stats) and
+    /// rows-keyed caches are stale.
+    fn bump_entries(&mut self) {
+        self.entries_version = self.entries_version.wrapping_add(1);
+        self.rows_version = self.rows_version.wrapping_add(1);
+    }
+
+    /// Only the entry-list rows changed (a search recompute); the body and stats
+    /// caches, keyed on [`Self::entries_version`], stay valid.
+    fn bump_rows(&mut self) {
+        self.rows_version = self.rows_version.wrapping_add(1);
+    }
+
+    /// Return the memoized rows for `key`, building them with `build` on a miss.
+    fn rows(&self, key: EntryRowKey, build: impl FnOnce() -> EntryRowCache) -> Rc<EntryRowCache> {
+        if let Some((cached_key, cache)) = self.entry_row_cache.borrow().as_ref()
+            && *cached_key == key
+        {
+            return cache.clone();
+        }
+        let cache = Rc::new(build());
+        *self.entry_row_cache.borrow_mut() = Some((key, cache.clone()));
+        cache
+    }
+
+    /// Return the memoized rendered body for `key`, building it with `build` on a
+    /// miss (entry or width changed, or the store reloaded).
+    fn body(
+        &self,
+        key: EntryBodyKey,
+        build: impl FnOnce() -> RenderedEntryBody,
+    ) -> Rc<RenderedEntryBody> {
+        if let Some((cached_key, body)) = self.entry_body_cache.borrow().as_ref()
+            && *cached_key == key
+        {
+            return body.clone();
+        }
+        let body = Rc::new(build());
+        *self.entry_body_cache.borrow_mut() = Some((key, body.clone()));
+        body
+    }
+
+    /// Return the memoized stats for `journal` at `version`, building them with
+    /// `build` on a miss (different journal selected, or the store reloaded).
+    fn stats(
+        &self,
+        version: u64,
+        journal: &str,
+        build: impl FnOnce() -> JournalStats,
+    ) -> Rc<JournalStats> {
+        if let Some((cached_version, name, stats)) = self.journal_stats_cache.borrow().as_ref()
+            && *cached_version == version
+            && name == journal
+        {
+            return stats.clone();
+        }
+        let stats = Rc::new(build());
+        *self.journal_stats_cache.borrow_mut() =
+            Some((version, journal.to_string(), stats.clone()));
+        stats
+    }
+}
+
 pub(crate) struct App {
     pub(crate) config_path: PathBuf,
     pub(crate) config: Config,
     pub(crate) store: JournalStore,
     pub(crate) journals: Vec<Journal>,
     pub(crate) entries: Vec<Entry>,
+    /// Journal name → contiguous index range into `entries`. Entries are sorted
+    /// by path (so a journal's entries are adjacent); this lets `selected_entries`
+    /// and the entry count avoid re-scanning the whole `entries` Vec each call.
+    journal_ranges: HashMap<String, Range<usize>>,
+    /// Entry id → index into `entries`, rebuilt whenever `entries` is reloaded.
+    /// In Search mode the preview getters resolve a hit's `&Entry` through this
+    /// instead of an O(entries) `iter().find`, so a single frame no longer does
+    /// several full linear scans.
+    entry_index_by_id: HashMap<String, usize>,
     pub(crate) journal_list: ListState,
     /// The selected entry (or search hit) index, or `None` when no entry is
     /// selected. In Browse mode `None` shows the journal stats in the preview
@@ -83,8 +227,19 @@ pub(crate) struct App {
     pub(crate) entry_view_image_hits: EntryViewImageHits,
     /// Selected entry's in-folder images, memoized by path; `RefCell` so `&self`
     /// render/hint/shortcut paths can read it. Re-parsed on a path change or when
-    /// `refresh` clears it.
+    /// `refresh` clears it. Part of the image subsystem (grouped with the fields
+    /// above), not [`RenderCaches`]: it is path-keyed with manual invalidation
+    /// (`.take()` on reload) and tied to the `ImageRuntime` lifecycle, rather than
+    /// invalidated by a version counter.
     selected_images_cache: RefCell<Option<(PathBuf, Rc<Vec<ImageAsset>>)>>,
+    /// Per-frame render memo caches (rows, rendered body, journal stats) and the
+    /// version counters that invalidate them. See [`RenderCaches`].
+    caches: RenderCaches,
+    /// Set when the search query changed but the (expensive) hit recompute has
+    /// been deferred; the event loop runs it once typing pauses (debounce).
+    pub(crate) search_dirty: bool,
+    /// Timestamp of the last search keystroke, for the debounce window.
+    pub(crate) search_last_edit: Option<Instant>,
 }
 
 /// Clickable image label positions in the entry view, captured at render time so
@@ -115,6 +270,8 @@ impl App {
             store,
             journals: Vec::new(),
             entries: Vec::new(),
+            journal_ranges: HashMap::new(),
+            entry_index_by_id: HashMap::new(),
             journal_list: ListState::default(),
             selected_entry_index: None,
             entry_list: ListState::default(),
@@ -129,6 +286,9 @@ impl App {
             image_warm: None,
             entry_view_image_hits: EntryViewImageHits::default(),
             selected_images_cache: RefCell::new(None),
+            caches: RenderCaches::default(),
+            search_dirty: false,
+            search_last_edit: None,
         };
         app.load_entries(entry_paths)?;
         // Restore the journal selected in the previous session without disturbing
@@ -161,6 +321,20 @@ impl App {
         self.journals = self.store.list_journals()?;
         self.entries = self.store.read_entries(entry_paths)?;
         normalize_list_state(&mut self.journal_list, self.journals.len());
+        self.after_entries_changed();
+        Ok(())
+    }
+
+    /// Rebuild derived state after `entries` is replaced or edited: the entry
+    /// indexes, the cache-invalidating data version, the search hits (when a
+    /// query is active), and the clamped selection. Shared by the full load and
+    /// the incremental [`Self::refresh_paths`] path.
+    fn after_entries_changed(&mut self) {
+        self.rebuild_entry_indexes();
+        // Entries (and possibly hits) changed: invalidate every version-keyed
+        // cache — the body/stats caches (entries_version) and the row cache
+        // (rows_version).
+        self.caches.bump_entries();
         if !self.search.query.is_empty() {
             self.search.hits = self.search_results();
         }
@@ -172,7 +346,73 @@ impl App {
         if self.selected_entry_index != previous_entry_index {
             self.reset_entry_scroll();
         }
+    }
+
+    /// Reload only the entries under the changed `paths` when every change is an
+    /// entry-file upsert/remove inside an existing journal. Anything else — a
+    /// new or removed journal, an asset, or a directory event — falls back to a
+    /// full [`Self::refresh`], since the journal list or grouping may have moved.
+    pub(crate) fn refresh_paths(&mut self, paths: &[PathBuf]) -> AppResult<()> {
+        self.store.ensure()?;
+        let root = self.store.paths().journal_root.clone();
+
+        // notify frequently reports the same path several times per change.
+        let mut changed = paths.to_vec();
+        changed.sort();
+        changed.dedup();
+
+        let mut targets: Vec<(String, PathBuf)> = Vec::new();
+        for path in &changed {
+            let Some(journal) = journal_for_path(&root, path) else {
+                return self.refresh();
+            };
+            if !is_entry_file(path) || !self.journals.iter().any(|j| j.name == journal) {
+                return self.refresh();
+            }
+            targets.push((journal, path.clone()));
+        }
+        if targets.is_empty() {
+            return Ok(());
+        }
+
+        // The viewed entry's body/images may have changed: drop the image caches
+        // (the version-keyed row/body/stats caches self-invalidate on the bump).
+        self.images.clear();
+        self.image_warm = None;
+        self.selected_images_cache.borrow_mut().take();
+
+        for (journal, path) in targets {
+            if path.exists() {
+                let entry = self.store.read_entry(&journal, &path)?;
+                self.upsert_entry(entry);
+            } else {
+                self.remove_entry_by_path(&path);
+            }
+        }
+        self.after_entries_changed();
         Ok(())
+    }
+
+    /// Insert or replace `entry` in the path-sorted (descending) `entries` Vec,
+    /// keeping the ordering so `journal_ranges` stays contiguous per journal.
+    fn upsert_entry(&mut self, entry: Entry) {
+        match self
+            .entries
+            .binary_search_by(|existing| entry.path.cmp(&existing.path))
+        {
+            Ok(index) => self.entries[index] = entry,
+            Err(index) => self.entries.insert(index, entry),
+        }
+    }
+
+    /// Remove the entry at `path`, if present, preserving the sorted order.
+    fn remove_entry_by_path(&mut self, path: &Path) {
+        if let Ok(index) = self
+            .entries
+            .binary_search_by(|existing| path.cmp(&existing.path))
+        {
+            self.entries.remove(index);
+        }
     }
 
     pub(crate) fn selected_journal_index(&self) -> usize {
@@ -234,31 +474,129 @@ impl App {
         rows: &[EntryRowMeta],
         viewport_height: u16,
     ) {
-        let mut scroll = self.entry_list.offset() as u16;
+        let mut scroll = self.entry_list.offset();
         crate::tui::entry_rows::ensure_entry_visible(
             &mut scroll,
             rows,
             self.selected_entry_index,
             viewport_height,
         );
-        *self.entry_list.offset_mut() = scroll as usize;
+        *self.entry_list.offset_mut() = scroll;
+    }
+
+    /// Contiguous index range into `entries` for the selected journal, or `None`
+    /// when no journal is selected or it has no entries.
+    fn selected_entry_range(&self) -> Option<Range<usize>> {
+        let journal = self.selected_journal()?;
+        self.journal_ranges.get(&journal.name).cloned()
     }
 
     pub(crate) fn selected_entries(&self) -> Vec<&Entry> {
-        let Some(journal) = self.selected_journal() else {
-            return Vec::new();
-        };
-        self.entries
-            .iter()
-            .filter(|entry| entry.journal == journal.name)
-            .collect()
+        match self.selected_entry_range() {
+            Some(range) => self.entries[range].iter().collect(),
+            None => Vec::new(),
+        }
     }
 
     pub(crate) fn current_entry_list_len(&self) -> usize {
         match self.mode {
             Mode::Search => self.search.hits.len(),
-            Mode::Browse => self.selected_entries().len(),
+            Mode::Browse => self.selected_entry_range().map_or(0, |range| range.len()),
         }
+    }
+
+    /// Rebuild the derived entry indexes after `entries` is (re)loaded: the
+    /// journal → contiguous-range map (entries are sorted by path, so each
+    /// journal's entries form one run) and the entry-id → index map used to
+    /// resolve search hits without scanning.
+    fn rebuild_entry_indexes(&mut self) {
+        // Both indexes rely on `entries` being sorted descending by path (see
+        // `read_entries`), which keeps each journal's entries in one contiguous
+        // run. Trip loudly if a future code path ever breaks that ordering.
+        debug_assert!(
+            self.entries.windows(2).all(|w| w[0].path >= w[1].path),
+            "entries must stay sorted descending by path for journal_ranges to be contiguous"
+        );
+        self.journal_ranges.clear();
+        self.entry_index_by_id.clear();
+        self.entry_index_by_id.reserve(self.entries.len());
+        let mut start = 0;
+        while start < self.entries.len() {
+            let name = &self.entries[start].journal;
+            let mut end = start + 1;
+            while end < self.entries.len() && &self.entries[end].journal == name {
+                end += 1;
+            }
+            self.journal_ranges.insert(name.clone(), start..end);
+            start = end;
+        }
+        for (index, entry) in self.entries.iter().enumerate() {
+            self.entry_index_by_id.insert(entry.id.clone(), index);
+        }
+    }
+
+    /// Resolve an entry by id in O(1) via [`Self::entry_index_by_id`].
+    fn entry_by_id(&self, id: &str) -> Option<&Entry> {
+        self.entries.get(*self.entry_index_by_id.get(id)?)
+    }
+
+    /// The entry backing the current selection, resolving a search hit through
+    /// the id index. Unifies the Search/Browse branches the preview getters share.
+    fn resolved_selected_entry(&self) -> Option<&Entry> {
+        match self.mode {
+            Mode::Search => self.entry_by_id(&self.selected_search_hit()?.id),
+            Mode::Browse => self.selected_entry(),
+        }
+    }
+
+    /// The memoized entry-list rows for the current state, rebuilt only when the
+    /// row-determining inputs (rows version, mode, journal, width) change. Returns
+    /// an `Rc` so callers can read it while holding a `&mut App` borrow elsewhere.
+    pub(crate) fn entry_rows(&self, text_width: u16) -> Rc<EntryRowCache> {
+        let key = EntryRowKey {
+            version: self.caches.rows_version,
+            mode: self.mode.clone(),
+            journal: self.selected_journal().map(|journal| journal.name.clone()),
+            text_width,
+        };
+        self.caches
+            .rows(key, || build_entry_row_cache(self, text_width))
+    }
+
+    /// Return the memoized rendered body for the entry at `path`/`width`, building
+    /// it with `build` only on a cache miss (entry or width changed, or the store
+    /// reloaded). The markdown parse+render `build` runs is the preview pane's
+    /// dominant per-frame cost, so this keeps blink/scroll/image-tick redraws cheap.
+    pub(crate) fn cached_entry_body(
+        &self,
+        path: Option<&Path>,
+        width: usize,
+        build: impl FnOnce() -> RenderedEntryBody,
+    ) -> Rc<RenderedEntryBody> {
+        let key = EntryBodyKey {
+            version: self.caches.entries_version,
+            path: path.map(Path::to_path_buf),
+            width,
+        };
+        self.caches.body(key, build)
+    }
+
+    /// Precomputed word count of the entry currently shown in the preview, or 0
+    /// when none is selected.
+    pub(crate) fn selected_entry_word_count(&self) -> usize {
+        self.resolved_selected_entry()
+            .map_or(0, |entry| entry.word_count)
+    }
+
+    /// Return the memoized stats for `journal`, building them with `build` only on
+    /// a cache miss (different journal selected, or the store reloaded).
+    pub(crate) fn cached_journal_stats(
+        &self,
+        journal: &str,
+        build: impl FnOnce() -> JournalStats,
+    ) -> Rc<JournalStats> {
+        self.caches
+            .stats(self.caches.entries_version, journal, build)
     }
 
     pub(crate) fn move_selection(&mut self, delta: isize) {
@@ -363,8 +701,8 @@ impl App {
 
     fn selected_entry(&self) -> Option<&Entry> {
         let index = self.selected_entry_index?;
-        let entries = self.selected_entries();
-        entries.get(index).copied()
+        let range = self.selected_entry_range()?;
+        (index < range.len()).then(|| &self.entries[range.start + index])
     }
 
     pub(crate) fn selected_search_hit(&self) -> Option<&SearchHit> {
@@ -372,27 +710,19 @@ impl App {
     }
 
     pub(crate) fn selected_entry_target(&self) -> Option<EntryTarget> {
-        match self.mode {
-            Mode::Search => {
-                let hit = self.selected_search_hit()?;
-                let entry = self.entries.iter().find(|entry| entry.id == hit.id)?;
-                Some(EntryTarget {
-                    id: entry.id.clone(),
-                    path: entry.path.clone(),
-                    title: self.search_hit_label(hit),
-                    locked: entry.encryption_state == EntryEncryptionState::EncryptedLocked,
-                })
-            }
-            Mode::Browse => {
-                let entry = self.selected_entry()?;
-                Some(EntryTarget {
-                    id: entry.id.clone(),
-                    path: entry.path.clone(),
-                    title: entry.display_label(),
-                    locked: entry.encryption_state == EntryEncryptionState::EncryptedLocked,
-                })
-            }
-        }
+        // In Search mode the title comes from the hit (journal-prefixed label),
+        // otherwise from the entry itself; the rest is shared.
+        let title = match self.mode {
+            Mode::Search => self.search_hit_label(self.selected_search_hit()?),
+            Mode::Browse => self.selected_entry()?.display_label(),
+        };
+        let entry = self.resolved_selected_entry()?;
+        Some(EntryTarget {
+            id: entry.id.clone(),
+            path: entry.path.clone(),
+            title,
+            locked: entry.encryption_state == EntryEncryptionState::EncryptedLocked,
+        })
     }
 
     pub(crate) fn selected_entry_tags(&self) -> Vec<String> {
@@ -408,39 +738,15 @@ impl App {
     }
 
     fn selected_entry_metadata(&self, kind: MetadataKind) -> Vec<String> {
-        match self.mode {
-            Mode::Search => self
-                .selected_search_hit()
-                .and_then(|hit| {
-                    self.entries
-                        .iter()
-                        .find(|entry| entry.id == hit.id)
-                        .map(|entry| metadata_values(entry, kind).to_vec())
-                })
-                .unwrap_or_default(),
-            Mode::Browse => self
-                .selected_entry()
-                .map(|entry| metadata_values(entry, kind).to_vec())
-                .unwrap_or_default(),
-        }
+        self.resolved_selected_entry()
+            .map(|entry| metadata_values(entry, kind).to_vec())
+            .unwrap_or_default()
     }
 
     pub(crate) fn selected_entry_feelings(&self) -> Vec<String> {
-        match self.mode {
-            Mode::Search => self
-                .selected_search_hit()
-                .and_then(|hit| {
-                    self.entries
-                        .iter()
-                        .find(|entry| entry.id == hit.id)
-                        .map(|entry| entry.feelings.clone())
-                })
-                .unwrap_or_default(),
-            Mode::Browse => self
-                .selected_entry()
-                .map(|entry| entry.feelings.clone())
-                .unwrap_or_default(),
-        }
+        self.resolved_selected_entry()
+            .map(|entry| entry.feelings.clone())
+            .unwrap_or_default()
     }
 
     pub(crate) fn has_selected_entry_target(&self) -> bool {
@@ -452,13 +758,7 @@ impl App {
     }
 
     pub(crate) fn selected_entry_view(&self) -> Option<(String, String)> {
-        let entry = match self.mode {
-            Mode::Search => {
-                let hit = self.selected_search_hit()?;
-                self.entries.iter().find(|entry| entry.id == hit.id)?
-            }
-            Mode::Browse => self.selected_entry()?,
-        };
+        let entry = self.resolved_selected_entry()?;
         if entry.encryption_state == EntryEncryptionState::EncryptedLocked {
             return Some((
                 entry_timestamp_label(entry),
@@ -516,15 +816,7 @@ impl App {
     }
 
     pub(crate) fn selected_entry_mood(&self) -> Option<i8> {
-        match self.mode {
-            Mode::Search => self.selected_search_hit().and_then(|hit| {
-                self.entries
-                    .iter()
-                    .find(|entry| entry.id == hit.id)
-                    .and_then(|entry| entry.mood)
-            }),
-            Mode::Browse => self.selected_entry().and_then(|entry| entry.mood),
-        }
+        self.resolved_selected_entry().and_then(|entry| entry.mood)
     }
 
     pub(crate) fn begin_edit_mood(&mut self) {
@@ -810,6 +1102,9 @@ impl App {
         self.search.query = format!("tags:{tag}");
         self.search.cursor = self.search.query.chars().count();
         self.search.hits = self.search_results_by_metadata(MetadataKind::Tags, tag);
+        self.search_dirty = false;
+        self.search_last_edit = None;
+        self.caches.bump_rows();
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
     }
@@ -832,6 +1127,9 @@ impl App {
         self.search.query = format!("{}:{value}", kind.search_prefix());
         self.search.cursor = self.search.query.chars().count();
         self.search.hits = self.search_results_by_metadata(kind, value);
+        self.search_dirty = false;
+        self.search_last_edit = None;
+        self.caches.bump_rows();
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
     }
@@ -846,6 +1144,9 @@ impl App {
         self.search.query = format!("feelings:{feeling}");
         self.search.cursor = self.search.query.chars().count();
         self.search.hits = self.search_results_by_feeling(feeling);
+        self.search_dirty = false;
+        self.search_last_edit = None;
+        self.caches.bump_rows();
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
     }
@@ -863,6 +1164,9 @@ impl App {
         self.search.query.clear();
         self.search.cursor = 0;
         self.search.hits.clear();
+        self.search_dirty = false;
+        self.search_last_edit = None;
+        self.caches.bump_rows();
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
     }
@@ -873,14 +1177,28 @@ impl App {
         self.search.query.clear();
         self.search.cursor = 0;
         self.search.hits.clear();
+        self.search_dirty = false;
+        self.search_last_edit = None;
+        self.caches.bump_rows();
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
     }
 
     pub(crate) fn update_search_results(&mut self) {
         self.search.hits = self.search_results();
+        self.search_dirty = false;
+        self.search_last_edit = None;
+        self.caches.bump_rows();
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
+    }
+
+    /// Mark the search query as changed without running the (expensive) hit
+    /// recompute yet. The event loop calls [`Self::update_search_results`] once
+    /// typing pauses, so a fast typist doesn't re-scan the whole corpus per key.
+    fn mark_search_dirty(&mut self) {
+        self.search_dirty = true;
+        self.search_last_edit = Some(Instant::now());
     }
 
     /// The search caret is active (blinking) only while typing in the field.
@@ -903,7 +1221,7 @@ impl App {
         let byte = self.search_cursor_byte();
         self.search.query.insert(byte, ch);
         self.search.cursor += 1;
-        self.update_search_results();
+        self.mark_search_dirty();
     }
 
     /// Delete the char before the caret (Backspace).
@@ -914,7 +1232,7 @@ impl App {
         self.search.cursor -= 1;
         let byte = self.search_cursor_byte();
         self.search.query.remove(byte);
-        self.update_search_results();
+        self.mark_search_dirty();
     }
 
     pub(crate) fn search_cursor_left(&mut self) {
@@ -1050,6 +1368,16 @@ impl SearchScope {
 struct CasingCount {
     total: usize,
     forms: std::collections::BTreeMap<String, usize>,
+}
+
+/// The journal owning `path`: the first path component beneath `root`. `None`
+/// when `path` is not under `root` or has no such component (e.g. the root
+/// itself), which signals the incremental path to fall back to a full reload.
+fn journal_for_path(root: &Path, path: &Path) -> Option<String> {
+    match path.strip_prefix(root).ok()?.components().next()? {
+        std::path::Component::Normal(name) => name.to_str().map(str::to_string),
+        _ => None,
+    }
 }
 
 fn metadata_values(entry: &Entry, kind: MetadataKind) -> &[String] {
@@ -1328,5 +1656,247 @@ mod tests {
         assert!(app.expire_status());
         assert!(app.status().is_empty());
         assert!(!app.expire_status());
+    }
+
+    #[test]
+    fn entry_rows_cache_is_reused_until_inputs_change() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(
+            entry_dir.join("a.md"),
+            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        )
+        .unwrap();
+        fs::write(
+            entry_dir.join("b.md"),
+            "+++\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
+        )
+        .unwrap();
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+
+        let first = app.entry_rows(30);
+        // Same inputs → same cached rows (identity, not just equality).
+        assert!(Rc::ptr_eq(&first, &app.entry_rows(30)));
+        // Moving the selection does not change the rows, so the cache holds.
+        app.move_selection(1);
+        assert!(Rc::ptr_eq(&first, &app.entry_rows(30)));
+        // A different width rebuilds.
+        assert!(!Rc::ptr_eq(&first, &app.entry_rows(20)));
+        // Reloading the store rebuilds.
+        app.refresh().unwrap();
+        assert!(!Rc::ptr_eq(&first, &app.entry_rows(30)));
+    }
+
+    #[test]
+    fn search_insert_defers_hit_recompute_until_committed() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(
+            entry_dir.join("a.md"),
+            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nneedle\n",
+        )
+        .unwrap();
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+        app.begin_search();
+
+        for ch in "needle".chars() {
+            app.search_insert(ch);
+        }
+        // The query echoes immediately, but the whole-corpus scan is deferred.
+        assert_eq!(app.search.query, "needle");
+        assert!(app.search_dirty);
+        assert!(app.search.hits.is_empty());
+
+        // Committing (what the event loop does after the debounce) runs the scan.
+        app.update_search_results();
+        assert!(!app.search_dirty);
+        assert_eq!(app.search.hits.len(), 1);
+    }
+
+    fn write_entry(dir: &std::path::Path, name: &str, created: &str, body: &str) -> PathBuf {
+        let path = dir.join(name);
+        fs::write(
+            &path,
+            format!("+++\ncreated_at = \"{created}\"\n+++\n\n{body}\n"),
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn refresh_paths_updates_only_the_changed_entry() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        let a = write_entry(
+            &entry_dir,
+            "a.md",
+            "2026-07-01T10:00:00+02:00",
+            "# A\nold body",
+        );
+        write_entry(&entry_dir, "b.md", "2026-07-01T11:00:00+02:00", "# B\nbee");
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+        assert_eq!(app.entries.len(), 2);
+
+        // Edit a.md on disk, then reload just that path.
+        write_entry(
+            &entry_dir,
+            "a.md",
+            "2026-07-01T10:00:00+02:00",
+            "# A\nnew body here",
+        );
+        app.refresh_paths(&[a]).unwrap();
+
+        assert_eq!(app.entries.len(), 2);
+        let updated = app.entry_by_id("a").unwrap();
+        assert!(updated.content.contains("new body here"));
+        // Precomputed word count is rebuilt from the fresh body on re-read.
+        assert_eq!(
+            updated.word_count,
+            updated.content.split_whitespace().count()
+        );
+        assert!(!updated.search_haystack.is_empty());
+        // `entries` stays sorted by path (descending) so `journal_ranges` holds.
+        assert!(app.entries.windows(2).all(|w| w[0].path > w[1].path));
+        assert_eq!(app.selected_entries().len(), 2);
+    }
+
+    #[test]
+    fn refresh_paths_handles_create_and_delete() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        let a = write_entry(
+            &entry_dir,
+            "a.md",
+            "2026-07-01T10:00:00+02:00",
+            "# A\nalpha",
+        );
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+        assert_eq!(app.entries.len(), 1);
+
+        // A newly written file is picked up by its path alone.
+        let c = write_entry(&entry_dir, "c.md", "2026-07-01T12:00:00+02:00", "# C\nsea");
+        app.refresh_paths(std::slice::from_ref(&c)).unwrap();
+        assert_eq!(app.entries.len(), 2);
+        assert!(app.entry_by_id("c").is_some());
+
+        // Deleting the file on disk removes it on the next targeted reload.
+        fs::remove_file(&a).unwrap();
+        app.refresh_paths(&[a]).unwrap();
+        assert_eq!(app.entries.len(), 1);
+        assert!(app.entry_by_id("a").is_none());
+        assert_eq!(app.selected_entries().len(), 1);
+    }
+
+    #[test]
+    fn refresh_paths_falls_back_to_full_reload_for_a_new_journal() {
+        let dir = tempdir().unwrap();
+        let work = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&work).unwrap();
+        write_entry(&work, "a.md", "2026-07-01T10:00:00+02:00", "# A\nalpha");
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+
+        // A path under a brand-new journal isn't attributable to a known journal,
+        // so the incremental path must fall back to a full reload that also picks
+        // up the new journal in the list.
+        let personal = dir.path().join("personal").join("2026-07-01");
+        fs::create_dir_all(&personal).unwrap();
+        let z = write_entry(&personal, "z.md", "2026-07-02T10:00:00+02:00", "# Z\nzed");
+        app.refresh_paths(&[z]).unwrap();
+
+        assert!(
+            app.journals
+                .iter()
+                .any(|journal| journal.name == "personal")
+        );
+        assert!(app.entry_by_id("z").is_some());
+    }
+
+    #[test]
+    fn entry_body_cache_is_reused_until_entry_or_width_changes() {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        write_entry(&entry_dir, "a.md", "2026-07-01T10:00:00+02:00", "# A\nBody");
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+        let path = app.selected_entry_target().map(|target| target.path);
+
+        let first = app.cached_entry_body(path.as_deref(), 40, || (vec![Line::from("x")], vec![]));
+        // Same entry + width → cached rows returned, the builder isn't re-run.
+        let same = app.cached_entry_body(path.as_deref(), 40, || (vec![Line::from("y")], vec![]));
+        assert!(Rc::ptr_eq(&first, &same));
+        // A different width rebuilds.
+        let narrower =
+            app.cached_entry_body(path.as_deref(), 20, || (vec![Line::from("z")], vec![]));
+        assert!(!Rc::ptr_eq(&first, &narrower));
+        // Reloading the store bumps entries_version, invalidating the cache.
+        app.refresh().unwrap();
+        let after = app.cached_entry_body(path.as_deref(), 40, || (vec![Line::from("w")], vec![]));
+        assert!(!Rc::ptr_eq(&first, &after));
+    }
+
+    #[test]
+    fn search_recompute_keeps_body_and_stats_caches_but_rebuilds_rows() {
+        use crate::tui::render::stats::JournalStats;
+
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        write_entry(&entry_dir, "a.md", "2026-07-01T10:00:00+02:00", "# A\nbody");
+        let config = Config::new(dir.path().to_path_buf(), "true");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+        let path = app.selected_entry_target().map(|target| target.path);
+
+        // Prime all three caches.
+        let body = app.cached_entry_body(path.as_deref(), 40, || (vec![Line::from("x")], vec![]));
+        let stats = app.cached_journal_stats("work", || JournalStats {
+            name: "work".to_string(),
+            entry_count: 0,
+            active_days: 0,
+            year_range: String::new(),
+        });
+        let rows = app.entry_rows(30);
+
+        // A search recompute changes the hits but not the entries, so it bumps
+        // only rows_version.
+        app.begin_search();
+        for ch in "body".chars() {
+            app.search_insert(ch);
+        }
+        app.update_search_results();
+
+        // Body and stats caches key on entries_version, which is untouched:
+        // requerying with identical inputs returns the same Rc (builder skipped).
+        let body_after =
+            app.cached_entry_body(path.as_deref(), 40, || (vec![Line::from("y")], vec![]));
+        assert!(Rc::ptr_eq(&body, &body_after));
+        let stats_after = app.cached_journal_stats("work", || JournalStats {
+            name: "work".to_string(),
+            entry_count: 99,
+            active_days: 99,
+            year_range: "changed".to_string(),
+        });
+        assert!(Rc::ptr_eq(&stats, &stats_after));
+
+        // The row cache keys on rows_version, which the recompute bumped, so it
+        // rebuilt.
+        let rows_after = app.entry_rows(30);
+        assert!(!Rc::ptr_eq(&rows, &rows_after));
     }
 }

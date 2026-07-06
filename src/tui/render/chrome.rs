@@ -608,7 +608,7 @@ pub(crate) fn render_scrollbar_if_needed(
     area: Rect,
     total_height: usize,
     viewport_height: u16,
-    scroll: u16,
+    scroll: usize,
 ) {
     if total_height > viewport_height as usize {
         let mut state = ScrollbarState::default()

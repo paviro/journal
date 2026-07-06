@@ -1,14 +1,12 @@
 use super::paths::{entry_id, is_assets_dir, is_encrypted_entry_file, is_entry_file};
 use super::{Entry, EntryEncryptionState, EntryPath};
+use crate::storage::parse_entry_timestamp;
 use crate::storage::{journals::is_hidden_name, list_journals};
 use crate::{
     AppResult, crypto,
-    markdown::{
-        display_preview, front_matter_activities, front_matter_feelings, front_matter_import_id,
-        front_matter_mood, front_matter_people, front_matter_tags, front_matter_value,
-        split_front_matter,
-    },
+    markdown::{FrontMatterFields, display_preview, front_matter_fields, split_front_matter},
 };
+use journal_core::entry::build_search_haystack;
 use journal_core::feelings::normalize_feelings;
 use rayon::prelude::*;
 use std::{fs, path::Path};
@@ -96,22 +94,24 @@ pub fn read_entry_with_identity(
     };
     let content = read_entry_content_with_identity(path, identity)?;
     let (front_matter, body) = split_front_matter(&content);
-    let created_at = front_matter.and_then(|yaml| front_matter_value(yaml, "created_at"));
-    let updated_at = front_matter.and_then(|yaml| front_matter_value(yaml, "updated_at"));
-    let tags = front_matter.map(front_matter_tags).unwrap_or_default();
-    let people = front_matter.map(front_matter_people).unwrap_or_default();
-    let activities = front_matter
-        .map(front_matter_activities)
-        .unwrap_or_default();
-    let feelings = front_matter
-        .map(front_matter_feelings)
-        .map(|feelings| normalize_feelings(feelings.iter().map(String::as_str)))
-        .unwrap_or_default();
-    let mood = front_matter.and_then(front_matter_mood);
-    let import_id = front_matter.and_then(front_matter_import_id);
+    // One TOML parse per entry instead of one per field.
+    let FrontMatterFields {
+        created_at,
+        updated_at,
+        tags,
+        people,
+        activities,
+        feelings,
+        mood,
+        import_id,
+    } = front_matter.map(front_matter_fields).unwrap_or_default();
+    let feelings = normalize_feelings(feelings.iter().map(String::as_str));
+    let created = created_at.as_deref().and_then(parse_entry_timestamp);
     let id = entry_id(path).ok_or("entry file has no UTF-8 stem")?;
     let preview = display_preview(body);
     let body = body.trim_start_matches('\n').to_string();
+    let word_count = body.split_whitespace().count();
+    let search_haystack = build_search_haystack(&body, &tags, &people, &activities, &feelings);
 
     Ok(Entry {
         id,
@@ -119,6 +119,7 @@ pub fn read_entry_with_identity(
         path: path.to_path_buf(),
         encryption_state,
         created_at,
+        created,
         updated_at,
         preview,
         tags,
@@ -128,6 +129,8 @@ pub fn read_entry_with_identity(
         mood,
         import_id,
         content: body,
+        word_count,
+        search_haystack,
     })
 }
 
@@ -139,6 +142,7 @@ fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {
         path: path.to_path_buf(),
         encryption_state: EntryEncryptionState::EncryptedLocked,
         created_at: None,
+        created: None,
         updated_at: None,
         preview: "[locked] Encrypted entry".to_string(),
         tags: Vec::new(),
@@ -148,6 +152,8 @@ fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {
         mood: None,
         import_id: None,
         content: "Encryption identity not available".to_string(),
+        word_count: 0,
+        search_haystack: String::new(),
     })
 }
 

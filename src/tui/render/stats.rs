@@ -103,7 +103,7 @@ fn centered_fixed_rect(area: Rect, desired_width: u16, desired_height: u16) -> R
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct JournalStats {
     pub(crate) name: String,
     pub(crate) entry_count: usize,
@@ -112,18 +112,21 @@ pub(crate) struct JournalStats {
 }
 
 pub(crate) fn journal_stats(app: &App) -> Option<JournalStats> {
-    let journal = app.selected_journal()?;
-    let entries = app.selected_entries();
-    let entry_count = entries.len();
-    let active_days = active_day_count(&entries);
-    let year_range = journal_year_range(&entries).unwrap_or_else(|| "No dated entries".to_string());
-
-    Some(JournalStats {
-        name: journal.name.clone(),
-        entry_count,
-        active_days,
-        year_range,
-    })
+    let name = app.selected_journal()?.name.clone();
+    // Memoized per (journal, data version): the active-days and year-range passes
+    // scan every entry in the journal (with a date parse each), which would
+    // otherwise run every frame the stats preview is shown.
+    let stats = app.cached_journal_stats(&name, || {
+        let entries = app.selected_entries();
+        JournalStats {
+            name: name.clone(),
+            entry_count: entries.len(),
+            active_days: active_day_count(&entries),
+            year_range: journal_year_range(&entries)
+                .unwrap_or_else(|| "No dated entries".to_string()),
+        }
+    });
+    Some((*stats).clone())
 }
 
 fn journal_year_range(entries: &[&Entry]) -> Option<String> {

@@ -27,6 +27,14 @@ use std::{
 /// Blink half-period for the search caret.
 const CURSOR_BLINK: Duration = Duration::from_millis(530);
 
+/// Quiet period after the last search keystroke before the (whole-corpus) hit
+/// recompute runs, so fast typing doesn't re-scan every entry per key.
+const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
+
+/// Quiet period after the last watched file change before reloading the store,
+/// so a burst of writes (e.g. a Day One import) collapses into one reload.
+const REFRESH_DEBOUNCE: Duration = Duration::from_millis(400);
+
 use app::App;
 
 pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResult<()> {
@@ -86,6 +94,11 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
     terminal.draw(|frame| render::draw(frame, &mut app))?;
     let mut overlay_was_visible = app.has_overlay();
     let mut last_blink = Instant::now();
+    // When set, a watched file change is pending; reload once the filesystem has
+    // been quiet until this deadline (coalesces import-time write storms). The
+    // accumulated changed paths let the reload touch only affected entries.
+    let mut pending_refresh_at: Option<Instant> = None;
+    let mut pending_paths: Vec<PathBuf> = Vec::new();
 
     loop {
         // A newly finished image build makes the frame stale; repaint below.
@@ -102,6 +115,18 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         // Wake often enough to blink the search caret while typing in the field.
         if app.is_search_input_active() {
             poll_timeout = poll_timeout.min(CURSOR_BLINK);
+        }
+        // Wake to run a debounced search recompute once typing pauses.
+        if app.search_dirty {
+            let remaining = app
+                .search_last_edit
+                .map(|edited| SEARCH_DEBOUNCE.saturating_sub(edited.elapsed()))
+                .unwrap_or_default();
+            poll_timeout = poll_timeout.min(remaining);
+        }
+        // Wake to run a debounced store reload once file changes settle.
+        if let Some(at) = pending_refresh_at {
+            poll_timeout = poll_timeout.min(at.saturating_duration_since(Instant::now()));
         }
 
         let event = if event::poll(poll_timeout)? {
@@ -132,11 +157,34 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
             None => app.expire_status(),
         };
 
-        let watcher_changed = watcher.poll_change();
-
-        if watcher_changed {
-            app.refresh()?;
+        // Debounce watcher-driven reloads: each change pushes the deadline out and
+        // accumulates the changed paths; the reload runs only once no change has
+        // arrived for the quiet period, then re-reads just those entries.
+        let changed = watcher.poll_changes();
+        if !changed.is_empty() {
+            pending_paths.extend(changed);
+            pending_refresh_at = Some(Instant::now() + REFRESH_DEBOUNCE);
         }
+        let refreshed = if pending_refresh_at.is_some_and(|at| Instant::now() >= at) {
+            pending_refresh_at = None;
+            let paths = std::mem::take(&mut pending_paths);
+            app.refresh_paths(&paths)?;
+            true
+        } else {
+            false
+        };
+
+        // Run the debounced search recompute once typing has paused.
+        let search_recomputed = if app.search_dirty
+            && app
+                .search_last_edit
+                .is_none_or(|edited| edited.elapsed() >= SEARCH_DEBOUNCE)
+        {
+            app.update_search_results();
+            true
+        } else {
+            false
+        };
 
         // Warm the viewer's images once it's open and drop them when the entry
         // closes; cheap when nothing changed, rebuilds on change.
@@ -172,7 +220,13 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
             app.search_cursor_visible = true;
         }
 
-        if redraw || watcher_changed || images_ready || animate_loading || blink_toggled {
+        if redraw
+            || refreshed
+            || search_recomputed
+            || images_ready
+            || animate_loading
+            || blink_toggled
+        {
             if overlay_closed && app.images.uses_graphics() {
                 terminal.clear()?;
             }

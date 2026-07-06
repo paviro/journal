@@ -5,7 +5,7 @@ mod image_viewer;
 mod journals;
 mod layout;
 mod markdown_panel;
-mod stats;
+pub(crate) mod stats;
 
 use ratatui::{
     Frame,
@@ -15,10 +15,11 @@ use ratatui::{
 
 use super::app::{App, EntryViewImageHits, Focus, single_panel_is_active};
 #[cfg(test)]
+pub(crate) use super::entry_rows::entry_row_metadata;
+#[cfg(test)]
 pub(crate) use super::entry_rows::{
     EntryRowMeta, entry_box_lines, entry_day_label, entry_list_lines, entry_month_label,
 };
-pub(crate) use super::entry_rows::{entry_row_metadata, total_entry_row_height};
 #[cfg(test)]
 pub(crate) use super::hit_test::journal_index_at;
 pub(crate) use super::hit_test::{
@@ -385,7 +386,7 @@ mod tests {
                 entries,
                 entries.panel.content.x,
                 click_y,
-                app.entry_list.offset() as u16,
+                app.entry_list.offset(),
                 &rows
             ),
             Some(0)
@@ -617,7 +618,7 @@ mod tests {
         let scroll = viewer_scroll(u16::MAX, line_count, height);
 
         assert_eq!(scroll, 20);
-        assert_eq!(scrollbar_position(scroll, line_count, height), 39);
+        assert_eq!(scrollbar_position(scroll as usize, line_count, height), 39);
     }
 
     #[test]
@@ -1335,6 +1336,7 @@ mod tests {
             path: PathBuf::from("id.md"),
             encryption_state: EntryEncryptionState::Plain,
             created_at: created_at.map(str::to_string),
+            created: created_at.and_then(journal_storage::parse_entry_timestamp),
             updated_at: None,
             preview: preview.to_string(),
             tags: Vec::new(),
@@ -1344,6 +1346,8 @@ mod tests {
             mood: None,
             import_id: None,
             content: String::new(),
+            word_count: 0,
+            search_haystack: String::new(),
         }
     }
 
@@ -1408,6 +1412,7 @@ mod tests {
             path: PathBuf::from("work/2026-01-01/id.md"),
             encryption_state: EntryEncryptionState::Plain,
             created_at: Some("2026-07-01T10:23:00+02:00".to_string()),
+            created: journal_storage::parse_entry_timestamp("2026-07-01T10:23:00+02:00"),
             updated_at: None,
             preview: String::new(),
             tags: Vec::new(),
@@ -1417,6 +1422,8 @@ mod tests {
             mood: None,
             import_id: None,
             content: String::new(),
+            word_count: 0,
+            search_haystack: String::new(),
         };
 
         assert_eq!(entry_month_label(&entry), Some("July 2026".to_string()));
@@ -1431,6 +1438,7 @@ mod tests {
             path: PathBuf::from("work/2026/07/01/2026-07-01T10-23-00-id.md"),
             encryption_state: EntryEncryptionState::Plain,
             created_at: None,
+            created: None,
             updated_at: None,
             preview: String::new(),
             tags: Vec::new(),
@@ -1440,6 +1448,8 @@ mod tests {
             mood: None,
             import_id: None,
             content: String::new(),
+            word_count: 0,
+            search_haystack: String::new(),
         };
 
         assert_eq!(entry_month_label(&entry), Some("July 2026".to_string()));
