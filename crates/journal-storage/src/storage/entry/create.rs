@@ -56,25 +56,8 @@ fn entry_content(
     import_id: Option<&str>,
 ) -> String {
     let mut content = entry_template(created_at, updated_at);
-    if !metadata.tags.is_empty() {
-        content =
-            crate::markdown::set_tags_in_front_matter(&content, metadata.tags).unwrap_or(content);
-    }
-    if !metadata.people.is_empty() {
-        content = crate::markdown::set_people_in_front_matter(&content, metadata.people)
-            .unwrap_or(content);
-    }
-    if !metadata.activities.is_empty() {
-        content = crate::markdown::set_activities_in_front_matter(&content, metadata.activities)
-            .unwrap_or(content);
-    }
-    if !metadata.feelings.is_empty() {
-        content = crate::markdown::set_feelings_in_front_matter(&content, metadata.feelings)
-            .unwrap_or(content);
-    }
-    if metadata.mood.is_some() {
-        content =
-            crate::markdown::set_mood_in_front_matter(&content, metadata.mood).unwrap_or(content);
+    if let Some(updated) = crate::markdown::set_metadata(&content, &metadata) {
+        content = updated;
     }
     if let Some(import_id) = import_id {
         content = crate::markdown::set_front_matter_value(&content, "import_id", import_id);

@@ -4,7 +4,7 @@ use crate::storage::parse_entry_timestamp;
 use crate::storage::{journals::is_hidden_name, list_journals};
 use crate::{
     AppResult, crypto,
-    markdown::{FrontMatterFields, display_preview, front_matter_fields, split_front_matter},
+    markdown::{FrontMatter, display_preview, front_matter_fields, split_front_matter},
 };
 use journal_core::entry::build_search_haystack;
 use journal_core::feelings::normalize_feelings;
@@ -95,7 +95,7 @@ pub fn read_entry_with_identity(
     let content = read_entry_content_with_identity(path, identity)?;
     let (front_matter, body) = split_front_matter(&content);
     // One TOML parse per entry instead of one per field.
-    let FrontMatterFields {
+    let FrontMatter {
         created_at,
         updated_at,
         tags,

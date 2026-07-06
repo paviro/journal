@@ -1,23 +1,40 @@
-use serde::{Deserialize, Serialize};
+use journal_core::EntryMetadata;
+use serde::{Deserialize, Deserializer, Serialize};
 
+/// Every entry front-matter field, parsed and serialized in a single TOML pass.
+/// `mood` is clamped to the supported `-5..=5` range on read; out-of-range
+/// values are dropped to `None` rather than failing the whole parse.
 #[derive(Serialize, Deserialize, Default, Clone)]
-struct FrontMatter {
+pub struct FrontMatter {
     #[serde(skip_serializing_if = "Option::is_none")]
-    created_at: Option<String>,
+    pub created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    updated_at: Option<String>,
+    pub updated_at: Option<String>,
     #[serde(default)]
-    tags: Vec<String>,
+    pub tags: Vec<String>,
     #[serde(default)]
-    people: Vec<String>,
+    pub people: Vec<String>,
     #[serde(default)]
-    activities: Vec<String>,
+    pub activities: Vec<String>,
     #[serde(default)]
-    feelings: Vec<String>,
+    pub feelings: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_mood",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub mood: Option<i8>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    mood: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    import_id: Option<String>,
+    pub import_id: Option<String>,
+}
+
+/// Read `mood` as an integer and clamp it to `-5..=5`, dropping out-of-range
+/// values to `None` without erroring.
+fn deserialize_mood<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<i8>, D::Error> {
+    let raw = Option::<i64>::deserialize(deserializer)?;
+    Ok(raw
+        .and_then(|value| i8::try_from(value).ok())
+        .filter(|value| (-5..=5).contains(value)))
 }
 
 pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
@@ -47,45 +64,9 @@ pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
     (None, content)
 }
 
-/// Clamp a raw TOML `mood` integer to the supported `-5..=5` range, dropping
-/// out-of-range or non-`i8` values.
-fn clamp_mood(mood: Option<i64>) -> Option<i8> {
-    mood.and_then(|v| i8::try_from(v).ok())
-        .filter(|&v| (-5..=5).contains(&v))
-}
-
-/// Every front-matter field, parsed in a single `toml::from_str` pass. The load
-/// path builds one of these per entry instead of calling the eight individual
-/// `front_matter_*` accessors, each of which re-parses the whole TOML block —
-/// so a full corpus load parses each entry's front matter once, not ~8 times.
-#[derive(Default)]
-pub struct FrontMatterFields {
-    pub created_at: Option<String>,
-    pub updated_at: Option<String>,
-    pub tags: Vec<String>,
-    pub people: Vec<String>,
-    pub activities: Vec<String>,
-    pub feelings: Vec<String>,
-    pub mood: Option<i8>,
-    pub import_id: Option<String>,
-}
-
-/// Parse every front-matter field at once. Malformed TOML yields defaults,
-/// matching the lenient behavior of the individual accessors.
-pub fn front_matter_fields(front_matter: &str) -> FrontMatterFields {
-    let Some(fm) = parse_front_matter(front_matter) else {
-        return FrontMatterFields::default();
-    };
-    FrontMatterFields {
-        created_at: fm.created_at,
-        updated_at: fm.updated_at,
-        tags: fm.tags,
-        people: fm.people,
-        activities: fm.activities,
-        feelings: fm.feelings,
-        mood: clamp_mood(fm.mood),
-        import_id: fm.import_id,
-    }
+/// Parse every front-matter field at once. Malformed TOML yields defaults.
+pub fn front_matter_fields(front_matter: &str) -> FrontMatter {
+    parse_front_matter(front_matter).unwrap_or_default()
 }
 
 /// A one-line summary of the body: display lines collapsed onto a single line,
@@ -148,71 +129,62 @@ fn find_char(chars: &[char], start: usize, target: char) -> Option<usize> {
         .map(|offset| start + offset)
 }
 
+/// Parse the front matter, apply `mutate`, and re-render the whole file.
+/// Returns `None` when there is no front matter or it fails to parse.
+fn edit_front_matter(content: &str, mutate: impl FnOnce(&mut FrontMatter)) -> Option<String> {
+    let (front_matter, body) = split_front_matter(content);
+    let mut metadata = parse_front_matter(front_matter?)?;
+    mutate(&mut metadata);
+    Some(render_content_with_front_matter(&metadata, body))
+}
+
+/// Set a single string-valued front-matter key. Leaves `content` unchanged when
+/// there is no front matter or the key is not a recognized string field.
 pub fn set_front_matter_value(content: &str, key: &str, value: &str) -> String {
-    let (front_matter, body) = split_front_matter(content);
-    let Some(front_matter) = front_matter else {
-        return content.to_string();
-    };
-    let Some(mut metadata) = parse_front_matter(front_matter) else {
-        return content.to_string();
-    };
-    match key {
-        "created_at" => metadata.created_at = Some(value.to_string()),
-        "updated_at" => metadata.updated_at = Some(value.to_string()),
-        "import_id" => metadata.import_id = Some(value.to_string()),
-        _ => return content.to_string(),
-    }
-    render_content_with_front_matter(&metadata, body)
+    edit_front_matter(content, |fm| match key {
+        "created_at" => fm.created_at = Some(value.to_string()),
+        "updated_at" => fm.updated_at = Some(value.to_string()),
+        "import_id" => fm.import_id = Some(value.to_string()),
+        _ => {}
+    })
+    .unwrap_or_else(|| content.to_string())
 }
 
-/// Replace the `tags` field in the TOML front matter with the given list.
+/// Replace every metadata list and the mood in the front matter at once.
 /// Returns `None` when there is no front matter.
+pub fn set_metadata(content: &str, metadata: &EntryMetadata<'_>) -> Option<String> {
+    edit_front_matter(content, |fm| {
+        fm.tags = metadata.tags.to_vec();
+        fm.people = metadata.people.to_vec();
+        fm.activities = metadata.activities.to_vec();
+        fm.feelings = metadata.feelings.to_vec();
+        fm.mood = metadata.mood;
+    })
+}
+
+/// Replace the `tags` field in the front matter. `None` when there is no front matter.
 pub fn set_tags_in_front_matter(content: &str, tags: &[String]) -> Option<String> {
-    let (front_matter, body) = split_front_matter(content);
-    let front_matter = front_matter?;
-    let mut metadata = parse_front_matter(front_matter)?;
-    metadata.tags = tags.to_vec();
-    Some(render_content_with_front_matter(&metadata, body))
+    edit_front_matter(content, |fm| fm.tags = tags.to_vec())
 }
 
-/// Replace the `people` field in the TOML front matter with the given list.
-/// Returns `None` when there is no front matter.
+/// Replace the `people` field in the front matter. `None` when there is no front matter.
 pub fn set_people_in_front_matter(content: &str, people: &[String]) -> Option<String> {
-    let (front_matter, body) = split_front_matter(content);
-    let front_matter = front_matter?;
-    let mut metadata = parse_front_matter(front_matter)?;
-    metadata.people = people.to_vec();
-    Some(render_content_with_front_matter(&metadata, body))
+    edit_front_matter(content, |fm| fm.people = people.to_vec())
 }
 
-/// Replace the `activities` field in the TOML front matter with the given list.
-/// Returns `None` when there is no front matter.
+/// Replace the `activities` field in the front matter. `None` when there is no front matter.
 pub fn set_activities_in_front_matter(content: &str, activities: &[String]) -> Option<String> {
-    let (front_matter, body) = split_front_matter(content);
-    let front_matter = front_matter?;
-    let mut metadata = parse_front_matter(front_matter)?;
-    metadata.activities = activities.to_vec();
-    Some(render_content_with_front_matter(&metadata, body))
+    edit_front_matter(content, |fm| fm.activities = activities.to_vec())
 }
 
-/// Replace the `feelings` field in the TOML front matter with the given list.
-/// Returns `None` when there is no front matter.
+/// Replace the `feelings` field in the front matter. `None` when there is no front matter.
 pub fn set_feelings_in_front_matter(content: &str, feelings: &[String]) -> Option<String> {
-    let (front_matter, body) = split_front_matter(content);
-    let front_matter = front_matter?;
-    let mut metadata = parse_front_matter(front_matter)?;
-    metadata.feelings = feelings.to_vec();
-    Some(render_content_with_front_matter(&metadata, body))
+    edit_front_matter(content, |fm| fm.feelings = feelings.to_vec())
 }
 
-/// Set or remove the `mood` field in the TOML front matter.
-/// Returns `None` when there is no front matter.
+/// Set or remove the `mood` field in the front matter. `None` when there is no front matter.
 pub fn set_mood_in_front_matter(content: &str, mood: Option<i8>) -> Option<String> {
-    let (front_matter, body) = split_front_matter(content);
-    let front_matter = front_matter?;
-    let mut metadata = parse_front_matter(front_matter)?;
-    metadata.mood = mood.map(i64::from);
-    Some(render_content_with_front_matter(&metadata, body))
+    edit_front_matter(content, |fm| fm.mood = mood)
 }
 
 fn parse_front_matter(front_matter: &str) -> Option<FrontMatter> {
