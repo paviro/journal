@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::state::{
-    DeleteContext, EditFeelingState, EditMoodState, EditTagFocus, EditTagState,
+    DeleteContext, EditFeelingState, EditMoodState, EditTagFocus, EditTagState, ListNav,
 };
 
 use super::{

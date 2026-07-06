@@ -7,6 +7,7 @@ use crate::tui::{
     app::{App, Focus, Mode, ScrollbarDrag, inline_entry_view_is_visible, single_panel_is_active},
     events::actions::view_selected,
     render,
+    state::ListNav,
 };
 
 use super::action::Action;

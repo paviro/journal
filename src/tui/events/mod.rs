@@ -12,7 +12,7 @@ use crate::{
     tui::{
         app::{App, Focus, entry_view_is_available},
         render,
-        state::Overlay,
+        state::{ListNav, Overlay},
     },
 };
 

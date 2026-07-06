@@ -5,7 +5,7 @@ use crate::{
     tui::{
         app::{App, Focus, ScrollbarDrag},
         render, scroll,
-        state::EditTagFocus,
+        state::{EditTagFocus, ListNav},
     },
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};

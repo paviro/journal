@@ -148,6 +148,54 @@ impl SelectableList {
     }
 }
 
+/// Keyboard/scroll navigation shared by the overlay list states. An implementor
+/// exposes its [`SelectableList`] and current item count; the navigation methods
+/// come for free, so `EditTagState` and `EditFeelingState` don't each re-forward
+/// them with their own length source.
+pub(crate) trait ListNav {
+    fn list(&self) -> &SelectableList;
+    fn list_mut(&mut self) -> &mut SelectableList;
+    fn item_count(&self) -> usize;
+
+    fn selected_index(&self) -> Option<usize> {
+        self.list().selected()
+    }
+
+    fn offset(&self) -> usize {
+        self.list().offset()
+    }
+
+    fn normalize_list_state(&mut self) {
+        let len = self.item_count();
+        self.list_mut().normalize(len);
+    }
+
+    fn select_index(&mut self, index: usize) {
+        let len = self.item_count();
+        self.list_mut().select(index, len);
+    }
+
+    fn move_up(&mut self) {
+        let len = self.item_count();
+        self.list_mut().move_by(len, -1);
+    }
+
+    fn move_down(&mut self) {
+        let len = self.item_count();
+        self.list_mut().move_by(len, 1);
+    }
+
+    fn scroll_by(&mut self, delta: i16, viewport_height: u16) {
+        let len = self.item_count();
+        self.list_mut().scroll_by(delta, len, viewport_height);
+    }
+
+    fn ensure_selected_visible(&mut self, viewport_height: u16) {
+        let len = self.item_count();
+        self.list_mut().ensure_visible(len, viewport_height);
+    }
+}
+
 /// Which part of the edit-tags dialog has keyboard focus.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditTagFocus {
@@ -239,43 +287,9 @@ impl EditTagState {
         self.normalize_list_state();
     }
 
-    pub(crate) fn selected_index(&self) -> Option<usize> {
-        self.list.selected()
-    }
-
     pub(crate) fn selected_tag_index(&self) -> Option<usize> {
         self.selected_index()
             .and_then(|index| self.filtered.get(index).copied())
-    }
-
-    pub(crate) fn offset(&self) -> usize {
-        self.list.offset()
-    }
-
-    pub(crate) fn normalize_list_state(&mut self) {
-        self.list.normalize(self.filtered.len());
-    }
-
-    pub(crate) fn select_index(&mut self, index: usize) {
-        self.list.select(index, self.filtered.len());
-    }
-
-    pub(crate) fn move_up(&mut self) {
-        self.list.move_by(self.filtered.len(), -1);
-    }
-
-    pub(crate) fn move_down(&mut self) {
-        self.list.move_by(self.filtered.len(), 1);
-    }
-
-    pub(crate) fn scroll_by(&mut self, delta: i16, viewport_height: u16) {
-        self.list
-            .scroll_by(delta, self.filtered.len(), viewport_height);
-    }
-
-    pub(crate) fn ensure_selected_visible(&mut self, viewport_height: u16) {
-        self.list
-            .ensure_visible(self.filtered.len(), viewport_height);
     }
 
     pub(crate) fn toggle_selected(&mut self) {
@@ -287,6 +301,20 @@ impl EditTagState {
                 self.selected.push(tag);
             }
         }
+    }
+}
+
+impl ListNav for EditTagState {
+    fn list(&self) -> &SelectableList {
+        &self.list
+    }
+
+    fn list_mut(&mut self) -> &mut SelectableList {
+        &mut self.list
+    }
+
+    fn item_count(&self) -> usize {
+        self.filtered.len()
     }
 }
 
@@ -311,40 +339,6 @@ impl EditFeelingState {
         state
     }
 
-    pub(crate) fn selected_index(&self) -> Option<usize> {
-        self.list.selected()
-    }
-
-    pub(crate) fn offset(&self) -> usize {
-        self.list.offset()
-    }
-
-    pub(crate) fn normalize_list_state(&mut self) {
-        self.list.normalize(self.all_feelings.len());
-    }
-
-    pub(crate) fn select_index(&mut self, index: usize) {
-        self.list.select(index, self.all_feelings.len());
-    }
-
-    pub(crate) fn move_up(&mut self) {
-        self.list.move_by(self.all_feelings.len(), -1);
-    }
-
-    pub(crate) fn move_down(&mut self) {
-        self.list.move_by(self.all_feelings.len(), 1);
-    }
-
-    pub(crate) fn scroll_by(&mut self, delta: i16, viewport_height: u16) {
-        self.list
-            .scroll_by(delta, self.all_feelings.len(), viewport_height);
-    }
-
-    pub(crate) fn ensure_selected_visible(&mut self, viewport_height: u16) {
-        self.list
-            .ensure_visible(self.all_feelings.len(), viewport_height);
-    }
-
     pub(crate) fn toggle_selected(&mut self) {
         if let Some(index) = self.selected_index() {
             let feeling = self.all_feelings[index].clone();
@@ -354,6 +348,20 @@ impl EditFeelingState {
                 self.selected.push(feeling);
             }
         }
+    }
+}
+
+impl ListNav for EditFeelingState {
+    fn list(&self) -> &SelectableList {
+        &self.list
+    }
+
+    fn list_mut(&mut self) -> &mut SelectableList {
+        &mut self.list
+    }
+
+    fn item_count(&self) -> usize {
+        self.all_feelings.len()
     }
 }
 
