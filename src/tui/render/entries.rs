@@ -87,12 +87,12 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
 }
 
 /// The search query drawn on the panel's top-right border. While the field is
-/// the active focus it carries a blinking block caret (`search_cursor_visible`)
+/// the active focus it carries a blinking block caret (`search.cursor_visible`)
 /// at the edit position; once focus moves off the field the caret is hidden and
 /// only the query text remains.
 fn search_field_title(app: &App) -> Line<'static> {
     let show_caret = app.is_search_input_active();
-    let caret_style = if app.search_cursor_visible {
+    let caret_style = if app.search.cursor_visible {
         Style::default().add_modifier(Modifier::REVERSED)
     } else {
         Style::default()

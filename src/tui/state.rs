@@ -79,6 +79,14 @@ pub(crate) struct SearchState {
     pub(crate) cursor: usize,
     pub(crate) scope: SearchScope,
     pub(crate) hits: Vec<SearchHit>,
+    /// Blink phase of the search caret; toggled on a timer by the event loop and
+    /// read when rendering the search field. `true` = caret block shown.
+    pub(crate) cursor_visible: bool,
+    /// Set when the query changed but the (expensive) hit recompute has been
+    /// deferred; the event loop runs it once typing pauses (debounce).
+    pub(crate) dirty: bool,
+    /// Timestamp of the last search keystroke, for the debounce window.
+    pub(crate) last_edit: Option<Instant>,
 }
 
 impl Default for SearchState {
@@ -88,6 +96,9 @@ impl Default for SearchState {
             cursor: 0,
             scope: SearchScope::AllJournals,
             hits: Vec::new(),
+            cursor_visible: true,
+            dirty: false,
+            last_edit: None,
         }
     }
 }

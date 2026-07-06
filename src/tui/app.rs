@@ -225,9 +225,6 @@ pub(crate) struct App {
     pub(crate) focus: Focus,
     pub(crate) mode: Mode,
     pub(crate) search: SearchState,
-    /// Blink phase of the search caret; toggled on a timer by the event loop and
-    /// read when rendering the search field. `true` = caret block shown.
-    pub(crate) search_cursor_visible: bool,
     pub(crate) overlay: Overlay,
     pub(crate) status_bar: StatusBar,
     pub(crate) image: ImageState,
@@ -237,11 +234,6 @@ pub(crate) struct App {
     /// Per-frame render memo caches (rows, rendered body, journal stats) and the
     /// version counters that invalidate them. See [`RenderCaches`].
     caches: RenderCaches,
-    /// Set when the search query changed but the (expensive) hit recompute has
-    /// been deferred; the event loop runs it once typing pauses (debounce).
-    pub(crate) search_dirty: bool,
-    /// Timestamp of the last search keystroke, for the debounce window.
-    pub(crate) search_last_edit: Option<Instant>,
 }
 
 /// Clickable image label positions in the entry view, captured at render time so
@@ -303,15 +295,12 @@ impl App {
             focus: Focus::Journals,
             mode: Mode::Browse,
             search: SearchState::default(),
-            search_cursor_visible: true,
             overlay: Overlay::None,
             status_bar: StatusBar::default(),
             image: ImageState::default(),
             entry_view_image_hits: EntryViewImageHits::default(),
             scrollbar: ScrollbarDragState::default(),
             caches: RenderCaches::default(),
-            search_dirty: false,
-            search_last_edit: None,
         };
         app.load_entries(entry_paths)?;
         // Restore the journal selected in the previous session without disturbing
@@ -1186,8 +1175,8 @@ impl App {
     /// Shared tail of every search entry/exit: clear the debounce state,
     /// invalidate the row cache, and reset the selection to the first hit.
     fn commit_search_selection(&mut self) {
-        self.search_dirty = false;
-        self.search_last_edit = None;
+        self.search.dirty = false;
+        self.search.last_edit = None;
         self.caches.bump_rows();
         self.selected_entry_index = Some(0);
         self.reset_entry_scroll();
@@ -1197,8 +1186,8 @@ impl App {
     /// recompute yet. The event loop calls [`Self::update_search_results`] once
     /// typing pauses, so a fast typist doesn't re-scan the whole corpus per key.
     fn mark_search_dirty(&mut self) {
-        self.search_dirty = true;
-        self.search_last_edit = Some(Instant::now());
+        self.search.dirty = true;
+        self.search.last_edit = Some(Instant::now());
     }
 
     /// The search caret is active (blinking) only while typing in the field.
@@ -1687,12 +1676,12 @@ mod tests {
         }
         // The query echoes immediately, but the whole-corpus scan is deferred.
         assert_eq!(app.search.query, "needle");
-        assert!(app.search_dirty);
+        assert!(app.search.dirty);
         assert!(app.search.hits.is_empty());
 
         // Committing (what the event loop does after the debounce) runs the scan.
         app.update_search_results();
-        assert!(!app.search_dirty);
+        assert!(!app.search.dirty);
         assert_eq!(app.search.hits.len(), 1);
     }
 

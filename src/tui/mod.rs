@@ -117,9 +117,10 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
             poll_timeout = poll_timeout.min(CURSOR_BLINK);
         }
         // Wake to run a debounced search recompute once typing pauses.
-        if app.search_dirty {
+        if app.search.dirty {
             let remaining = app
-                .search_last_edit
+                .search
+                .last_edit
                 .map(|edited| SEARCH_DEBOUNCE.saturating_sub(edited.elapsed()))
                 .unwrap_or_default();
             poll_timeout = poll_timeout.min(remaining);
@@ -175,9 +176,10 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         };
 
         // Run the debounced search recompute once typing has paused.
-        let search_recomputed = if app.search_dirty
+        let search_recomputed = if app.search.dirty
             && app
-                .search_last_edit
+                .search
+                .last_edit
                 .is_none_or(|edited| edited.elapsed() >= SEARCH_DEBOUNCE)
         {
             app.update_search_results();
@@ -207,17 +209,17 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         if app.is_search_input_active() {
             if is_key_event {
                 last_blink = Instant::now();
-                if !app.search_cursor_visible {
-                    app.search_cursor_visible = true;
+                if !app.search.cursor_visible {
+                    app.search.cursor_visible = true;
                     blink_toggled = true;
                 }
             } else if last_blink.elapsed() >= CURSOR_BLINK {
                 last_blink = Instant::now();
-                app.search_cursor_visible = !app.search_cursor_visible;
+                app.search.cursor_visible = !app.search.cursor_visible;
                 blink_toggled = true;
             }
-        } else if !app.search_cursor_visible {
-            app.search_cursor_visible = true;
+        } else if !app.search.cursor_visible {
+            app.search.cursor_visible = true;
         }
 
         if redraw
