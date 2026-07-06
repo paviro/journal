@@ -101,12 +101,6 @@ pub struct JournalStorePaths {
     pub identity_file: PathBuf,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EncryptionStatus {
-    pub enabled: bool,
-    pub unlock_available: bool,
-}
-
 impl JournalStore {
     pub fn new(
         journal_root: impl Into<PathBuf>,
@@ -138,14 +132,6 @@ impl JournalStore {
 
     pub fn ensure(&self) -> AppResult<()> {
         storage::ensure_store(&self.paths.journal_root)
-    }
-
-    pub fn encryption_status(&self) -> EncryptionStatus {
-        let paths = self.encryption_paths();
-        EncryptionStatus {
-            enabled: crypto::has_recipients_file(&paths),
-            unlock_available: crypto::has_identity_file(&paths),
-        }
     }
 
     pub fn encryption_enabled(&self) -> bool {

@@ -153,7 +153,9 @@ pub fn read_entry_content(
 ) -> AppResult<String> {
     if is_encrypted_entry_file(path) {
         let identity = identity.ok_or(crate::StorageError::LockedIdentity { context: "entry" })?;
-        crypto::decrypt_to_string(identity, path)
+        Ok(String::from_utf8(crypto::decrypt_file_bytes(
+            identity, path,
+        )?)?)
     } else {
         Ok(fs::read_to_string(path)?)
     }

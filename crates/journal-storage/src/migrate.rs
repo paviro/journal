@@ -170,7 +170,7 @@ fn ensure_no_migration_collisions(files: &[PathBuf], mode: &MigrationMode<'_>) -
 fn encrypt_plain_entry(path: &Path, paths: &crypto::EncryptionPaths) -> AppResult<()> {
     let target = path.with_extension("md.age");
     let temp = crate::sibling_temp_path(&target, "tmp.age");
-    crypto::encrypt_file(paths, path, &temp)?;
+    crypto::encrypt_to_file(paths, &fs::read(path)?, &temp)?;
     fs::rename(&temp, &target)?;
     fs::remove_file(path)?;
     Ok(())
@@ -179,7 +179,7 @@ fn encrypt_plain_entry(path: &Path, paths: &crypto::EncryptionPaths) -> AppResul
 fn decrypt_encrypted_entry(path: &Path, identity: &crypto::UnlockedIdentity) -> AppResult<()> {
     let target = decrypted_entry_path(path)?;
     let temp = crate::sibling_temp_path(&target, "tmp.md");
-    crypto::decrypt_file(identity, path, &temp)?;
+    fs::write(&temp, crypto::decrypt_file_bytes(identity, path)?)?;
     let decrypted = fs::read_to_string(&temp)?;
     if decrypted.is_empty() {
         let _ = fs::remove_file(&temp);

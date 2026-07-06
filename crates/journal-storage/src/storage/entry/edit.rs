@@ -87,19 +87,21 @@ fn remove_entry_assets(entry_path: &Path) {
     }
 }
 
-/// Overwrite a plaintext entry file atomically via a sibling temp file and a
-/// rename, cleaning up the temp file on failure.
-pub(crate) fn write_plain_atomic(path: &Path, content: &str) -> AppResult<()> {
-    let temp = crate::sibling_temp_path(path, "edit.md");
-    let result = (|| {
-        fs::write(&temp, content)?;
-        fs::rename(&temp, path)?;
-        Ok(())
-    })();
+/// Replace `path` atomically: write the new content to a sibling temp file via
+/// `fill`, then rename it over `path`. The temp file is cleaned up if either
+/// step fails. `fill` receives the temp path and writes the (plain or encrypted)
+/// bytes to it.
+fn replace_atomically(path: &Path, fill: impl FnOnce(&Path) -> AppResult<()>) -> AppResult<()> {
+    let temp = crate::sibling_temp_path(path, "tmp");
+    let result = fill(&temp).and_then(|()| Ok(fs::rename(&temp, path)?));
     if result.is_err() {
         let _ = fs::remove_file(&temp);
     }
     result
+}
+
+pub(crate) fn write_plain_atomic(path: &Path, content: &str) -> AppResult<()> {
+    replace_atomically(path, |temp| Ok(fs::write(temp, content)?))
 }
 
 pub(crate) fn write_encrypted_entry_content(
@@ -107,14 +109,9 @@ pub(crate) fn write_encrypted_entry_content(
     path: &Path,
     content: &str,
 ) -> AppResult<()> {
-    let encrypted = encrypted_replacement_temp_path(path);
-    let result = (|| {
-        crypto::encrypt_to_file(paths, content.as_bytes(), &encrypted)?;
-        fs::rename(&encrypted, path)?;
-        Ok(())
-    })();
-    let _ = fs::remove_file(&encrypted);
-    result
+    replace_atomically(path, |temp| {
+        crypto::encrypt_to_file(paths, content.as_bytes(), temp)
+    })
 }
 
 pub fn move_entry_to_trash(root: &Path, entry_path: &Path) -> AppResult<PathBuf> {
@@ -172,13 +169,4 @@ fn move_entry_assets_to_trash(entry_path: &Path, trash_path: &Path) -> AppResult
     }
     fs::rename(&source, &dest)?;
     Ok(())
-}
-
-pub(super) fn encrypted_replacement_temp_path(path: &Path) -> PathBuf {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("entry.md.age");
-    parent.join(format!(".{name}.tmp"))
 }

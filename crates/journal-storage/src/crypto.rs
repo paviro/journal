@@ -76,29 +76,14 @@ pub fn unlock_identity(paths: &EncryptionPaths, passphrase: &str) -> AppResult<U
     Ok(UnlockedIdentity { identity })
 }
 
-pub fn encrypt_file(paths: &EncryptionPaths, input: &Path, output: &Path) -> AppResult<()> {
-    let plaintext = fs::read(input)?;
-    fs::write(output, encrypt_bytes(paths, &plaintext)?)?;
-    Ok(())
-}
-
 pub fn encrypt_to_file(paths: &EncryptionPaths, plaintext: &[u8], output: &Path) -> AppResult<()> {
     fs::write(output, encrypt_bytes(paths, plaintext)?)?;
     Ok(())
 }
 
-pub fn decrypt_file(identity: &UnlockedIdentity, input: &Path, output: &Path) -> AppResult<()> {
-    let plaintext = decrypt_file_bytes(identity, input)?;
-    fs::write(output, plaintext)?;
-    Ok(())
-}
-
-pub fn decrypt_to_string(identity: &UnlockedIdentity, input: &Path) -> AppResult<String> {
-    Ok(String::from_utf8(decrypt_file_bytes(identity, input)?)?)
-}
-
-/// Decrypt an encrypted file into memory. Used for viewing encrypted binary
-/// assets (e.g. images) without ever writing a plaintext copy to disk.
+/// Decrypt an encrypted file into memory. Used both for reading encrypted entry
+/// text and for viewing encrypted binary assets (e.g. images) without ever
+/// writing a plaintext copy to disk.
 pub fn decrypt_file_bytes(identity: &UnlockedIdentity, input: &Path) -> AppResult<Vec<u8>> {
     let ciphertext = fs::read(input)?;
     decrypt_bytes_with_identity(&ciphertext, &identity.identity)
@@ -211,8 +196,12 @@ mod tests {
         let decrypted = dir.path().join("decrypted.md");
         fs::write(&plain, "hello journal\n").unwrap();
 
-        encrypt_file(&paths, &plain, &encrypted).unwrap();
-        decrypt_file(&unlocked, &encrypted, &decrypted).unwrap();
+        encrypt_to_file(&paths, &fs::read(&plain).unwrap(), &encrypted).unwrap();
+        fs::write(
+            &decrypted,
+            decrypt_file_bytes(&unlocked, &encrypted).unwrap(),
+        )
+        .unwrap();
 
         assert!(!recipient.is_empty());
         assert_eq!(fs::read_to_string(decrypted).unwrap(), "hello journal\n");
