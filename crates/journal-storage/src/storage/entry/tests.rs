@@ -1,4 +1,5 @@
-use super::create::{WriteTarget, create_entry_file};
+use super::codec::EntryCodec;
+use super::create::create_entry_file;
 use super::edit::encrypted_replacement_temp_path;
 use super::paths::entry_path_with_id;
 use super::*;
@@ -53,11 +54,11 @@ fn create_entry_file_retries_without_overwriting_existing_path() {
     let mut ids = ["existing", "fresh"].into_iter();
 
     let created = create_entry_file(
+        &EntryCodec::plain(),
         dir.path(),
         "work",
         now,
         "new content",
-        WriteTarget::Plain,
         || ids.next().unwrap().to_string(),
     )
     .unwrap();
@@ -74,9 +75,14 @@ fn create_entry_file_retries_without_overwriting_existing_path() {
 fn create_entry_with_body_writes_body_after_front_matter() {
     let dir = tempdir().unwrap();
 
-    let created =
-        create_entry_with_body_and_metadata(dir.path(), "work", "Some text", empty_metadata())
-            .unwrap();
+    let created = create_entry(
+        &EntryCodec::plain(),
+        dir.path(),
+        "work",
+        "Some text",
+        empty_metadata(),
+    )
+    .unwrap();
     let text = fs::read_to_string(created).unwrap();
 
     assert!(text.starts_with("+++\ncreated_at = \""));
@@ -92,7 +98,8 @@ fn create_entry_with_body_writes_body_after_front_matter() {
 fn create_entry_with_body_preserves_multiline_body_and_trailing_newline() {
     let dir = tempdir().unwrap();
 
-    let created = create_entry_with_body_and_metadata(
+    let created = create_entry(
+        &EntryCodec::plain(),
         dir.path(),
         "work",
         "Line one\n\nLine three\n",
@@ -206,7 +213,8 @@ fn create_entry_with_body_and_metadata_writes_metadata() {
     let activities = vec!["programming".to_string(), "cycling".to_string()];
     let feelings = vec!["calm".to_string(), "focused".to_string()];
 
-    let created = create_entry_with_body_and_metadata(
+    let created = create_entry(
+        &EntryCodec::plain(),
         dir.path(),
         "work",
         "Some text",
@@ -330,12 +338,12 @@ fn scan_entries_marks_encrypted_entry_unlocked_with_identity() {
     let root = dir.path().join("journals");
     let paths = crypto::EncryptionPaths::for_config(&config, &root).unwrap();
     crypto::generate_identity_store(&paths, "secret").unwrap();
-    let encrypted = create_encrypted_entry_with_body_and_metadata(
+    let encrypted = create_entry(
+        &EntryCodec::new(paths.clone(), None),
         &root,
         "work",
         "# Secret\nBody",
         empty_metadata(),
-        &paths,
     )
     .unwrap();
     let identity = crypto::unlock_identity(&paths, "secret").unwrap();

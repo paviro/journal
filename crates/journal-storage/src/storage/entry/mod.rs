@@ -1,4 +1,5 @@
 mod assets;
+mod codec;
 mod create;
 mod edit;
 mod paths;
@@ -11,17 +12,11 @@ pub use journal_core::{Entry, EntryEncryptionState, EntryMetadata, EntryPath};
 
 pub use assets::{AssetFailure, AssetReport, sole_stored_image, stored_image_reference};
 pub(crate) use assets::{ingest_and_cleanup_opts, resolve_entry_asset_path};
+pub(crate) use codec::EntryCodec;
 #[cfg(test)]
 pub use create::entry_template;
-pub use create::{
-    create_encrypted_entry_with_body_and_metadata,
-    create_encrypted_imported_entry_with_body_and_metadata, create_entry_with_body_and_metadata,
-    create_imported_entry_with_body_and_metadata,
-};
-pub use edit::{
-    delete_empty_entry, delete_journal, edit_entry_body, move_entry_to_trash,
-    write_encrypted_entry_content,
-};
+pub use create::{create_entry, create_imported_entry};
+pub use edit::{delete_empty_entry, delete_journal, edit_entry_body, move_entry_to_trash};
 #[cfg(test)]
 pub use paths::entry_path;
 pub use paths::{entry_id, is_encrypted_entry_file, is_entry_file, is_plain_entry_file};

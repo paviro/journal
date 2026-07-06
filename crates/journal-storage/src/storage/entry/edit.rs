@@ -1,3 +1,4 @@
+use super::codec::EntryCodec;
 use super::paths::{ENTRY_ID_LEN, entry_assets_dir};
 use crate::{AppResult, crypto, markdown};
 use nanoid::nanoid;
@@ -47,15 +48,12 @@ pub fn delete_journal(
 /// new body, or `None` to cancel without making any changes.
 /// Returns `true` if the entry was kept, `false` if it was deleted.
 pub fn edit_entry_body(
+    codec: &EntryCodec,
     path: &Path,
-    encryption: Option<(&crypto::EncryptionPaths, &crypto::UnlockedIdentity)>,
     remove_if_empty: bool,
     edit: impl FnOnce(&str) -> AppResult<Option<String>>,
 ) -> AppResult<bool> {
-    let content = match encryption {
-        Some((_, identity)) => crypto::decrypt_to_string(identity, path)?,
-        None => fs::read_to_string(path)?,
-    };
+    let content = codec.read(path)?;
 
     let (front_matter, body) = markdown::split_front_matter(&content);
     let body = body.trim_start_matches('\n');
@@ -77,7 +75,7 @@ pub fn edit_entry_body(
         new_body
     };
 
-    write_entry_content(path, encryption, &new_content)?;
+    codec.write_existing(path, &new_content)?;
     Ok(true)
 }
 
@@ -97,28 +95,22 @@ fn remove_entry_assets(entry_path: &Path) {
     }
 }
 
-fn write_entry_content(
-    path: &Path,
-    encryption: Option<(&crypto::EncryptionPaths, &crypto::UnlockedIdentity)>,
-    content: &str,
-) -> AppResult<()> {
-    if let Some((paths, _)) = encryption {
-        write_encrypted_entry_content(paths, path, content)
-    } else {
-        let temp = unique_temp_path(path.parent().unwrap_or_else(|| Path::new(".")), "edit.md");
-        let result = (|| {
-            fs::write(&temp, content)?;
-            fs::rename(&temp, path)?;
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&temp);
-        }
-        result
+/// Overwrite a plaintext entry file atomically via a sibling temp file and a
+/// rename, cleaning up the temp file on failure.
+pub(crate) fn write_plain_atomic(path: &Path, content: &str) -> AppResult<()> {
+    let temp = unique_temp_path(path.parent().unwrap_or_else(|| Path::new(".")), "edit.md");
+    let result = (|| {
+        fs::write(&temp, content)?;
+        fs::rename(&temp, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
     }
+    result
 }
 
-pub fn write_encrypted_entry_content(
+pub(crate) fn write_encrypted_entry_content(
     paths: &crypto::EncryptionPaths,
     path: &Path,
     content: &str,

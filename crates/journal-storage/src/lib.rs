@@ -207,29 +207,19 @@ impl JournalStore {
         body: &str,
         metadata: EntryMetadata<'_>,
     ) -> JournalResult<PathBuf> {
-        if self.encryption_enabled() {
-            storage::create_encrypted_entry_with_body_and_metadata(
-                &self.paths.journal_root,
-                journal,
-                body,
-                metadata,
-                &self.encryption_paths(),
-            )
-        } else {
-            storage::create_entry_with_body_and_metadata(
-                &self.paths.journal_root,
-                journal,
-                body,
-                metadata,
-            )
-        }
+        storage::create_entry(
+            &self.entry_codec(),
+            &self.paths.journal_root,
+            journal,
+            body,
+            metadata,
+        )
     }
 
     /// Create an entry from an external import, preserving its original
     /// creation/modification dates and recording an `import_id` provenance
     /// marker in the front matter. Encryption follows the store's setting, like
     /// [`create_entry_with_body`].
-    #[allow(clippy::too_many_arguments)]
     pub fn create_imported_entry(
         &self,
         journal: &str,
@@ -239,28 +229,16 @@ impl JournalStore {
         updated_at: chrono::DateTime<chrono::Local>,
         import_id: &str,
     ) -> JournalResult<PathBuf> {
-        if self.encryption_enabled() {
-            storage::create_encrypted_imported_entry_with_body_and_metadata(
-                &self.paths.journal_root,
-                journal,
-                body,
-                metadata,
-                created_at,
-                updated_at,
-                import_id,
-                &self.encryption_paths(),
-            )
-        } else {
-            storage::create_imported_entry_with_body_and_metadata(
-                &self.paths.journal_root,
-                journal,
-                body,
-                metadata,
-                created_at,
-                updated_at,
-                import_id,
-            )
-        }
+        storage::create_imported_entry(
+            &self.entry_codec(),
+            &self.paths.journal_root,
+            journal,
+            body,
+            metadata,
+            created_at,
+            updated_at,
+            import_id,
+        )
     }
 
     /// Open a new entry in the editor. The callback receives an empty string
@@ -289,32 +267,13 @@ impl JournalStore {
         remove_if_empty: bool,
         edit: impl FnOnce(&str) -> JournalResult<Option<String>>,
     ) -> JournalResult<bool> {
-        let paths = self.encryption_paths();
-        storage::edit_entry_body(
-            path,
-            self.entry_encryption(path, &paths)?,
-            remove_if_empty,
-            edit,
-        )
+        storage::edit_entry_body(&self.entry_codec(), path, remove_if_empty, edit)
     }
 
-    /// Returns the encryption context to use for an entry file: `Some` for
-    /// encrypted files (requires the store to be unlocked), `None` for plain
-    /// files. Errors if the entry is encrypted but the store is locked.
-    fn entry_encryption<'a>(
-        &'a self,
-        path: &Path,
-        paths: &'a crypto::EncryptionPaths,
-    ) -> JournalResult<Option<(&'a crypto::EncryptionPaths, &'a crypto::UnlockedIdentity)>> {
-        if storage::is_encrypted_entry_file(path) {
-            let identity = self
-                .identity
-                .as_ref()
-                .ok_or("encrypted entry requires an unlocked journal encryption identity")?;
-            Ok(Some((paths, identity)))
-        } else {
-            Ok(None)
-        }
+    /// The codec for reading and writing this store's entry files, carrying the
+    /// recipients/identity and whether new entries are encrypted.
+    fn entry_codec(&self) -> storage::EntryCodec {
+        storage::EntryCodec::new(self.encryption_paths(), self.identity.clone())
     }
 
     pub fn delete_journal(
@@ -374,28 +333,12 @@ impl JournalStore {
         path: &Path,
         update: impl FnOnce(&str) -> Option<String>,
     ) -> JournalResult<()> {
-        if storage::is_encrypted_entry_file(path) {
-            let identity = self
-                .identity
-                .as_ref()
-                .ok_or("encrypted entry requires an unlocked journal encryption identity")?;
-            let content = storage::read_entry_content_with_identity(path, Some(identity))?;
-            let Some(new_content) = update(&content) else {
-                return Ok(());
-            };
-            storage::write_encrypted_entry_content(
-                &self.encryption_paths(),
-                path,
-                &markdown::set_updated_at_now_in_content(&new_content),
-            )
-        } else {
-            let content = fs::read_to_string(path)?;
-            let Some(new_content) = update(&content) else {
-                return Ok(());
-            };
-            fs::write(path, markdown::set_updated_at_now_in_content(&new_content))?;
-            Ok(())
-        }
+        let codec = self.entry_codec();
+        let content = codec.read(path)?;
+        let Some(new_content) = update(&content) else {
+            return Ok(());
+        };
+        codec.write_existing(path, &markdown::set_updated_at_now_in_content(&new_content))
     }
 
     /// Ingest external image references in the entry (copy/download them into
@@ -410,20 +353,17 @@ impl JournalStore {
         replace_offline: bool,
     ) -> JournalResult<storage::AssetReport> {
         let encrypted = storage::is_encrypted_entry_file(path);
-        let content = if encrypted {
-            let Some(identity) = self.identity.as_ref() else {
-                return Ok(storage::AssetReport::default());
-            };
-            storage::read_entry_content_with_identity(path, Some(identity))?
-        } else {
-            fs::read_to_string(path)?
-        };
+        if encrypted && self.identity.is_none() {
+            return Ok(storage::AssetReport::default());
+        }
+
+        let codec = self.entry_codec();
+        let content = codec.read(path)?;
 
         let (front_matter, body) = markdown::split_front_matter(&content);
         let body = body.trim_start_matches('\n');
 
-        let paths = self.encryption_paths();
-        let encryption = encrypted.then_some(&paths);
+        let encryption = encrypted.then_some(codec.recipients());
         let (new_body, report) = storage::ingest_and_cleanup_opts(
             path,
             body,
@@ -440,11 +380,7 @@ impl JournalStore {
             } else {
                 new_body
             };
-            if encrypted {
-                storage::write_encrypted_entry_content(&paths, path, &new_content)?;
-            } else {
-                fs::write(path, &new_content)?;
-            }
+            codec.write_existing(path, &new_content)?;
         }
 
         Ok(report)

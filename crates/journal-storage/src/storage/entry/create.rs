@@ -1,4 +1,5 @@
 use super::EntryMetadata;
+use super::codec::EntryCodec;
 use super::paths::{ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_path_with_id};
 use crate::{AppResult, crypto};
 use chrono::{DateTime, Local};
@@ -11,70 +12,28 @@ use std::{
 
 const ENTRY_CREATE_ATTEMPTS: usize = 32;
 
-pub(crate) enum WriteTarget<'a> {
-    Plain,
-    Encrypted(&'a crypto::EncryptionPaths),
-}
-
-pub fn create_entry_with_body_and_metadata(
+/// Create a new entry dated now. Whether it is encrypted follows the `codec`.
+pub fn create_entry(
+    codec: &EntryCodec,
     root: &Path,
     journal: &str,
     body: &str,
     metadata: EntryMetadata<'_>,
 ) -> AppResult<PathBuf> {
     let now = Local::now();
-    let content = entry_with_body_at(now, body, metadata);
-    create_entry_file(root, journal, now, &content, WriteTarget::Plain, || {
+    let content = entry_content(now, now, body, metadata, None);
+    create_entry_file(codec, root, journal, now, &content, || {
         nanoid!(ENTRY_ID_LEN)
     })
-}
-
-pub fn create_encrypted_entry_with_body_and_metadata(
-    root: &Path,
-    journal: &str,
-    body: &str,
-    metadata: EntryMetadata<'_>,
-    paths: &crypto::EncryptionPaths,
-) -> AppResult<PathBuf> {
-    let now = Local::now();
-    let content = entry_with_body_at(now, body, metadata);
-    create_entry_file(
-        root,
-        journal,
-        now,
-        &content,
-        WriteTarget::Encrypted(paths),
-        || nanoid!(ENTRY_ID_LEN),
-    )
 }
 
 /// Create an entry that carries an explicit creation/modification date and an
 /// `import_id` provenance marker (used by importers). The on-disk path and
 /// filename are derived from `created_at`, so imported entries land in their
-/// original date folder rather than today's.
-pub fn create_imported_entry_with_body_and_metadata(
-    root: &Path,
-    journal: &str,
-    body: &str,
-    metadata: EntryMetadata<'_>,
-    created_at: DateTime<Local>,
-    updated_at: DateTime<Local>,
-    import_id: &str,
-) -> AppResult<PathBuf> {
-    let content = entry_content(created_at, updated_at, body, metadata, Some(import_id));
-    create_entry_file(
-        root,
-        journal,
-        created_at,
-        &content,
-        WriteTarget::Plain,
-        || nanoid!(ENTRY_ID_LEN),
-    )
-}
-
-/// Encrypted counterpart of [`create_imported_entry_with_body_and_metadata`].
+/// original date folder rather than today's. Encryption follows the `codec`.
 #[allow(clippy::too_many_arguments)]
-pub fn create_encrypted_imported_entry_with_body_and_metadata(
+pub fn create_imported_entry(
+    codec: &EntryCodec,
     root: &Path,
     journal: &str,
     body: &str,
@@ -82,21 +41,11 @@ pub fn create_encrypted_imported_entry_with_body_and_metadata(
     created_at: DateTime<Local>,
     updated_at: DateTime<Local>,
     import_id: &str,
-    paths: &crypto::EncryptionPaths,
 ) -> AppResult<PathBuf> {
     let content = entry_content(created_at, updated_at, body, metadata, Some(import_id));
-    create_entry_file(
-        root,
-        journal,
-        created_at,
-        &content,
-        WriteTarget::Encrypted(paths),
-        || nanoid!(ENTRY_ID_LEN),
-    )
-}
-
-fn entry_with_body_at(now: DateTime<Local>, body: &str, metadata: EntryMetadata<'_>) -> String {
-    entry_content(now, now, body, metadata, None)
+    create_entry_file(codec, root, journal, created_at, &content, || {
+        nanoid!(ENTRY_ID_LEN)
+    })
 }
 
 fn entry_content(
@@ -143,17 +92,18 @@ fn entry_content(
 /// depend on the path — and the retry loop only re-attempts the atomic
 /// `create_new` write, so a rare id collision never re-encrypts.
 pub(crate) fn create_entry_file(
+    codec: &EntryCodec,
     root: &Path,
     journal: &str,
     now: DateTime<Local>,
     content: &str,
-    target: WriteTarget<'_>,
     mut id_generator: impl FnMut() -> String,
 ) -> AppResult<PathBuf> {
-    let encrypted = matches!(target, WriteTarget::Encrypted(_));
-    let bytes = match target {
-        WriteTarget::Plain => content.as_bytes().to_vec(),
-        WriteTarget::Encrypted(paths) => crypto::encrypt_bytes(paths, content.as_bytes())?,
+    let encrypted = codec.encrypts_new_entries();
+    let bytes = if encrypted {
+        crypto::encrypt_bytes(codec.recipients(), content.as_bytes())?
+    } else {
+        content.as_bytes().to_vec()
     };
 
     for _ in 0..ENTRY_CREATE_ATTEMPTS {
