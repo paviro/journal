@@ -16,6 +16,13 @@ pub(crate) struct EntryCodec {
     identity: Option<UnlockedIdentity>,
 }
 
+/// An entry read and split into its raw front matter and trimmed body, ready to
+/// edit and write back via [`EntryCodec::write_body`].
+pub(crate) struct OpenEntry {
+    pub(crate) front_matter: Option<String>,
+    pub(crate) body: String,
+}
+
 impl EntryCodec {
     pub(crate) fn new(paths: EncryptionPaths, identity: Option<UnlockedIdentity>) -> Self {
         Self { paths, identity }
@@ -46,10 +53,35 @@ impl EntryCodec {
         &self.paths
     }
 
+    /// Encode `content` for a freshly created entry: age ciphertext when this
+    /// store encrypts new entries, plain UTF-8 bytes otherwise. Pairs with the
+    /// `.md`/`.md.age` path choice keyed off [`encrypts_new_entries`].
+    ///
+    /// [`encrypts_new_entries`]: Self::encrypts_new_entries
+    pub(crate) fn encode_new(&self, content: &str) -> AppResult<Vec<u8>> {
+        if self.encrypts_new_entries() {
+            crypto::encrypt_bytes(&self.paths, content.as_bytes())
+        } else {
+            Ok(content.as_bytes().to_vec())
+        }
+    }
+
     /// Read an entry file to text, decrypting when it is a `.age` entry. Errors
     /// if the entry is encrypted but this codec has no identity.
     pub(crate) fn read(&self, path: &Path) -> AppResult<String> {
         read_entry_content(path, self.identity.as_ref())
+    }
+
+    /// Read an entry and split it into its raw front matter (if any) and its
+    /// body with leading blank lines trimmed — the shared opening step of every
+    /// in-place body edit. Pair with [`write_body`](Self::write_body).
+    pub(crate) fn open(&self, path: &Path) -> AppResult<OpenEntry> {
+        let content = self.read(path)?;
+        let (front_matter, body) = markdown::split_front_matter(&content);
+        Ok(OpenEntry {
+            front_matter: front_matter.map(str::to_string),
+            body: body.trim_start_matches('\n').to_string(),
+        })
     }
 
     /// Overwrite an existing entry file in place, preserving its on-disk

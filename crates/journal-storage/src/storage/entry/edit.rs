@@ -1,6 +1,6 @@
 use super::codec::EntryCodec;
 use super::paths::entry_assets_dir;
-use crate::{AppResult, crypto, markdown};
+use crate::{AppResult, crypto};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -52,12 +52,9 @@ pub fn edit_entry_body(
     remove_if_empty: bool,
     edit: impl FnOnce(&str) -> AppResult<Option<String>>,
 ) -> AppResult<bool> {
-    let content = codec.read(path)?;
+    let entry = codec.open(path)?;
 
-    let (front_matter, body) = markdown::split_front_matter(&content);
-    let body = body.trim_start_matches('\n');
-
-    let Some(new_body) = edit(body)? else {
+    let Some(new_body) = edit(&entry.body)? else {
         return Ok(true);
     };
 
@@ -67,7 +64,11 @@ pub fn edit_entry_body(
         return Ok(false);
     }
 
-    codec.write_body(path, front_matter, new_body.trim_start_matches('\n'))?;
+    codec.write_body(
+        path,
+        entry.front_matter.as_deref(),
+        new_body.trim_start_matches('\n'),
+    )?;
     Ok(true)
 }
 

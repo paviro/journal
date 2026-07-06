@@ -1,7 +1,7 @@
 use super::EntryMetadata;
 use super::codec::EntryCodec;
 use super::paths::{ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_path_with_id};
-use crate::{AppResult, crypto};
+use crate::AppResult;
 use chrono::{DateTime, Local};
 use nanoid::nanoid;
 use std::{
@@ -86,11 +86,7 @@ pub(crate) fn create_entry_file(
     mut id_generator: impl FnMut() -> String,
 ) -> AppResult<PathBuf> {
     let encrypted = codec.encrypts_new_entries();
-    let bytes = if encrypted {
-        crypto::encrypt_bytes(codec.encryption_paths(), content.as_bytes())?
-    } else {
-        content.as_bytes().to_vec()
-    };
+    let bytes = codec.encode_new(content)?;
 
     for _ in 0..ENTRY_CREATE_ATTEMPTS {
         let id = id_generator();

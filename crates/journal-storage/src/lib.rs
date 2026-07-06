@@ -327,22 +327,23 @@ impl JournalStore {
         }
 
         let codec = self.entry_codec();
-        let content = codec.read(path)?;
+        let entry = codec.open(path)?;
 
-        let (front_matter, body) = markdown::split_front_matter(&content);
-        let body = body.trim_start_matches('\n');
-
-        let encryption = encrypted.then_some(codec.encryption_paths());
+        let encryption = encrypted.then(|| codec.encryption_paths().clone());
         let (new_body, report) = storage::ingest_and_cleanup_opts(
             path,
-            body,
-            encryption,
+            &entry.body,
+            encryption.as_ref(),
             download_remote,
             replace_offline,
         )?;
 
         if let Some(new_body) = new_body {
-            codec.write_body(path, front_matter, new_body.trim_start_matches('\n'))?;
+            codec.write_body(
+                path,
+                entry.front_matter.as_deref(),
+                new_body.trim_start_matches('\n'),
+            )?;
         }
 
         Ok(report)
