@@ -1,12 +1,7 @@
 use super::*;
+use crate::tui::test_support::new_app;
 use std::fs;
 use tempfile::tempdir;
-
-fn new_app(config: Config) -> App {
-    let config_path = config.journal_root.join("config.toml");
-    let store = JournalStore::for_config(&config_path, &config.journal_root).unwrap();
-    App::new(config_path, config, store).unwrap()
-}
 
 #[test]
 fn changing_selected_entry_resets_entry_view_scroll() {

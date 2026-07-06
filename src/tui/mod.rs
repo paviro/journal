@@ -7,6 +7,8 @@ mod render;
 mod scroll;
 mod state;
 mod surface;
+#[cfg(test)]
+mod test_support;
 mod watcher;
 
 use crate::{AppResult, config::Config};

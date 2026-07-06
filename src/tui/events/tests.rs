@@ -5,6 +5,7 @@ use crate::{
         app::{App, Focus, ScrollbarDrag},
         render, scroll,
         state::{EditMetadataFocus, ListNav},
+        test_support::{app_with_entries, app_with_journals, new_app},
     },
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -32,43 +33,6 @@ fn drag() -> MouseEventKind {
 
 fn up() -> MouseEventKind {
     MouseEventKind::Up(MouseButton::Left)
-}
-
-fn new_app(config: Config) -> App {
-    let config_path = config.journal_root.join("config.toml");
-    let store = JournalStore::for_config(&config_path, &config.journal_root).unwrap();
-    App::new(config_path, config, store).unwrap()
-}
-
-fn app_with_journals(names: &[&str]) -> App {
-    let dir = tempdir().unwrap();
-    for name in names {
-        fs::create_dir_all(dir.path().join(name)).unwrap();
-    }
-    let config = Config::new(dir.path().to_path_buf(), "true");
-    let app = new_app(config);
-    std::mem::forget(dir);
-    app
-}
-
-fn app_with_entries(count: usize) -> App {
-    let dir = tempdir().unwrap();
-    let entry_dir = dir.path().join("work").join("2026-07-01");
-    fs::create_dir_all(&entry_dir).unwrap();
-    for index in 0..count {
-        fs::write(
-                entry_dir.join(format!("{index}.md")),
-                format!(
-                    "+++\ncreated_at = \"2026-07-01T10:{index:02}:00+02:00\"\n+++\n\n# Entry {index}\nPreview {index}\n"
-                ),
-            )
-            .unwrap();
-    }
-    let config = Config::new(dir.path().to_path_buf(), "true");
-    let mut app = new_app(config);
-    app.select_journal_by_name("work");
-    std::mem::forget(dir);
-    app
 }
 
 fn mouse_in_area(app: &mut App, event: MouseEvent, w: u16, h: u16) {

@@ -4,37 +4,15 @@ use crate::{
     tui::{
         app::{Focus, INLINE_ENTRY_VIEW_MIN_WIDTH, Mode},
         state::{EditMetadataFocus, EditMetadataState, MetadataKind},
+        test_support::{app_with_entry, new_app},
     },
 };
-use journal_storage::{Entry, EntryEncryptionState, JournalStore, SearchHit};
+use journal_storage::{Entry, EntryEncryptionState, SearchHit};
 use ratatui::{Terminal, backend::TestBackend, layout::Rect, style::Modifier, text::Line};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
 use unicode_width::UnicodeWidthStr;
-
-fn new_app(config: Config) -> App {
-    let config_path = config.journal_root.join("config.toml");
-    let store = JournalStore::for_config(&config_path, &config.journal_root).unwrap();
-    App::new(config_path, config, store).unwrap()
-}
-
-fn app_with_entry() -> App {
-    let dir = tempdir().unwrap();
-    let root = dir.path().to_path_buf();
-    let entry_dir = root.join("work").join("2026-07-01");
-    fs::create_dir_all(&entry_dir).unwrap();
-    fs::write(
-        entry_dir.join("a.md"),
-        "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
-    )
-    .unwrap();
-
-    let config = Config::new(root, "true");
-    let mut app = new_app(config);
-    app.select_journal_by_name("work");
-    app
-}
 
 fn render_text(mut app: App, width: u16, height: u16) -> String {
     let backend = TestBackend::new(width, height);
