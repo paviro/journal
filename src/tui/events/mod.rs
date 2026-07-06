@@ -1195,7 +1195,7 @@ mod tests {
         let bar = scroll::scrollbar_bar_rect(journals.area);
         let per_page =
             render::journals_per_page(render::journal_list_rect(journals.content).height);
-        let max = app.journals.len().saturating_sub(per_page as usize);
+        let max = app.library.journals.len().saturating_sub(per_page as usize);
         assert!(max > 0, "journals list should overflow so a bar is drawn");
 
         // Press the bottom track row → thumb jumps down.

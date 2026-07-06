@@ -409,7 +409,7 @@ mod tests {
                 journals.content.x,
                 journals.content.y + 1,
                 app.journal_list.offset() as u16,
-                app.journals.len()
+                app.library.journals.len()
             ),
             Some(0)
         );
@@ -419,7 +419,7 @@ mod tests {
                 panel_inner(journals.area).x,
                 panel_inner(journals.area).y,
                 app.journal_list.offset() as u16,
-                app.journals.len()
+                app.library.journals.len()
             ),
             None
         );
@@ -1194,7 +1194,7 @@ mod tests {
         app.focus = Focus::Entries;
         app.search.query = "body".to_string();
         app.search.hits = vec![SearchHit {
-            id: app.entries[0].id.clone(),
+            id: app.library.entries[0].id.clone(),
             journal: "work".to_string(),
             created_at: None,
             title: "A".to_string(),
@@ -1318,7 +1318,7 @@ mod tests {
         let mut app = app_with_entry();
         app.search.scope = crate::tui::app::SearchScope::Journal("work".to_string());
         let hit = SearchHit {
-            id: app.entries[0].id.clone(),
+            id: app.library.entries[0].id.clone(),
             journal: "work".to_string(),
             created_at: None,
             title: "A".to_string(),
@@ -1332,7 +1332,7 @@ mod tests {
     fn global_search_hit_labels_include_journal_prefix() {
         let app = app_with_entry();
         let hit = SearchHit {
-            id: app.entries[0].id.clone(),
+            id: app.library.entries[0].id.clone(),
             journal: "work".to_string(),
             created_at: None,
             title: "A".to_string(),

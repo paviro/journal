@@ -130,7 +130,7 @@ fn pane_target(
                 render::journals_per_page(render::journal_list_rect(area.content).height);
             (
                 area.area,
-                app.journals.len(),
+                app.library.journals.len(),
                 per_page,
                 app.journal_list.offset(),
             )
@@ -292,7 +292,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             area.content,
             mouse.row,
             app.journal_list.offset(),
-            app.journals.len(),
+            app.library.journals.len(),
         ) {
             app.select_journal(index);
         }

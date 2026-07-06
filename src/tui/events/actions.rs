@@ -156,6 +156,7 @@ pub(super) fn delete_selected(app: &mut App) -> AppResult<()> {
         return Ok(());
     };
     let has_body = app
+        .library
         .entries
         .iter()
         .find(|e| e.path == target.path)
@@ -180,6 +181,7 @@ pub(super) fn delete_selected_journal(app: &mut App) -> AppResult<()> {
     let journal_path = journal.path.clone();
 
     let entries: Vec<(PathBuf, bool)> = app
+        .library
         .entries
         .iter()
         .filter(|e| e.journal == journal_name)

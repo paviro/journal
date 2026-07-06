@@ -199,10 +199,12 @@ pub(crate) struct ImageState {
     selected_cache: RefCell<Option<(PathBuf, Rc<Vec<ImageAsset>>)>>,
 }
 
-pub(crate) struct App {
-    pub(crate) config_path: PathBuf,
-    pub(crate) config: Config,
-    pub(crate) store: JournalStore,
+/// The loaded journals and their entries, plus the two derived lookup indexes
+/// that must stay in sync with `entries`. Grouped so the sync invariant lives
+/// behind [`Library::rebuild_indexes`] rather than being spread across `App` —
+/// the whole in-memory reading collection.
+#[derive(Default)]
+pub(crate) struct Library {
     pub(crate) journals: Vec<Journal>,
     pub(crate) entries: Vec<Entry>,
     /// Journal name → contiguous index range into `entries`. Entries are sorted
@@ -214,6 +216,56 @@ pub(crate) struct App {
     /// instead of an O(entries) `iter().find`, so a single frame no longer does
     /// several full linear scans.
     entry_index_by_id: HashMap<String, usize>,
+}
+
+impl Library {
+    /// Rebuild the derived entry indexes after `entries` is (re)loaded: the
+    /// journal → contiguous-range map (entries are sorted by path, so each
+    /// journal's entries form one run) and the entry-id → index map used to
+    /// resolve search hits without scanning.
+    fn rebuild_indexes(&mut self) {
+        // Both indexes rely on `entries` being sorted descending by path (see
+        // `read_entries`), which keeps each journal's entries in one contiguous
+        // run. Trip loudly if a future code path ever breaks that ordering.
+        debug_assert!(
+            self.entries.windows(2).all(|w| w[0].path >= w[1].path),
+            "entries must stay sorted descending by path for journal_ranges to be contiguous"
+        );
+        self.journal_ranges.clear();
+        self.entry_index_by_id.clear();
+        self.entry_index_by_id.reserve(self.entries.len());
+        let mut start = 0;
+        while start < self.entries.len() {
+            let name = &self.entries[start].journal;
+            let mut end = start + 1;
+            while end < self.entries.len() && &self.entries[end].journal == name {
+                end += 1;
+            }
+            self.journal_ranges.insert(name.clone(), start..end);
+            start = end;
+        }
+        for (index, entry) in self.entries.iter().enumerate() {
+            self.entry_index_by_id.insert(entry.id.clone(), index);
+        }
+    }
+
+    /// Resolve an entry by id in O(1) via [`Self::entry_index_by_id`].
+    fn entry_by_id(&self, id: &str) -> Option<&Entry> {
+        self.entries.get(*self.entry_index_by_id.get(id)?)
+    }
+
+    /// Contiguous index range into `entries` for `journal`, or `None` when it has
+    /// no entries.
+    fn range(&self, journal: &str) -> Option<Range<usize>> {
+        self.journal_ranges.get(journal).cloned()
+    }
+}
+
+pub(crate) struct App {
+    pub(crate) config_path: PathBuf,
+    pub(crate) config: Config,
+    pub(crate) store: JournalStore,
+    pub(crate) library: Library,
     pub(crate) journal_list: ListState,
     /// The selected entry (or search hit) index, or `None` when no entry is
     /// selected. In Browse mode `None` shows the journal stats in the preview
@@ -284,10 +336,7 @@ impl App {
             config_path,
             config,
             store,
-            journals: Vec::new(),
-            entries: Vec::new(),
-            journal_ranges: HashMap::new(),
-            entry_index_by_id: HashMap::new(),
+            library: Library::default(),
             journal_list: ListState::default(),
             selected_entry_index: None,
             entry_list: ListState::default(),
@@ -306,7 +355,11 @@ impl App {
         // Restore the journal selected in the previous session without disturbing
         // the default startup focus (Journals).
         if let Some(name) = app.config.last_journal.clone()
-            && let Some(index) = app.journals.iter().position(|journal| journal.name == name)
+            && let Some(index) = app
+                .library
+                .journals
+                .iter()
+                .position(|journal| journal.name == name)
         {
             app.journal_list.select(Some(index));
             *app.journal_list.offset_mut() = index;
@@ -330,9 +383,9 @@ impl App {
     }
 
     fn load_entries(&mut self, entry_paths: Vec<EntryPath>) -> AppResult<()> {
-        self.journals = self.store.list_journals()?;
-        self.entries = self.store.read_entries(entry_paths)?;
-        normalize_list_state(&mut self.journal_list, self.journals.len());
+        self.library.journals = self.store.list_journals()?;
+        self.library.entries = self.store.read_entries(entry_paths)?;
+        normalize_list_state(&mut self.journal_list, self.library.journals.len());
         self.after_entries_changed();
         Ok(())
     }
@@ -342,7 +395,7 @@ impl App {
     /// query is active), and the clamped selection. Shared by the full load and
     /// the incremental [`Self::refresh_paths`] path.
     fn after_entries_changed(&mut self) {
-        self.rebuild_entry_indexes();
+        self.library.rebuild_indexes();
         // Entries (and possibly hits) changed: invalidate every version-keyed
         // cache — the body/stats caches (entries_version) and the row cache
         // (rows_version).
@@ -378,7 +431,7 @@ impl App {
             let Some(journal) = journal_for_path(&root, path) else {
                 return self.refresh();
             };
-            if !is_entry_file(path) || !self.journals.iter().any(|j| j.name == journal) {
+            if !is_entry_file(path) || !self.library.journals.iter().any(|j| j.name == journal) {
                 return self.refresh();
             }
             targets.push((journal, path.clone()));
@@ -409,21 +462,23 @@ impl App {
     /// keeping the ordering so `journal_ranges` stays contiguous per journal.
     fn upsert_entry(&mut self, entry: Entry) {
         match self
+            .library
             .entries
             .binary_search_by(|existing| entry.path.cmp(&existing.path))
         {
-            Ok(index) => self.entries[index] = entry,
-            Err(index) => self.entries.insert(index, entry),
+            Ok(index) => self.library.entries[index] = entry,
+            Err(index) => self.library.entries.insert(index, entry),
         }
     }
 
     /// Remove the entry at `path`, if present, preserving the sorted order.
     fn remove_entry_by_path(&mut self, path: &Path) {
         if let Ok(index) = self
+            .library
             .entries
             .binary_search_by(|existing| path.cmp(&existing.path))
         {
-            self.entries.remove(index);
+            self.library.entries.remove(index);
         }
     }
 
@@ -432,7 +487,7 @@ impl App {
     }
 
     pub(crate) fn selected_journal(&self) -> Option<&Journal> {
-        self.journals.get(self.selected_journal_index())
+        self.library.journals.get(self.selected_journal_index())
     }
 
     /// The preview pane shows journal stats (instead of an entry) when browsing
@@ -447,14 +502,18 @@ impl App {
     }
 
     pub(crate) fn journal_list_ensure_visible(&mut self, viewport_height: u16) {
-        ensure_selected_visible(&mut self.journal_list, self.journals.len(), viewport_height);
+        ensure_selected_visible(
+            &mut self.journal_list,
+            self.library.journals.len(),
+            viewport_height,
+        );
     }
 
     pub(crate) fn journal_list_scroll(&mut self, delta: i16, viewport_height: u16) {
         scroll_list_offset(
             &mut self.journal_list,
             delta,
-            self.journals.len(),
+            self.library.journals.len(),
             viewport_height,
         );
     }
@@ -500,12 +559,12 @@ impl App {
     /// when no journal is selected or it has no entries.
     fn selected_entry_range(&self) -> Option<Range<usize>> {
         let journal = self.selected_journal()?;
-        self.journal_ranges.get(&journal.name).cloned()
+        self.library.range(&journal.name)
     }
 
     pub(crate) fn selected_entries(&self) -> Vec<&Entry> {
         match self.selected_entry_range() {
-            Some(range) => self.entries[range].iter().collect(),
+            Some(range) => self.library.entries[range].iter().collect(),
             None => Vec::new(),
         }
     }
@@ -517,46 +576,11 @@ impl App {
         }
     }
 
-    /// Rebuild the derived entry indexes after `entries` is (re)loaded: the
-    /// journal → contiguous-range map (entries are sorted by path, so each
-    /// journal's entries form one run) and the entry-id → index map used to
-    /// resolve search hits without scanning.
-    fn rebuild_entry_indexes(&mut self) {
-        // Both indexes rely on `entries` being sorted descending by path (see
-        // `read_entries`), which keeps each journal's entries in one contiguous
-        // run. Trip loudly if a future code path ever breaks that ordering.
-        debug_assert!(
-            self.entries.windows(2).all(|w| w[0].path >= w[1].path),
-            "entries must stay sorted descending by path for journal_ranges to be contiguous"
-        );
-        self.journal_ranges.clear();
-        self.entry_index_by_id.clear();
-        self.entry_index_by_id.reserve(self.entries.len());
-        let mut start = 0;
-        while start < self.entries.len() {
-            let name = &self.entries[start].journal;
-            let mut end = start + 1;
-            while end < self.entries.len() && &self.entries[end].journal == name {
-                end += 1;
-            }
-            self.journal_ranges.insert(name.clone(), start..end);
-            start = end;
-        }
-        for (index, entry) in self.entries.iter().enumerate() {
-            self.entry_index_by_id.insert(entry.id.clone(), index);
-        }
-    }
-
-    /// Resolve an entry by id in O(1) via [`Self::entry_index_by_id`].
-    fn entry_by_id(&self, id: &str) -> Option<&Entry> {
-        self.entries.get(*self.entry_index_by_id.get(id)?)
-    }
-
     /// The entry backing the current selection, resolving a search hit through
     /// the id index. Unifies the Search/Browse branches the preview getters share.
     fn resolved_selected_entry(&self) -> Option<&Entry> {
         match self.mode {
-            Mode::Search => self.entry_by_id(&self.selected_search_hit()?.id),
+            Mode::Search => self.library.entry_by_id(&self.selected_search_hit()?.id),
             Mode::Browse => self.selected_entry(),
         }
     }
@@ -613,7 +637,7 @@ impl App {
 
     pub(crate) fn move_selection(&mut self, delta: isize) {
         let len = match self.focus {
-            Focus::Journals if self.mode == Mode::Browse => self.journals.len(),
+            Focus::Journals if self.mode == Mode::Browse => self.library.journals.len(),
             Focus::Entries | Focus::EntryView | Focus::Journals => self.current_entry_list_len(),
         };
         if len == 0 {
@@ -651,7 +675,7 @@ impl App {
     }
 
     pub(crate) fn select_journal(&mut self, index: usize) {
-        if index >= self.journals.len() {
+        if index >= self.library.journals.len() {
             return;
         }
 
@@ -677,7 +701,8 @@ impl App {
         let index = match self.mode {
             Mode::Search => self.search.hits.iter().position(|hit| hit.id == id),
             Mode::Browse => self.journal_name_for_entry_id(id).and_then(|journal_name| {
-                self.entries
+                self.library
+                    .entries
                     .iter()
                     .filter(|entry| entry.journal == journal_name)
                     .position(|entry| entry.id == id)
@@ -696,11 +721,13 @@ impl App {
 
     fn journal_name_for_entry_id(&mut self, id: &str) -> Option<String> {
         let journal_name = self
+            .library
             .entries
             .iter()
             .find(|entry| entry.id == id)
             .map(|entry| entry.journal.clone())?;
         let journal_index = self
+            .library
             .journals
             .iter()
             .position(|journal| journal.name == journal_name)?;
@@ -714,7 +741,7 @@ impl App {
     fn selected_entry(&self) -> Option<&Entry> {
         let index = self.selected_entry_index?;
         let range = self.selected_entry_range()?;
-        (index < range.len()).then(|| &self.entries[range.start + index])
+        (index < range.len()).then(|| &self.library.entries[range.start + index])
     }
 
     pub(crate) fn selected_search_hit(&self) -> Option<&SearchHit> {
@@ -873,11 +900,13 @@ impl App {
         };
         let name = journal.name.clone();
         let trash_count = self
+            .library
             .entries
             .iter()
             .filter(|e| e.journal == name && !e.content.trim().is_empty())
             .count();
         let delete_count = self
+            .library
             .entries
             .iter()
             .filter(|e| e.journal == name && e.content.trim().is_empty())
@@ -1029,6 +1058,7 @@ impl App {
 
     pub(crate) fn select_journal_by_name(&mut self, name: &str) {
         if let Some(index) = self
+            .library
             .journals
             .iter()
             .position(|journal| journal.name == name)
@@ -1049,7 +1079,7 @@ impl App {
         // First pass — count per lowercased key, track casing frequency.
         let mut lower_to_casing: std::collections::BTreeMap<String, CasingCount> =
             std::collections::BTreeMap::new();
-        for entry in &self.entries {
+        for entry in &self.library.entries {
             for value in metadata_values(entry, kind) {
                 let lower = value.to_lowercase();
                 let entry = lower_to_casing.entry(lower).or_default();
@@ -1250,13 +1280,18 @@ impl App {
         } else if let Some(feeling) = self.search.query.strip_prefix("feelings:") {
             self.search_results_by_feeling(feeling.trim())
         } else {
-            search_loaded_entries(&self.entries, &self.search.query, &self.search.scope)
+            search_loaded_entries(
+                &self.library.entries,
+                &self.search.query,
+                &self.search.scope,
+            )
         }
     }
 
     /// Build hits from the in-scope, unlocked entries matching `predicate`.
     fn search_results_matching(&self, predicate: impl Fn(&Entry) -> bool) -> Vec<SearchHit> {
-        self.entries
+        self.library
+            .entries
             .iter()
             .filter(|entry| {
                 entry.encryption_state != EntryEncryptionState::EncryptedLocked
@@ -1710,7 +1745,7 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        assert_eq!(app.entries.len(), 2);
+        assert_eq!(app.library.entries.len(), 2);
 
         // Edit a.md on disk, then reload just that path.
         write_entry(
@@ -1721,8 +1756,8 @@ mod tests {
         );
         app.refresh_paths(&[a]).unwrap();
 
-        assert_eq!(app.entries.len(), 2);
-        let updated = app.entry_by_id("a").unwrap();
+        assert_eq!(app.library.entries.len(), 2);
+        let updated = app.library.entry_by_id("a").unwrap();
         assert!(updated.content.contains("new body here"));
         // Precomputed word count is rebuilt from the fresh body on re-read.
         assert_eq!(
@@ -1731,7 +1766,12 @@ mod tests {
         );
         assert!(!updated.search_haystack.is_empty());
         // `entries` stays sorted by path (descending) so `journal_ranges` holds.
-        assert!(app.entries.windows(2).all(|w| w[0].path > w[1].path));
+        assert!(
+            app.library
+                .entries
+                .windows(2)
+                .all(|w| w[0].path > w[1].path)
+        );
         assert_eq!(app.selected_entries().len(), 2);
     }
 
@@ -1749,19 +1789,19 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        assert_eq!(app.entries.len(), 1);
+        assert_eq!(app.library.entries.len(), 1);
 
         // A newly written file is picked up by its path alone.
         let c = write_entry(&entry_dir, "c.md", "2026-07-01T12:00:00+02:00", "# C\nsea");
         app.refresh_paths(std::slice::from_ref(&c)).unwrap();
-        assert_eq!(app.entries.len(), 2);
-        assert!(app.entry_by_id("c").is_some());
+        assert_eq!(app.library.entries.len(), 2);
+        assert!(app.library.entry_by_id("c").is_some());
 
         // Deleting the file on disk removes it on the next targeted reload.
         fs::remove_file(&a).unwrap();
         app.refresh_paths(&[a]).unwrap();
-        assert_eq!(app.entries.len(), 1);
-        assert!(app.entry_by_id("a").is_none());
+        assert_eq!(app.library.entries.len(), 1);
+        assert!(app.library.entry_by_id("a").is_none());
         assert_eq!(app.selected_entries().len(), 1);
     }
 
@@ -1784,11 +1824,12 @@ mod tests {
         app.refresh_paths(&[z]).unwrap();
 
         assert!(
-            app.journals
+            app.library
+                .journals
                 .iter()
                 .any(|journal| journal.name == "personal")
         );
-        assert!(app.entry_by_id("z").is_some());
+        assert!(app.library.entry_by_id("z").is_some());
     }
 
     #[test]
