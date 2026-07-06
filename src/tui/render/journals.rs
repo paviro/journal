@@ -39,11 +39,11 @@ pub(crate) fn journals_per_page(content_height: u16) -> u16 {
 }
 
 pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app: &mut App) {
-    let focused = app.focus == Focus::Journals;
+    let focused = app.nav.focus == Focus::Journals;
     // An all-journals search covers everything, so highlight every journal
     // rather than implying it's scoped to the selected one. A journal-scoped
     // search keeps the single highlight.
-    let select_all = app.mode == Mode::Search && app.search.scope == SearchScope::AllJournals;
+    let select_all = app.nav.mode == Mode::Search && app.search.scope == SearchScope::AllJournals;
     let highlight_active = !select_all;
     let block = panel_block(
         "Journals",
@@ -57,10 +57,10 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
     let list_area = journal_list_rect(geometry.content);
     let per_page = journals_per_page(list_area.height);
 
-    normalize_list_state(&mut app.journal_list, app.library.journals.len());
+    normalize_list_state(&mut app.nav.journal_list, app.library.journals.len());
     let max_offset = app.library.journals.len().saturating_sub(per_page as usize);
-    let offset = app.journal_list.offset().min(max_offset);
-    *app.journal_list.offset_mut() = offset;
+    let offset = app.nav.journal_list.offset().min(max_offset);
+    *app.nav.journal_list.offset_mut() = offset;
 
     let inner_width = list_area.width.saturating_sub(4) as usize;
     let highlight_style = Style::default().add_modifier(Modifier::REVERSED);
@@ -83,7 +83,7 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
         .highlight_spacing(HighlightSpacing::Never);
 
     let mut render_state = list_state_for_render(
-        app.journal_list.selected(),
+        app.nav.journal_list.selected(),
         offset,
         per_page,
         highlight_active,

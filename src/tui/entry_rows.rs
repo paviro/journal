@@ -86,7 +86,7 @@ pub(crate) fn build_entry_row_cache(app: &App, text_width: u16) -> EntryRowCache
 }
 
 pub(crate) fn entry_list_rows(app: &App, text_width: u16) -> Vec<EntryListRow> {
-    match app.mode {
+    match app.nav.mode {
         Mode::Search => {
             let mut rows = Vec::new();
             for (index, hit) in app.search.hits.iter().enumerate() {
@@ -195,7 +195,7 @@ fn browse_entry_rows(app: &App, text_width: u16) -> Vec<EntryListRow> {
 /// sticky border label switches over in step with the scrolled list. Empty
 /// outside browse mode.
 pub(crate) fn entry_month_sections(app: &App, text_width: u16) -> Vec<(usize, String)> {
-    if app.mode != Mode::Browse {
+    if app.nav.mode != Mode::Browse {
         return Vec::new();
     }
 

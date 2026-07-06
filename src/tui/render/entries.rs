@@ -15,9 +15,9 @@ use crate::tui::{
 };
 
 pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry, app: &mut App) {
-    let focused = app.focus == Focus::Entries;
+    let focused = app.nav.focus == Focus::Entries;
     let mut block = panel_block(
-        match app.mode {
+        match app.nav.mode {
             Mode::Search => "Search",
             Mode::Browse => "Entries",
         },
@@ -32,12 +32,12 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
     let cache = app.entry_rows(text_width);
     let viewport_height = geometry.viewport_height;
     let total_height = cache.total_height;
-    let pixel_offset = clamp_scroll(app.entry_list.offset(), total_height, viewport_height);
-    *app.entry_list.offset_mut() = pixel_offset;
+    let pixel_offset = clamp_scroll(app.nav.entry_list.offset(), total_height, viewport_height);
+    *app.nav.entry_list.offset_mut() = pixel_offset;
 
     // In search mode, show the live query on the panel's top-right border so it
     // reads as the search field, rather than tucking it into the footer.
-    if app.mode == Mode::Search {
+    if app.nav.mode == Mode::Search {
         block = block.title(search_field_title(app).right_aligned());
     }
 
@@ -46,7 +46,7 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
     // current month stays visible while browsing.
     if let Some(month) = sticky_month_label(
         &cache.month_sections,
-        app.mode == Mode::Browse,
+        app.nav.mode == Mode::Browse,
         pixel_offset,
     ) {
         block = block.title(Line::from(format!(" {month} ")).right_aligned());
@@ -57,7 +57,7 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
         &cache.rows,
         pixel_offset,
         viewport_height,
-        app.selected_entry_index,
+        app.nav.selected_entry_index,
         highlight_active,
     );
 
@@ -81,7 +81,7 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
     // An empty list in search mode — whether the query is blank or simply
     // matches nothing — gets a centered notice so the column doesn't read as a
     // rendering glitch.
-    if app.mode == Mode::Search && cache.rows.is_empty() {
+    if app.nav.mode == Mode::Search && cache.rows.is_empty() {
         render_centered_notice(frame, geometry.panel.content, "No results");
     }
 }

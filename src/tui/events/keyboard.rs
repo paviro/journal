@@ -32,7 +32,7 @@ pub(super) fn key_to_action(
     entry_view_available: bool,
 ) -> Option<Action> {
     match &app.overlay {
-        Overlay::None if app.mode == Mode::Search => {
+        Overlay::None if app.nav.mode == Mode::Search => {
             search_key_to_action(app, key, entry_view_available)
         }
         Overlay::None => browse_key_to_action(app, key, entry_view_available),
@@ -73,7 +73,7 @@ fn scroll_key_to_action(key: KeyCode) -> Option<Action> {
 }
 
 fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) -> Option<Action> {
-    if app.focus == Focus::EntryView
+    if app.nav.focus == Focus::EntryView
         && let Some(action) = scroll_key_to_action(key.code)
     {
         return Some(action);
@@ -83,23 +83,25 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
         KeyCode::Char('/') => Some(Action::BeginSearch),
         KeyCode::Left => Some(Action::FocusLeft),
         KeyCode::Right
-            if app.focus == Focus::Entries
+            if app.nav.focus == Focus::Entries
                 && !entry_view_available
                 && app.has_selected_entry_target() =>
         {
             Some(Action::ViewSelected)
         }
         KeyCode::Right => Some(Action::FocusRight),
-        KeyCode::Esc if app.focus == Focus::EntryView => Some(Action::FocusLeft),
-        KeyCode::Enter if app.focus == Focus::EntryView => Some(Action::FocusLeft),
-        KeyCode::Enter if app.focus == Focus::Journals => Some(Action::FocusRight),
+        KeyCode::Esc if app.nav.focus == Focus::EntryView => Some(Action::FocusLeft),
+        KeyCode::Enter if app.nav.focus == Focus::EntryView => Some(Action::FocusLeft),
+        KeyCode::Enter if app.nav.focus == Focus::Journals => Some(Action::FocusRight),
         KeyCode::Enter if app.can_act_on_selected_entry() => Some(Action::ViewSelected),
         KeyCode::Up => Some(Action::MoveUp),
         KeyCode::Down => Some(Action::MoveDown),
         KeyCode::Char('e') if app.can_act_on_selected_entry() => Some(Action::EditSelected),
-        KeyCode::Char('n') if app.focus == Focus::Journals => Some(Action::NewJournal),
+        KeyCode::Char('n') if app.nav.focus == Focus::Journals => Some(Action::NewJournal),
         KeyCode::Char('n') => Some(Action::NewEntry),
-        KeyCode::Char('d') if app.focus == Focus::Journals && app.selected_journal().is_some() => {
+        KeyCode::Char('d')
+            if app.nav.focus == Focus::Journals && app.selected_journal().is_some() =>
+        {
             Some(Action::BeginDelete)
         }
         KeyCode::Char('d') if app.can_act_on_selected_entry() => Some(Action::BeginDelete),
@@ -109,7 +111,7 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
         KeyCode::Char('f') if app.can_act_on_selected_entry() => Some(Action::BeginEditFeelings),
         KeyCode::Char('m') if app.can_act_on_selected_entry() => Some(Action::BeginEditMood),
         KeyCode::Char('i' | '0'..='9')
-            if app.focus == Focus::EntryView && app.has_selected_entry_target() =>
+            if app.nav.focus == Focus::EntryView && app.has_selected_entry_target() =>
         {
             image_shortcut(app, key)
         }
@@ -120,7 +122,7 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
 }
 
 fn search_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) -> Option<Action> {
-    if app.focus == Focus::EntryView
+    if app.nav.focus == Focus::EntryView
         && let Some(action) = scroll_key_to_action(key.code)
     {
         return Some(action);
@@ -128,56 +130,70 @@ fn search_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
     match key.code {
         KeyCode::Esc => Some(Action::ExitSearch),
         KeyCode::Char('q') => Some(Action::Quit),
-        KeyCode::Left if app.focus == Focus::EntryView => Some(Action::FocusLeft),
+        KeyCode::Left if app.nav.focus == Focus::EntryView => Some(Action::FocusLeft),
         // In the search field, Left/Right move the caret. Right only claims the key
         // while the caret can still advance; at the end of the query it falls
         // through to the view/focus arms below.
-        KeyCode::Left if app.focus == Focus::Entries => Some(Action::SearchCursorLeft),
+        KeyCode::Left if app.nav.focus == Focus::Entries => Some(Action::SearchCursorLeft),
         KeyCode::Right
-            if app.focus == Focus::Entries
+            if app.nav.focus == Focus::Entries
                 && app.search.cursor < app.search.query.chars().count() =>
         {
             Some(Action::SearchCursorRight)
         }
         KeyCode::Right
-            if app.focus == Focus::Entries
+            if app.nav.focus == Focus::Entries
                 && !entry_view_available
                 && app.has_selected_entry_target() =>
         {
             Some(Action::ViewSelected)
         }
-        KeyCode::Right if app.focus == Focus::Entries && entry_view_available => {
+        KeyCode::Right if app.nav.focus == Focus::Entries && entry_view_available => {
             Some(Action::FocusRight)
         }
         KeyCode::Enter if app.can_act_on_selected_entry() => Some(Action::ViewSelected),
-        KeyCode::Char('e') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
+        KeyCode::Char('e')
+            if app.nav.focus == Focus::EntryView && app.has_selected_entry_target() =>
+        {
             Some(Action::EditSelected)
         }
-        KeyCode::Char('d') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
+        KeyCode::Char('d')
+            if app.nav.focus == Focus::EntryView && app.has_selected_entry_target() =>
+        {
             Some(Action::BeginDelete)
         }
-        KeyCode::Char('t') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
+        KeyCode::Char('t')
+            if app.nav.focus == Focus::EntryView && app.has_selected_entry_target() =>
+        {
             Some(Action::BeginEditTags)
         }
-        KeyCode::Char('p') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
+        KeyCode::Char('p')
+            if app.nav.focus == Focus::EntryView && app.has_selected_entry_target() =>
+        {
             Some(Action::BeginEditPeople)
         }
-        KeyCode::Char('a') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
+        KeyCode::Char('a')
+            if app.nav.focus == Focus::EntryView && app.has_selected_entry_target() =>
+        {
             Some(Action::BeginEditActivities)
         }
-        KeyCode::Char('f') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
+        KeyCode::Char('f')
+            if app.nav.focus == Focus::EntryView && app.has_selected_entry_target() =>
+        {
             Some(Action::BeginEditFeelings)
         }
-        KeyCode::Char('m') if app.focus == Focus::EntryView && app.has_selected_entry_target() => {
+        KeyCode::Char('m')
+            if app.nav.focus == Focus::EntryView && app.has_selected_entry_target() =>
+        {
             Some(Action::BeginEditMood)
         }
         KeyCode::Char('i' | '0'..='9')
-            if app.focus == Focus::EntryView && app.has_selected_entry_target() =>
+            if app.nav.focus == Focus::EntryView && app.has_selected_entry_target() =>
         {
             image_shortcut(app, key)
         }
-        KeyCode::Backspace if app.focus == Focus::Entries => Some(Action::SearchBackspace),
-        KeyCode::Char(ch) if app.focus == Focus::Entries => Some(Action::SearchInput(ch)),
+        KeyCode::Backspace if app.nav.focus == Focus::Entries => Some(Action::SearchBackspace),
+        KeyCode::Char(ch) if app.nav.focus == Focus::Entries => Some(Action::SearchInput(ch)),
         KeyCode::Up => Some(Action::MoveUp),
         KeyCode::Down => Some(Action::MoveDown),
         _ => None,
@@ -256,23 +272,23 @@ fn image_viewer_key_to_action(key: KeyEvent) -> Option<Action> {
 // ── Navigation helpers used by dispatch_action and tests ──────────────────────
 
 pub(super) fn move_focus_left(app: &mut App) {
-    app.focus = match app.focus {
+    app.nav.focus = match app.nav.focus {
         Focus::EntryView => Focus::Entries,
         // When the journal list is hidden, Left stops at Entries so focus never
         // lands on a pane that isn't rendered — use `j` to bring the list back.
         Focus::Entries if app.config.show_journals => Focus::Journals,
-        Focus::Entries | Focus::Journals => app.focus,
+        Focus::Entries | Focus::Journals => app.nav.focus,
     };
 }
 
 pub(super) fn move_focus_right(app: &mut App, entry_view_available: bool) {
-    app.focus = match app.focus {
+    app.nav.focus = match app.nav.focus {
         Focus::Journals => {
             // Entering the entries column lands on an entry (when the journal has
             // any); the stats view is reached from there by scrolling up past the
             // first entry.
-            if app.selected_entry_index.is_none() && app.current_entry_list_len() > 0 {
-                app.selected_entry_index = Some(0);
+            if app.nav.selected_entry_index.is_none() && app.current_entry_list_len() > 0 {
+                app.nav.selected_entry_index = Some(0);
             }
             Focus::Entries
         }
@@ -280,7 +296,7 @@ pub(super) fn move_focus_right(app: &mut App, entry_view_available: bool) {
         Focus::Entries if entry_view_available && app.has_selected_entry_target() => {
             Focus::EntryView
         }
-        Focus::Entries | Focus::EntryView => app.focus,
+        Focus::Entries | Focus::EntryView => app.nav.focus,
     };
 }
 
@@ -290,7 +306,7 @@ pub(super) fn keep_selection_visible(
 ) -> AppResult<()> {
     let size = terminal.size()?;
     let layout = render::tui_layout(Rect::new(0, 0, size.width, size.height), app);
-    if app.focus == Focus::Journals && app.mode == Mode::Browse {
+    if app.nav.focus == Focus::Journals && app.nav.mode == Mode::Browse {
         if let Some(area) = layout.journals {
             app.journal_list_ensure_visible(render::journals_per_page(
                 render::journal_list_rect(area.content).height,

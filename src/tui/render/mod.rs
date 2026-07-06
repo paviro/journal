@@ -82,7 +82,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     // shown, so a stale hit-map can't leak onto stats or empty views.
     app.entry_view_image_hits = EntryViewImageHits::default();
 
-    if single_panel_is_active(area.width) && app.focus == Focus::EntryView {
+    if single_panel_is_active(area.width) && app.nav.focus == Focus::EntryView {
         let footer_height = expanded_footer_height(app, area.width).min(area.height);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -274,7 +274,7 @@ mod tests {
     #[test]
     fn layout_places_hit_targets_in_three_columns() {
         let mut app = app_with_entry();
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         let layout = tui_layout(Rect::new(0, 0, 140, 20), &app);
 
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn layout_keeps_three_columns_at_minimum_inline_width() {
         let mut app = app_with_entry();
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         let layout = tui_layout(Rect::new(0, 0, INLINE_ENTRY_VIEW_MIN_WIDTH, 20), &app);
 
@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn layout_places_hit_targets_in_two_columns_without_inline_entry_view() {
         let mut app = app_with_entry();
-        app.focus = Focus::Journals;
+        app.nav.focus = Focus::Journals;
 
         let layout = tui_layout(Rect::new(0, 0, 90, 20), &app);
 
@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn layout_shifts_two_columns_to_entries_and_preview_when_entries_are_active() {
         let mut app = app_with_entry();
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         let layout = tui_layout(Rect::new(0, 0, 90, 20), &app);
 
@@ -342,7 +342,7 @@ mod tests {
     #[test]
     fn layout_uses_single_compact_panel_for_active_focus() {
         let mut app = app_with_entry();
-        app.focus = Focus::Journals;
+        app.nav.focus = Focus::Journals;
 
         let journals = tui_layout(Rect::new(0, 0, 57, 20), &app);
         assert!(journals.single_panel);
@@ -352,7 +352,7 @@ mod tests {
         );
         assert!(journals.entries.is_none());
 
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
         let entries = tui_layout(Rect::new(0, 0, 57, 20), &app);
         assert!(entries.single_panel);
         assert_eq!(
@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn entry_list_geometry_is_shared_by_render_hit_test_and_visibility() {
         let mut app = app_with_entry();
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
         let layout = tui_layout(Rect::new(0, 0, 80, 20), &app);
         let entries = layout.entries.unwrap();
 
@@ -383,21 +383,21 @@ mod tests {
                 entries,
                 entries.panel.content.x,
                 click_y,
-                app.entry_list.offset(),
+                app.nav.entry_list.offset(),
                 &rows
             ),
             Some(0)
         );
 
-        let offset_before = app.entry_list.offset();
+        let offset_before = app.nav.entry_list.offset();
         app.entry_list_ensure_visible(&rows, entries.viewport_height);
-        assert_eq!(app.entry_list.offset(), offset_before);
+        assert_eq!(app.nav.entry_list.offset(), offset_before);
     }
 
     #[test]
     fn panel_content_rect_defines_selectable_rows_not_padding() {
         let mut app = app_with_entry();
-        app.focus = Focus::Journals;
+        app.nav.focus = Focus::Journals;
         let layout = tui_layout(Rect::new(0, 0, 120, 20), &app);
         let journals = layout.journals.unwrap();
 
@@ -408,7 +408,7 @@ mod tests {
                 journals,
                 journals.content.x,
                 journals.content.y + 1,
-                app.journal_list.offset() as u16,
+                app.nav.journal_list.offset() as u16,
                 app.library.journals.len()
             ),
             Some(0)
@@ -418,7 +418,7 @@ mod tests {
                 journals,
                 panel_inner(journals.area).x,
                 panel_inner(journals.area).y,
-                app.journal_list.offset() as u16,
+                app.nav.journal_list.offset() as u16,
                 app.library.journals.len()
             ),
             None
@@ -511,7 +511,7 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
 
         let tags = vec![
             "work".to_string(),
@@ -582,15 +582,15 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
 
         let top = render_text(app, 80, 20);
         assert!(!top.contains("Tags: tiny-screen"));
 
         let mut app = new_app(Config::new(dir.path().to_path_buf(), "true"));
         app.select_journal_by_name("work");
-        app.focus = Focus::EntryView;
-        app.scroll.entry_view = u16::MAX;
+        app.nav.focus = Focus::EntryView;
+        app.nav.scroll.entry_view = u16::MAX;
 
         let bottom = render_text(app, 80, 20);
         assert!(bottom.contains("Feelings: focused"));
@@ -874,7 +874,7 @@ mod tests {
 
         // Scroll far enough that the June divider clears the top; June takes over.
         let mut app = app_for(&dir);
-        *app.entry_list.offset_mut() = 100;
+        *app.nav.entry_list.offset_mut() = 100;
         let backend = render_app(app, 57, 12);
         let top = (0..57)
             .map(|x| backend.buffer().cell((x, 0)).unwrap().symbol().to_string())
@@ -885,7 +885,7 @@ mod tests {
     fn app_for(dir: &tempfile::TempDir) -> App {
         let mut app = new_app(Config::new(dir.path().to_path_buf(), "true"));
         app.select_journal_by_name("work");
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
         app
     }
 
@@ -909,7 +909,7 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
 
         let rendered = render_text(app, 120, 20);
 
@@ -929,7 +929,7 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
 
         let rendered = render_text(app, 140, 28);
 
@@ -959,7 +959,7 @@ mod tests {
         let config = Config::new(root, "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         let rendered = render_text(app, 130, 20);
 
@@ -970,21 +970,21 @@ mod tests {
     #[test]
     fn compact_render_shows_only_the_active_step() {
         let mut journals_app = app_with_entry();
-        journals_app.focus = Focus::Journals;
+        journals_app.nav.focus = Focus::Journals;
         let journals = render_text(journals_app, 57, 16);
         assert!(journals.contains(" Journals "));
         assert!(!journals.contains(" Entries "));
         assert!(!journals.contains("2026-07-01 10:00"));
 
         let mut entries_app = app_with_entry();
-        entries_app.focus = Focus::Entries;
+        entries_app.nav.focus = Focus::Entries;
         let entries = render_text(entries_app, 57, 16);
         assert!(entries.contains(" Entries "));
         assert!(!entries.contains(" Journals "));
         assert!(!entries.contains("2026-07-01 10:00"));
 
         let mut entry_view_focus_app = app_with_entry();
-        entry_view_focus_app.focus = Focus::EntryView;
+        entry_view_focus_app.nav.focus = Focus::EntryView;
         let entry_view_focus = render_text(entry_view_focus_app, 57, 16);
         assert!(!entry_view_focus.contains(" Entries "));
         assert!(!entry_view_focus.contains(" Journals "));
@@ -994,14 +994,14 @@ mod tests {
     #[test]
     fn two_column_render_follows_active_column_pair() {
         let mut journals_app = app_with_entry();
-        journals_app.focus = Focus::Journals;
+        journals_app.nav.focus = Focus::Journals;
         let journals = render_text(journals_app, 90, 16);
         assert!(journals.contains(" Journals "));
         assert!(journals.contains(" Entries "));
         assert!(!journals.contains("2026-07-01 10:00"));
 
         let mut entries_app = app_with_entry();
-        entries_app.focus = Focus::Entries;
+        entries_app.nav.focus = Focus::Entries;
         let entries = render_text(entries_app, 90, 16);
         assert!(entries.contains(" Entries "));
         assert!(!entries.contains(" Journals "));
@@ -1011,7 +1011,7 @@ mod tests {
     #[test]
     fn selected_journal_and_entry_remain_reversed_when_entry_view_is_focused() {
         let mut app = app_with_entry();
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
 
         let backend = render_app(app, 130, 20);
         let buffer = backend.buffer();
@@ -1037,7 +1037,7 @@ mod tests {
     #[test]
     fn selected_entry_is_not_reversed_when_journals_are_focused() {
         let mut app = app_with_entry();
-        app.focus = Focus::Journals;
+        app.nav.focus = Focus::Journals;
 
         let backend = render_app(app, 120, 20);
         let buffer = backend.buffer();
@@ -1109,7 +1109,7 @@ mod tests {
     #[test]
     fn journal_footer_omits_entry_actions() {
         let mut app = app_with_entry();
-        app.focus = Focus::Journals;
+        app.nav.focus = Focus::Journals;
 
         let text = footer_text(&app);
 
@@ -1121,7 +1121,7 @@ mod tests {
     #[test]
     fn entries_footer_includes_entry_actions_when_an_entry_is_selected() {
         let mut app = app_with_entry();
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         let text = footer_text(&app);
 
@@ -1133,7 +1133,7 @@ mod tests {
     #[test]
     fn expanded_entry_footer_includes_inline_entry_actions() {
         let mut app = app_with_entry();
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
 
         let inline_text = footer_text(&app);
         let expanded_text = expanded_footer_text(&app);
@@ -1162,7 +1162,7 @@ mod tests {
     #[test]
     fn expanded_entry_draws_confirm_delete_overlay() {
         let mut app = app_with_entry();
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
         app.begin_confirm_delete();
 
         let text = render_text(app, 80, 20);
@@ -1178,7 +1178,7 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         let text = footer_text(&app);
 
@@ -1190,8 +1190,8 @@ mod tests {
     #[test]
     fn search_results_footer_shows_escape_and_entry_actions() {
         let mut app = app_with_entry();
-        app.mode = Mode::Search;
-        app.focus = Focus::Entries;
+        app.nav.mode = Mode::Search;
+        app.nav.focus = Focus::Entries;
         app.search.query = "body".to_string();
         app.search.hits = vec![SearchHit {
             id: app.library.entries[0].id.clone(),
@@ -1216,7 +1216,7 @@ mod tests {
     #[test]
     fn narrow_footer_wraps_actions_below_columns() {
         let mut app = app_with_entry();
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         let layout = tui_layout(Rect::new(0, 0, 60, 20), &app);
 
@@ -1228,7 +1228,7 @@ mod tests {
     #[test]
     fn wrapped_footer_hint_routing_uses_visible_row() {
         let mut app = app_with_entry();
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         assert_eq!(
             footer_hint_id_at_point(&app, 0, 18, 60, 0, 19),
@@ -1239,7 +1239,7 @@ mod tests {
     #[test]
     fn footer_hint_routing_uses_typed_ids() {
         let mut app = app_with_entry();
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
         let text = footer_text(&app);
 
         assert_eq!(
@@ -1255,7 +1255,7 @@ mod tests {
     #[test]
     fn expanded_footer_hint_routing_uses_typed_ids() {
         let mut app = app_with_entry();
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
         let text = expanded_footer_text(&app);
 
         assert_eq!(

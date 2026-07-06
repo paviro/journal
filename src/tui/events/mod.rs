@@ -53,8 +53,8 @@ pub(crate) fn dispatch_action(
 
         Action::ScrollEntryView(delta) => app.scroll_entry_view(delta),
         Action::PageEntryView(delta) => app.page_entry_view(delta),
-        Action::ScrollEntryViewToStart => app.scroll.entry_view = 0,
-        Action::ScrollEntryViewToEnd => app.scroll.entry_view = u16::MAX,
+        Action::ScrollEntryViewToStart => app.nav.scroll.entry_view = 0,
+        Action::ScrollEntryViewToEnd => app.nav.scroll.entry_view = u16::MAX,
 
         Action::BeginSearch => {
             app.begin_search();
@@ -93,7 +93,7 @@ pub(crate) fn dispatch_action(
                 let created_id = created.as_deref().and_then(journal_storage::entry_id);
                 if let Some(id) = created_id {
                     if app.select_entry_by_id(&id, true) {
-                        app.focus = Focus::EntryView;
+                        app.nav.focus = Focus::EntryView;
                     } else {
                         restore_entry_view_or_close(app, snapshot);
                     }
@@ -266,10 +266,10 @@ pub(crate) fn dispatch_action(
             app.config.show_journals = !app.config.show_journals;
             if app.config.show_journals {
                 // Focus the column so narrow/medium layouts actually reveal it.
-                app.focus = Focus::Journals;
-            } else if app.focus == Focus::Journals {
+                app.nav.focus = Focus::Journals;
+            } else if app.nav.focus == Focus::Journals {
                 // Don't leave focus on a now-hidden pane.
-                app.focus = Focus::Entries;
+                app.nav.focus = Focus::Entries;
             }
             crate::config::save_config(&app.config_path, &app.config)?;
         }
@@ -289,8 +289,8 @@ impl EntryViewSnapshot {
         let target = app.selected_entry_target()?;
         Some(Self {
             id: target.id,
-            focus: app.focus,
-            entry_view_scroll: app.scroll.entry_view,
+            focus: app.nav.focus,
+            entry_view_scroll: app.nav.scroll.entry_view,
         })
     }
 
@@ -298,8 +298,8 @@ impl EntryViewSnapshot {
         if !app.select_entry_by_id(&self.id, false) {
             return false;
         }
-        app.focus = self.focus;
-        app.scroll.entry_view = self.entry_view_scroll;
+        app.nav.focus = self.focus;
+        app.nav.scroll.entry_view = self.entry_view_scroll;
         true
     }
 }
@@ -310,8 +310,8 @@ fn restore_entry_view_or_close(app: &mut App, snapshot: Option<EntryViewSnapshot
     };
     let was_in_viewer = snapshot.focus == Focus::EntryView;
     if !snapshot.restore(app) && was_in_viewer {
-        app.focus = Focus::Entries;
-        app.scroll.reset_entry_view();
+        app.nav.focus = Focus::Entries;
+        app.nav.scroll.reset_entry_view();
     }
 }
 
@@ -326,12 +326,12 @@ fn confirm_delete(app: &mut App) -> AppResult<()> {
         delete_selected(app)?;
     }
     app.close_overlay();
-    app.focus = if is_journal {
+    app.nav.focus = if is_journal {
         Focus::Journals
     } else {
         Focus::Entries
     };
-    app.scroll.reset_entry_view();
+    app.nav.scroll.reset_entry_view();
     app.refresh()
 }
 
@@ -464,15 +464,15 @@ mod tests {
         let mut enter_app = new_app(config.clone());
         let mut right_app = new_app(config);
 
-        enter_app.focus = Focus::Journals;
-        right_app.focus = Focus::Journals;
+        enter_app.nav.focus = Focus::Journals;
+        right_app.nav.focus = Focus::Journals;
 
         // Enter and Right on Journals both resolve to move_focus_right
         move_focus_right(&mut enter_app, true);
         move_focus_right(&mut right_app, true);
 
-        assert_eq!(enter_app.focus, Focus::Entries);
-        assert_eq!(enter_app.focus, right_app.focus);
+        assert_eq!(enter_app.nav.focus, Focus::Entries);
+        assert_eq!(enter_app.nav.focus, right_app.nav.focus);
     }
 
     #[test]
@@ -484,12 +484,12 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         // Right on Entries when not entry_view_available → ViewSelected → view_selected
         view_selected(&mut app).unwrap();
 
-        assert_eq!(app.focus, Focus::EntryView);
+        assert_eq!(app.nav.focus, Focus::EntryView);
     }
 
     #[test]
@@ -505,7 +505,7 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         view_selected(&mut app).unwrap();
 
@@ -522,18 +522,18 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         // Right on Entries when entry_view_available → FocusRight → focus to EntryView
         move_focus_right(&mut app, true);
 
-        assert_eq!(app.focus, Focus::EntryView);
+        assert_eq!(app.nav.focus, Focus::EntryView);
     }
 
     #[test]
     fn typed_hint_ids_route_to_actions_without_string_parsing() {
         let mut app = app_with_entries(1);
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         assert_eq!(
             mouse::hint_id_to_action(&app, render::HintId::BeginEditTags),
@@ -598,9 +598,9 @@ mod tests {
     #[test]
     fn wide_journal_click_selects_journal_and_keeps_journal_focus() {
         let mut app = app_with_journals(&["alpha", "beta"]);
-        app.focus = Focus::Journals;
-        app.selected_entry_index = Some(3);
-        app.scroll.entry_view = 10;
+        app.nav.focus = Focus::Journals;
+        app.nav.selected_entry_index = Some(3);
+        app.nav.scroll.entry_view = 10;
         let layout = render::tui_layout(Rect::new(0, 0, 120, 20), &app);
         let journals = layout.journals.unwrap().content;
 
@@ -618,15 +618,15 @@ mod tests {
         );
 
         assert_eq!(app.selected_journal_index(), 1);
-        assert_eq!(app.selected_entry_index, Some(0));
-        assert_eq!(app.scroll.entry_view, 0);
-        assert_eq!(app.focus, Focus::Journals);
+        assert_eq!(app.nav.selected_entry_index, Some(0));
+        assert_eq!(app.nav.scroll.entry_view, 0);
+        assert_eq!(app.nav.focus, Focus::Journals);
     }
 
     #[test]
     fn compact_journal_click_moves_to_entries() {
         let mut app = app_with_journals(&["work"]);
-        app.focus = Focus::Journals;
+        app.nav.focus = Focus::Journals;
         let layout = render::tui_layout(Rect::new(0, 0, 57, 20), &app);
         let journals = layout.journals.unwrap().content;
 
@@ -642,13 +642,13 @@ mod tests {
         );
 
         assert_eq!(app.selected_journal_index(), 0);
-        assert_eq!(app.focus, Focus::Entries);
+        assert_eq!(app.nav.focus, Focus::Entries);
     }
 
     #[test]
     fn journal_panel_click_without_row_focuses_journals_without_changing_selection() {
         let mut app = app_with_journals(&["alpha"]);
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
         let layout = render::tui_layout(Rect::new(0, 0, 130, 20), &app);
         let journals = layout.journals.unwrap().content;
 
@@ -664,13 +664,13 @@ mod tests {
         );
 
         assert_eq!(app.selected_journal_index(), 0);
-        assert_eq!(app.focus, Focus::Journals);
+        assert_eq!(app.nav.focus, Focus::Journals);
     }
 
     #[test]
     fn wheel_over_journals_scrolls_without_changing_selection() {
         let mut app = app_with_journals(&["a", "b", "c", "d", "e", "f", "g"]);
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
         let layout = render::tui_layout(Rect::new(0, 0, 130, 8), &app);
         let journals = layout.journals.unwrap().content;
 
@@ -682,14 +682,14 @@ mod tests {
         );
 
         assert_eq!(app.selected_journal_index(), 0);
-        assert_eq!(app.journal_list.offset(), 1);
-        assert_eq!(app.focus, Focus::Entries);
+        assert_eq!(app.nav.journal_list.offset(), 1);
+        assert_eq!(app.nav.focus, Focus::Entries);
     }
 
     #[test]
     fn wheel_over_entries_scrolls_without_changing_selection() {
         let mut app = app_with_entries(8);
-        app.focus = Focus::Journals;
+        app.nav.focus = Focus::Journals;
         let layout = render::tui_layout(Rect::new(0, 0, 90, 8), &app);
         let entries = layout.entries.unwrap().panel.content;
 
@@ -700,15 +700,15 @@ mod tests {
             8,
         );
 
-        assert_eq!(app.selected_entry_index, Some(0));
-        assert_eq!(app.entry_list.offset(), 1);
-        assert_eq!(app.focus, Focus::Journals);
+        assert_eq!(app.nav.selected_entry_index, Some(0));
+        assert_eq!(app.nav.entry_list.offset(), 1);
+        assert_eq!(app.nav.focus, Focus::Journals);
     }
 
     #[test]
     fn entry_click_selects_row_without_opening_viewer_when_entry_view_is_visible() {
         let mut app = app_with_entries(2);
-        app.focus = Focus::Journals;
+        app.nav.focus = Focus::Journals;
         let layout = render::tui_layout(Rect::new(0, 0, 130, 12), &app);
         let geo = layout.entries.unwrap();
         let entries = geo.panel.content;
@@ -730,14 +730,14 @@ mod tests {
             12,
         );
 
-        assert_eq!(app.focus, Focus::Entries);
-        assert_eq!(app.selected_entry_index, Some(1));
+        assert_eq!(app.nav.focus, Focus::Entries);
+        assert_eq!(app.nav.selected_entry_index, Some(1));
     }
 
     #[test]
     fn entry_panel_month_divider_click_deselects_to_journal_stats() {
         let mut app = app_with_entries(1);
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
         let layout = render::tui_layout(Rect::new(0, 0, 120, 12), &app);
         let entries = layout.entries.unwrap().panel.content;
 
@@ -753,14 +753,14 @@ mod tests {
             12,
         );
 
-        assert_eq!(app.focus, Focus::Entries);
-        assert_eq!(app.selected_entry_index, None);
+        assert_eq!(app.nav.focus, Focus::Entries);
+        assert_eq!(app.nav.selected_entry_index, None);
     }
 
     #[test]
     fn entry_panel_empty_space_click_deselects_to_journal_stats() {
         let mut app = app_with_entries(1);
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
         let layout = render::tui_layout(Rect::new(0, 0, 130, 20), &app);
         let geo = layout.entries.unwrap();
         let entries = geo.panel.content;
@@ -779,14 +779,14 @@ mod tests {
             20,
         );
 
-        assert_eq!(app.focus, Focus::Entries);
-        assert_eq!(app.selected_entry_index, None);
+        assert_eq!(app.nav.focus, Focus::Entries);
+        assert_eq!(app.nav.selected_entry_index, None);
     }
 
     #[test]
     fn wheel_over_entry_view_scrolls_entry_view_only() {
         let mut app = app_with_entries(6);
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
         let layout = render::tui_layout(Rect::new(0, 0, 120, 20), &app);
         let entry_view = layout.entry_view.unwrap().content;
 
@@ -797,10 +797,10 @@ mod tests {
             20,
         );
 
-        assert_eq!(app.scroll.entry_view, 1);
-        assert_eq!(app.entry_list.offset(), 0);
-        assert_eq!(app.selected_entry_index, Some(0));
-        assert_eq!(app.focus, Focus::EntryView);
+        assert_eq!(app.nav.scroll.entry_view, 1);
+        assert_eq!(app.nav.entry_list.offset(), 0);
+        assert_eq!(app.nav.selected_entry_index, Some(0));
+        assert_eq!(app.nav.focus, Focus::EntryView);
     }
 
     #[test]
@@ -809,7 +809,7 @@ mod tests {
         view_selected(&mut app).unwrap();
 
         mouse_in_area(&mut app, mouse(MouseEventKind::ScrollDown, 1, 1), 80, 20);
-        assert_eq!(app.scroll.entry_view, 1);
+        assert_eq!(app.nav.scroll.entry_view, 1);
 
         mouse_in_area(
             &mut app,
@@ -817,14 +817,14 @@ mod tests {
             80,
             20,
         );
-        assert_eq!(app.focus, Focus::EntryView);
+        assert_eq!(app.nav.focus, Focus::EntryView);
     }
 
     #[test]
     fn metadata_refresh_restores_expanded_entry_view_and_scroll() {
         let mut app = app_with_entries(1);
         view_selected(&mut app).unwrap();
-        app.scroll.entry_view = 7;
+        app.nav.scroll.entry_view = 7;
 
         let snapshot = EntryViewSnapshot::capture(&app);
         app.begin_edit_tags();
@@ -837,8 +837,8 @@ mod tests {
         restore_entry_view_or_close(&mut app, snapshot);
         app.close_overlay();
 
-        assert_eq!(app.focus, Focus::EntryView);
-        assert_eq!(app.scroll.entry_view, 7);
+        assert_eq!(app.nav.focus, Focus::EntryView);
+        assert_eq!(app.nav.scroll.entry_view, 7);
         assert_eq!(app.selected_entry_tags(), vec!["work".to_string()]);
         assert!(!app.has_overlay());
     }
@@ -847,15 +847,15 @@ mod tests {
     fn confirmed_delete_from_expanded_entry_closes_viewer() {
         let mut app = app_with_entries(1);
         view_selected(&mut app).unwrap();
-        app.scroll.entry_view = 5;
+        app.nav.scroll.entry_view = 5;
         app.begin_confirm_delete();
 
-        assert_eq!(app.focus, Focus::EntryView);
+        assert_eq!(app.nav.focus, Focus::EntryView);
 
         confirm_delete(&mut app).unwrap();
 
-        assert_eq!(app.focus, Focus::Entries);
-        assert_eq!(app.scroll.entry_view, 0);
+        assert_eq!(app.nav.focus, Focus::Entries);
+        assert_eq!(app.nav.scroll.entry_view, 0);
         assert_eq!(app.current_entry_list_len(), 0);
         assert!(!app.has_overlay());
     }
@@ -864,13 +864,13 @@ mod tests {
     fn search_from_entry_view_resets_focus_and_scroll() {
         let mut app = app_with_entries(1);
         view_selected(&mut app).unwrap();
-        app.scroll.entry_view = 5;
+        app.nav.scroll.entry_view = 5;
 
         app.begin_search();
 
-        assert_eq!(app.focus, Focus::Entries);
-        assert_eq!(app.mode, crate::tui::app::Mode::Search);
-        assert_eq!(app.scroll.entry_view, 0);
+        assert_eq!(app.nav.focus, Focus::Entries);
+        assert_eq!(app.nav.mode, crate::tui::app::Mode::Search);
+        assert_eq!(app.nav.scroll.entry_view, 0);
     }
 
     #[test]
@@ -889,7 +889,7 @@ mod tests {
         let mut app = new_app(config);
         app.select_journal_by_name("work");
         view_selected(&mut app).unwrap();
-        app.scroll.entry_view = 9;
+        app.nav.scroll.entry_view = 9;
 
         let store = JournalStore::for_config(&root.join("config.toml"), &root).unwrap();
         let created = store
@@ -902,10 +902,10 @@ mod tests {
         app.refresh().unwrap();
         let created_id = journal_storage::entry_id(&created).unwrap();
         assert!(app.select_entry_by_id(&created_id, true));
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
 
-        assert_eq!(app.focus, Focus::EntryView);
-        assert_eq!(app.scroll.entry_view, 0);
+        assert_eq!(app.nav.focus, Focus::EntryView);
+        assert_eq!(app.nav.scroll.entry_view, 0);
         assert_eq!(app.selected_entry_target().unwrap().path, created);
     }
 
@@ -1107,13 +1107,13 @@ mod tests {
 
         // The down arrow steps one line down; no drag begins.
         mouse_in_area(&mut app, mouse(down(), bar.x, down_arrow), 120, 20);
-        assert_eq!(app.entry_list.offset(), 1);
+        assert_eq!(app.nav.entry_list.offset(), 1);
         assert!(app.scrollbar.active.is_none());
-        assert_eq!(app.focus, Focus::Entries);
+        assert_eq!(app.nav.focus, Focus::Entries);
 
         // The up arrow steps back.
         mouse_in_area(&mut app, mouse(down(), bar.x, up_arrow), 120, 20);
-        assert_eq!(app.entry_list.offset(), 0);
+        assert_eq!(app.nav.entry_list.offset(), 0);
         assert!(app.scrollbar.active.is_none());
         assert!(max > 1);
     }
@@ -1128,8 +1128,8 @@ mod tests {
             max,
             ..
         } = entry_bar_fixture();
-        *app.entry_list.offset_mut() = max / 2;
-        let before = app.entry_list.offset();
+        *app.nav.entry_list.offset_mut() = max / 2;
+        let before = app.nav.entry_list.offset();
 
         let position = scroll::scrollbar_position(before, total, viewport);
         let (thumb_top, thumb_len) =
@@ -1142,7 +1142,7 @@ mod tests {
             120,
             20,
         );
-        assert_eq!(app.entry_list.offset(), before);
+        assert_eq!(app.nav.entry_list.offset(), before);
         assert_eq!(app.scrollbar.active, Some(ScrollbarDrag::EntryList));
     }
 
@@ -1162,14 +1162,14 @@ mod tests {
         mouse_in_area(&mut app, mouse(down(), bar.x, bottom_track), 120, 20);
         assert_eq!(app.scrollbar.active, Some(ScrollbarDrag::EntryList));
         assert!(
-            app.entry_list.offset() > max / 2,
+            app.nav.entry_list.offset() > max / 2,
             "expected a large jump, got {}",
-            app.entry_list.offset()
+            app.nav.entry_list.offset()
         );
 
         // Drag to the top, cursor drifted off the bar column → scroll to 0.
         mouse_in_area(&mut app, mouse(drag(), 0, top_track), 120, 20);
-        assert_eq!(app.entry_list.offset(), 0);
+        assert_eq!(app.nav.entry_list.offset(), 0);
 
         // Release clears the drag.
         mouse_in_area(&mut app, mouse(up(), 0, top_track), 120, 20);
@@ -1206,6 +1206,6 @@ mod tests {
             20,
         );
         assert_eq!(app.scrollbar.active, Some(ScrollbarDrag::Journals));
-        assert!(app.journal_list.offset() > 0);
+        assert!(app.nav.journal_list.offset() > 0);
     }
 }

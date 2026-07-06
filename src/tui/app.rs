@@ -261,11 +261,11 @@ impl Library {
     }
 }
 
-pub(crate) struct App {
-    pub(crate) config_path: PathBuf,
-    pub(crate) config: Config,
-    pub(crate) store: JournalStore,
-    pub(crate) library: Library,
+/// Where the reader is in the loaded [`Library`]: the two list selections, the
+/// preview scroll, which pane has keyboard focus, and Browse-vs-Search mode.
+/// Transient UI position (not content) — it survives a store reload, unlike the
+/// data in `Library`.
+pub(crate) struct Nav {
     pub(crate) journal_list: ListState,
     /// The selected entry (or search hit) index, or `None` when no entry is
     /// selected. In Browse mode `None` shows the journal stats in the preview
@@ -276,6 +276,27 @@ pub(crate) struct App {
     pub(crate) scroll: ScrollState,
     pub(crate) focus: Focus,
     pub(crate) mode: Mode,
+}
+
+impl Default for Nav {
+    fn default() -> Self {
+        Self {
+            journal_list: ListState::default(),
+            selected_entry_index: None,
+            entry_list: ListState::default(),
+            scroll: ScrollState::default(),
+            focus: Focus::Journals,
+            mode: Mode::Browse,
+        }
+    }
+}
+
+pub(crate) struct App {
+    pub(crate) config_path: PathBuf,
+    pub(crate) config: Config,
+    pub(crate) store: JournalStore,
+    pub(crate) library: Library,
+    pub(crate) nav: Nav,
     pub(crate) search: SearchState,
     pub(crate) overlay: Overlay,
     pub(crate) status_bar: StatusBar,
@@ -337,12 +358,7 @@ impl App {
             config,
             store,
             library: Library::default(),
-            journal_list: ListState::default(),
-            selected_entry_index: None,
-            entry_list: ListState::default(),
-            scroll: ScrollState::default(),
-            focus: Focus::Journals,
-            mode: Mode::Browse,
+            nav: Nav::default(),
             search: SearchState::default(),
             overlay: Overlay::None,
             status_bar: StatusBar::default(),
@@ -361,12 +377,12 @@ impl App {
                 .iter()
                 .position(|journal| journal.name == name)
         {
-            app.journal_list.select(Some(index));
-            *app.journal_list.offset_mut() = index;
+            app.nav.journal_list.select(Some(index));
+            *app.nav.journal_list.offset_mut() = index;
         }
         // Don't start focused on the journal list if it's been hidden.
         if !app.config.show_journals {
-            app.focus = Focus::Entries;
+            app.nav.focus = Focus::Entries;
         }
         Ok(app)
     }
@@ -385,7 +401,7 @@ impl App {
     fn load_entries(&mut self, entry_paths: Vec<EntryPath>) -> AppResult<()> {
         self.library.journals = self.store.list_journals()?;
         self.library.entries = self.store.read_entries(entry_paths)?;
-        normalize_list_state(&mut self.journal_list, self.library.journals.len());
+        normalize_list_state(&mut self.nav.journal_list, self.library.journals.len());
         self.after_entries_changed();
         Ok(())
     }
@@ -403,12 +419,13 @@ impl App {
         if !self.search.query.is_empty() {
             self.search.hits = self.search_results();
         }
-        let previous_entry_index = self.selected_entry_index;
+        let previous_entry_index = self.nav.selected_entry_index;
         let len = self.current_entry_list_len();
-        self.selected_entry_index = self
+        self.nav.selected_entry_index = self
+            .nav
             .selected_entry_index
             .and_then(|index| (len > 0).then(|| index.min(len - 1)));
-        if self.selected_entry_index != previous_entry_index {
+        if self.nav.selected_entry_index != previous_entry_index {
             self.reset_entry_scroll();
         }
     }
@@ -483,7 +500,7 @@ impl App {
     }
 
     pub(crate) fn selected_journal_index(&self) -> usize {
-        self.journal_list.selected().unwrap_or(0)
+        self.nav.journal_list.selected().unwrap_or(0)
     }
 
     pub(crate) fn selected_journal(&self) -> Option<&Journal> {
@@ -493,17 +510,17 @@ impl App {
     /// The preview pane shows journal stats (instead of an entry) when browsing
     /// with no entry selected.
     pub(crate) fn show_journal_stats_preview(&self) -> bool {
-        self.mode == Mode::Browse && self.selected_entry_index.is_none()
+        self.nav.mode == Mode::Browse && self.nav.selected_entry_index.is_none()
     }
 
     /// Whether the entries list should draw a highlighted selection row.
     pub(crate) fn entries_highlighted(&self) -> bool {
-        self.focus != Focus::Journals && self.selected_entry_index.is_some()
+        self.nav.focus != Focus::Journals && self.nav.selected_entry_index.is_some()
     }
 
     pub(crate) fn journal_list_ensure_visible(&mut self, viewport_height: u16) {
         ensure_selected_visible(
-            &mut self.journal_list,
+            &mut self.nav.journal_list,
             self.library.journals.len(),
             viewport_height,
         );
@@ -511,7 +528,7 @@ impl App {
 
     pub(crate) fn journal_list_scroll(&mut self, delta: i16, viewport_height: u16) {
         scroll_list_offset(
-            &mut self.journal_list,
+            &mut self.nav.journal_list,
             delta,
             self.library.journals.len(),
             viewport_height,
@@ -519,8 +536,8 @@ impl App {
     }
 
     fn reset_entry_scroll(&mut self) {
-        *self.entry_list.offset_mut() = 0;
-        self.scroll.reset_entry_view();
+        *self.nav.entry_list.offset_mut() = 0;
+        self.nav.scroll.reset_entry_view();
     }
 
     pub(crate) fn entry_list_scroll(
@@ -531,13 +548,14 @@ impl App {
     ) {
         let max = total_height.saturating_sub(viewport_height as usize);
         let offset = if delta < 0 {
-            self.entry_list
+            self.nav
+                .entry_list
                 .offset()
                 .saturating_sub(delta.unsigned_abs() as usize)
         } else {
-            self.entry_list.offset().saturating_add(delta as usize)
+            self.nav.entry_list.offset().saturating_add(delta as usize)
         };
-        *self.entry_list.offset_mut() = offset.min(max);
+        *self.nav.entry_list.offset_mut() = offset.min(max);
     }
 
     pub(crate) fn entry_list_ensure_visible(
@@ -545,14 +563,14 @@ impl App {
         rows: &[EntryRowMeta],
         viewport_height: u16,
     ) {
-        let mut scroll = self.entry_list.offset();
+        let mut scroll = self.nav.entry_list.offset();
         crate::tui::entry_rows::ensure_entry_visible(
             &mut scroll,
             rows,
-            self.selected_entry_index,
+            self.nav.selected_entry_index,
             viewport_height,
         );
-        *self.entry_list.offset_mut() = scroll;
+        *self.nav.entry_list.offset_mut() = scroll;
     }
 
     /// Contiguous index range into `entries` for the selected journal, or `None`
@@ -570,7 +588,7 @@ impl App {
     }
 
     pub(crate) fn current_entry_list_len(&self) -> usize {
-        match self.mode {
+        match self.nav.mode {
             Mode::Search => self.search.hits.len(),
             Mode::Browse => self.selected_entry_range().map_or(0, |range| range.len()),
         }
@@ -579,7 +597,7 @@ impl App {
     /// The entry backing the current selection, resolving a search hit through
     /// the id index. Unifies the Search/Browse branches the preview getters share.
     fn resolved_selected_entry(&self) -> Option<&Entry> {
-        match self.mode {
+        match self.nav.mode {
             Mode::Search => self.library.entry_by_id(&self.selected_search_hit()?.id),
             Mode::Browse => self.selected_entry(),
         }
@@ -591,7 +609,7 @@ impl App {
     pub(crate) fn entry_rows(&self, text_width: u16) -> Rc<EntryRowCache> {
         let key = EntryRowKey {
             version: self.caches.rows_version,
-            mode: self.mode.clone(),
+            mode: self.nav.mode.clone(),
             journal: self.selected_journal().map(|journal| journal.name.clone()),
             text_width,
         };
@@ -636,41 +654,41 @@ impl App {
     }
 
     pub(crate) fn move_selection(&mut self, delta: isize) {
-        let len = match self.focus {
-            Focus::Journals if self.mode == Mode::Browse => self.library.journals.len(),
+        let len = match self.nav.focus {
+            Focus::Journals if self.nav.mode == Mode::Browse => self.library.journals.len(),
             Focus::Entries | Focus::EntryView | Focus::Journals => self.current_entry_list_len(),
         };
         if len == 0 {
             return;
         }
 
-        let previous_entry_index = self.selected_entry_index;
-        if self.focus == Focus::Journals && self.mode == Mode::Browse {
-            move_list_selection(&mut self.journal_list, len, delta);
-            self.selected_entry_index = Some(0);
-            *self.entry_list.offset_mut() = 0;
+        let previous_entry_index = self.nav.selected_entry_index;
+        if self.nav.focus == Focus::Journals && self.nav.mode == Mode::Browse {
+            move_list_selection(&mut self.nav.journal_list, len, delta);
+            self.nav.selected_entry_index = Some(0);
+            *self.nav.entry_list.offset_mut() = 0;
         } else {
-            match self.selected_entry_index {
+            match self.nav.selected_entry_index {
                 // Deselected (Browse shows journal stats): a downward move selects
                 // the first entry; an upward move stays on the stats view.
-                None if self.mode == Mode::Browse => {
+                None if self.nav.mode == Mode::Browse => {
                     if delta > 0 {
-                        self.selected_entry_index = Some(0);
+                        self.nav.selected_entry_index = Some(0);
                     }
                 }
                 // Scrolling up past the first entry deselects, revealing journal stats.
-                Some(0) if self.mode == Mode::Browse && delta < 0 => {
-                    self.selected_entry_index = None;
+                Some(0) if self.nav.mode == Mode::Browse && delta < 0 => {
+                    self.nav.selected_entry_index = None;
                 }
                 current => {
                     let base = current.unwrap_or(0) as isize;
                     let next = (base + delta).clamp(0, len as isize - 1) as usize;
-                    self.selected_entry_index = Some(next);
+                    self.nav.selected_entry_index = Some(next);
                 }
             }
         }
-        if self.selected_entry_index != previous_entry_index {
-            self.scroll.entry_view = 0;
+        if self.nav.selected_entry_index != previous_entry_index {
+            self.nav.scroll.entry_view = 0;
         }
     }
 
@@ -680,8 +698,8 @@ impl App {
         }
 
         if self.selected_journal_index() != index {
-            self.journal_list.select(Some(index));
-            self.selected_entry_index = Some(0);
+            self.nav.journal_list.select(Some(index));
+            self.nav.selected_entry_index = Some(0);
             self.reset_entry_scroll();
         }
     }
@@ -691,14 +709,14 @@ impl App {
             return;
         }
 
-        if self.selected_entry_index != Some(index) {
-            self.selected_entry_index = Some(index);
-            self.scroll.entry_view = 0;
+        if self.nav.selected_entry_index != Some(index) {
+            self.nav.selected_entry_index = Some(index);
+            self.nav.scroll.entry_view = 0;
         }
     }
 
     pub(crate) fn select_entry_by_id(&mut self, id: &str, reset_entry_scroll: bool) -> bool {
-        let index = match self.mode {
+        let index = match self.nav.mode {
             Mode::Search => self.search.hits.iter().position(|hit| hit.id == id),
             Mode::Browse => self.journal_name_for_entry_id(id).and_then(|journal_name| {
                 self.library
@@ -710,11 +728,11 @@ impl App {
         };
         let Some(index) = index else { return false };
 
-        if self.selected_entry_index != Some(index) {
-            self.selected_entry_index = Some(index);
+        if self.nav.selected_entry_index != Some(index) {
+            self.nav.selected_entry_index = Some(index);
         }
         if reset_entry_scroll {
-            self.scroll.entry_view = 0;
+            self.nav.scroll.entry_view = 0;
         }
         true
     }
@@ -732,26 +750,26 @@ impl App {
             .iter()
             .position(|journal| journal.name == journal_name)?;
         if self.selected_journal_index() != journal_index {
-            self.journal_list.select(Some(journal_index));
-            *self.entry_list.offset_mut() = 0;
+            self.nav.journal_list.select(Some(journal_index));
+            *self.nav.entry_list.offset_mut() = 0;
         }
         Some(journal_name)
     }
 
     fn selected_entry(&self) -> Option<&Entry> {
-        let index = self.selected_entry_index?;
+        let index = self.nav.selected_entry_index?;
         let range = self.selected_entry_range()?;
         (index < range.len()).then(|| &self.library.entries[range.start + index])
     }
 
     pub(crate) fn selected_search_hit(&self) -> Option<&SearchHit> {
-        self.search.hits.get(self.selected_entry_index?)
+        self.search.hits.get(self.nav.selected_entry_index?)
     }
 
     pub(crate) fn selected_entry_target(&self) -> Option<EntryTarget> {
         // In Search mode the title comes from the hit (journal-prefixed label),
         // otherwise from the entry itself; the rest is shared.
-        let title = match self.mode {
+        let title = match self.nav.mode {
             Mode::Search => self.search_hit_label(self.selected_search_hit()?),
             Mode::Browse => self.selected_entry()?.display_label(),
         };
@@ -793,7 +811,8 @@ impl App {
     }
 
     pub(crate) fn can_act_on_selected_entry(&self) -> bool {
-        matches!(self.focus, Focus::Entries | Focus::EntryView) && self.has_selected_entry_target()
+        matches!(self.nav.focus, Focus::Entries | Focus::EntryView)
+            && self.has_selected_entry_target()
     }
 
     pub(crate) fn selected_entry_view(&self) -> Option<(String, String)> {
@@ -880,7 +899,7 @@ impl App {
     }
 
     pub(crate) fn begin_confirm_delete(&mut self) {
-        match self.focus {
+        match self.nav.focus {
             Focus::Journals => self.begin_confirm_delete_journal(),
             Focus::Entries | Focus::EntryView => self.begin_confirm_delete_entry(),
         }
@@ -939,7 +958,7 @@ impl App {
         let open_entry = self
             .selected_entry_target()
             .map(|target| target.path)
-            .filter(|_| self.focus == Focus::EntryView);
+            .filter(|_| self.nav.focus == Focus::EntryView);
 
         // Drop the cache when the entry that warmed it is no longer open (closed
         // or switched to another entry) or the viewer's target size changed.
@@ -1012,7 +1031,7 @@ impl App {
         if assets.is_empty() {
             return;
         }
-        self.focus = Focus::EntryView;
+        self.nav.focus = Focus::EntryView;
         let index = index.min(assets.len() - 1);
         self.overlay = Overlay::ImageViewer(ImageViewerState { assets, index });
     }
@@ -1063,11 +1082,11 @@ impl App {
             .iter()
             .position(|journal| journal.name == name)
         {
-            self.journal_list.select(Some(index));
-            *self.journal_list.offset_mut() = index;
-            self.selected_entry_index = Some(0);
+            self.nav.journal_list.select(Some(index));
+            *self.nav.journal_list.offset_mut() = index;
+            self.nav.selected_entry_index = Some(0);
             self.reset_entry_scroll();
-            self.focus = Focus::Entries;
+            self.nav.focus = Focus::Entries;
         }
     }
 
@@ -1160,7 +1179,7 @@ impl App {
     }
 
     pub(crate) fn begin_search(&mut self) {
-        let scope = if self.focus == Focus::Journals {
+        let scope = if self.nav.focus == Focus::Journals {
             SearchScope::AllJournals
         } else {
             self.current_journal_scope()
@@ -1172,8 +1191,8 @@ impl App {
     /// and selecting the first hit.
     fn enter_search(&mut self, scope: SearchScope, query: String, hits: Vec<SearchHit>) {
         self.search.scope = scope;
-        self.mode = Mode::Search;
-        self.focus = Focus::Entries;
+        self.nav.mode = Mode::Search;
+        self.nav.focus = Focus::Entries;
         self.search.cursor = query.chars().count();
         self.search.query = query;
         self.search.hits = hits;
@@ -1181,7 +1200,7 @@ impl App {
     }
 
     pub(crate) fn exit_search(&mut self) {
-        self.mode = Mode::Browse;
+        self.nav.mode = Mode::Browse;
         self.search.scope = SearchScope::AllJournals;
         self.search.query.clear();
         self.search.cursor = 0;
@@ -1208,7 +1227,7 @@ impl App {
         self.search.dirty = false;
         self.search.last_edit = None;
         self.caches.bump_rows();
-        self.selected_entry_index = Some(0);
+        self.nav.selected_entry_index = Some(0);
         self.reset_entry_scroll();
     }
 
@@ -1222,7 +1241,7 @@ impl App {
 
     /// The search caret is active (blinking) only while typing in the field.
     pub(crate) fn is_search_input_active(&self) -> bool {
-        self.mode == Mode::Search && self.focus == Focus::Entries
+        self.nav.mode == Mode::Search && self.nav.focus == Focus::Entries
     }
 
     /// Byte offset in `query` for the current caret char index, clamped to the end.
@@ -1335,9 +1354,13 @@ impl App {
 
     pub(crate) fn scroll_entry_view(&mut self, delta: i16) {
         if delta.is_negative() {
-            self.scroll.entry_view = self.scroll.entry_view.saturating_sub(delta.unsigned_abs());
+            self.nav.scroll.entry_view = self
+                .nav
+                .scroll
+                .entry_view
+                .saturating_sub(delta.unsigned_abs());
         } else {
-            self.scroll.entry_view = self.scroll.entry_view.saturating_add(delta as u16);
+            self.nav.scroll.entry_view = self.nav.scroll.entry_view.saturating_add(delta as u16);
         }
     }
 
@@ -1427,12 +1450,12 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        app.focus = Focus::Entries;
-        app.scroll.entry_view = 20;
+        app.nav.focus = Focus::Entries;
+        app.nav.scroll.entry_view = 20;
 
         app.move_selection(1);
 
-        assert_eq!(app.scroll.entry_view, 0);
+        assert_eq!(app.nav.scroll.entry_view, 0);
     }
 
     #[test]
@@ -1446,18 +1469,18 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        assert_eq!(app.selected_entry_index, Some(0));
+        assert_eq!(app.nav.selected_entry_index, Some(0));
 
         // Up from the first entry deselects, revealing the journal stats preview.
         app.move_selection(-1);
-        assert_eq!(app.selected_entry_index, None);
+        assert_eq!(app.nav.selected_entry_index, None);
         assert!(app.show_journal_stats_preview());
         assert!(!app.entries_highlighted());
         assert!(app.selected_entry_target().is_none());
 
         // Down reselects the first entry.
         app.move_selection(1);
-        assert_eq!(app.selected_entry_index, Some(0));
+        assert_eq!(app.nav.selected_entry_index, Some(0));
         assert!(!app.show_journal_stats_preview());
     }
 
@@ -1472,8 +1495,8 @@ mod tests {
         config.show_journals = false;
         let app = new_app(config);
 
-        assert_eq!(app.focus, Focus::Entries);
-        assert_eq!(app.selected_entry_index, None);
+        assert_eq!(app.nav.focus, Focus::Entries);
+        assert_eq!(app.nav.selected_entry_index, None);
         assert!(app.show_journal_stats_preview());
     }
 
@@ -1533,10 +1556,10 @@ mod tests {
         let mut app = new_app(config);
         app.select_journal_by_name("work");
 
-        app.focus = Focus::Journals;
+        app.nav.focus = Focus::Journals;
         assert!(!app.can_act_on_selected_entry());
 
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
         assert!(app.can_act_on_selected_entry());
     }
 
@@ -1560,7 +1583,7 @@ mod tests {
     fn search_from_journal_focus_is_global() {
         let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
         let mut app = new_app(config);
-        app.focus = Focus::Journals;
+        app.nav.focus = Focus::Journals;
 
         app.begin_search();
 
@@ -1574,7 +1597,7 @@ mod tests {
         let config = Config::new(dir.path().to_path_buf(), "true");
         let mut app = new_app(config);
         app.select_journal_by_name("work");
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
 
         app.begin_search();
 

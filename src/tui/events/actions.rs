@@ -147,7 +147,7 @@ pub(super) fn view_selected(app: &mut App) -> AppResult<()> {
     if !reject_if_locked(app, &target) {
         return Ok(());
     }
-    app.focus = Focus::EntryView;
+    app.nav.focus = Focus::EntryView;
     Ok(())
 }
 

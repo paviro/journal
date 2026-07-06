@@ -58,11 +58,11 @@ pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &
                     mood,
                 },
             },
-            app.scroll.entry_view,
-            app.focus == Focus::EntryView,
+            app.nav.scroll.entry_view,
+            app.nav.focus == Focus::EntryView,
             entry_path.as_deref(),
         );
-        app.scroll.entry_view = scroll;
+        app.nav.scroll.entry_view = scroll;
         app.entry_view_image_hits = EntryViewImageHits {
             content_rect,
             scroll,
@@ -70,7 +70,7 @@ pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &
             labels,
         };
     } else {
-        let block = panel_block("Entry", app.focus == Focus::EntryView, None);
+        let block = panel_block("Entry", app.nav.focus == Focus::EntryView, None);
         let content = PanelGeometry::new(area).content;
         frame.render_widget(block, area);
         render_centered_notice(frame, content, "No entry selected");

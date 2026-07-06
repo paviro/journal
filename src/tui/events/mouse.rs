@@ -108,7 +108,7 @@ fn pane_target(
                 area.area,
                 hits.line_count,
                 hits.content_rect.height,
-                app.scroll.entry_view as usize,
+                app.nav.scroll.entry_view as usize,
             )
         }
         ScrollbarDrag::EntryList => {
@@ -118,11 +118,11 @@ fn pane_target(
                 area.panel.area,
                 cache.total_height,
                 area.viewport_height,
-                app.entry_list.offset(),
+                app.nav.entry_list.offset(),
             )
         }
         ScrollbarDrag::Journals => {
-            if app.mode != Mode::Browse {
+            if app.nav.mode != Mode::Browse {
                 return None;
             }
             let area = layout.journals?;
@@ -132,7 +132,7 @@ fn pane_target(
                 area.area,
                 app.library.journals.len(),
                 per_page,
-                app.journal_list.offset(),
+                app.nav.journal_list.offset(),
             )
         }
     };
@@ -185,16 +185,16 @@ fn cursor_on_bar(target: &ScrollbarTarget, column: u16, row: u16) -> bool {
 fn set_pane_scroll(app: &mut App, which: ScrollbarDrag, offset: usize) {
     match which {
         ScrollbarDrag::Journals => {
-            *app.journal_list.offset_mut() = offset;
-            app.focus = Focus::Journals;
+            *app.nav.journal_list.offset_mut() = offset;
+            app.nav.focus = Focus::Journals;
         }
         ScrollbarDrag::EntryList => {
-            *app.entry_list.offset_mut() = offset;
-            app.focus = Focus::Entries;
+            *app.nav.entry_list.offset_mut() = offset;
+            app.nav.focus = Focus::Entries;
         }
         ScrollbarDrag::EntryView => {
-            app.scroll.entry_view = offset.min(u16::MAX as usize) as u16;
-            app.focus = Focus::EntryView;
+            app.nav.scroll.entry_view = offset.min(u16::MAX as usize) as u16;
+            app.nav.focus = Focus::EntryView;
         }
     }
 }
@@ -204,15 +204,15 @@ fn step_pane_scroll(app: &mut App, target: &ScrollbarTarget, delta: i16) {
     match target.which {
         ScrollbarDrag::Journals => {
             app.journal_list_scroll(delta, target.viewport);
-            app.focus = Focus::Journals;
+            app.nav.focus = Focus::Journals;
         }
         ScrollbarDrag::EntryList => {
             app.entry_list_scroll(delta, target.content_length, target.viewport);
-            app.focus = Focus::Entries;
+            app.nav.focus = Focus::Entries;
         }
         ScrollbarDrag::EntryView => {
             app.scroll_entry_view(delta);
-            app.focus = Focus::EntryView;
+            app.nav.focus = Focus::EntryView;
         }
     }
 }
@@ -279,11 +279,11 @@ fn handle_scrollbar_drag(app: &mut App, mouse: MouseEvent, layout: &render::TuiL
 }
 
 fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout) -> AppResult<()> {
-    if app.mode == Mode::Browse
+    if app.nav.mode == Mode::Browse
         && let Some(area) = layout.journals
         && render::point_in_rect(area.area, mouse.column, mouse.row)
     {
-        app.focus = if layout.single_panel {
+        app.nav.focus = if layout.single_panel {
             Focus::Entries
         } else {
             Focus::Journals
@@ -291,7 +291,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
         if let Some(index) = journal_box_at(
             area.content,
             mouse.row,
-            app.journal_list.offset(),
+            app.nav.journal_list.offset(),
             app.library.journals.len(),
         ) {
             app.select_journal(index);
@@ -302,22 +302,22 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
     if let Some(area) = layout.entries
         && render::point_in_rect(area.panel.area, mouse.column, mouse.row)
     {
-        app.focus = Focus::Entries;
+        app.nav.focus = Focus::Entries;
         let cache = app.entry_rows(area.text_width);
         if let Some(index) = render::entry_index_at(
             area,
             mouse.column,
             mouse.row,
-            app.entry_list.offset(),
+            app.nav.entry_list.offset(),
             &cache.meta,
         ) {
             app.select_entry_index(index);
             if !inline_entry_view_is_visible(layout.content.width) {
                 view_selected(app)?;
             }
-        } else if app.mode == Mode::Browse {
+        } else if app.nav.mode == Mode::Browse {
             // Clicking empty space in the list deselects, revealing journal stats.
-            app.selected_entry_index = None;
+            app.nav.selected_entry_index = None;
         }
         return Ok(());
     }
@@ -359,7 +359,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             app.begin_tag_search(&tag);
             return Ok(());
         }
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
     }
 
     Ok(())
@@ -369,7 +369,7 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
     if let Some(area) = layout.entry_view
         && render::point_in_rect(area.area, mouse.column, mouse.row)
     {
-        app.focus = Focus::EntryView;
+        app.nav.focus = Focus::EntryView;
         app.scroll_entry_view(delta);
         return;
     }
@@ -382,7 +382,7 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
         return;
     }
 
-    if app.mode == Mode::Browse
+    if app.nav.mode == Mode::Browse
         && let Some(area) = layout.journals
         && render::point_in_rect(area.area, mouse.column, mouse.row)
     {
@@ -396,7 +396,7 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
 // ── Footer click ──────────────────────────────────────────────────────────────
 
 fn footer_click_to_action(app: &App, mouse: MouseEvent, footer: Rect) -> Option<Action> {
-    let hint_id = if single_panel_is_active(footer.width) && app.focus == Focus::EntryView {
+    let hint_id = if single_panel_is_active(footer.width) && app.nav.focus == Focus::EntryView {
         render::expanded_footer_hint_id_at_point(
             app,
             footer.x,
@@ -420,7 +420,7 @@ fn footer_click_to_action(app: &App, mouse: MouseEvent, footer: Rect) -> Option<
 }
 
 fn footer_area(app: &App, area: Rect) -> Rect {
-    if single_panel_is_active(area.width) && app.focus == Focus::EntryView {
+    if single_panel_is_active(area.width) && app.nav.focus == Focus::EntryView {
         let height = render::expanded_footer_height(app, area.width).min(area.height);
         return Rect {
             x: area.x,

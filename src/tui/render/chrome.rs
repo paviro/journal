@@ -168,7 +168,7 @@ pub(crate) fn footer_text(app: &App) -> String {
         return app.status().to_string();
     }
 
-    match app.mode {
+    match app.nav.mode {
         Mode::Search => search_footer_line(app).text(),
         Mode::Browse => browse_footer_line(app).text(),
     }
@@ -182,7 +182,7 @@ pub(crate) fn footer_lines(app: &App, width: u16) -> Text<'static> {
         return Text::default();
     }
 
-    let lines = match app.mode {
+    let lines = match app.nav.mode {
         Mode::Search => search_footer_line(app).lines(width),
         Mode::Browse => browse_footer_line(app).lines(width),
     };
@@ -197,7 +197,7 @@ pub(crate) fn footer_height(app: &App, width: u16) -> u16 {
         return 0;
     }
 
-    match app.mode {
+    match app.nav.mode {
         Mode::Search => search_footer_line(app).height(width),
         Mode::Browse => browse_footer_line(app).height(width),
     }
@@ -209,7 +209,7 @@ pub(crate) fn footer_hint_id_at(app: &App, origin_x: u16, col: u16) -> Option<Hi
         return None;
     }
 
-    match app.mode {
+    match app.nav.mode {
         Mode::Search => search_footer_line(app).hint_id_at(origin_x, col),
         Mode::Browse => browse_footer_line(app).hint_id_at(origin_x, col),
     }
@@ -227,7 +227,7 @@ pub(crate) fn footer_hint_id_at_point(
         return None;
     }
 
-    match app.mode {
+    match app.nav.mode {
         Mode::Search => {
             search_footer_line(app).hint_id_at_point(origin_x, origin_y, width, col, row)
         }
@@ -399,7 +399,7 @@ impl HintLine {
 fn search_footer_line(app: &App) -> HintLine {
     // The query now lives on the entry panel's top-right border (see
     // `draw_entry_list`), so the footer only carries the action hints.
-    let hints = match app.focus {
+    let hints = match app.nav.focus {
         Focus::EntryView if app.has_selected_entry_target() => {
             let mut hints = selected_entry_action_hints(true);
             hints.extend(image_hint(app));
@@ -428,7 +428,7 @@ fn search_footer_line(app: &App) -> HintLine {
 }
 
 fn browse_footer_line(app: &App) -> HintLine {
-    let hints = match app.focus {
+    let hints = match app.nav.focus {
         Focus::Journals => vec![
             Hint::new("new journal", "n", HintId::NewJournal),
             Hint::new("search", "/", HintId::BeginSearch),
@@ -502,7 +502,7 @@ fn selected_entry_action_hints(include_view: bool) -> Vec<Hint> {
 
 fn expanded_footer_hints(app: &App) -> Vec<Hint> {
     let mut hints = Vec::new();
-    if app.mode == Mode::Browse {
+    if app.nav.mode == Mode::Browse {
         hints.push(Hint::new("new entry", "n", HintId::NewEntry));
     }
     if app.has_selected_entry_target() {
@@ -518,7 +518,7 @@ fn expanded_footer_hints(app: &App) -> Vec<Hint> {
     } else {
         hints.push(Hint::new("close", "enter/esc", HintId::CancelOverlay));
     }
-    if app.mode == Mode::Browse {
+    if app.nav.mode == Mode::Browse {
         hints.push(Hint::new("search", "/", HintId::BeginSearch));
     }
     hints.push(Hint::new("hints", "h", HintId::HintsToggle));

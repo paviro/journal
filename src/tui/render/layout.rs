@@ -42,8 +42,8 @@ pub(crate) fn tui_layout(area: Rect, app: &App) -> TuiLayout {
     };
 
     if single_panel {
-        match app.focus {
-            Focus::Journals if app.mode == Mode::Browse && show_journals => {
+        match app.nav.focus {
+            Focus::Journals if app.nav.mode == Mode::Browse && show_journals => {
                 layout.journals = Some(PanelGeometry::new(content))
             }
             Focus::EntryView => layout.entry_view = Some(PanelGeometry::new(content)),
@@ -66,7 +66,7 @@ pub(crate) fn tui_layout(area: Rect, app: &App) -> TuiLayout {
                 .split(content);
             layout.journals = Some(PanelGeometry::new(body[0]));
             layout.entries = Some(EntryListGeometry::new(body[1]));
-            if app.mode == Mode::Browse && app.focus == Focus::Journals {
+            if app.nav.mode == Mode::Browse && app.nav.focus == Focus::Journals {
                 layout.stats = Some(PanelGeometry::new(body[2]));
             } else {
                 layout.entry_view = Some(PanelGeometry::new(body[2]));
@@ -83,7 +83,7 @@ pub(crate) fn tui_layout(area: Rect, app: &App) -> TuiLayout {
             layout.entry_view = Some(PanelGeometry::new(body[1]));
         }
     } else {
-        if show_journals && app.mode == Mode::Browse && app.focus == Focus::Journals {
+        if show_journals && app.nav.mode == Mode::Browse && app.nav.focus == Focus::Journals {
             let body = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
