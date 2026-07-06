@@ -1327,3 +1327,35 @@ fn unlock_screen_replaces_hint_with_error() {
     assert!(text.contains("Incorrect passphrase"));
     assert!(!text.contains("Enter your passphrase to unlock"));
 }
+
+fn render_unlock_rows(width: u16, height: u16, error: Option<&str>) -> Vec<String> {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| draw_unlock(frame, "", error, false))
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    buffer
+        .content()
+        .chunks(width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .trim()
+                .to_string()
+        })
+        .collect()
+}
+
+#[test]
+fn unlock_status_wraps_on_a_narrow_terminal() {
+    // Too narrow to fit the hint on one line: it must wrap across rows rather
+    // than clip, so every word survives.
+    let rows = render_unlock_rows(24, 20, None);
+    let your_row = rows.iter().position(|r| r.contains("your"));
+    let phrase_row = rows.iter().position(|r| r.contains("passphrase"));
+    // Both hint words render in full (not truncated) on separate rows.
+    assert!(your_row.is_some() && phrase_row.is_some());
+    assert_ne!(your_row, phrase_row);
+}

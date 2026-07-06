@@ -433,7 +433,7 @@ pub(crate) fn box_inner_line(text: String, inner_width: usize) -> Line<'static> 
 
 /// Greedy word-wrap by display width into at most `max_lines`, ellipsizing the
 /// last line when the text overflows.
-fn wrap_text(text: &str, width: usize, max_lines: usize) -> Vec<String> {
+pub(crate) fn wrap_text(text: &str, width: usize, max_lines: usize) -> Vec<String> {
     let text = text.trim();
     if text.is_empty() || width == 0 || max_lines == 0 {
         return Vec::new();

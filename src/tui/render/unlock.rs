@@ -3,19 +3,26 @@ use ratatui::{
     layout::{Alignment, Constraint, Flex, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Padding, Paragraph},
+    widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap},
 };
 
 use super::caret_style;
+use crate::tui::entry_rows::wrap_text;
 
 /// Width of the "Enter Password" container box, clamped to the available width.
 const CONTAINER_WIDTH: u16 = 68;
-/// Height of the container: border + padding + the sub-field box + a gap + the
-/// error row + padding. The error row is reserved even when empty so the box
-/// keeps a stable size across a wrong-passphrase retry.
-const CONTAINER_HEIGHT: u16 = 9;
 /// Height of the inner sub-field: faint border + one input row + faint border.
 const SUBFIELD_HEIGHT: u16 = 3;
+/// Fixed rows of the container besides the status region: border (2) + vertical
+/// padding (2) + the sub-field box + the gap above the status.
+const CONTAINER_CHROME_HEIGHT: u16 = 2 + 2 + SUBFIELD_HEIGHT + 1;
+/// Standing hint shown below the field until a wrong passphrase replaces it. The
+/// status region is sized for whichever of this and the current message wraps to
+/// more rows, so the box stays a stable height across a retry.
+const HINT: &str = "Enter your passphrase to unlock";
+/// Cap on wrapped status rows so a pathologically narrow terminal can't grow the
+/// container without bound.
+const MAX_STATUS_LINES: usize = 4;
 
 /// Draw the fullscreen unlock screen shown at startup while an encrypted store
 /// is still locked. The passphrase sits in a "Enter Password" container whose
@@ -42,14 +49,24 @@ pub(crate) fn draw_unlock(
         return;
     }
 
+    // Size the status region to whatever wraps to the most rows at this width, so
+    // a narrow terminal grows the box downward instead of clipping the message.
+    let container_width = CONTAINER_WIDTH.min(inner.width);
+    let status = error.unwrap_or(HINT);
+    let status_width = container_width.saturating_sub(6) as usize; // border + padding
+    let status_lines = wrap_text(HINT, status_width, MAX_STATUS_LINES)
+        .len()
+        .max(wrap_text(status, status_width, MAX_STATUS_LINES).len())
+        .max(1) as u16;
+    let container_height = (CONTAINER_CHROME_HEIGHT + status_lines).min(inner.height);
+
     // Center the container box within the outer border.
-    let [group] = Layout::vertical([Constraint::Length(CONTAINER_HEIGHT.min(inner.height))])
+    let [group] = Layout::vertical([Constraint::Length(container_height)])
         .flex(Flex::Center)
         .areas(inner);
-    let [container_box] =
-        Layout::horizontal([Constraint::Length(CONTAINER_WIDTH.min(inner.width))])
-            .flex(Flex::Center)
-            .areas(group);
+    let [container_box] = Layout::horizontal([Constraint::Length(container_width)])
+        .flex(Flex::Center)
+        .areas(group);
 
     // The container: bordered, titled top-left, generous padding around its
     // contents.
@@ -66,7 +83,7 @@ pub(crate) fn draw_unlock(
     let [subfield_box, _gap, error_row] = Layout::vertical([
         Constraint::Length(SUBFIELD_HEIGHT),
         Constraint::Length(1),
-        Constraint::Length(1),
+        Constraint::Length(status_lines),
     ])
     .areas(container_inner);
 
@@ -84,14 +101,16 @@ pub(crate) fn draw_unlock(
     );
 
     // Status line below the field, centered within the container: a standing
-    // hint normally, replaced by the error message after a wrong passphrase.
-    let status = error.unwrap_or("Enter your passphrase to unlock");
+    // hint normally, replaced by the error message after a wrong passphrase. It
+    // wraps so a narrow terminal shows the whole message across the rows the
+    // container reserved for it.
     frame.render_widget(
         Paragraph::new(Span::styled(
             status.to_string(),
             Style::default().add_modifier(Modifier::DIM),
         ))
-        .alignment(Alignment::Center),
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true }),
         error_row,
     );
 }
