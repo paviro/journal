@@ -373,7 +373,7 @@ mod tests {
         config::Config,
         tui::{
             app::{App, Focus, ScrollbarDrag},
-            render,
+            render, scroll,
             state::EditTagFocus,
         },
     };
@@ -392,6 +392,18 @@ mod tests {
             row,
             modifiers: KeyModifiers::empty(),
         }
+    }
+
+    fn down() -> MouseEventKind {
+        MouseEventKind::Down(MouseButton::Left)
+    }
+
+    fn drag() -> MouseEventKind {
+        MouseEventKind::Drag(MouseButton::Left)
+    }
+
+    fn up() -> MouseEventKind {
+        MouseEventKind::Up(MouseButton::Left)
     }
 
     fn new_app(config: Config) -> App {
@@ -1060,98 +1072,136 @@ mod tests {
         assert_eq!(app.edit_mood_state().unwrap().draft, 5);
     }
 
-    #[test]
-    fn drag_entry_list_scrollbar_jumps_and_tracks() {
-        let mut app = app_with_entries(60);
-        let (w, h) = (120, 20);
-        let entries = render::tui_layout(Rect::new(0, 0, w, h), &app)
+    /// The entry-list scrollbar geometry for a 60-entry list in a 120×20 area.
+    struct EntryBarFixture {
+        app: App,
+        area: Rect,
+        bar: Rect,
+        total: usize,
+        viewport: u16,
+        max: usize,
+    }
+
+    fn entry_bar_fixture() -> EntryBarFixture {
+        let app = app_with_entries(60);
+        let entries = render::tui_layout(Rect::new(0, 0, 120, 20), &app)
             .entries
             .expect("entries panel");
         let area = entries.panel.area;
-        let bar_col = area.x + area.width - 1;
-        let bar_top = area.y + 1;
-        let bar_bottom = area.y + area.height - 2;
-
         let cache = app.entry_rows(entries.text_width);
-        let max = cache
-            .total_height
-            .saturating_sub(entries.viewport_height as usize);
+        let total = cache.total_height;
+        let viewport = entries.viewport_height;
+        let max = total.saturating_sub(viewport as usize);
         assert!(max > 0, "entry list should overflow so a bar is drawn");
-
-        // Press at the bottom of the track → jump to the maximum offset and focus.
-        mouse_in_area(
-            &mut app,
-            mouse(MouseEventKind::Down(MouseButton::Left), bar_col, bar_bottom),
-            w,
-            h,
-        );
-        assert_eq!(app.entry_list.offset(), max);
-        assert_eq!(app.focus, Focus::Entries);
-        assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::EntryList));
-
-        // Drag to the top with the cursor drifted off the bar column → scroll to 0.
-        mouse_in_area(
-            &mut app,
-            mouse(MouseEventKind::Drag(MouseButton::Left), 0, bar_top),
-            w,
-            h,
-        );
-        assert_eq!(app.entry_list.offset(), 0);
-
-        // Release clears the drag state.
-        mouse_in_area(
-            &mut app,
-            mouse(MouseEventKind::Up(MouseButton::Left), 0, bar_top),
-            w,
-            h,
-        );
-        assert!(app.scrollbar_drag.is_none());
-
-        // The grab region is three columns wide: one on each side of the bar also
-        // grabs it.
-        for col in [bar_col - 1, bar_col + 1] {
-            mouse_in_area(
-                &mut app,
-                mouse(MouseEventKind::Down(MouseButton::Left), col, bar_bottom),
-                w,
-                h,
-            );
-            assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::EntryList));
-            assert_eq!(app.entry_list.offset(), max);
-            mouse_in_area(
-                &mut app,
-                mouse(MouseEventKind::Up(MouseButton::Left), col, bar_bottom),
-                w,
-                h,
-            );
+        EntryBarFixture {
+            bar: scroll::scrollbar_bar_rect(area),
+            app,
+            area,
+            total,
+            viewport,
+            max,
         }
     }
 
     #[test]
-    fn drag_journals_scrollbar_jumps_to_bottom() {
+    fn scrollbar_arrows_step_one_line_without_dragging() {
+        let EntryBarFixture {
+            mut app, bar, max, ..
+        } = entry_bar_fixture();
+        let up_arrow = bar.y;
+        let down_arrow = bar.y + bar.height - 1;
+
+        // The down arrow steps one line down; no drag begins.
+        mouse_in_area(&mut app, mouse(down(), bar.x, down_arrow), 120, 20);
+        assert_eq!(app.entry_list.offset(), 1);
+        assert!(app.scrollbar_drag.is_none());
+        assert_eq!(app.focus, Focus::Entries);
+
+        // The up arrow steps back.
+        mouse_in_area(&mut app, mouse(down(), bar.x, up_arrow), 120, 20);
+        assert_eq!(app.entry_list.offset(), 0);
+        assert!(app.scrollbar_drag.is_none());
+        assert!(max > 1);
+    }
+
+    #[test]
+    fn scrollbar_thumb_press_grabs_without_jumping() {
+        let EntryBarFixture {
+            mut app,
+            bar,
+            total,
+            viewport,
+            max,
+            ..
+        } = entry_bar_fixture();
+        *app.entry_list.offset_mut() = max / 2;
+        let before = app.entry_list.offset();
+
+        let position = scroll::scrollbar_position(before, total, viewport);
+        let (thumb_top, thumb_len) =
+            scroll::scrollbar_thumb(bar, total, viewport, position).expect("thumb");
+
+        // Pressing straight on the thumb grabs it and leaves the scroll untouched.
+        mouse_in_area(&mut app, mouse(down(), bar.x, thumb_top + thumb_len / 2), 120, 20);
+        assert_eq!(app.entry_list.offset(), before);
+        assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::EntryList));
+    }
+
+    #[test]
+    fn scrollbar_track_press_jumps_then_drag_tracks_the_cursor() {
+        let EntryBarFixture {
+            mut app,
+            area,
+            bar,
+            max,
+            ..
+        } = entry_bar_fixture();
+        let bottom_track = bar.y + bar.height - 2; // last track row, above the down arrow
+        let top_track = bar.y + 1; // first track row, below the up arrow
+
+        // Press empty track near the bottom → thumb jumps down under the cursor.
+        mouse_in_area(&mut app, mouse(down(), bar.x, bottom_track), 120, 20);
+        assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::EntryList));
+        assert!(
+            app.entry_list.offset() > max / 2,
+            "expected a large jump, got {}",
+            app.entry_list.offset()
+        );
+
+        // Drag to the top, cursor drifted off the bar column → scroll to 0.
+        mouse_in_area(&mut app, mouse(drag(), 0, top_track), 120, 20);
+        assert_eq!(app.entry_list.offset(), 0);
+
+        // Release clears the drag.
+        mouse_in_area(&mut app, mouse(up(), 0, top_track), 120, 20);
+        assert!(app.scrollbar_drag.is_none());
+
+        // The grab region spans the bar column plus one on each side.
+        for col in [bar.x - 1, bar.x + 1] {
+            assert!(col >= area.x && col < area.x + area.width + 1);
+            mouse_in_area(&mut app, mouse(down(), col, bottom_track), 120, 20);
+            assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::EntryList));
+            mouse_in_area(&mut app, mouse(up(), col, bottom_track), 120, 20);
+        }
+    }
+
+    #[test]
+    fn scrollbar_track_press_scrolls_journals() {
         let names: Vec<String> = (0..60).map(|i| format!("journal-{i:02}")).collect();
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
         let mut app = app_with_journals(&refs);
-        let (w, h) = (120, 20);
-        let journals = render::tui_layout(Rect::new(0, 0, w, h), &app)
+        let journals = render::tui_layout(Rect::new(0, 0, 120, 20), &app)
             .journals
             .expect("journals panel");
-        let area = journals.area;
-        let bar_col = area.x + area.width - 1;
-        let bar_bottom = area.y + area.height - 2;
-
+        let bar = scroll::scrollbar_bar_rect(journals.area);
         let per_page =
             render::journals_per_page(render::journal_list_rect(journals.content).height);
         let max = app.journals.len().saturating_sub(per_page as usize);
         assert!(max > 0, "journals list should overflow so a bar is drawn");
 
-        mouse_in_area(
-            &mut app,
-            mouse(MouseEventKind::Down(MouseButton::Left), bar_col, bar_bottom),
-            w,
-            h,
-        );
-        assert_eq!(app.journal_list.offset(), max);
+        // Press the bottom track row → thumb jumps down.
+        mouse_in_area(&mut app, mouse(down(), bar.x, bar.y + bar.height - 2), 120, 20);
         assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::Journals));
+        assert!(app.journal_list.offset() > 0);
     }
 }

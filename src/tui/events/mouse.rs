@@ -67,91 +67,118 @@ pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect)
     Ok(())
 }
 
-/// Scroll ranges for each pane that has a draggable scrollbar. Computed from the
-/// live layout and caches so a drag always maps against the current content.
+/// A pane's scrollbar geometry, resolved from the live layout and caches so both a
+/// press and an ongoing drag map against the current content.
 struct ScrollbarTarget {
     which: ScrollbarDrag,
+    /// The full bar column (`scrollbar_bar_rect`); its first/last rows are the arrows.
     bar: Rect,
     max_scroll: usize,
+    content_length: usize,
+    viewport: u16,
+    /// Current scrollbar position, for locating the thumb.
+    position: usize,
 }
 
-/// The scrollbar target under the cursor's row, if the cursor is on a pane's
-/// scrollbar column and that pane actually overflows (so a bar is drawn).
+impl ScrollbarTarget {
+    /// The thumb's `(top, len)` rows, replicating ratatui so it matches what's drawn.
+    fn thumb(&self) -> (u16, u16) {
+        crate::tui::scroll::scrollbar_thumb(
+            self.bar,
+            self.content_length,
+            self.viewport,
+            self.position,
+        )
+        .unwrap_or((self.bar.y.saturating_add(1), 1))
+    }
+}
+
+/// Resolve a pane's scrollbar geometry, or `None` when the pane is absent or does not
+/// overflow (so no bar is drawn — matching `render_scrollbar_if_needed`'s guard).
+fn pane_target(
+    app: &App,
+    which: ScrollbarDrag,
+    layout: &render::TuiLayout,
+) -> Option<ScrollbarTarget> {
+    let (area, content_length, viewport, scroll) = match which {
+        ScrollbarDrag::EntryView => {
+            let area = layout.entry_view?;
+            let hits = &app.entry_view_image_hits;
+            (
+                area.area,
+                hits.line_count,
+                hits.content_rect.height,
+                app.scroll.entry_view as usize,
+            )
+        }
+        ScrollbarDrag::EntryList => {
+            let area = layout.entries?;
+            let cache = app.entry_rows(area.text_width);
+            (
+                area.panel.area,
+                cache.total_height,
+                area.viewport_height,
+                app.entry_list.offset(),
+            )
+        }
+        ScrollbarDrag::Journals => {
+            if app.mode != Mode::Browse {
+                return None;
+            }
+            let area = layout.journals?;
+            let per_page =
+                render::journals_per_page(render::journal_list_rect(area.content).height);
+            (area.area, app.journals.len(), per_page, app.journal_list.offset())
+        }
+    };
+    let max_scroll = content_length.saturating_sub(viewport as usize);
+    let bar = crate::tui::scroll::scrollbar_bar_rect(area);
+    if max_scroll == 0 || bar.height == 0 {
+        return None;
+    }
+    let position = crate::tui::scroll::scrollbar_position(scroll, content_length, viewport);
+    Some(ScrollbarTarget {
+        which,
+        bar,
+        max_scroll,
+        content_length,
+        viewport,
+        position,
+    })
+}
+
+/// The scrollbar target under the cursor, if any. Panes are probed independently;
+/// their bars sit on distinct panel edges, so at most one contains the cursor.
 fn scrollbar_target_at(
-    app: &mut App,
+    app: &App,
     column: u16,
     row: u16,
     layout: &render::TuiLayout,
 ) -> Option<ScrollbarTarget> {
-    // Entry view first: its bar sits on the same right edge as the others but the
-    // pane is widest, so test it before the narrower list panels.
-    if let Some(area) = layout.entry_view {
-        let hits = &app.entry_view_image_hits;
-        let max = hits
-            .line_count
-            .saturating_sub(hits.content_rect.height as usize);
-        if let Some(bar) = scrollbar_hit(area.area, column, row, max) {
-            return Some(ScrollbarTarget {
-                which: ScrollbarDrag::EntryView,
-                bar,
-                max_scroll: max,
-            });
-        }
-    }
-
-    if let Some(area) = layout.entries {
-        let cache = app.entry_rows(area.text_width);
-        let max = cache
-            .total_height
-            .saturating_sub(area.viewport_height as usize);
-        if let Some(bar) = scrollbar_hit(area.panel.area, column, row, max) {
-            return Some(ScrollbarTarget {
-                which: ScrollbarDrag::EntryList,
-                bar,
-                max_scroll: max,
-            });
-        }
-    }
-
-    if app.mode == Mode::Browse
-        && let Some(area) = layout.journals
-    {
-        let per_page = render::journals_per_page(render::journal_list_rect(area.content).height);
-        let max = app.journals.len().saturating_sub(per_page as usize);
-        if let Some(bar) = scrollbar_hit(area.area, column, row, max) {
-            return Some(ScrollbarTarget {
-                which: ScrollbarDrag::Journals,
-                bar,
-                max_scroll: max,
-            });
-        }
-    }
-
-    None
+    [
+        ScrollbarDrag::EntryView,
+        ScrollbarDrag::EntryList,
+        ScrollbarDrag::Journals,
+    ]
+    .into_iter()
+    .filter_map(|which| pane_target(app, which, layout))
+    .find(|target| cursor_on_bar(target, column, row))
 }
 
-/// The scrollbar track rect for `area` if `(column, row)` lands on it and the pane
-/// overflows (`max_scroll > 0`, matching `render_scrollbar_if_needed`'s draw guard).
-/// The grab region is three columns wide — the bar column plus one on each side —
-/// so the one-cell bar is easier to hit. The bar sits on the panel's right border,
-/// so the right-neighbour column is the adjacent panel's left edge; that pane's own
-/// bar is on its far side and never claims this column back, so a click there just
-/// scrolls this pane.
-fn scrollbar_hit(area: Rect, column: u16, row: u16, max_scroll: usize) -> Option<Rect> {
-    if max_scroll == 0 {
-        return None;
-    }
-    let bar = crate::tui::scroll::scrollbar_bar_rect(area);
-    let on_column =
-        column >= bar.x.saturating_sub(1) && column <= bar.x.saturating_add(1);
-    (bar.height > 0 && on_column && row >= bar.y && row < bar.y + bar.height).then_some(bar)
+/// Whether `(column, row)` lands on `target`'s grab region — the bar column plus one
+/// on each side, so the one-cell bar is easier to hit. The bar sits on the panel's
+/// right border, so the right-neighbour column is the adjacent panel's left edge;
+/// that pane's own bar is on its far side and never claims this column back, so a
+/// click there just scrolls this pane.
+fn cursor_on_bar(target: &ScrollbarTarget, column: u16, row: u16) -> bool {
+    let bar = target.bar;
+    let on_column = column >= bar.x.saturating_sub(1) && column <= bar.x.saturating_add(1);
+    on_column && row >= bar.y && row < bar.y + bar.height
 }
 
-/// Apply a scroll offset mapped from `row` on `target`'s track to the right pane.
-fn apply_scrollbar_scroll(app: &mut App, target: &ScrollbarTarget, row: u16) {
-    let offset =
-        crate::tui::scroll::scroll_from_bar_row(row, target.bar.y, target.bar.height, target.max_scroll);
-    match target.which {
+/// Set a pane's scroll offset directly (already clamped to its `max_scroll`).
+fn set_pane_scroll(app: &mut App, which: ScrollbarDrag, offset: usize) {
+    match which {
         ScrollbarDrag::Journals => {
             *app.journal_list.offset_mut() = offset;
             app.focus = Focus::Journals;
@@ -167,56 +194,83 @@ fn apply_scrollbar_scroll(app: &mut App, target: &ScrollbarTarget, row: u16) {
     }
 }
 
-/// On a left press, if the cursor is on a pane's scrollbar, begin dragging it and
-/// jump the thumb to the pressed position. Returns whether a bar was grabbed.
+/// Step a pane's scroll by one line, reusing the same setters the wheel uses.
+fn step_pane_scroll(app: &mut App, target: &ScrollbarTarget, delta: i16) {
+    match target.which {
+        ScrollbarDrag::Journals => {
+            app.journal_list_scroll(delta, target.viewport);
+            app.focus = Focus::Journals;
+        }
+        ScrollbarDrag::EntryList => {
+            app.entry_list_scroll(delta, target.content_length, target.viewport);
+            app.focus = Focus::Entries;
+        }
+        ScrollbarDrag::EntryView => {
+            app.scroll_entry_view(delta);
+            app.focus = Focus::EntryView;
+        }
+    }
+}
+
+/// Map the dragged cursor row to a scroll offset so the grabbed point of the thumb
+/// (`scrollbar_grab` rows below its top) tracks the cursor. The cursor column is
+/// ignored, so the drag survives drifting off the narrow bar.
+fn apply_thumb_drag(app: &mut App, target: &ScrollbarTarget, row: u16) {
+    let (_, thumb_len) = target.thumb();
+    let track_top = target.bar.y.saturating_add(1);
+    let track_len = target.bar.height.saturating_sub(2);
+    let thumb_top = row.saturating_sub(app.scrollbar_grab);
+    let offset = crate::tui::scroll::scroll_from_thumb_top(
+        thumb_top,
+        track_top,
+        track_len,
+        thumb_len,
+        target.max_scroll,
+    );
+    set_pane_scroll(app, target.which, offset);
+}
+
+/// On a left press over a pane's scrollbar: the arrow rows step by one line; pressing
+/// the thumb grabs it without moving; pressing empty track jumps the thumb under the
+/// cursor. Returns whether the press was consumed.
 fn try_scrollbar_press(app: &mut App, mouse: MouseEvent, layout: &render::TuiLayout) -> bool {
     let Some(target) = scrollbar_target_at(app, mouse.column, mouse.row, layout) else {
         return false;
     };
+    let bar = target.bar;
+
+    // Top / bottom arrow rows step one line, like the wheel, rather than jumping.
+    if mouse.row == bar.y {
+        step_pane_scroll(app, &target, -1);
+        return true;
+    }
+    if mouse.row == bar.y + bar.height - 1 {
+        step_pane_scroll(app, &target, 1);
+        return true;
+    }
+
+    let (thumb_top, thumb_len) = target.thumb();
     app.scrollbar_drag = Some(target.which);
-    apply_scrollbar_scroll(app, &target, mouse.row);
+    if mouse.row >= thumb_top && mouse.row < thumb_top + thumb_len {
+        // Grabbing the thumb itself: remember where, and leave the scroll untouched so
+        // a click straight on the handle doesn't jump.
+        app.scrollbar_grab = mouse.row - thumb_top;
+    } else {
+        // Empty track: centre the thumb on the cursor and jump there.
+        app.scrollbar_grab = thumb_len / 2;
+        apply_thumb_drag(app, &target, mouse.row);
+    }
     true
 }
 
-/// While a scrollbar drag is active, map the cursor row to a scroll offset. The
-/// cursor column is ignored so the drag survives drifting off the one-column bar.
+/// While a scrollbar drag is active, map the cursor row to the pane's scroll offset.
 fn handle_scrollbar_drag(app: &mut App, mouse: MouseEvent, layout: &render::TuiLayout) {
     let Some(which) = app.scrollbar_drag else {
         return;
     };
-    let bar = match which {
-        ScrollbarDrag::Journals => layout.journals.map(|a| (a.area, journals_max(app, a))),
-        ScrollbarDrag::EntryList => layout.entries.map(|a| {
-            let cache = app.entry_rows(a.text_width);
-            (
-                a.panel.area,
-                cache
-                    .total_height
-                    .saturating_sub(a.viewport_height as usize),
-            )
-        }),
-        ScrollbarDrag::EntryView => layout.entry_view.map(|a| {
-            let hits = &app.entry_view_image_hits;
-            (
-                a.area,
-                hits.line_count
-                    .saturating_sub(hits.content_rect.height as usize),
-            )
-        }),
-    };
-    if let Some((area, max_scroll)) = bar {
-        let target = ScrollbarTarget {
-            which,
-            bar: crate::tui::scroll::scrollbar_bar_rect(area),
-            max_scroll,
-        };
-        apply_scrollbar_scroll(app, &target, mouse.row);
+    if let Some(target) = pane_target(app, which, layout) {
+        apply_thumb_drag(app, &target, mouse.row);
     }
-}
-
-fn journals_max(app: &App, area: render::PanelGeometry) -> usize {
-    let per_page = render::journals_per_page(render::journal_list_rect(area.content).height);
-    app.journals.len().saturating_sub(per_page as usize)
 }
 
 fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout) -> AppResult<()> {

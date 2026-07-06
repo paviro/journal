@@ -29,7 +29,7 @@ pub(crate) use super::hit_test::{
 pub(crate) use super::scroll::scrollbar_position;
 pub(crate) use super::scroll::{clamp_scroll, viewer_scroll};
 #[cfg(test)]
-use super::scroll::{scroll_from_bar_row, scrollbar_bar_rect};
+use super::scroll::{scroll_from_thumb_top, scrollbar_bar_rect, scrollbar_thumb};
 pub(crate) use super::surface::{
     EntryListGeometry, EntryMetadataValues, PanelGeometry, entry_metadata_layout, panel_inner,
     point_in_rect,
@@ -637,27 +637,58 @@ mod tests {
     }
 
     #[test]
-    fn scroll_from_bar_row_maps_track_ends_to_scroll_range() {
-        let (top, height, max) = (4, 8, 100);
-        // Top of the track → 0, bottom → max, and rows are clamped past the ends.
-        assert_eq!(scroll_from_bar_row(top, top, height, max), 0);
-        assert_eq!(scroll_from_bar_row(0, top, height, max), 0);
-        assert_eq!(scroll_from_bar_row(top + height - 1, top, height, max), max);
-        assert_eq!(scroll_from_bar_row(u16::MAX, top, height, max), max);
+    fn scroll_from_thumb_top_maps_travel_ends_to_scroll_range() {
+        // track_top 5, track_len 10, thumb_len 4 → the thumb travels rows 5..=11
+        // (travel 6). Top of travel → 0, bottom → max, rows clamp past the ends.
+        let (track_top, track_len, thumb_len, max) = (5, 10, 4, 100);
+        assert_eq!(
+            scroll_from_thumb_top(track_top, track_top, track_len, thumb_len, max),
+            0
+        );
+        assert_eq!(
+            scroll_from_thumb_top(0, track_top, track_len, thumb_len, max),
+            0
+        );
+        assert_eq!(
+            scroll_from_thumb_top(track_top + 6, track_top, track_len, thumb_len, max),
+            max
+        );
+        assert_eq!(
+            scroll_from_thumb_top(u16::MAX, track_top, track_len, thumb_len, max),
+            max
+        );
     }
 
     #[test]
-    fn scroll_from_bar_row_maps_midpoint_near_half() {
-        // Track rows 4..=11 (height 8, span 7); the middle rows land near max/2.
-        let half = scroll_from_bar_row(4 + 3, 4, 8, 100);
-        assert!((40..=60).contains(&half), "midpoint mapped to {half}");
+    fn scroll_from_thumb_top_handles_untravellable_thumbs() {
+        assert_eq!(scroll_from_thumb_top(7, 5, 10, 4, 0), 0); // no overflow
+        assert_eq!(scroll_from_thumb_top(7, 5, 4, 4, 100), 0); // thumb fills track
     }
 
     #[test]
-    fn scroll_from_bar_row_handles_degenerate_tracks() {
-        assert_eq!(scroll_from_bar_row(5, 4, 8, 0), 0); // no overflow
-        assert_eq!(scroll_from_bar_row(5, 4, 1, 100), 0); // single-row track
-        assert_eq!(scroll_from_bar_row(5, 4, 0, 100), 0); // no track
+    fn scrollbar_thumb_sits_below_the_up_arrow_at_the_top() {
+        // Bar of 12 rows starting at y=3: arrows at rows 3 and 14, track rows 4..=13.
+        let bar = Rect::new(20, 3, 1, 12);
+        let (top, len) = scrollbar_thumb(bar, 40, 10, 0).expect("thumb");
+        assert_eq!(top, 4, "thumb starts just below the up arrow at scroll 0");
+        assert!(len >= 1);
+    }
+
+    #[test]
+    fn scrollbar_thumb_reaches_bottom_of_track_at_max_scroll() {
+        let bar = Rect::new(20, 3, 1, 12);
+        let line_count = 40;
+        let height = 10;
+        let scroll = viewer_scroll(u16::MAX, line_count, height) as usize;
+        let position = scrollbar_position(scroll, line_count, height);
+        let (top, len) = scrollbar_thumb(bar, line_count, height, position).expect("thumb");
+        // Track rows are 4..=13; the thumb's bottom edge reaches the last track row.
+        assert_eq!(top + len - 1, 13);
+    }
+
+    #[test]
+    fn scrollbar_thumb_none_when_bar_too_short() {
+        assert_eq!(scrollbar_thumb(Rect::new(0, 0, 1, 2), 40, 10, 0), None);
     }
 
     #[test]

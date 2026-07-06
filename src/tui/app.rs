@@ -229,6 +229,9 @@ pub(crate) struct App {
     /// cleared on release; lets a drag keep scrolling even after the cursor drifts
     /// off the one-column bar.
     pub(crate) scrollbar_drag: Option<ScrollbarDrag>,
+    /// Rows between the top of the thumb and the point where it was grabbed, so the
+    /// grabbed point tracks the cursor during a scrollbar drag.
+    pub(crate) scrollbar_grab: u16,
     /// Selected entry's in-folder images, memoized by path; `RefCell` so `&self`
     /// render/hint/shortcut paths can read it. Re-parsed on a path change or when
     /// `refresh` clears it. Part of the image subsystem (grouped with the fields
@@ -300,6 +303,7 @@ impl App {
             image_warm: None,
             entry_view_image_hits: EntryViewImageHits::default(),
             scrollbar_drag: None,
+            scrollbar_grab: 0,
             selected_images_cache: RefCell::new(None),
             caches: RenderCaches::default(),
             search_dirty: false,
