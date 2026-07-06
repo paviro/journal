@@ -14,7 +14,9 @@ mod watcher;
 use crate::{AppResult, config::Config};
 use crossterm::{
     cursor::Show,
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -25,6 +27,7 @@ use std::{
     io::{self, Write},
     time::{Duration, Instant},
 };
+use zeroize::Zeroize;
 
 /// Blink half-period for the search caret.
 const CURSOR_BLINK: Duration = Duration::from_millis(530);
@@ -40,17 +43,20 @@ const REFRESH_DEBOUNCE: Duration = Duration::from_millis(400);
 use app::App;
 
 pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResult<()> {
-    let mut app = App::new(config_path, config, store)?;
+    // Ensure the store exists before probing for a lock so `unlock_available`
+    // reflects on-disk state.
+    store.ensure()?;
+    let needs_unlock = store.unlock_available();
+
     enable_raw_mode()?;
-    // Must run after raw mode: the detection query reads control-sequence
-    // replies from stdin.
-    app.image.runtime = image::ImageRuntime::detect(&app.store);
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let mut terminal_guard = TerminalRestoreGuard::new();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let result = run_loop(&mut terminal, app);
+
+    let result = run_after_unlock(&mut terminal, config_path, config, store, needs_unlock);
+
     let restore_result = restore_terminal(terminal.backend_mut());
     if restore_result.is_ok() {
         terminal_guard.disarm();
@@ -59,6 +65,105 @@ pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResu
     match result {
         Ok(()) => restore_result,
         Err(err) => Err(err),
+    }
+}
+
+/// Gate the app behind the unlock screen (when the store is encrypted), then
+/// build the app and enter the main loop. Runs with the terminal already in raw
+/// mode / alternate screen so the unlock screen and image detection can both
+/// query stdin.
+fn run_after_unlock(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    config_path: PathBuf,
+    config: Config,
+    mut store: JournalStore,
+    needs_unlock: bool,
+) -> AppResult<()> {
+    if needs_unlock && !run_unlock_screen(terminal, &mut store)? {
+        // User quit at the unlock screen; exit cleanly without loading entries.
+        return Ok(());
+    }
+
+    let mut app = App::new(config_path, config, store)?;
+    // Must run after raw mode: the detection query reads control-sequence
+    // replies from stdin.
+    app.image.runtime = image::ImageRuntime::detect(&app.store);
+    run_loop(terminal, app)
+}
+
+/// Outcome of a single key press on the unlock screen.
+enum UnlockAction {
+    Submit,
+    Cancel,
+    Insert(char),
+    Delete,
+    Ignore,
+}
+
+/// Map a key press to an unlock-screen action. Factored out from the loop so the
+/// editing and submit/cancel rules stay unit-testable without a terminal.
+fn unlock_key_action(key: KeyEvent) -> UnlockAction {
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+        return UnlockAction::Cancel;
+    }
+    match key.code {
+        KeyCode::Enter => UnlockAction::Submit,
+        KeyCode::Esc => UnlockAction::Cancel,
+        KeyCode::Backspace => UnlockAction::Delete,
+        KeyCode::Char(ch) => UnlockAction::Insert(ch),
+        _ => UnlockAction::Ignore,
+    }
+}
+
+/// Draw the fullscreen unlock screen and collect the passphrase until it unlocks
+/// the store. Returns `Ok(true)` once unlocked, `Ok(false)` if the user quits
+/// (Esc / Ctrl-C) first. The typed passphrase is zeroized as soon as it's been
+/// handed to `store.unlock`, so it doesn't linger in the heap.
+fn run_unlock_screen(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    store: &mut JournalStore,
+) -> AppResult<bool> {
+    let mut input = String::new();
+    let mut error: Option<String> = None;
+    // Reuse the search caret's blink cadence: a keystroke holds it solid, idle
+    // toggles it on the blink half-period.
+    let mut caret_visible = true;
+    let mut last_blink = Instant::now();
+
+    loop {
+        terminal
+            .draw(|frame| render::draw_unlock(frame, &input, error.as_deref(), caret_visible))?;
+
+        if event::poll(CURSOR_BLINK)? {
+            if let Event::Key(key) = event::read()? {
+                caret_visible = true;
+                last_blink = Instant::now();
+                match unlock_key_action(key) {
+                    UnlockAction::Cancel => {
+                        input.zeroize();
+                        return Ok(false);
+                    }
+                    UnlockAction::Submit => match store.unlock(&input) {
+                        Ok(()) => {
+                            input.zeroize();
+                            return Ok(true);
+                        }
+                        Err(_) => {
+                            input.zeroize();
+                            error = Some("Incorrect passphrase".to_string());
+                        }
+                    },
+                    UnlockAction::Insert(ch) => input.push(ch),
+                    UnlockAction::Delete => {
+                        input.pop();
+                    }
+                    UnlockAction::Ignore => {}
+                }
+            }
+        } else if last_blink.elapsed() >= CURSOR_BLINK {
+            last_blink = Instant::now();
+            caret_visible = !caret_visible;
+        }
     }
 }
 
@@ -247,4 +352,79 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    /// Drive a fresh passphrase buffer through a sequence of keys the same way
+    /// `run_unlock_screen` does, returning the resulting buffer and whether it
+    /// submitted (Enter) or cancelled (Esc / Ctrl-C).
+    fn drive(keys: &[KeyEvent]) -> (String, Option<bool>) {
+        let mut input = String::new();
+        for &k in keys {
+            match unlock_key_action(k) {
+                UnlockAction::Submit => return (input, Some(true)),
+                UnlockAction::Cancel => return (input, Some(false)),
+                UnlockAction::Insert(ch) => input.push(ch),
+                UnlockAction::Delete => {
+                    input.pop();
+                }
+                UnlockAction::Ignore => {}
+            }
+        }
+        (input, None)
+    }
+
+    #[test]
+    fn typing_and_backspace_edit_the_passphrase() {
+        let (input, done) = drive(&[
+            key(KeyCode::Char('h')),
+            key(KeyCode::Char('i')),
+            key(KeyCode::Char('x')),
+            key(KeyCode::Backspace),
+        ]);
+        assert_eq!(input, "hi");
+        assert_eq!(done, None);
+    }
+
+    #[test]
+    fn enter_submits_the_typed_passphrase() {
+        let (input, done) = drive(&[
+            key(KeyCode::Char('p')),
+            key(KeyCode::Char('w')),
+            key(KeyCode::Enter),
+        ]);
+        assert_eq!(input, "pw");
+        assert_eq!(done, Some(true));
+    }
+
+    #[test]
+    fn esc_cancels() {
+        let (_input, done) = drive(&[key(KeyCode::Char('p')), key(KeyCode::Esc)]);
+        assert_eq!(done, Some(false));
+    }
+
+    #[test]
+    fn ctrl_c_cancels() {
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert!(matches!(unlock_key_action(ctrl_c), UnlockAction::Cancel));
+    }
+
+    #[test]
+    fn non_editing_keys_are_ignored() {
+        assert!(matches!(
+            unlock_key_action(key(KeyCode::Left)),
+            UnlockAction::Ignore
+        ));
+        assert!(matches!(
+            unlock_key_action(key(KeyCode::Tab)),
+            UnlockAction::Ignore
+        ));
+    }
 }

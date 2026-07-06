@@ -345,14 +345,10 @@ impl App {
     pub(crate) fn new(
         config_path: PathBuf,
         config: Config,
-        mut store: JournalStore,
+        store: JournalStore,
     ) -> AppResult<Self> {
         store.ensure()?;
         let entry_paths = store.collect_entry_paths()?;
-        if store.unlock_available() {
-            let passphrase = crate::migrate::prompt_unlock_passphrase()?;
-            store.unlock(&passphrase)?;
-        }
         let mut app = Self {
             config_path,
             config,

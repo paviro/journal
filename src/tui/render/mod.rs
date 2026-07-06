@@ -6,6 +6,7 @@ mod journals;
 mod layout;
 mod markdown_panel;
 pub(crate) mod stats;
+mod unlock;
 
 use ratatui::{
     Frame,
@@ -58,6 +59,7 @@ use markdown_panel::draw_selected_entry_view;
 use stats::draw_journal_stats;
 #[cfg(test)]
 pub(crate) use stats::{centered_stats_layout, journal_stats};
+pub(crate) use unlock::draw_unlock;
 
 pub(crate) fn list_state_for_render(
     selected: Option<usize>,

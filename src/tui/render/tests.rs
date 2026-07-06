@@ -1288,3 +1288,42 @@ fn entry_group_labels_fall_back_to_filename_date() {
     assert_eq!(entry_month_label(&entry), Some("July 2026".to_string()));
     assert_eq!(entry_day_label(&entry), Some("Wednesday 01".to_string()));
 }
+
+fn render_unlock_text(input: &str, error: Option<&str>, caret_visible: bool) -> String {
+    let backend = TestBackend::new(60, 16);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| draw_unlock(frame, input, error, caret_visible))
+        .unwrap();
+    terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect()
+}
+
+#[test]
+fn unlock_screen_masks_passphrase_and_draws_border() {
+    let text = render_unlock_text("hunter2", None, false);
+    // Bordered fullscreen chrome with the title and hint.
+    assert!(text.contains("Unlock Journal"));
+    assert!(text.contains("enter unlock"));
+    assert!(text.contains("esc quit"));
+    // The field sits in its own bordered box titled on the top-left.
+    assert!(text.contains("Enter Password"));
+    // The raw passphrase is never echoed; one '*' per character is.
+    assert!(!text.contains("hunter2"));
+    assert!(text.contains("*******"));
+    // A standing hint sits below the field when there's no error.
+    assert!(text.contains("Enter your passphrase to unlock"));
+}
+
+#[test]
+fn unlock_screen_replaces_hint_with_error() {
+    let text = render_unlock_text("", Some("Incorrect passphrase"), true);
+    // The error takes the hint's place after a wrong passphrase.
+    assert!(text.contains("Incorrect passphrase"));
+    assert!(!text.contains("Enter your passphrase to unlock"));
+}
