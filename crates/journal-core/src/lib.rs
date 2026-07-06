@@ -1,5 +1,4 @@
-pub type JournalResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
-pub type AppResult<T> = JournalResult<T>;
+pub type AppResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 pub mod entry;
 pub mod feelings;

@@ -128,7 +128,12 @@ fn pane_target(
             let area = layout.journals?;
             let per_page =
                 render::journals_per_page(render::journal_list_rect(area.content).height);
-            (area.area, app.journals.len(), per_page, app.journal_list.offset())
+            (
+                area.area,
+                app.journals.len(),
+                per_page,
+                app.journal_list.offset(),
+            )
         }
     };
     let max_scroll = content_length.saturating_sub(viewport as usize);

@@ -1,4 +1,4 @@
-use crate::{JournalResult, JournalStore, crypto, storage};
+use crate::{AppResult, JournalStore, crypto, storage};
 use chrono::Local;
 use nanoid::nanoid;
 use std::{
@@ -27,7 +27,7 @@ enum MigrationMode<'a> {
     },
 }
 
-pub fn encrypt_store(store: &JournalStore) -> JournalResult<MigrationSummary> {
+pub fn encrypt_store(store: &JournalStore) -> AppResult<MigrationSummary> {
     let paths = store.encryption_paths();
     let migrated_files = migrate_store(
         store.paths().journal_root.as_path(),
@@ -40,7 +40,7 @@ pub fn encrypt_store(store: &JournalStore) -> JournalResult<MigrationSummary> {
 pub fn decrypt_store(
     store: &JournalStore,
     identity: &crypto::UnlockedIdentity,
-) -> JournalResult<DecryptSummary> {
+) -> AppResult<DecryptSummary> {
     let paths = store.encryption_paths();
     let migration = migrate_store(
         store.paths().journal_root.as_path(),
@@ -57,7 +57,7 @@ pub fn decrypt_store(
     })
 }
 
-pub fn store_has_encrypted_entry_files(store: &JournalStore) -> JournalResult<bool> {
+pub fn store_has_encrypted_entry_files(store: &JournalStore) -> AppResult<bool> {
     let mut has_match = false;
     collect_store_files_including_trash(store.paths().journal_root.as_path(), &mut |path| {
         if storage::is_encrypted_entry_file(path) {
@@ -73,7 +73,7 @@ struct MigrationResult {
     backup_path: Option<PathBuf>,
 }
 
-fn migrate_store(root: &Path, mode: MigrationMode<'_>) -> JournalResult<MigrationResult> {
+fn migrate_store(root: &Path, mode: MigrationMode<'_>) -> AppResult<MigrationResult> {
     let files = migration_files(root, &mode)?;
     if files.is_empty() {
         return Ok(MigrationResult {
@@ -84,7 +84,7 @@ fn migrate_store(root: &Path, mode: MigrationMode<'_>) -> JournalResult<Migratio
     ensure_no_migration_collisions(&files, &mode)?;
     let backup = backup_store(root)?;
 
-    let result = (|| -> JournalResult<()> {
+    let result = (|| -> AppResult<()> {
         for source in &files {
             match mode {
                 MigrationMode::Encrypt { paths } => encrypt_plain_entry(source, paths)?,
@@ -115,7 +115,7 @@ fn migrate_store(root: &Path, mode: MigrationMode<'_>) -> JournalResult<Migratio
     })
 }
 
-fn migration_files(root: &Path, mode: &MigrationMode<'_>) -> JournalResult<Vec<PathBuf>> {
+fn migration_files(root: &Path, mode: &MigrationMode<'_>) -> AppResult<Vec<PathBuf>> {
     let mut files = Vec::new();
     collect_store_files_including_trash(root, &mut |path| {
         let matches = match mode {
@@ -133,8 +133,8 @@ fn migration_files(root: &Path, mode: &MigrationMode<'_>) -> JournalResult<Vec<P
 
 fn collect_store_files_including_trash(
     dir: &Path,
-    visit: &mut impl FnMut(&Path) -> JournalResult<()>,
-) -> JournalResult<()> {
+    visit: &mut impl FnMut(&Path) -> AppResult<()>,
+) -> AppResult<()> {
     if !dir.exists() {
         return Ok(());
     }
@@ -155,7 +155,7 @@ fn collect_store_files_including_trash(
 fn ensure_no_migration_collisions(
     files: &[PathBuf],
     mode: &MigrationMode<'_>,
-) -> JournalResult<()> {
+) -> AppResult<()> {
     for source in files {
         let target = migration_target(source, mode)?;
         if target.exists() {
@@ -170,7 +170,7 @@ fn ensure_no_migration_collisions(
     Ok(())
 }
 
-fn encrypt_plain_entry(path: &Path, paths: &crypto::EncryptionPaths) -> JournalResult<()> {
+fn encrypt_plain_entry(path: &Path, paths: &crypto::EncryptionPaths) -> AppResult<()> {
     let target = path.with_extension("md.age");
     let temp = unique_temp_path(&target, "tmp.age");
     crypto::encrypt_file(paths, path, &temp)?;
@@ -179,7 +179,7 @@ fn encrypt_plain_entry(path: &Path, paths: &crypto::EncryptionPaths) -> JournalR
     Ok(())
 }
 
-fn decrypt_encrypted_entry(path: &Path, identity: &crypto::UnlockedIdentity) -> JournalResult<()> {
+fn decrypt_encrypted_entry(path: &Path, identity: &crypto::UnlockedIdentity) -> AppResult<()> {
     let target = decrypted_entry_path(path)?;
     let temp = unique_temp_path(&target, "tmp.md");
     crypto::decrypt_file(identity, path, &temp)?;
@@ -193,14 +193,14 @@ fn decrypt_encrypted_entry(path: &Path, identity: &crypto::UnlockedIdentity) -> 
     Ok(())
 }
 
-fn migration_target(path: &Path, mode: &MigrationMode<'_>) -> JournalResult<PathBuf> {
+fn migration_target(path: &Path, mode: &MigrationMode<'_>) -> AppResult<PathBuf> {
     match mode {
         MigrationMode::Encrypt { .. } => Ok(path.with_extension("md.age")),
         MigrationMode::Decrypt { .. } => decrypted_entry_path(path),
     }
 }
 
-fn decrypted_entry_path(path: &Path) -> JournalResult<PathBuf> {
+fn decrypted_entry_path(path: &Path) -> AppResult<PathBuf> {
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -211,7 +211,7 @@ fn decrypted_entry_path(path: &Path) -> JournalResult<PathBuf> {
     Ok(path.with_file_name(format!("{plain_name}.md")))
 }
 
-fn backup_store(root: &Path) -> JournalResult<PathBuf> {
+fn backup_store(root: &Path) -> AppResult<PathBuf> {
     let backup = backup_path(root);
     copy_dir_all(root, &backup)?;
     Ok(backup)
@@ -226,7 +226,7 @@ fn backup_path(root: &Path) -> PathBuf {
     root.with_file_name(format!("{name}.backup-{timestamp}"))
 }
 
-fn copy_dir_all(source: &Path, target: &Path) -> JournalResult<()> {
+fn copy_dir_all(source: &Path, target: &Path) -> AppResult<()> {
     fs::create_dir_all(target)?;
     for entry in fs::read_dir(source)? {
         let entry = entry?;
@@ -241,7 +241,7 @@ fn copy_dir_all(source: &Path, target: &Path) -> JournalResult<()> {
     Ok(())
 }
 
-fn disable_identity_file(paths: &crypto::EncryptionPaths) -> JournalResult<PathBuf> {
+fn disable_identity_file(paths: &crypto::EncryptionPaths) -> AppResult<PathBuf> {
     let target = disabled_identity_path(&paths.identity_file);
     fs::rename(&paths.identity_file, &target)?;
     Ok(target)

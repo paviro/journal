@@ -1142,7 +1142,12 @@ mod tests {
             scroll::scrollbar_thumb(bar, total, viewport, position).expect("thumb");
 
         // Pressing straight on the thumb grabs it and leaves the scroll untouched.
-        mouse_in_area(&mut app, mouse(down(), bar.x, thumb_top + thumb_len / 2), 120, 20);
+        mouse_in_area(
+            &mut app,
+            mouse(down(), bar.x, thumb_top + thumb_len / 2),
+            120,
+            20,
+        );
         assert_eq!(app.entry_list.offset(), before);
         assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::EntryList));
     }
@@ -1200,7 +1205,12 @@ mod tests {
         assert!(max > 0, "journals list should overflow so a bar is drawn");
 
         // Press the bottom track row → thumb jumps down.
-        mouse_in_area(&mut app, mouse(down(), bar.x, bar.y + bar.height - 2), 120, 20);
+        mouse_in_area(
+            &mut app,
+            mouse(down(), bar.x, bar.y + bar.height - 2),
+            120,
+            20,
+        );
         assert_eq!(app.scrollbar_drag, Some(ScrollbarDrag::Journals));
         assert!(app.journal_list.offset() > 0);
     }

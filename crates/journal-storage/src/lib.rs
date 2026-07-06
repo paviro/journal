@@ -9,8 +9,8 @@ mod migrate;
 mod storage;
 
 pub use journal_core::{
-    AppResult, Entry, EntryEncryptionState, EntryMetadata, EntryPath, JournalResult, SearchHit,
-    SearchScopeFilter, search_loaded_entries,
+    AppResult, Entry, EntryEncryptionState, EntryMetadata, EntryPath, SearchHit, SearchScopeFilter,
+    search_loaded_entries,
 };
 pub use migrate::{DecryptSummary, MigrationSummary};
 pub use storage::{
@@ -109,7 +109,7 @@ impl JournalStore {
         }
     }
 
-    pub fn for_config(config_path: &Path, journal_root: &Path) -> JournalResult<Self> {
+    pub fn for_config(config_path: &Path, journal_root: &Path) -> AppResult<Self> {
         let paths = crypto::EncryptionPaths::for_config(config_path, journal_root)?;
         Ok(Self::new(
             journal_root,
@@ -122,7 +122,7 @@ impl JournalStore {
         &self.paths
     }
 
-    pub fn ensure(&self) -> JournalResult<()> {
+    pub fn ensure(&self) -> AppResult<()> {
         storage::ensure_store(&self.paths.journal_root)
     }
 
@@ -142,22 +142,22 @@ impl JournalStore {
         self.encryption_status().unlock_available
     }
 
-    pub fn public_recipient(&self) -> JournalResult<String> {
+    pub fn public_recipient(&self) -> AppResult<String> {
         crypto::public_recipient(&self.encryption_paths())
     }
 
-    pub fn has_encrypted_entries(&self) -> JournalResult<bool> {
+    pub fn has_encrypted_entries(&self) -> AppResult<bool> {
         migrate::store_has_encrypted_entry_files(self)
     }
 
-    pub fn initialize_encryption(&self, passphrase: &str) -> JournalResult<String> {
+    pub fn initialize_encryption(&self, passphrase: &str) -> AppResult<String> {
         crypto::generate_identity_store(&self.encryption_paths(), passphrase)
     }
 
     /// Load the age identity into this store so encrypted entries can be read
     /// and written. After this succeeds, the store transparently handles both
     /// plaintext and encrypted entries.
-    pub fn unlock(&mut self, passphrase: &str) -> JournalResult<()> {
+    pub fn unlock(&mut self, passphrase: &str) -> AppResult<()> {
         self.identity = Some(crypto::unlock_identity(
             &self.encryption_paths(),
             passphrase,
@@ -169,35 +169,35 @@ impl JournalStore {
         self.identity.is_some()
     }
 
-    pub fn list_journals(&self) -> JournalResult<Vec<Journal>> {
+    pub fn list_journals(&self) -> AppResult<Vec<Journal>> {
         storage::list_journals(&self.paths.journal_root)
     }
 
-    pub fn create_journal(&self, name: &str) -> JournalResult<Journal> {
+    pub fn create_journal(&self, name: &str) -> AppResult<Journal> {
         storage::create_journal(&self.paths.journal_root, name)
     }
 
-    pub fn validate_journal_name(name: &str) -> JournalResult<String> {
+    pub fn validate_journal_name(name: &str) -> AppResult<String> {
         storage::validate_journal_name(name)
     }
 
-    pub fn collect_entry_paths(&self) -> JournalResult<Vec<EntryPath>> {
+    pub fn collect_entry_paths(&self) -> AppResult<Vec<EntryPath>> {
         storage::collect_entry_paths(&self.paths.journal_root)
     }
 
-    pub fn read_entries(&self, paths: Vec<EntryPath>) -> JournalResult<Vec<Entry>> {
+    pub fn read_entries(&self, paths: Vec<EntryPath>) -> AppResult<Vec<Entry>> {
         storage::read_entries(paths, self.identity.as_ref())
     }
 
-    pub fn scan_entries(&self) -> JournalResult<Vec<Entry>> {
+    pub fn scan_entries(&self) -> AppResult<Vec<Entry>> {
         storage::scan_entries_with_identity(&self.paths.journal_root, self.identity.as_ref())
     }
 
-    pub fn read_entry(&self, journal: &str, path: &Path) -> JournalResult<Entry> {
+    pub fn read_entry(&self, journal: &str, path: &Path) -> AppResult<Entry> {
         storage::read_entry_with_identity(journal, path, self.identity.as_ref())
     }
 
-    pub fn read_entry_content(&self, path: &Path) -> JournalResult<String> {
+    pub fn read_entry_content(&self, path: &Path) -> AppResult<String> {
         storage::read_entry_content_with_identity(path, self.identity.as_ref())
     }
 
@@ -206,7 +206,7 @@ impl JournalStore {
         journal: &str,
         body: &str,
         metadata: EntryMetadata<'_>,
-    ) -> JournalResult<PathBuf> {
+    ) -> AppResult<PathBuf> {
         storage::create_entry(
             &self.entry_codec(),
             &self.paths.journal_root,
@@ -228,7 +228,7 @@ impl JournalStore {
         created_at: chrono::DateTime<chrono::Local>,
         updated_at: chrono::DateTime<chrono::Local>,
         import_id: &str,
-    ) -> JournalResult<PathBuf> {
+    ) -> AppResult<PathBuf> {
         storage::create_imported_entry(
             &self.entry_codec(),
             &self.paths.journal_root,
@@ -247,8 +247,8 @@ impl JournalStore {
         &self,
         journal: &str,
         metadata: EntryMetadata<'_>,
-        edit: impl FnOnce(&str) -> JournalResult<Option<String>>,
-    ) -> JournalResult<Option<PathBuf>> {
+        edit: impl FnOnce(&str) -> AppResult<Option<String>>,
+    ) -> AppResult<Option<PathBuf>> {
         let Some(body) = edit("")? else {
             return Ok(None);
         };
@@ -265,8 +265,8 @@ impl JournalStore {
         &self,
         path: &Path,
         remove_if_empty: bool,
-        edit: impl FnOnce(&str) -> JournalResult<Option<String>>,
-    ) -> JournalResult<bool> {
+        edit: impl FnOnce(&str) -> AppResult<Option<String>>,
+    ) -> AppResult<bool> {
         storage::edit_entry_body(&self.entry_codec(), path, remove_if_empty, edit)
     }
 
@@ -281,7 +281,7 @@ impl JournalStore {
         journal_name: &str,
         journal_path: &Path,
         entries: &[(PathBuf, bool)],
-    ) -> JournalResult<()> {
+    ) -> AppResult<()> {
         storage::delete_journal(
             &self.paths.journal_root,
             journal_name,
@@ -290,39 +290,39 @@ impl JournalStore {
         )
     }
 
-    pub fn move_entry_to_trash(&self, entry_path: &Path) -> JournalResult<PathBuf> {
+    pub fn move_entry_to_trash(&self, entry_path: &Path) -> AppResult<PathBuf> {
         storage::move_entry_to_trash(&self.paths.journal_root, entry_path)
     }
 
-    pub fn delete_empty_entry(&self, path: &Path) -> JournalResult<()> {
+    pub fn delete_empty_entry(&self, path: &Path) -> AppResult<()> {
         storage::delete_empty_entry(path)
     }
 
-    pub fn set_entry_tags(&self, path: &Path, tags: &[String]) -> JournalResult<()> {
+    pub fn set_entry_tags(&self, path: &Path, tags: &[String]) -> AppResult<()> {
         self.update_entry_metadata(path, |content| {
             markdown::set_tags_in_front_matter(content, tags)
         })
     }
 
-    pub fn set_entry_people(&self, path: &Path, people: &[String]) -> JournalResult<()> {
+    pub fn set_entry_people(&self, path: &Path, people: &[String]) -> AppResult<()> {
         self.update_entry_metadata(path, |content| {
             markdown::set_people_in_front_matter(content, people)
         })
     }
 
-    pub fn set_entry_activities(&self, path: &Path, activities: &[String]) -> JournalResult<()> {
+    pub fn set_entry_activities(&self, path: &Path, activities: &[String]) -> AppResult<()> {
         self.update_entry_metadata(path, |content| {
             markdown::set_activities_in_front_matter(content, activities)
         })
     }
 
-    pub fn set_entry_feelings(&self, path: &Path, feelings: &[String]) -> JournalResult<()> {
+    pub fn set_entry_feelings(&self, path: &Path, feelings: &[String]) -> AppResult<()> {
         self.update_entry_metadata(path, |content| {
             markdown::set_feelings_in_front_matter(content, feelings)
         })
     }
 
-    pub fn set_entry_mood(&self, path: &Path, mood: Option<i8>) -> JournalResult<()> {
+    pub fn set_entry_mood(&self, path: &Path, mood: Option<i8>) -> AppResult<()> {
         self.update_entry_metadata(path, |content| {
             markdown::set_mood_in_front_matter(content, mood)
         })
@@ -332,7 +332,7 @@ impl JournalStore {
         &self,
         path: &Path,
         update: impl FnOnce(&str) -> Option<String>,
-    ) -> JournalResult<()> {
+    ) -> AppResult<()> {
         let codec = self.entry_codec();
         let content = codec.read(path)?;
         let Some(new_content) = update(&content) else {
@@ -351,7 +351,7 @@ impl JournalStore {
         path: &Path,
         download_remote: bool,
         replace_offline: bool,
-    ) -> JournalResult<storage::AssetReport> {
+    ) -> AppResult<storage::AssetReport> {
         let encrypted = storage::is_encrypted_entry_file(path);
         if encrypted && self.identity.is_none() {
             return Ok(storage::AssetReport::default());
@@ -393,7 +393,7 @@ impl JournalStore {
         &self,
         entry_path: &Path,
         file_name: &str,
-    ) -> JournalResult<Option<Vec<u8>>> {
+    ) -> AppResult<Option<Vec<u8>>> {
         let Some(path) = storage::resolve_entry_asset_path(entry_path, file_name)? else {
             return Ok(None);
         };
@@ -408,7 +408,7 @@ impl JournalStore {
         }
     }
 
-    pub fn decrypt_store(&self) -> JournalResult<migrate::DecryptSummary> {
+    pub fn decrypt_store(&self) -> AppResult<migrate::DecryptSummary> {
         let identity = self
             .identity
             .as_ref()
@@ -416,7 +416,7 @@ impl JournalStore {
         migrate::decrypt_store(self, identity)
     }
 
-    pub fn encrypt_store(&self) -> JournalResult<migrate::MigrationSummary> {
+    pub fn encrypt_store(&self) -> AppResult<migrate::MigrationSummary> {
         if !self.encryption_enabled() && migrate::store_has_encrypted_entry_files(self)? {
             return Err(format!(
                 "encrypted entries already exist but recipients file is missing at {}; cannot safely continue encryption",

@@ -61,7 +61,10 @@ pub(crate) fn scrollbar_thumb(
         .round()
         .clamp(0.0, track) as u16;
     let thumb_len = thumb_end.saturating_sub(thumb_start).max(1);
-    Some((bar.y.saturating_add(1).saturating_add(thumb_start), thumb_len))
+    Some((
+        bar.y.saturating_add(1).saturating_add(thumb_start),
+        thumb_len,
+    ))
 }
 
 /// Map a desired thumb-top row to a scroll offset — the inverse of the thumb
