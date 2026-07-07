@@ -142,7 +142,8 @@ fn interactive_setup(config_path: &Path) -> AppResult<Config> {
     io::stdin().read_line(&mut encryption_input)?;
 
     let config = Config::new(journal_root, editor);
-    if matches!(encryption_input.trim(), "y" | "Y" | "yes" | "YES" | "Yes") {
+    let encryption_enabled = matches!(encryption_input.trim(), "y" | "Y" | "yes" | "YES" | "Yes");
+    if encryption_enabled {
         writeln!(
             stdout,
             "Generating a passphrase-protected journal age identity."
@@ -159,6 +160,16 @@ fn interactive_setup(config_path: &Path) -> AppResult<Config> {
 
     save_config(config_path, &config)?;
     JournalStore::for_config(config_path, &config.journal_root)?.ensure()?;
+
+    // The TUI enters the alternate screen and wipes this output, so hold here
+    // until the user has read the identity-backup warning before opening it.
+    if encryption_enabled {
+        write!(stdout, "\nPress Enter to open your journal…")?;
+        stdout.flush()?;
+        let mut ack = String::new();
+        io::stdin().read_line(&mut ack)?;
+    }
+
     Ok(config)
 }
 
