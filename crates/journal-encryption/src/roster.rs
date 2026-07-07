@@ -51,13 +51,13 @@ const DOMAIN: &[u8] = b"journal.roster.v1";
 
 /// The kind of a roster operation. Serializes to the lowercase variant name, and
 /// its [`OpKind::as_bytes`] feeds the signed op bytes — so the wire strings must
-/// stay `genesis`/`add`/`remove`/`rename` for existing rosters to keep verifying.
+/// stay `genesis`/`add`/`revoke`/`rename` for existing rosters to keep verifying.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OpKind {
     Genesis,
     Add,
-    Remove,
+    Revoke,
     Rename,
 }
 
@@ -66,7 +66,7 @@ impl OpKind {
         match self {
             OpKind::Genesis => b"genesis",
             OpKind::Add => b"add",
-            OpKind::Remove => b"remove",
+            OpKind::Revoke => b"revoke",
             OpKind::Rename => b"rename",
         }
     }
@@ -214,7 +214,7 @@ pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
                     trusted.push(op.sign.clone());
                 }
             }
-            OpKind::Remove => {
+            OpKind::Revoke => {
                 recipients.retain(|r| r.key != op.key);
                 trusted.retain(|key| key != &op.sign);
             }

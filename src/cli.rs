@@ -83,8 +83,8 @@ enum DeviceCommand {
     Enroll(NewIdentityArgs),
     /// List the devices that can read this journal, plus pending requests
     List,
-    /// Remove a device and re-encrypt all entries to exclude it
-    Remove {
+    /// Revoke a device and re-encrypt all entries to exclude it
+    Revoke {
         #[arg(value_name = "NAME")]
         name: String,
         #[command(flatten)]
@@ -264,7 +264,7 @@ fn handle_device_command(cli: &Cli, command: &DeviceCommand) -> AppResult<()> {
     match command {
         DeviceCommand::Enroll(args) => device_enroll_command(cli, args),
         DeviceCommand::List => device_list_command(cli),
-        DeviceCommand::Remove { name, confirm } => device_remove_command(cli, name, confirm.yes),
+        DeviceCommand::Revoke { name, confirm } => device_revoke_command(cli, name, confirm.yes),
         DeviceCommand::Rename { old, new } => device_rename_command(cli, old, new),
         DeviceCommand::Approve(args) => device_approve_command(cli, args),
         DeviceCommand::Reject(args) => device_reject_command(cli, args),
@@ -449,18 +449,18 @@ fn device_list_command(cli: &Cli) -> AppResult<()> {
     Ok(())
 }
 
-fn device_remove_command(cli: &Cli, name: &str, skip_confirm: bool) -> AppResult<()> {
+fn device_revoke_command(cli: &Cli, name: &str, skip_confirm: bool) -> AppResult<()> {
     if !prompts::confirm(
-        &format!("Remove '{name}' and re-encrypt all entries to exclude it?"),
+        &format!("Revoke '{name}' and re-encrypt all entries to exclude it?"),
         skip_confirm,
     )? {
         println!("Aborted.");
         return Ok(());
     }
     let store = open_unlocked_store(cli)?;
-    let summary = store.remove_recipient(name, encryption_cli::cli_progress())?;
+    let summary = store.revoke_recipient(name, encryption_cli::cli_progress())?;
     println!(
-        "Removed '{name}' and re-encrypted {} file(s).",
+        "Revoked '{name}' and re-encrypted {} file(s).",
         summary.migrated_files
     );
     println!("Revocation is forward-only: entries that device already synced stay readable to it.");

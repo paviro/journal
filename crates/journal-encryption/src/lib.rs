@@ -479,18 +479,18 @@ pub fn add_recipient(
     append_op(paths, signer, roster::OpKind::Add, recipient)
 }
 
-/// Append a signed `remove` op for the recipient named `name`, authorized by
-/// `signer`. Refuses to remove the last recipient, which would leave the store
+/// Append a signed `revoke` op for the recipient named `name`, authorized by
+/// `signer`. Refuses to revoke the last recipient, which would leave the store
 /// impossible to re-encrypt.
-pub fn remove_recipient(paths: &KeyPaths, signer: &UnlockedIdentity, name: &str) -> Result<()> {
+pub fn revoke_recipient(paths: &KeyPaths, signer: &UnlockedIdentity, name: &str) -> Result<()> {
     let recipients = read_recipients(paths)?;
     let Some(target) = recipients.iter().find(|r| r.name == name) else {
         return Err(format!("no recipient named '{name}'").into());
     };
     if recipients.len() == 1 {
-        return Err("cannot remove the last recipient; the store would become unreadable".into());
+        return Err("cannot revoke the last recipient; the store would become unreadable".into());
     }
-    append_op(paths, signer, roster::OpKind::Remove, target)
+    append_op(paths, signer, roster::OpKind::Revoke, target)
 }
 
 /// Append a signed `rename` op relabelling a recipient, authorized by `signer`.
@@ -645,7 +645,7 @@ pub fn commit_rotated_identity(
     write_stored_identity(paths, &recipient.name, identity, passphrase)
 }
 
-/// Append a signed `remove` op retiring the old key (the final step of a
+/// Append a signed `revoke` op retiring the old key (the final step of a
 /// rotation, after every entry has been re-encrypted to the new key). Authorized
 /// by `signer` — the freshly rotated identity, which is now a trusted recipient.
 pub fn drop_old_recipient(
@@ -657,7 +657,7 @@ pub fn drop_old_recipient(
     let Some(target) = recipients.iter().find(|recipient| recipient.key == old_key) else {
         return Ok(());
     };
-    append_op(paths, signer, roster::OpKind::Remove, target)
+    append_op(paths, signer, roster::OpKind::Revoke, target)
 }
 
 fn create_device_identity(
@@ -1049,13 +1049,13 @@ mod tests {
     }
 
     #[test]
-    fn remove_recipient_refuses_the_last_one() {
+    fn revoke_recipient_refuses_the_last_one() {
         let dir = tempdir().unwrap();
         let paths = paths_in(dir.path());
         initialize_store_identity(&paths, "laptop", Some(&SecretString::from("pw"))).unwrap();
         let identity = unlock_identity(&paths, Some(&SecretString::from("pw"))).unwrap();
 
-        assert!(remove_recipient(&paths, &identity, "laptop").is_err());
+        assert!(revoke_recipient(&paths, &identity, "laptop").is_err());
     }
 
     #[test]

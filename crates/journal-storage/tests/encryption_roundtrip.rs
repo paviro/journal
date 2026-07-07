@@ -257,9 +257,9 @@ fn revoked_device_retires_its_identity_but_keeps_trust_pins() {
     assert!(phone_identity.exists());
     assert!(phone_trust.exists());
 
-    // Laptop removes the phone: the store stays encrypted (for the laptop) but
+    // Laptop revokes the phone: the store stays encrypted (for the laptop) but
     // the phone is no longer a recipient.
-    laptop.remove_recipient("phone", |_, _| {}).unwrap();
+    laptop.revoke_recipient("phone", |_, _| {}).unwrap();
     assert!(journals.join(".age").join("devices.toml").exists());
 
     // The phone reopens, is not a recipient, and has nothing queued — the caller
@@ -332,7 +332,7 @@ fn remote_disable_reconcile_holds_off_while_entries_are_still_encrypted() {
 }
 
 #[test]
-fn remove_recipient_refuses_own_device_even_after_rename() {
+fn revoke_recipient_refuses_own_device_even_after_rename() {
     let dir = tempfile::tempdir().unwrap();
     let mut laptop = store_at(dir.path());
     laptop.ensure().unwrap();
@@ -351,7 +351,7 @@ fn remove_recipient_refuses_own_device_even_after_rename() {
     // name-based guard would be bypassed here.
     laptop.rename_recipient("laptop", "renamed").unwrap();
 
-    let error = laptop.remove_recipient("renamed", |_, _| {}).unwrap_err();
+    let error = laptop.revoke_recipient("renamed", |_, _| {}).unwrap_err();
     assert!(error.to_string().contains("own recipient"));
     // Not locked out: still a current recipient.
     assert!(laptop.is_current_recipient().unwrap());

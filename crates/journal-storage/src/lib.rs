@@ -321,15 +321,15 @@ impl JournalStore {
         Ok(summary)
     }
 
-    /// Remove the recipient named `name` and re-encrypt every entry to exclude
-    /// it. Revocation is forward-only — entries the removed device already synced
+    /// Revoke the recipient named `name` and re-encrypt every entry to exclude
+    /// it. Revocation is forward-only — entries the revoked device already synced
     /// stay readable to it. Requires an unlocked identity.
-    pub fn remove_recipient(
+    pub fn revoke_recipient(
         &self,
         name: &str,
         mut progress: impl FnMut(usize, usize),
     ) -> AppResult<MigrationSummary> {
-        let identity = self.require_reencrypt_identity("remove-recipient")?;
+        let identity = self.require_reencrypt_identity("revoke-recipient")?;
         // Match on the key, not the name: a device that was renamed still stores
         // its old name locally, so a name check could be sidestepped by renaming
         // first and would then re-encrypt this device out of its own history.
@@ -339,10 +339,10 @@ impl JournalStore {
             .iter()
             .any(|recipient| recipient.name == name && recipient.key == own_key)
         {
-            return Err("refusing to remove this device's own recipient".into());
+            return Err("refusing to revoke this device's own recipient".into());
         }
         let summary = migrate::atomic(self, || {
-            crypto::remove_recipient(&self.paths.keys, identity, name)?;
+            crypto::revoke_recipient(&self.paths.keys, identity, name)?;
             migrate::reencrypt_store(self, identity, &mut progress)
         })?;
         crypto::advance_trust_pins(&self.paths.keys)?;

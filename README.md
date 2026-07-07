@@ -232,15 +232,15 @@ request.
 ```bash
 journal encryption device list                 # trusted devices + pending requests
 journal encryption device rename OLD NEW        # relabel a device (no re-encryption)
-journal encryption device remove <name>         # revoke a device and re-encrypt without it
+journal encryption device revoke <name>         # revoke a device and re-encrypt without it
 journal encryption device rotate                # replace this device's key, retire the old one
 journal encryption device passphrase            # add / change this device's key passphrase
 journal encryption device passphrase --remove   # store the key unprotected
 ```
 
-Removal is **forward-only**: re-encryption excludes the removed device from
+Revocation is **forward-only**: re-encryption excludes the revoked device from
 future entries, but any entries it already synced remain readable to it. Rotate
-a device's key (or remove and re-enroll) if you suspect its key was exposed.
+a device's key (or revoke and re-enroll) if you suspect its key was exposed.
 
 If encryption is disabled on one device (`journal encryption disable`), the
 other devices notice on next launch, retire their local key material, and fall
