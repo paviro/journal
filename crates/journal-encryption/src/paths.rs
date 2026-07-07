@@ -12,7 +12,7 @@ pub struct KeyPaths {
     pub age_dir: PathBuf,
     /// The signed, append-only device roster (`<root>/.age/devices.toml`).
     pub devices_file: PathBuf,
-    /// This device's private age identity (`identity.age`), never synced.
+    /// This device's private key material (`identity.toml`), never synced.
     pub identity_file: PathBuf,
     /// This device's local trust pins for the roster (genesis + last-seen head).
     /// Sits next to the identity, never synced, so a sync-folder attacker can't
@@ -27,7 +27,7 @@ impl KeyPaths {
         let config_dir = config_dir.as_ref();
         Self {
             devices_file: age_dir.join("devices.toml"),
-            identity_file: config_dir.join("identity.age"),
+            identity_file: config_dir.join("identity.toml"),
             trust_file: config_dir.join("devices-trust.toml"),
             age_dir,
         }

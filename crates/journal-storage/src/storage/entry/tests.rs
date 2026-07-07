@@ -77,7 +77,7 @@ fn create_entry_with_body_writes_body_after_front_matter() {
     let fields = crate::markdown::front_matter_fields(front_matter.unwrap());
 
     assert!(fields.created_at.is_some());
-    assert!(fields.updated_at.is_some());
+    assert!(fields.edited_at.is_some());
     assert!(fields.metadata.tags.is_empty());
     assert_eq!(body.trim_start_matches('\n'), "Some text\n");
 }

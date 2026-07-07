@@ -90,7 +90,7 @@ pub fn import_dayone(
                 .push(format!("{}: missing or invalid creationDate", entry.uuid));
             continue;
         };
-        let updated_at = entry
+        let edited_at = entry
             .modified_date
             .as_deref()
             .and_then(parse_entry_timestamp)
@@ -123,7 +123,7 @@ pub fn import_dayone(
             &rewrite.body,
             &metadata,
             created_at,
-            updated_at,
+            edited_at,
             &import_id,
         )?;
         // Replace un-fetchable images with a placeholder only when we actually

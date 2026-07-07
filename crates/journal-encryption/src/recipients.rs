@@ -16,9 +16,9 @@ use std::str::FromStr;
 pub struct Recipient {
     pub name: String,
     /// The age (X25519) recipient public key, `age1…`.
-    pub key: String,
+    pub enc_key: String,
     /// The device's signing public key, `ed25519:<hex>`.
-    pub sign: String,
+    pub sign_key: String,
 }
 
 impl Recipient {
@@ -26,7 +26,7 @@ impl Recipient {
     /// encryption and signing keys — shown at approval time for an out-of-band
     /// check against what the joining device displays.
     pub fn fingerprint(&self) -> String {
-        roster::fingerprint(&self.key, &self.sign)
+        roster::fingerprint(&self.enc_key, &self.sign_key)
     }
 }
 
@@ -72,7 +72,11 @@ fn verified_roster(paths: &KeyPaths) -> Result<roster::Verified> {
 /// or observed, so a later rollback below this point is detectable.
 pub fn advance_trust_pins(paths: &KeyPaths) -> Result<()> {
     let verified = verified_roster(paths)?;
-    roster::write_pins(&paths.trust_file, &verified.genesis, &verified.head)
+    roster::write_pins(
+        &paths.trust_file,
+        &verified.genesis_hash,
+        &verified.head_hash,
+    )
 }
 
 /// Best-effort pin refresh: pins the genesis+head on first valid sight (trust on
@@ -83,7 +87,11 @@ pub(crate) fn refresh_trust_pins(paths: &KeyPaths) {
     if paths.devices_file.exists()
         && let Ok(verified) = verified_roster(paths)
     {
-        let _ = roster::write_pins(&paths.trust_file, &verified.genesis, &verified.head);
+        let _ = roster::write_pins(
+            &paths.trust_file,
+            &verified.genesis_hash,
+            &verified.head_hash,
+        );
     }
 }
 
@@ -97,7 +105,7 @@ pub fn add_recipient(
 ) -> Result<()> {
     validate_recipient(recipient)?;
     let recipients = read_recipients(paths)?;
-    if recipients.iter().any(|r| r.key == recipient.key) {
+    if recipients.iter().any(|r| r.enc_key == recipient.enc_key) {
         return Err(EncryptionError::RecipientExists {
             name: recipient.name.clone(),
         });
@@ -150,8 +158,8 @@ pub fn rename_recipient(
     };
     let relabelled = Recipient {
         name: new.to_string(),
-        key: target.key.clone(),
-        sign: target.sign.clone(),
+        enc_key: target.enc_key.clone(),
+        sign_key: target.sign_key.clone(),
     };
     append_op(paths, signer, roster::OpKind::Rename, &relabelled)
 }
@@ -163,7 +171,7 @@ pub fn identity_is_recipient(paths: &KeyPaths, identity: &UnlockedIdentity) -> R
     let own = identity.public_key();
     Ok(read_recipients(paths)?
         .iter()
-        .any(|recipient| recipient.key == own))
+        .any(|recipient| recipient.enc_key == own))
 }
 
 /// Generate a fresh age *and* signing keypair for this device and append a signed
@@ -178,7 +186,10 @@ pub fn rotate_add_new_key(
 ) -> Result<(Recipient, UnlockedIdentity)> {
     let old_key = old.public_key();
     let recipients = read_recipients(paths)?;
-    let Some(existing) = recipients.iter().find(|recipient| recipient.key == old_key) else {
+    let Some(existing) = recipients
+        .iter()
+        .find(|recipient| recipient.enc_key == old_key)
+    else {
         return Err(EncryptionError::NotARecipient);
     };
 
@@ -188,8 +199,8 @@ pub fn rotate_add_new_key(
     };
     let recipient = Recipient {
         name: existing.name.clone(),
-        key: new_identity.public_key(),
-        sign: new_identity.signing_public(),
+        enc_key: new_identity.public_key(),
+        sign_key: new_identity.signing_public(),
     };
     // Signed by the old key, which is trusted until it's dropped below.
     append_op(paths, old, roster::OpKind::Add, &recipient)?;
@@ -216,7 +227,10 @@ pub fn drop_old_recipient(
     old_key: &str,
 ) -> Result<()> {
     let recipients = read_recipients(paths)?;
-    let Some(target) = recipients.iter().find(|recipient| recipient.key == old_key) else {
+    let Some(target) = recipients
+        .iter()
+        .find(|recipient| recipient.enc_key == old_key)
+    else {
         return Ok(());
     };
     append_op(paths, signer, roster::OpKind::Revoke, target)
@@ -225,14 +239,14 @@ pub fn drop_old_recipient(
 /// Validate that a recipient carries a well-formed age recipient and Ed25519
 /// signing key before it's admitted to the roster.
 fn validate_recipient(recipient: &Recipient) -> Result<()> {
-    if x25519::Recipient::from_str(&recipient.key).is_err() {
+    if x25519::Recipient::from_str(&recipient.enc_key).is_err() {
         return Err(EncryptionError::InvalidRecipientKey {
-            key: recipient.key.clone(),
+            key: recipient.enc_key.clone(),
         });
     }
-    if parse_signing_public(&recipient.sign).is_none() {
+    if parse_signing_public(&recipient.sign_key).is_none() {
         return Err(EncryptionError::InvalidSigningKey {
-            key: recipient.sign.clone(),
+            key: recipient.sign_key.clone(),
         });
     }
     Ok(())
@@ -251,8 +265,8 @@ fn append_op(
         &paths.devices_file,
         kind,
         &subject.name,
-        &subject.key,
-        &subject.sign,
+        &subject.enc_key,
+        &subject.sign_key,
         &signer_pub,
         |bytes| sign_bytes(&signer.signing, bytes),
     )?;

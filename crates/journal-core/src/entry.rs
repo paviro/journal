@@ -66,7 +66,7 @@ pub struct Entry {
     pub path: PathBuf,
     pub encryption_state: EntryEncryptionState,
     pub created_at: Option<Timestamp>,
-    pub updated_at: Option<String>,
+    pub edited_at: Option<String>,
     pub preview: String,
     pub metadata: Metadata,
     /// Provenance of an imported entry, e.g. `"dayone:<UUID>"`. `None` for

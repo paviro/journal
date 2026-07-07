@@ -48,9 +48,9 @@ fn recipient_keys(recipients: &[Recipient]) -> Result<Vec<x25519::Recipient>> {
     recipients
         .iter()
         .map(|recipient| {
-            x25519::Recipient::from_str(&recipient.key).map_err(|_| {
+            x25519::Recipient::from_str(&recipient.enc_key).map_err(|_| {
                 EncryptionError::InvalidRecipientKey {
-                    key: recipient.key.clone(),
+                    key: recipient.enc_key.clone(),
                 }
             })
         })

@@ -17,8 +17,6 @@ pub struct Config {
     pub show_hints: bool,
     #[serde(default = "default_true")]
     pub show_journals: bool,
-    #[serde(default)]
-    pub last_journal: Option<String>,
     #[serde(default = "default_true")]
     pub download_remote_images: bool,
 }
@@ -35,10 +33,20 @@ impl Config {
             default_journal: None,
             show_hints: true,
             show_journals: true,
-            last_journal: None,
             download_remote_images: true,
         }
     }
+}
+
+/// Per-device, machine-written UI state kept next to `config.toml` in `state.toml`
+/// (never synced). Separated from [`Config`] so the user's hand-edited settings
+/// stay free of values the app rewrites on its own — and so the file has room to
+/// grow as more session state is remembered.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct State {
+    /// The journal selected when the TUI last exited, restored on next launch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_journal: Option<String>,
 }
 
 pub fn default_config_path() -> AppResult<PathBuf> {
@@ -60,12 +68,36 @@ pub fn load_config(path: &Path) -> AppResult<Config> {
 }
 
 pub fn save_config(path: &Path, config: &Config) -> AppResult<()> {
+    write_toml_atomic(path, &toml::to_string_pretty(config)?)
+}
+
+/// The device's `state.toml`, kept beside `config.toml` in the same directory.
+pub fn state_path(config_path: &Path) -> PathBuf {
+    config_path.with_file_name("state.toml")
+}
+
+/// Load this device's UI state, defaulting when `state.toml` doesn't exist yet.
+pub fn load_state(config_path: &Path) -> AppResult<State> {
+    let path = state_path(config_path);
+    if !path.exists() {
+        return Ok(State::default());
+    }
+    Ok(toml::from_str(&fs::read_to_string(&path)?)?)
+}
+
+pub fn save_state(config_path: &Path, state: &State) -> AppResult<()> {
+    write_toml_atomic(&state_path(config_path), &toml::to_string_pretty(state)?)
+}
+
+/// Write `text` to `path` atomically: a same-directory temp file plus a rename, so
+/// a crash mid-write leaves the previous file intact rather than a truncated one.
+fn write_toml_atomic(path: &Path, text: &str) -> AppResult<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-
-    let text = toml::to_string_pretty(config)?;
-    fs::write(path, text)?;
+    let temp = path.with_extension("toml.tmp");
+    fs::write(&temp, text)?;
+    fs::rename(&temp, path)?;
     Ok(())
 }
 
@@ -220,7 +252,7 @@ fn offer_encryption(stdout: &mut impl Write, store: &JournalStore) -> AppResult<
     store.initialize_encryption(&device_name, passphrase.as_ref())?;
     writeln!(
         stdout,
-        "Age identity: {}. Back it up; without it encrypted journal files cannot be decrypted.",
+        "Identity file: {}. Back it up; without it encrypted journal files cannot be decrypted.",
         store.paths().keys.identity_file.display()
     )?;
     if passphrase.is_none() {
@@ -314,7 +346,6 @@ mod tests {
         let mut config = Config::new(dir.path().join("root"), "vim");
         config.default_journal = Some("work".to_string());
         config.show_journals = false;
-        config.last_journal = Some("home".to_string());
         config.download_remote_images = false;
 
         save_config(&path, &config).unwrap();
@@ -332,7 +363,23 @@ mod tests {
         let config = load_config(&path).unwrap();
 
         assert!(config.show_journals);
-        assert_eq!(config.last_journal, None);
         assert!(config.download_remote_images);
+    }
+
+    #[test]
+    fn save_and_load_state_round_trips_and_defaults_when_missing() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+
+        // Missing state.toml loads as the default (no journal remembered).
+        assert_eq!(load_state(&config_path).unwrap(), State::default());
+
+        let state = State {
+            last_journal: Some("home".to_string()),
+        };
+        save_state(&config_path, &state).unwrap();
+
+        assert_eq!(state_path(&config_path), dir.path().join("state.toml"));
+        assert_eq!(load_state(&config_path).unwrap(), state);
     }
 }

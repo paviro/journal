@@ -41,7 +41,7 @@ pub struct DeviceIdentityInfo {
 }
 
 /// The secret key material for a device, serialized inside the (optionally
-/// scrypt-wrapped) `identity.age`: the age private key and the Ed25519 signing
+/// scrypt-wrapped) `identity.toml`: the age private key and the Ed25519 signing
 /// seed. Kept together so both are protected by the same passphrase choice.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -54,8 +54,9 @@ struct SecretBundle {
 /// on-disk file carries exactly one of the two forms; this enum makes that
 /// either/or explicit in memory (see [`StoredIdentityWire`]).
 enum KeyMaterial {
-    /// scrypt-wrapped bundle, opened with a passphrase.
-    Encrypted(Vec<u8>),
+    /// scrypt-wrapped bundle as age ASCII armor, opened with a passphrase. The
+    /// armor is a standalone age file, so recovery is possible with the `age` CLI.
+    Encrypted(Zeroizing<String>),
     /// plaintext bundle, stored mode 0600 and opened without a passphrase.
     Plain(Zeroizing<String>),
 }
@@ -70,25 +71,26 @@ struct StoredIdentity {
     key: KeyMaterial,
 }
 
-/// The on-disk shape of `identity.age`: `device_name` plus exactly one of the
-/// scrypt-wrapped or plaintext key fields. Kept as the wire form so the file
-/// layout is unchanged; [`StoredIdentity`] is the validated in-memory view.
+/// The on-disk shape of `identity.toml`: `device_name` plus exactly one of the
+/// scrypt-wrapped or plaintext key fields. `encrypted_keys` holds age ASCII armor
+/// so the secret is recoverable with the `age` CLI; [`StoredIdentity`] is the
+/// validated in-memory view.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredIdentityWire {
     device_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    encrypted_identity: Option<Vec<u8>>,
+    encrypted_keys: Option<Zeroizing<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    plain_identity: Option<Zeroizing<String>>,
+    plain_keys: Option<Zeroizing<String>>,
 }
 
 impl TryFrom<StoredIdentityWire> for StoredIdentity {
     type Error = &'static str;
 
     fn try_from(wire: StoredIdentityWire) -> std::result::Result<Self, Self::Error> {
-        let key = match (wire.encrypted_identity, wire.plain_identity) {
-            (Some(blob), None) => KeyMaterial::Encrypted(blob),
+        let key = match (wire.encrypted_keys, wire.plain_keys) {
+            (Some(armor), None) => KeyMaterial::Encrypted(armor),
             (None, Some(plain)) => KeyMaterial::Plain(plain),
             (Some(_), Some(_)) => {
                 return Err("journal identity file has both encrypted and plaintext key material");
@@ -188,8 +190,8 @@ pub(crate) fn create_device_identity(
     };
     let recipient = Recipient {
         name: name.to_string(),
-        key: identity.public_key(),
-        sign: identity.signing_public(),
+        enc_key: identity.public_key(),
+        sign_key: identity.signing_public(),
     };
     write_stored_identity(paths, name, &identity, passphrase)?;
     Ok((recipient, identity))
@@ -213,7 +215,7 @@ pub(crate) fn write_stored_identity(
         ed25519: Zeroizing::new(hex::encode(identity.signing.to_bytes())),
     };
     let bundle_toml = Zeroizing::new(toml::to_string(&bundle)?);
-    let (encrypted_identity, plain_identity) = match passphrase {
+    let (encrypted_keys, plain_keys) = match passphrase {
         Some(passphrase) => (
             Some(encrypt_secret(bundle_toml.as_bytes(), passphrase)?),
             None,
@@ -222,8 +224,8 @@ pub(crate) fn write_stored_identity(
     };
     let stored = StoredIdentityWire {
         device_name: name.to_string(),
-        encrypted_identity,
-        plain_identity,
+        encrypted_keys,
+        plain_keys,
     };
     // The serialized document carries the plaintext key bundle in the
     // no-passphrase case; zeroize the buffer once it's on disk.
@@ -239,10 +241,13 @@ fn decrypt_identity(
     // The decrypted secret bundle lives in this string; zeroize it on drop so it
     // doesn't linger in freed heap after we parse it into keys.
     let bundle_toml: Zeroizing<String> = match &stored.key {
-        KeyMaterial::Encrypted(blob) => {
+        KeyMaterial::Encrypted(armor) => {
             let passphrase = passphrase.ok_or(EncryptionError::PassphraseRequired)?;
             let identity = age::scrypt::Identity::new(passphrase.clone());
-            Zeroizing::new(String::from_utf8(age::decrypt(&identity, blob)?)?)
+            Zeroizing::new(String::from_utf8(age::decrypt(
+                &identity,
+                armor.as_bytes(),
+            )?)?)
         }
         KeyMaterial::Plain(plain) => plain.clone(),
     };
@@ -262,7 +267,9 @@ fn read_stored_identity(path: &Path) -> Result<StoredIdentity> {
     Ok(toml::from_str(&fs::read_to_string(path)?)?)
 }
 
-fn encrypt_secret(plaintext: &[u8], passphrase: &SecretString) -> Result<Vec<u8>> {
+fn encrypt_secret(plaintext: &[u8], passphrase: &SecretString) -> Result<Zeroizing<String>> {
     let recipient = age::scrypt::Recipient::new(passphrase.clone());
-    Ok(age::encrypt(&recipient, plaintext)?)
+    Ok(Zeroizing::new(age::encrypt_and_armor(
+        &recipient, plaintext,
+    )?))
 }

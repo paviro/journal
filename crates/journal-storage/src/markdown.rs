@@ -9,7 +9,7 @@ pub struct FrontMatter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<String>,
+    pub edited_at: Option<String>,
     #[serde(flatten)]
     pub metadata: Metadata,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -108,7 +108,7 @@ fn map_front_matter(content: &str, mutate: impl FnOnce(&mut FrontMatter)) -> Opt
 }
 
 /// Return a copy of `content` with one metadata field replaced in the front
-/// matter and `updated_at` refreshed. `None` when there is no front matter.
+/// matter and `edited_at` refreshed. `None` when there is no front matter.
 pub fn with_metadata_field(content: &str, field: &MetadataField) -> Option<String> {
     map_front_matter(content, |fm| {
         match field {
@@ -118,7 +118,7 @@ pub fn with_metadata_field(content: &str, field: &MetadataField) -> Option<Strin
             MetadataField::Feelings(values) => fm.metadata.feelings = values.clone(),
             MetadataField::Mood(mood) => fm.metadata.mood = *mood,
         }
-        fm.updated_at = Some(chrono::Local::now().to_rfc3339());
+        fm.edited_at = Some(chrono::Local::now().to_rfc3339());
     })
 }
 
@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn with_metadata_field_refreshes_updated_at_and_preserves_body() {
+    fn with_metadata_field_refreshes_edited_at_and_preserves_body() {
         let content = "+++\ncreated_at = \"old\"\ntags = []\n+++\n\n# Body\n\nTrailing\n";
 
         let updated =
@@ -310,7 +310,7 @@ mod tests {
         );
         assert!(
             front_matter_fields(split_front_matter(&updated).0.unwrap())
-                .updated_at
+                .edited_at
                 .is_some()
         );
     }

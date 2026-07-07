@@ -389,7 +389,7 @@ fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
     // request for a device that can decrypt to approve.
     let recipient = store.request_access(&name, passphrase.as_ref())?;
     println!("Requested access as '{name}'. Your public recipient (safe to share):");
-    println!("  {}", recipient.key);
+    println!("  {}", recipient.enc_key);
     println!(
         "Fingerprint (read this out to confirm it on the approving device):\n  {}",
         recipient.fingerprint()
@@ -399,7 +399,7 @@ fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
     );
     println!("  {} {name}", crate::APPROVE_CMD);
     println!(
-        "Age identity: {}. Back it up; without it encrypted entries cannot be decrypted.",
+        "Identity file: {}. Back it up; without it encrypted entries cannot be decrypted.",
         store.paths().keys.identity_file.display()
     );
     if passphrase.is_none() {
@@ -430,7 +430,7 @@ fn device_list_command(cli: &Cli) -> AppResult<()> {
         } else {
             ""
         };
-        println!("  {}  {}{marker}", recipient.name, recipient.key);
+        println!("  {}  {}{marker}", recipient.name, recipient.enc_key);
         println!("      fingerprint: {}", recipient.fingerprint());
     }
 
@@ -441,7 +441,7 @@ fn device_list_command(cli: &Cli) -> AppResult<()> {
         for request in &pending {
             println!(
                 "  {}  {}  [{}]",
-                request.recipient.name, request.recipient.key, request.id
+                request.recipient.name, request.recipient.enc_key, request.id
             );
             println!("      fingerprint: {}", request.recipient.fingerprint());
         }

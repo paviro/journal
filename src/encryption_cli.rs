@@ -66,7 +66,7 @@ pub fn encrypt_store(
         config.journal_root.display()
     );
     println!(
-        "Encryption recipient: {recipient}. Age identity: {}. Back it up; without it encrypted journal files cannot be decrypted.",
+        "Encryption recipient: {recipient}. Identity file: {}. Back it up; without it encrypted journal files cannot be decrypted.",
         store.paths().keys.identity_file.display()
     );
     if bootstrapped_without_passphrase {

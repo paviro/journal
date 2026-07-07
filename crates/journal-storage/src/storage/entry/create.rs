@@ -39,10 +39,10 @@ pub fn create_imported_entry(
     body: &str,
     metadata: &Metadata,
     created_at: DateTime<Local>,
-    updated_at: DateTime<Local>,
+    edited_at: DateTime<Local>,
     import_id: &str,
 ) -> AppResult<PathBuf> {
-    let content = entry_content(created_at, updated_at, body, metadata, Some(import_id));
+    let content = entry_content(created_at, edited_at, body, metadata, Some(import_id));
     create_entry_file(codec, root, journal, created_at, &content, || {
         nanoid!(ENTRY_ID_LEN)
     })
@@ -50,14 +50,14 @@ pub fn create_imported_entry(
 
 fn entry_content(
     created_at: DateTime<Local>,
-    updated_at: DateTime<Local>,
+    edited_at: DateTime<Local>,
     body: &str,
     metadata: &Metadata,
     import_id: Option<&str>,
 ) -> String {
     let front_matter = crate::markdown::FrontMatter {
         created_at: Some(created_at.to_rfc3339()),
-        updated_at: Some(updated_at.to_rfc3339()),
+        edited_at: Some(edited_at.to_rfc3339()),
         metadata: metadata.clone(),
         import_id: import_id.map(str::to_string),
     };

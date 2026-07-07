@@ -1,4 +1,7 @@
-use crate::{AppResult, config::Config};
+use crate::{
+    AppResult,
+    config::{Config, State},
+};
 use journal_core::feelings::{FEELINGS, normalize_feeling};
 use journal_storage::{
     Entry, EntryEncryptionState, EntryPath, Journal, JournalStore, SearchHit,
@@ -294,6 +297,8 @@ impl Default for Nav {
 pub(crate) struct App {
     pub(crate) config_path: PathBuf,
     pub(crate) config: Config,
+    /// Per-device UI state persisted to `state.toml` (e.g. the last-open journal).
+    pub(crate) state: State,
     pub(crate) store: JournalStore,
     pub(crate) library: Library,
     pub(crate) nav: Nav,
@@ -348,10 +353,12 @@ impl App {
         store: JournalStore,
     ) -> AppResult<Self> {
         store.ensure()?;
+        let state = crate::config::load_state(&config_path)?;
         let entry_paths = store.collect_entry_paths()?;
         let mut app = Self {
             config_path,
             config,
+            state,
             store,
             library: Library::default(),
             nav: Nav::default(),
@@ -366,7 +373,7 @@ impl App {
         app.load_entries(entry_paths)?;
         // Restore the journal selected in the previous session without disturbing
         // the default startup focus (Journals).
-        if let Some(name) = app.config.last_journal.clone()
+        if let Some(name) = app.state.last_journal.clone()
             && let Some(index) = app
                 .library
                 .journals

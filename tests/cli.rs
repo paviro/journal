@@ -47,7 +47,7 @@ fn age_cli_available() -> bool {
         && Command::new("age-keygen").arg("--version").output().is_ok()
 }
 
-/// Pull this device's age secret key out of its plaintext `identity.age` so the
+/// Pull this device's age secret key out of its plaintext `identity.toml` so the
 /// standard `age` CLI can decrypt what the journal wrote. The key material is
 /// bundled inside the file; the `AGE-SECRET-KEY-…` bech32 string is unambiguous
 /// to slice out without depending on the internal serialization.
@@ -604,7 +604,7 @@ fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
     );
     assert_eq!(
         store.paths().keys.identity_file,
-        dir.path().join("identity.age")
+        dir.path().join("identity.toml")
     );
     assert!(store.paths().keys.devices_file.exists());
     assert!(store.paths().keys.identity_file.exists());
@@ -947,6 +947,31 @@ fn encrypted_entries_can_be_decrypted_with_age_cli() {
     let decrypted = String::from_utf8(output.stdout).unwrap();
 
     assert!(decrypted.contains("age CLI readable body"));
+}
+
+/// A passphrase-protected identity stores its key material as standalone age
+/// ASCII armor — a real age file the `age` CLI can decrypt in an emergency — and
+/// never leaks the secret key in cleartext.
+#[test]
+fn passphrase_identity_stores_recoverable_age_armor() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    let config = dir.path().join("config.toml");
+    let (store, _) = generate_identity_store(&config, &root, "correct horse battery");
+
+    let text = fs::read_to_string(&store.paths().keys.identity_file).unwrap();
+    assert!(
+        text.contains("encrypted_keys"),
+        "passphrase identity should store encrypted_keys: {text}"
+    );
+    assert!(
+        text.contains("-----BEGIN AGE ENCRYPTED FILE-----"),
+        "encrypted key material should be age ASCII armor: {text}"
+    );
+    assert!(
+        !text.contains("AGE-SECRET-KEY-"),
+        "the age secret key must not appear in cleartext when passphrase-protected"
+    );
 }
 
 /// Run the journal binary against `config` and assert success, returning stdout.

@@ -185,7 +185,7 @@ fn other_device_picks_up_a_remote_disable_and_retires_its_key() {
     laptop.add_recipient(phone_recipient, |_, _| {}).unwrap();
     phone.unlock(None).unwrap();
 
-    let phone_identity = dir.path().join("phone").join("identity.age");
+    let phone_identity = dir.path().join("phone").join("identity.toml");
     let phone_trust = dir.path().join("phone").join("devices-trust.toml");
     assert!(phone_identity.exists());
     assert!(phone_trust.exists());
@@ -214,7 +214,7 @@ fn other_device_picks_up_a_remote_disable_and_retires_its_key() {
     assert!(
         names
             .iter()
-            .any(|n| n.starts_with("identity.disabled-") && n.ends_with(".age")),
+            .any(|n| n.starts_with("identity.disabled-") && n.ends_with(".toml")),
         "retired identity copy should remain: {names:?}"
     );
     assert!(
@@ -252,7 +252,7 @@ fn revoked_device_retires_its_identity_but_keeps_trust_pins() {
     laptop.add_recipient(phone_recipient, |_, _| {}).unwrap();
     phone.unlock(None).unwrap();
 
-    let phone_identity = dir.path().join("phone").join("identity.age");
+    let phone_identity = dir.path().join("phone").join("identity.toml");
     let phone_trust = dir.path().join("phone").join("devices-trust.toml");
     assert!(phone_identity.exists());
     assert!(phone_trust.exists());
@@ -286,7 +286,7 @@ fn revoked_device_retires_its_identity_but_keeps_trust_pins() {
     assert!(
         names
             .iter()
-            .any(|n| n.starts_with("identity.disabled-") && n.ends_with(".age")),
+            .any(|n| n.starts_with("identity.disabled-") && n.ends_with(".toml")),
         "retired identity copy should remain: {names:?}"
     );
     assert!(
@@ -315,7 +315,7 @@ fn remote_disable_reconcile_holds_off_while_entries_are_still_encrypted() {
 
     // Remove only the roster, leaving the encrypted entry in place.
     std::fs::remove_file(journals.join(".age").join("devices.toml")).unwrap();
-    let identity = dir.path().join("laptop").join("identity.age");
+    let identity = dir.path().join("laptop").join("identity.toml");
     let trust = dir.path().join("laptop").join("devices-trust.toml");
     assert!(trust.exists());
 
@@ -449,7 +449,7 @@ fn rotate_identity_replaces_the_key_and_keeps_reading() {
     // The device is now the sole recipient under a fresh key.
     let recipients = store.recipients().unwrap();
     assert_eq!(recipients.len(), 1);
-    assert_ne!(recipients[0].key, old_key);
+    assert_ne!(recipients[0].enc_key, old_key);
 
     // The store still reads the entry via the rotated key, and so does a fresh
     // store loading the newly-committed identity file.
@@ -494,10 +494,10 @@ fn injected_recipient_in_roster_is_rejected() {
     let path = devices_file(dir.path());
     let mut roster = std::fs::read_to_string(&path).unwrap();
     roster.push_str(
-        "\n[[op]]\nseq = 1\nprev = \"\"\nkind = \"add\"\nname = \"attacker\"\n\
-         key = \"age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsuaxjx\"\n\
-         sign = \"ed25519:0000000000000000000000000000000000000000000000000000000000000000\"\n\
-         signer = \"ed25519:0000000000000000000000000000000000000000000000000000000000000000\"\n\
+        "\n[[operation]]\nseq = 1\nprev_hash = \"\"\nkind = \"add\"\nname = \"attacker\"\n\
+         enc_key = \"age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsuaxjx\"\n\
+         sign_key = \"ed25519:0000000000000000000000000000000000000000000000000000000000000000\"\n\
+         signer_key = \"ed25519:0000000000000000000000000000000000000000000000000000000000000000\"\n\
          sig = \"00\"\n",
     );
     std::fs::write(&path, roster).unwrap();

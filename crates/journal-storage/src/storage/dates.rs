@@ -45,7 +45,7 @@ mod tests {
             path: PathBuf::from(path),
             encryption_state: journal_core::EntryEncryptionState::Plain,
             created_at: created_at.map(journal_core::Timestamp::parse),
-            updated_at: None,
+            edited_at: None,
             preview: String::new(),
             metadata: journal_core::Metadata::default(),
             import_id: None,

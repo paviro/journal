@@ -75,7 +75,7 @@ mod tests {
             path: PathBuf::from(format!("{journal}/{id}.md")),
             encryption_state: EntryEncryptionState::Plain,
             created_at: None,
-            updated_at: None,
+            edited_at: None,
             preview: String::new(),
             metadata,
             import_id: None,

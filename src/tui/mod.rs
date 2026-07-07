@@ -155,7 +155,7 @@ fn approve_pending_requests(
         // clear the stale file rather than prompting to re-add it.
         if recipients
             .iter()
-            .any(|recipient| recipient.key == request.recipient.key)
+            .any(|recipient| recipient.enc_key == request.recipient.enc_key)
         {
             store.deny_pending(&request)?;
             continue;
@@ -482,9 +482,9 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
     // Remember the selected journal for the next session. All break paths fall
     // through here, so this covers every exit (including Ctrl-C).
     let selected = app.selected_journal().map(|journal| journal.name.clone());
-    if app.config.last_journal != selected {
-        app.config.last_journal = selected;
-        crate::config::save_config(&app.config_path, &app.config)?;
+    if app.state.last_journal != selected {
+        app.state.last_journal = selected;
+        crate::config::save_state(&app.config_path, &app.state)?;
     }
 
     Ok(())

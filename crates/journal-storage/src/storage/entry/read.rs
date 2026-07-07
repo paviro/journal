@@ -96,7 +96,7 @@ pub fn read_entry(
     // One TOML parse per entry instead of one per field.
     let FrontMatter {
         created_at,
-        updated_at,
+        edited_at,
         mut metadata,
         import_id,
     } = front_matter.map(front_matter_fields).unwrap_or_default();
@@ -114,7 +114,7 @@ pub fn read_entry(
         path: path.to_path_buf(),
         encryption_state,
         created_at,
-        updated_at,
+        edited_at,
         preview,
         metadata,
         import_id,
@@ -132,7 +132,7 @@ fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {
         path: path.to_path_buf(),
         encryption_state: EntryEncryptionState::EncryptedLocked,
         created_at: None,
-        updated_at: None,
+        edited_at: None,
         preview: "[locked] Encrypted entry".to_string(),
         metadata: Metadata::default(),
         import_id: None,

@@ -103,7 +103,7 @@ impl<'a> EntryCodec<'a> {
     }
 
     /// Reassemble an entry from its (still-unparsed) `front_matter` and a new
-    /// `body`, refresh `updated_at`, and write it back in place. With no front
+    /// `body`, refresh `edited_at`, and write it back in place. With no front
     /// matter the body is written verbatim. Front matter that fails to parse is
     /// preserved verbatim (only the body changes) rather than being overwritten
     /// with defaults, so a body-only rewrite never silently drops metadata.
@@ -116,7 +116,7 @@ impl<'a> EntryCodec<'a> {
         let content = match front_matter {
             Some(front_matter) => match markdown::parse_front_matter(front_matter) {
                 Some(mut parsed) => {
-                    parsed.updated_at = Some(chrono::Local::now().to_rfc3339());
+                    parsed.edited_at = Some(chrono::Local::now().to_rfc3339());
                     markdown::render_entry(&parsed, body)
                 }
                 None => format!(

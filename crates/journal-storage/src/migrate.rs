@@ -82,7 +82,7 @@ pub fn decrypt_store(
 /// Notice an encryption *disable* that happened on another device and mirror it
 /// locally. When that device turned encryption off it deleted the synced roster
 /// (`devices.toml`) and decrypted every entry, but this device still holds the
-/// `identity.age` and `devices-trust.toml` it used while encrypted. Detect that —
+/// `identity.toml` and `devices-trust.toml` it used while encrypted. Detect that —
 /// a roster this device had pinned that is now gone — and retire the key and pins
 /// by renaming them aside, exactly as a local [`decrypt_store`] does, so the
 /// device drops back to plaintext instead of trying to unlock a store that no
@@ -119,7 +119,7 @@ pub fn reconcile_disabled_encryption(
 
 /// Retire this device's now-dead private key after its store access was revoked
 /// (denied, removed, or a request that never synced): the store is still
-/// encrypted for other devices, so only `identity.age` is renamed aside
+/// encrypted for other devices, so only `identity.toml` is renamed aside
 /// (recoverable), letting a fresh `enroll` request access without the user
 /// deleting the file by hand. The roster trust pins are deliberately kept — the
 /// genesis is unchanged, so they still guard a re-enroll against a swapped or
@@ -538,10 +538,10 @@ fn copy_dir_all(source: &Path, target: &Path) -> AppResult<()> {
 }
 
 /// Retire this device's private key when encryption is turned off: rename
-/// `identity.age` aside as `identity.disabled-<timestamp>.age` — a recoverable
+/// `identity.toml` aside as `identity.disabled-<timestamp>.toml` — a recoverable
 /// copy, not a delete. Returns the new path.
 fn disable_identity_file(paths: &KeyPaths) -> AppResult<PathBuf> {
-    rename_aside(&paths.identity_file, "identity", "age")
+    rename_aside(&paths.identity_file, "identity", "toml")
 }
 
 /// Retire this device's roster trust pins the same way as its key, renaming
@@ -600,13 +600,13 @@ mod tests {
     #[test]
     fn disabled_path_uses_timestamped_filename() {
         let dir = tempdir().unwrap();
-        let identity = dir.path().join("identity.age");
+        let identity = dir.path().join("identity.toml");
 
-        let disabled = disabled_path_for_timestamp(&identity, "identity", "age", "20260702123456");
+        let disabled = disabled_path_for_timestamp(&identity, "identity", "toml", "20260702123456");
 
         assert_eq!(
             disabled,
-            dir.path().join("identity.disabled-20260702123456.age")
+            dir.path().join("identity.disabled-20260702123456.toml")
         );
     }
 

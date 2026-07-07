@@ -187,7 +187,7 @@ impl JournalStore {
         crypto::read_recipients(&self.paths.keys)?
             .into_iter()
             .next()
-            .map(|recipient| recipient.key)
+            .map(|recipient| recipient.enc_key)
             .ok_or_else(|| crypto::EncryptionError::NoRecipients.into())
     }
 
@@ -227,7 +227,7 @@ impl JournalStore {
         device_name: &str,
         passphrase: Option<&SecretString>,
     ) -> AppResult<String> {
-        Ok(crypto::initialize_store_identity(&self.paths.keys, device_name, passphrase)?.key)
+        Ok(crypto::initialize_store_identity(&self.paths.keys, device_name, passphrase)?.enc_key)
     }
 
     /// Generate this device's identity for a store that already exists elsewhere
@@ -271,7 +271,7 @@ impl JournalStore {
         Ok(self
             .pending_requests()?
             .iter()
-            .any(|request| request.recipient.key == own_key))
+            .any(|request| request.recipient.enc_key == own_key))
     }
 
     /// Resolve whether this device can open the store, after its identity has
@@ -330,7 +330,7 @@ impl JournalStore {
         if self
             .recipients()?
             .iter()
-            .any(|recipient| recipient.name == name && recipient.key == own_key)
+            .any(|recipient| recipient.name == name && recipient.enc_key == own_key)
         {
             return Err("refusing to revoke this device's own recipient".into());
         }
@@ -463,7 +463,7 @@ impl JournalStore {
         if self
             .recipients()?
             .iter()
-            .any(|recipient| recipient.key == request.recipient.key)
+            .any(|recipient| recipient.enc_key == request.recipient.enc_key)
         {
             crypto::remove_pending(&self.paths.keys, &request.id)?;
             return Ok(MigrationSummary { migrated_files: 0 });
@@ -573,7 +573,7 @@ impl JournalStore {
         body: &str,
         metadata: &Metadata,
         created_at: chrono::DateTime<chrono::Local>,
-        updated_at: chrono::DateTime<chrono::Local>,
+        edited_at: chrono::DateTime<chrono::Local>,
         import_id: &str,
     ) -> AppResult<PathBuf> {
         storage::create_imported_entry(
@@ -583,7 +583,7 @@ impl JournalStore {
             body,
             metadata,
             created_at,
-            updated_at,
+            edited_at,
             import_id,
         )
     }
@@ -646,7 +646,7 @@ impl JournalStore {
     }
 
     /// Replace one metadata field of an entry's front matter (and refresh
-    /// `updated_at`), leaving the body untouched. A no-op if the file has no
+    /// `edited_at`), leaving the body untouched. A no-op if the file has no
     /// front matter.
     pub fn set_entry_metadata_field(&self, path: &Path, field: MetadataField) -> AppResult<()> {
         let codec = self.entry_codec();

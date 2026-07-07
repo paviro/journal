@@ -95,7 +95,7 @@ Entries are markdown files with TOML front-matter, bucketed by date:
 ```markdown
 +++
 created_at = "2026-07-05T14:30:00+02:00"
-updated_at = "2026-07-05T14:30:00+02:00"
+edited_at = "2026-07-05T14:30:00+02:00"
 tags = ["work"]
 feelings = ["focused"]
 mood = 3
@@ -107,6 +107,10 @@ Markdown content here.
 
 Per-device settings and this device's private key live separately, in the config
 directory (`~/.config/journal/`), and are **never** part of the journal folder.
+
+The complete on-disk format — every front-matter field, the config/state files,
+and how to recover encrypted entries with the standard `age` CLI — is documented
+in [`docs/STORAGE-FORMAT.md`](docs/STORAGE-FORMAT.md).
 
 ## Sync
 
@@ -156,7 +160,7 @@ signed roster, and encrypts every existing plaintext entry. You'll be asked
 whether to protect the key with a passphrase; pass `--no-passphrase` to skip
 that prompt.
 
-> **Back up your key.** `~/.config/journal/identity.age` is the only thing that
+> **Back up your key.** `~/.config/journal/identity.toml` is the only thing that
 > can decrypt this device's view of the journal. If you lose every trusted
 > device's key, encrypted entries are unrecoverable.
 
