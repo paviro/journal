@@ -71,7 +71,7 @@ fn log_command_creates_entry_in_default_journal() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("Some text")
         .output()
@@ -95,7 +95,7 @@ fn log_command_ingests_local_image_asset() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg(image.to_string_lossy().as_ref())
         .output()
@@ -121,7 +121,7 @@ fn log_command_writes_tags() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("--tag")
         .arg("rust")
@@ -150,7 +150,7 @@ fn log_command_accepts_comma_separated_tags() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("--tag")
         .arg("rust,open source")
@@ -176,7 +176,7 @@ fn log_command_writes_people_and_activities() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("--person")
         .arg("alex,sam")
@@ -210,7 +210,7 @@ fn log_command_accepts_comma_separated_feelings() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("--feeling")
         .arg("calm,focused")
@@ -236,7 +236,7 @@ fn log_command_writes_repeatable_feelings() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("--feeling")
         .arg("Calm")
@@ -265,7 +265,7 @@ fn log_command_rejects_unknown_feeling() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("--feeling")
         .arg("sparkly")
@@ -288,7 +288,7 @@ fn piped_log_command_creates_entry_in_default_journal() {
 
     let mut child = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -331,7 +331,7 @@ fn editor_log_command_creates_entry_in_default_journal() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .output()
         .unwrap();
@@ -356,7 +356,7 @@ fn editor_log_command_creates_no_entry_when_body_is_empty() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .output()
         .unwrap();
@@ -380,7 +380,7 @@ fn bare_text_is_rejected() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("Some text")
         .output()
         .unwrap();
@@ -399,7 +399,7 @@ fn bare_piped_stdin_requires_log_command() {
 
     let mut child = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -428,7 +428,7 @@ fn journal_flag_overrides_default_journal() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("--journal")
         .arg("personal")
@@ -453,7 +453,7 @@ fn set_default_journal_persists_to_config() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config_path)
+        .arg(config_path.parent().unwrap())
         .arg("use")
         .arg("work")
         .output()
@@ -474,7 +474,7 @@ fn log_command_without_default_or_journal_fails() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("Some text")
         .output()
@@ -495,7 +495,7 @@ fn log_command_rejects_text_and_piped_stdin_together() {
 
     let mut child = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("Arg text")
         .stdin(Stdio::piped())
@@ -567,7 +567,7 @@ fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .args(["encryption", "enable"])
         .output()
         .unwrap();
@@ -616,7 +616,7 @@ fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("--journal")
         .arg("work")
@@ -658,7 +658,7 @@ fn encrypt_command_can_be_rerun_when_store_is_already_encrypted() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .args(["encryption", "enable"])
         .output()
         .unwrap();
@@ -702,7 +702,7 @@ fn encrypt_command_finishes_partial_encryption_without_touching_existing_age_fil
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .args(["encryption", "enable"])
         .output()
         .unwrap();
@@ -747,7 +747,7 @@ fn encrypt_command_fails_when_plain_entry_target_age_file_already_exists() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .args(["encryption", "enable"])
         .output()
         .unwrap();
@@ -772,7 +772,7 @@ fn encrypt_command_fails_when_encrypted_entries_exist_without_device_roster() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .args(["encryption", "enable"])
         .output()
         .unwrap();
@@ -795,7 +795,7 @@ fn encrypt_command_fails_when_recipients_exist_but_device_has_no_identity() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .args(["encryption", "enable"])
         .output()
         .unwrap();
@@ -817,7 +817,7 @@ fn encrypted_entry_command_writes_age_files_without_unlocking() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("--journal")
         .arg("work")
@@ -869,7 +869,7 @@ fn encrypted_editor_log_command_writes_age_files_without_unlocking() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .output()
         .unwrap();
@@ -910,7 +910,7 @@ fn encrypted_entries_can_be_decrypted_with_age_cli() {
 
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(&config)
+        .arg(config.parent().unwrap())
         .arg("log")
         .arg("--journal")
         .arg("work")
@@ -949,7 +949,7 @@ fn encrypted_entries_can_be_decrypted_with_age_cli() {
 fn run_ok(config: &Path, args: &[&str]) -> String {
     let output = Command::new(journal_bin())
         .arg("--config")
-        .arg(config)
+        .arg(config.parent().unwrap())
         .args(args)
         .output()
         .unwrap();

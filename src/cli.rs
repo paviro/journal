@@ -16,7 +16,9 @@ use std::os::unix::fs::FileTypeExt;
 #[command(name = "journal")]
 #[command(about = "Markdown terminal journal")]
 struct Cli {
-    #[arg(long)]
+    /// Config directory holding config.toml and this device's encryption key;
+    /// defaults to $XDG_CONFIG_HOME/journal (or ~/.config/journal)
+    #[arg(long, value_name = "DIR")]
     config: Option<PathBuf>,
 
     #[arg(long, value_name = "NAME", hide = true)]

@@ -86,7 +86,7 @@ pub fn load_existing(path_override: Option<&Path>) -> AppResult<(PathBuf, Config
     let config_path = config_path(path_override)?;
     if !config_path.exists() {
         return Err(format!(
-            "config file not found at {}; run `journal` once to set it up or pass --config",
+            "config file not found at {}; run `journal` once to set it up or pass --config <DIR>",
             config_path.display()
         )
         .into());
@@ -97,9 +97,12 @@ pub fn load_existing(path_override: Option<&Path>) -> AppResult<(PathBuf, Config
     Ok((config_path, config))
 }
 
+/// Resolve the config *file* from an optional config-directory override. The
+/// override names the directory that holds `config.toml` alongside this device's
+/// encryption key; without one we fall back to the XDG default.
 fn config_path(path_override: Option<&Path>) -> AppResult<PathBuf> {
     match path_override {
-        Some(path) => Ok(path.to_path_buf()),
+        Some(dir) => Ok(dir.join("config.toml")),
         None => default_config_path(),
     }
 }
