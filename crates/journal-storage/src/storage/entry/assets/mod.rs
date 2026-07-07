@@ -29,7 +29,7 @@ const ASSET_ID_LEN: usize = 4;
 const ASSET_ID_ATTEMPTS: usize = 32;
 
 /// Supported raster image extensions (lowercase, no dot).
-const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif"];
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct AssetReport {
@@ -595,7 +595,6 @@ fn sniff_extension(bytes: &[u8]) -> Option<&'static str> {
         ImageFormat::Gif => Some("gif"),
         ImageFormat::WebP => Some("webp"),
         ImageFormat::Bmp => Some("bmp"),
-        ImageFormat::Avif => Some("avif"),
         _ => None,
     }
 }
