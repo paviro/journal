@@ -12,3 +12,8 @@ pub use journal_core::AppResult;
 /// Referenced from CLI errors and the TUI enroll notice so the wording lives in
 /// one place.
 pub(crate) const ENROLL_CMD: &str = "journal encryption device enroll";
+
+/// The command an approving device runs to admit a pending join request. A
+/// device name is appended when one is known. Shared by the CLI prompts and the
+/// TUI awaiting-approval notice so the wording lives in one place.
+pub(crate) const APPROVE_CMD: &str = "journal encryption device approve";

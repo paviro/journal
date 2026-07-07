@@ -367,7 +367,7 @@ pub fn fingerprint(key: &str, sign: &str) -> String {
 }
 
 fn verify_op_sig(op: &RosterOp) -> Result<()> {
-    if crate::verify_signature(&op.signer, &op.signing_bytes(), &op.sig) {
+    if crate::signing::verify_signature(&op.signer, &op.signing_bytes(), &op.sig) {
         Ok(())
     } else {
         Err(unverified(&format!(

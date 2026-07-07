@@ -143,7 +143,7 @@ pub(crate) fn draw_pending_notice(frame: &mut Frame<'_>, device_name: &str, noti
             " Awaiting approval ",
             format!("{subject} has requested access but isn't approved yet."),
             "Approve it from a device that can already read this journal:".to_string(),
-            format!("journal encryption device approve {device_name}"),
+            format!("{} {device_name}", crate::APPROVE_CMD),
         ),
         AccessNotice::NeedsEnroll { .. } => (
             " Not authorized ",

@@ -80,18 +80,6 @@ fn convert_to_srgb(image: &image::DynamicImage, icc: &[u8]) -> Option<image::Dyn
     )?))
 }
 
-/// A unique hidden sibling temp path next to `target`, for atomic
-/// write-then-rename. Named `.journal-<pid>-<rand>.<suffix>` in the target's
-/// directory so it lands on the same filesystem as the eventual rename target.
-pub(crate) fn sibling_temp_path(target: &Path, suffix: &str) -> PathBuf {
-    let parent = target.parent().unwrap_or_else(|| Path::new("."));
-    parent.join(format!(
-        ".journal-{}-{}.{suffix}",
-        std::process::id(),
-        nanoid::nanoid!(12),
-    ))
-}
-
 #[derive(Clone)]
 pub struct JournalStore {
     paths: JournalStorePaths,
@@ -187,15 +175,20 @@ impl JournalStore {
     }
 
     pub fn encryption_enabled(&self) -> bool {
-        crypto::has_devices_file(&self.paths.keys)
+        self.paths.keys.has_roster()
     }
 
     pub fn unlock_available(&self) -> bool {
-        crypto::has_identity_file(&self.paths.keys)
+        self.paths.keys.has_identity()
     }
 
+    /// The first recipient's public key, for display after enabling encryption.
     pub fn public_recipient(&self) -> AppResult<String> {
-        Ok(crypto::public_recipient(&self.paths.keys)?)
+        crypto::read_recipients(&self.paths.keys)?
+            .into_iter()
+            .next()
+            .map(|recipient| recipient.key)
+            .ok_or_else(|| crypto::EncryptionError::NoRecipients.into())
     }
 
     /// Every device the store is currently encrypted to.
@@ -626,8 +619,8 @@ impl JournalStore {
 
     /// The codec for reading and writing this store's entry files, carrying the
     /// recipients/identity and whether new entries are encrypted.
-    fn entry_codec(&self) -> storage::EntryCodec {
-        storage::EntryCodec::new(self.paths.keys.clone(), self.identity.clone())
+    fn entry_codec(&self) -> storage::EntryCodec<'_> {
+        storage::EntryCodec::new(self.paths.keys.clone(), self.identity.as_ref())
     }
 
     pub fn delete_journal(

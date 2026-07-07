@@ -397,7 +397,7 @@ fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
     println!(
         "On a device that can already read this journal, approve it — this request\nappears in `journal encryption device list` and a modal at launch — then run there:"
     );
-    println!("  journal encryption device approve {name}");
+    println!("  {} {name}", crate::APPROVE_CMD);
     println!(
         "Age identity: {}. Back it up; without it encrypted entries cannot be decrypted.",
         store.paths().keys.identity_file.display()
@@ -436,7 +436,7 @@ fn device_list_command(cli: &Cli) -> AppResult<()> {
 
     let pending = store.pending_requests()?;
     if !pending.is_empty() {
-        println!("\nPending approval (run `journal encryption device approve`):");
+        println!("\nPending approval (run `{}`):", crate::APPROVE_CMD);
         println!("Confirm each fingerprint out-of-band before approving.");
         for request in &pending {
             println!(

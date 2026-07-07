@@ -1342,7 +1342,7 @@ fn pending_notice_wraps_in_the_journal_chrome_frame() {
     assert!(text.contains("any key to exit"));
     assert!(text.contains("Not authorized"));
     assert!(text.contains("Device 'phone'"));
-    assert!(text.contains("journal encryption device enroll"));
+    assert!(text.contains(crate::ENROLL_CMD));
 }
 
 #[test]
@@ -1362,7 +1362,7 @@ fn pending_notice_only_mentions_a_retired_key_when_one_was_retired() {
 fn pending_notice_awaiting_points_at_approval() {
     let text = render_pending_notice_text("phone", &AccessNotice::AwaitingApproval);
     assert!(text.contains("Awaiting approval"));
-    assert!(text.contains("journal encryption device approve phone"));
+    assert!(text.contains(&format!("{} phone", crate::APPROVE_CMD)));
     assert!(!text.contains("old key has been retired"));
 }
 

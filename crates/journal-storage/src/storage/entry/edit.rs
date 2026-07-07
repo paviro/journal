@@ -48,7 +48,7 @@ pub fn delete_journal(
 /// new body, or `None` to cancel without making any changes.
 /// Returns `true` if the entry was kept, `false` if it was deleted.
 pub fn edit_entry_body(
-    codec: &EntryCodec,
+    codec: &EntryCodec<'_>,
     path: &Path,
     remove_if_empty: bool,
     edit: impl FnOnce(&str) -> AppResult<Option<String>>,
@@ -94,7 +94,7 @@ fn remove_entry_assets(entry_path: &Path) {
 /// step fails. `fill` receives the temp path and writes the (plain or encrypted)
 /// bytes to it.
 fn replace_atomically(path: &Path, fill: impl FnOnce(&Path) -> AppResult<()>) -> AppResult<()> {
-    let temp = crate::sibling_temp_path(path, "tmp");
+    let temp = crypto::sibling_temp_path(path, "tmp");
     let result = fill(&temp).and_then(|()| Ok(fs::rename(&temp, path)?));
     if result.is_err() {
         let _ = fs::remove_file(&temp);

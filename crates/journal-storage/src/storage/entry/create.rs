@@ -14,7 +14,7 @@ const ENTRY_CREATE_ATTEMPTS: usize = 32;
 
 /// Create a new entry dated now. Whether it is encrypted follows the `codec`.
 pub fn create_entry(
-    codec: &EntryCodec,
+    codec: &EntryCodec<'_>,
     root: &Path,
     journal: &str,
     body: &str,
@@ -33,7 +33,7 @@ pub fn create_entry(
 /// original date folder rather than today's. Encryption follows the `codec`.
 #[allow(clippy::too_many_arguments)]
 pub fn create_imported_entry(
-    codec: &EntryCodec,
+    codec: &EntryCodec<'_>,
     root: &Path,
     journal: &str,
     body: &str,
@@ -74,7 +74,7 @@ fn entry_content(
 /// depend on the path — and the retry loop only re-attempts the atomic
 /// `create_new` write, so a rare id collision never re-encrypts.
 pub(crate) fn create_entry_file(
-    codec: &EntryCodec,
+    codec: &EntryCodec<'_>,
     root: &Path,
     journal: &str,
     now: DateTime<Local>,

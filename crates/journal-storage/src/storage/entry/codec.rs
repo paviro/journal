@@ -10,10 +10,13 @@ use std::path::Path;
 /// policy for whether new entries are encrypted. Reading decrypts `.age`
 /// entries; writing an existing entry preserves its on-disk encryption; creating
 /// a new entry follows [`encrypts_new_entries`](Self::encrypts_new_entries).
+///
+/// The identity is borrowed rather than owned so a codec — rebuilt for every
+/// entry operation — never clones the store's private key material.
 #[derive(Clone)]
-pub(crate) struct EntryCodec {
+pub(crate) struct EntryCodec<'a> {
     paths: KeyPaths,
-    identity: Option<UnlockedIdentity>,
+    identity: Option<&'a UnlockedIdentity>,
 }
 
 /// An entry read and split into its raw front matter and trimmed body, ready to
@@ -23,15 +26,15 @@ pub(crate) struct OpenEntry {
     pub(crate) body: String,
 }
 
-impl EntryCodec {
-    pub(crate) fn new(paths: KeyPaths, identity: Option<UnlockedIdentity>) -> Self {
+impl<'a> EntryCodec<'a> {
+    pub(crate) fn new(paths: KeyPaths, identity: Option<&'a UnlockedIdentity>) -> Self {
         Self { paths, identity }
     }
 
     /// A codec that never encrypts and holds no identity.
     #[cfg(test)]
-    pub(crate) fn plain() -> Self {
-        Self {
+    pub(crate) fn plain() -> EntryCodec<'static> {
+        EntryCodec {
             paths: KeyPaths {
                 age_dir: std::path::PathBuf::new(),
                 devices_file: std::path::PathBuf::new(),
@@ -46,7 +49,7 @@ impl EntryCodec {
     /// file exists for this store). Independent of whether the store is unlocked:
     /// encryption only needs the recipient, decryption needs the identity.
     pub(crate) fn encrypts_new_entries(&self) -> bool {
-        crypto::has_devices_file(&self.paths)
+        self.paths.has_roster()
     }
 
     /// The store's key-material locations, for the asset-encryption side.
@@ -64,7 +67,7 @@ impl EntryCodec {
             Ok(crypto::encrypt_new_entry(
                 &self.paths,
                 content.as_bytes(),
-                self.identity.as_ref(),
+                self.identity,
             )?)
         } else {
             Ok(content.as_bytes().to_vec())
@@ -74,7 +77,7 @@ impl EntryCodec {
     /// Read an entry file to text, decrypting when it is a `.age` entry. Errors
     /// if the entry is encrypted but this codec has no identity.
     pub(crate) fn read(&self, path: &Path) -> AppResult<String> {
-        read_entry_content(path, self.identity.as_ref())
+        read_entry_content(path, self.identity)
     }
 
     /// Read an entry and split it into its raw front matter (if any) and its

@@ -202,7 +202,7 @@ fn reencrypt_file(
     identity: &crypto::UnlockedIdentity,
 ) -> AppResult<()> {
     let plaintext = crypto::decrypt_file_bytes(identity, path)?;
-    let temp = crate::sibling_temp_path(path, "tmp.age");
+    let temp = crypto::sibling_temp_path(path, "tmp.age");
     crypto::encrypt_to_file(paths, &plaintext, &temp)?;
     fs::rename(&temp, path)?;
     Ok(())
@@ -319,14 +319,14 @@ fn convert_asset_file(path: &Path, mode: &MigrationMode<'_>) -> AppResult<()> {
     match mode {
         MigrationMode::Encrypt { paths } => {
             let target = append_age(path);
-            let temp = crate::sibling_temp_path(&target, "tmp.age");
+            let temp = crypto::sibling_temp_path(&target, "tmp.age");
             crypto::encrypt_to_file(paths, &fs::read(path)?, &temp)?;
             fs::rename(&temp, &target)?;
             fs::remove_file(path)?;
         }
         MigrationMode::Decrypt { identity } => {
             let target = strip_age(path)?;
-            let temp = crate::sibling_temp_path(&target, "tmp");
+            let temp = crypto::sibling_temp_path(&target, "tmp");
             fs::write(&temp, crypto::decrypt_file_bytes(identity, path)?)?;
             fs::rename(&temp, &target)?;
             fs::remove_file(path)?;
@@ -428,7 +428,7 @@ fn ensure_no_asset_collisions(files: &[PathBuf], mode: &MigrationMode<'_>) -> Ap
 
 fn encrypt_plain_entry(path: &Path, paths: &KeyPaths) -> AppResult<()> {
     let target = path.with_extension("md.age");
-    let temp = crate::sibling_temp_path(&target, "tmp.age");
+    let temp = crypto::sibling_temp_path(&target, "tmp.age");
     crypto::encrypt_to_file(paths, &fs::read(path)?, &temp)?;
     fs::rename(&temp, &target)?;
     fs::remove_file(path)?;
@@ -437,7 +437,7 @@ fn encrypt_plain_entry(path: &Path, paths: &KeyPaths) -> AppResult<()> {
 
 fn decrypt_encrypted_entry(path: &Path, identity: &crypto::UnlockedIdentity) -> AppResult<()> {
     let target = decrypted_entry_path(path)?;
-    let temp = crate::sibling_temp_path(&target, "tmp.md");
+    let temp = crypto::sibling_temp_path(&target, "tmp.md");
     fs::write(&temp, crypto::decrypt_file_bytes(identity, path)?)?;
     let decrypted = fs::read_to_string(&temp)?;
     if decrypted.is_empty() {
