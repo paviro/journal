@@ -20,8 +20,8 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use journal_storage::{JournalStore, SecretString};
-use ratatui::{Terminal, backend::CrosstermBackend};
+use journal_storage::{JournalStore, SecretString, StoreAccess};
+use ratatui::{Frame, Terminal, backend::CrosstermBackend};
 use std::path::PathBuf;
 use std::{
     io::{self, Write},
@@ -98,27 +98,27 @@ fn run_after_unlock(
 
     // A device that can't decrypt this encrypted store — no key yet, awaiting
     // approval, or revoked — can't load history. Explain why and exit instead of
-    // failing to load. (A store recipient unlocked above, so is_current_recipient
-    // is true and this is skipped.)
-    if store.encryption_enabled() && !store.is_current_recipient()? {
-        let name = store
-            .this_device()?
-            .map(|device| device.name)
-            .unwrap_or_default();
-        if store.self_request_pending()? {
-            // Request still queued for approval — keep the identity.
-            return run_pending_notice(terminal, &name, render::AccessNotice::AwaitingApproval);
+    // failing to load. (A store recipient unlocked above, so it resolves to
+    // `Ready` and this passes straight through.)
+    match store.resolve_access()? {
+        StoreAccess::Ready => {}
+        StoreAccess::AwaitingApproval { device_name } => {
+            return run_pending_notice(
+                terminal,
+                &device_name,
+                render::AccessNotice::AwaitingApproval,
+            );
         }
-        // No usable key: either never enrolled, or access was revoked
-        // (denied/removed) leaving a now-dead key. Retire any such key (renamed
-        // aside, recoverable) so the user only has to enroll; `Some` means a key
-        // was actually retired, which the notice calls out.
-        let retired_key = store.retire_revoked_identity()?.is_some();
-        return run_pending_notice(
-            terminal,
-            &name,
-            render::AccessNotice::NeedsEnroll { retired_key },
-        );
+        StoreAccess::NeedsEnroll {
+            device_name,
+            retired_key,
+        } => {
+            return run_pending_notice(
+                terminal,
+                &device_name,
+                render::AccessNotice::NeedsEnroll { retired_key },
+            );
+        }
     }
 
     if !approve_pending_requests(terminal, &mut store)? {
@@ -191,6 +191,20 @@ fn approve_pending_requests(
     Ok(true)
 }
 
+/// Draw a full-screen notice and block until the user presses any key to
+/// dismiss it.
+fn wait_for_dismiss(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    mut draw: impl FnMut(&mut Frame),
+) -> AppResult<()> {
+    loop {
+        terminal.draw(&mut draw)?;
+        if let Event::Key(_) = event::read()? {
+            return Ok(());
+        }
+    }
+}
+
 /// Show why a device that can't decrypt this encrypted store can't open the
 /// journal, then exit on any key. `notice` picks the message — see
 /// [`render::AccessNotice`].
@@ -199,26 +213,16 @@ fn run_pending_notice(
     device_name: &str,
     notice: render::AccessNotice,
 ) -> AppResult<()> {
-    loop {
-        terminal.draw(|frame| render::draw_pending_notice(frame, device_name, &notice))?;
-        if let Event::Key(_) = event::read()? {
-            return Ok(());
-        }
-    }
+    wait_for_dismiss(terminal, |frame| {
+        render::draw_pending_notice(frame, device_name, &notice)
+    })
 }
 
 /// Notify that encryption was disabled on another device, so this device retired
 /// its key and trust pins and now opens the journal as plaintext. Dismissed on
 /// any key, after which the app loads normally.
-fn run_disable_notice(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-) -> AppResult<()> {
-    loop {
-        terminal.draw(render::draw_disable_notice)?;
-        if let Event::Key(_) = event::read()? {
-            return Ok(());
-        }
-    }
+fn run_disable_notice(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> AppResult<()> {
+    wait_for_dismiss(terminal, render::draw_disable_notice)
 }
 
 /// Outcome of a single key press on the unlock screen.

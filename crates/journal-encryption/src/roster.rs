@@ -40,10 +40,28 @@ use std::{fs, path::Path};
 /// confused with any other Ed25519 signature the app might make over other data.
 const DOMAIN: &[u8] = b"journal.roster.v1";
 
-pub const GENESIS: &str = "genesis";
-pub const ADD: &str = "add";
-pub const REMOVE: &str = "remove";
-pub const RENAME: &str = "rename";
+/// The kind of a roster operation. Serializes to the lowercase variant name, and
+/// its [`OpKind::as_bytes`] feeds the signed op bytes — so the wire strings must
+/// stay `genesis`/`add`/`remove`/`rename` for existing rosters to keep verifying.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpKind {
+    Genesis,
+    Add,
+    Remove,
+    Rename,
+}
+
+impl OpKind {
+    fn as_bytes(self) -> &'static [u8] {
+        match self {
+            OpKind::Genesis => b"genesis",
+            OpKind::Add => b"add",
+            OpKind::Remove => b"remove",
+            OpKind::Rename => b"rename",
+        }
+    }
+}
 
 /// Comment header written above the op log. TOML ignores `#` lines, so this stays
 /// parse-safe while telling anyone who opens the file that it is app-managed and
@@ -64,7 +82,7 @@ pub struct RosterOp {
     pub seq: u64,
     /// Hex SHA-256 of the previous op's canonical bytes; empty for the genesis.
     pub prev: String,
-    pub kind: String,
+    pub kind: OpKind,
     pub name: String,
     /// The subject device's age (X25519) recipient — an `age1…` public key.
     pub key: String,
@@ -143,7 +161,7 @@ pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
     let Some(genesis_op) = ops.first() else {
         return Err(unverified("the roster is empty"));
     };
-    if genesis_op.kind != GENESIS || genesis_op.seq != 0 || !genesis_op.prev.is_empty() {
+    if genesis_op.kind != OpKind::Genesis || genesis_op.seq != 0 || !genesis_op.prev.is_empty() {
         return Err(unverified("the roster does not start with a genesis op"));
     }
     if genesis_op.signer != genesis_op.sign {
@@ -176,8 +194,8 @@ pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
         }
         verify_op_sig(op)?;
 
-        match op.kind.as_str() {
-            ADD => {
+        match op.kind {
+            OpKind::Add => {
                 if !recipients.iter().any(|r| r.key == op.key) {
                     recipients.push(op.recipient());
                 }
@@ -185,17 +203,16 @@ pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
                     trusted.push(op.sign.clone());
                 }
             }
-            REMOVE => {
+            OpKind::Remove => {
                 recipients.retain(|r| r.key != op.key);
                 trusted.retain(|key| key != &op.sign);
             }
-            RENAME => {
+            OpKind::Rename => {
                 if let Some(target) = recipients.iter_mut().find(|r| r.key == op.key) {
                     target.name = op.name.clone();
                 }
             }
-            GENESIS => return Err(unverified("a second genesis op appears in the log")),
-            other => return Err(unverified(&format!("unknown op kind '{other}'"))),
+            OpKind::Genesis => return Err(unverified("a second genesis op appears in the log")),
         }
         hashes.push(op.hash());
     }
@@ -226,7 +243,7 @@ pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
 /// canonical bytes (supplied by the caller's unlocked identity).
 pub fn append(
     path: &Path,
-    kind: &str,
+    kind: OpKind,
     name: &str,
     key: &str,
     sign: &str,
@@ -241,7 +258,7 @@ pub fn append(
     let mut op = RosterOp {
         seq,
         prev,
-        kind: kind.to_string(),
+        kind,
         name: name.to_string(),
         key: key.to_string(),
         sign: sign.to_string(),

@@ -1,5 +1,5 @@
 use crate::AppResult;
-use journal_storage::{JournalStore, SecretString};
+use journal_storage::JournalStore;
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
@@ -216,7 +216,7 @@ fn offer_encryption(stdout: &mut impl Write, store: &JournalStore) -> AppResult<
         return Ok(());
     }
 
-    let (device_name, passphrase) = resolve_new_identity_options(None, false)?;
+    let (device_name, passphrase) = crate::prompts::resolve_new_identity_options(None, false)?;
     store.initialize_encryption(&device_name, passphrase.as_ref())?;
     writeln!(
         stdout,
@@ -235,65 +235,6 @@ fn offer_encryption(stdout: &mut impl Write, store: &JournalStore) -> AppResult<
     let mut ack = String::new();
     io::stdin().read_line(&mut ack)?;
     Ok(())
-}
-
-/// Prompt for this device's name (used to label its key), defaulting to the
-/// hostname.
-fn prompt_device_name(stdout: &mut impl Write) -> AppResult<String> {
-    let default_name = crate::device::default_device_name();
-    write!(stdout, "Device name [{default_name}]: ")?;
-    stdout.flush()?;
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    let name = input.trim();
-    Ok(if name.is_empty() {
-        default_name
-    } else {
-        name.to_string()
-    })
-}
-
-/// Ask whether to protect the key with a passphrase, returning the passphrase to
-/// use (`None` = store the key unprotected). Defaults to yes.
-fn prompt_passphrase_choice(stdout: &mut impl Write) -> AppResult<Option<SecretString>> {
-    writeln!(stdout, "Protect the key with a passphrase?")?;
-    writeln!(
-        stdout,
-        "  Yes — key is encrypted at rest; you enter the passphrase to unlock (best for laptops)."
-    )?;
-    writeln!(
-        stdout,
-        "  No  — key opens automatically; relies on this device's own security (phones with full-disk encryption, etc.)."
-    )?;
-    write!(stdout, "Use a passphrase? [Y/n]: ")?;
-    stdout.flush()?;
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    if matches!(input.trim(), "n" | "N" | "no" | "NO" | "No") {
-        Ok(None)
-    } else {
-        Ok(Some(crate::migrate::prompt_new_passphrase()?))
-    }
-}
-
-/// Resolve the device name and optional passphrase for a *new* identity,
-/// reusing the first-run prompts. `name` skips the name prompt; `no_passphrase`
-/// stores the key unprotected, otherwise the passphrase is chosen interactively.
-pub(crate) fn resolve_new_identity_options(
-    name: Option<&str>,
-    no_passphrase: bool,
-) -> AppResult<(String, Option<SecretString>)> {
-    let mut stdout = io::stdout();
-    let device_name = match name {
-        Some(name) => name.to_string(),
-        None => prompt_device_name(&mut stdout)?,
-    };
-    let passphrase = if no_passphrase {
-        None
-    } else {
-        prompt_passphrase_choice(&mut stdout)?
-    };
-    Ok((device_name, passphrase))
 }
 
 pub fn expand_tilde(path: PathBuf) -> PathBuf {

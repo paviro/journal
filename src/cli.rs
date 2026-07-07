@@ -1,13 +1,12 @@
-use crate::{AppResult, config, editor, migrate, tui};
+use crate::{AppResult, config, editor, encryption_cli, prompts, tui};
 use clap::{Args, Parser, Subcommand};
 use journal_core::feelings;
 use journal_storage::{JournalStore, MOOD_RANGE, Metadata, SecretString};
 use std::{
-    io::{self, Read, Write},
+    io::{self, Read},
     path::{Path, PathBuf},
 };
 
-use std::io::IsTerminal;
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 
@@ -239,7 +238,7 @@ fn handle_encryption_command(cli: &Cli, command: &EncryptionCommand) -> AppResul
     match command {
         EncryptionCommand::Enable(args) => {
             let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-            migrate::encrypt_store(
+            encryption_cli::encrypt_store(
                 &config_path,
                 &config,
                 args.name.as_deref(),
@@ -248,37 +247,17 @@ fn handle_encryption_command(cli: &Cli, command: &EncryptionCommand) -> AppResul
         }
         EncryptionCommand::Disable(args) => {
             let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-            if !confirm(
+            if !prompts::confirm(
                 "Decrypt every entry and turn encryption off for this journal?",
                 args.yes,
             )? {
                 println!("Aborted.");
                 return Ok(());
             }
-            migrate::decrypt_store(&config_path, &config)
+            encryption_cli::decrypt_store(&config_path, &config)
         }
         EncryptionCommand::Device { command } => handle_device_command(cli, command),
     }
-}
-
-/// Ask the user to confirm a destructive encryption operation, returning `true`
-/// to proceed. `skip` (from `--yes`) bypasses the prompt. Without a terminal to
-/// answer on, it refuses rather than blocking, pointing at `--yes`.
-fn confirm(prompt: &str, skip: bool) -> AppResult<bool> {
-    if skip {
-        return Ok(true);
-    }
-    if !io::stdin().is_terminal() {
-        return Err(format!(
-            "{prompt}\nrefusing to continue without a terminal to confirm; re-run with --yes to proceed"
-        )
-        .into());
-    }
-    print!("{prompt} [y/N]: ");
-    io::stdout().flush()?;
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    Ok(matches!(input.trim(), "y" | "Y" | "yes" | "YES" | "Yes"))
 }
 
 fn handle_device_command(cli: &Cli, command: &DeviceCommand) -> AppResult<()> {
@@ -305,13 +284,14 @@ fn open_unlocked_store_with_passphrase(
     let mut store = JournalStore::for_config(&config_path, &config.journal_root)?;
     store.ensure()?;
     if !store.unlock_available() {
-        return Err(
-            "no encryption identity on this device; run `journal encryption device enroll` first"
-                .into(),
-        );
+        return Err(format!(
+            "no encryption identity on this device; run `{}` first",
+            crate::ENROLL_CMD
+        )
+        .into());
     }
     let passphrase = if store.identity_needs_passphrase()? {
-        Some(migrate::prompt_unlock_passphrase()?)
+        Some(prompts::prompt_unlock_passphrase()?)
     } else {
         None
     };
@@ -328,14 +308,15 @@ fn device_passphrase_command(cli: &Cli, args: &PassphraseArgs) -> AppResult<()> 
     let store = JournalStore::for_config(&config_path, &config.journal_root)?;
     store.ensure()?;
     let Some(info) = store.this_device()? else {
-        return Err(
-            "no encryption identity on this device; run `journal encryption device enroll` first"
-                .into(),
-        );
+        return Err(format!(
+            "no encryption identity on this device; run `{}` first",
+            crate::ENROLL_CMD
+        )
+        .into());
     };
 
     if args.remove
-        && !confirm(
+        && !prompts::confirm(
             "Remove the passphrase, storing this device's key unprotected?",
             args.confirm.yes,
         )?
@@ -345,14 +326,14 @@ fn device_passphrase_command(cli: &Cli, args: &PassphraseArgs) -> AppResult<()> 
     }
 
     let current = if info.passphrase_protected {
-        Some(migrate::prompt_unlock_passphrase()?)
+        Some(prompts::prompt_unlock_passphrase()?)
     } else {
         None
     };
     let new = if args.remove {
         None
     } else {
-        Some(migrate::prompt_new_passphrase()?)
+        Some(prompts::prompt_new_passphrase()?)
     };
     store.set_passphrase(current.as_ref(), new.as_ref())?;
 
@@ -368,7 +349,7 @@ fn device_passphrase_command(cli: &Cli, args: &PassphraseArgs) -> AppResult<()> 
 
 fn device_rotate_command(cli: &Cli) -> AppResult<()> {
     let (mut store, passphrase) = open_unlocked_store_with_passphrase(cli)?;
-    let summary = store.rotate_identity(passphrase.as_ref(), migrate::cli_progress())?;
+    let summary = store.rotate_identity(passphrase.as_ref(), encryption_cli::cli_progress())?;
     println!(
         "Rotated this device's key and re-encrypted {} file(s).",
         summary.migrated_files
@@ -402,7 +383,7 @@ fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
     }
 
     let (name, passphrase) =
-        config::resolve_new_identity_options(args.name.as_deref(), args.no_passphrase)?;
+        prompts::resolve_new_identity_options(args.name.as_deref(), args.no_passphrase)?;
 
     // Joining a store that already exists (its recipients synced here): drop a
     // request for a device that can decrypt to approve.
@@ -443,7 +424,7 @@ fn device_list_command(cli: &Cli) -> AppResult<()> {
     for recipient in &recipients {
         let marker = if this_device
             .as_ref()
-            .is_some_and(|device| device_matches(device, recipient))
+            .is_some_and(|device| device.name == recipient.name)
         {
             "  (this device)"
         } else {
@@ -469,7 +450,7 @@ fn device_list_command(cli: &Cli) -> AppResult<()> {
 }
 
 fn device_remove_command(cli: &Cli, name: &str, skip_confirm: bool) -> AppResult<()> {
-    if !confirm(
+    if !prompts::confirm(
         &format!("Remove '{name}' and re-encrypt all entries to exclude it?"),
         skip_confirm,
     )? {
@@ -477,7 +458,7 @@ fn device_remove_command(cli: &Cli, name: &str, skip_confirm: bool) -> AppResult
         return Ok(());
     }
     let store = open_unlocked_store(cli)?;
-    let summary = store.remove_recipient(name, migrate::cli_progress())?;
+    let summary = store.remove_recipient(name, encryption_cli::cli_progress())?;
     println!(
         "Removed '{name}' and re-encrypted {} file(s).",
         summary.migrated_files
@@ -527,7 +508,7 @@ fn device_approve_command(cli: &Cli, args: &RequestSelectionArgs) -> AppResult<(
     }
 
     for request in select_requests(pending, args, "approve")? {
-        let summary = store.approve_pending(&request, migrate::cli_progress())?;
+        let summary = store.approve_pending(&request, encryption_cli::cli_progress())?;
         println!(
             "Approved '{}' and re-encrypted {} file(s).",
             request.recipient.name, summary.migrated_files
@@ -552,15 +533,6 @@ fn device_reject_command(cli: &Cli, args: &RequestSelectionArgs) -> AppResult<()
         println!("Rejected '{}'.", request.recipient.name);
     }
     Ok(())
-}
-
-/// Whether `recipient` labels the same device as this machine's stored identity,
-/// matched on name.
-fn device_matches(
-    device: &journal_storage::DeviceIdentityInfo,
-    recipient: &journal_storage::Recipient,
-) -> bool {
-    device.name == recipient.name
 }
 
 fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {

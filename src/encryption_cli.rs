@@ -1,7 +1,6 @@
-use crate::{AppResult, config::Config};
+use crate::{AppResult, config::Config, prompts};
 use indicatif::{ProgressBar, ProgressStyle};
-use journal_storage::{ExposeSecret, JournalStore, SecretString};
-use rpassword::prompt_password;
+use journal_storage::JournalStore;
 use std::path::Path;
 
 /// A progress sink for CLI migrations that drives an `indicatif` bar. A fresh
@@ -28,24 +27,6 @@ pub fn cli_progress() -> impl FnMut(usize, usize) {
     }
 }
 
-pub fn prompt_new_passphrase() -> AppResult<SecretString> {
-    let passphrase = SecretString::from(prompt_password("New journal encryption passphrase: ")?);
-    if passphrase.expose_secret().is_empty() {
-        return Err("encryption passphrase cannot be empty".into());
-    }
-    let confirm = SecretString::from(prompt_password("Confirm journal encryption passphrase: ")?);
-    if passphrase.expose_secret() != confirm.expose_secret() {
-        return Err("encryption passphrases did not match".into());
-    }
-    Ok(passphrase)
-}
-
-pub fn prompt_unlock_passphrase() -> AppResult<SecretString> {
-    Ok(SecretString::from(prompt_password(
-        "Journal encryption passphrase: ",
-    )?))
-}
-
 pub fn encrypt_store(
     config_path: &Path,
     config: &Config,
@@ -57,22 +38,24 @@ pub fn encrypt_store(
     let recipient = if store.encryption_enabled() {
         if !store.unlock_available() {
             return Err(format!(
-                "this journal is already encrypted for other devices, but this one has no key at {}; run `journal encryption device enroll` to request access instead",
-                store.paths().keys.identity_file.display()
+                "this journal is already encrypted for other devices, but this one has no key at {}; run `{}` to request access instead",
+                store.paths().keys.identity_file.display(),
+                crate::ENROLL_CMD,
             )
             .into());
         }
         store.public_recipient()?
     } else if store.has_encrypted_entries()? {
-        return Err(format!(
-            "encrypted entries already exist but the device roster is missing at {}; cannot safely continue encryption",
-            store.paths().keys.devices_file.display()
-        )
+        // Encrypted entries but no roster to encrypt more against — reuse the
+        // storage layer's own message rather than restating it here.
+        return Err(journal_storage::EncryptionError::RecipientsMissing {
+            path: store.paths().keys.devices_file.clone(),
+        }
+        .to_string()
         .into());
     } else {
         println!("No journal encryption identity configured; generating an age identity.");
-        let (name, passphrase) =
-            crate::config::resolve_new_identity_options(device_name, no_passphrase)?;
+        let (name, passphrase) = prompts::resolve_new_identity_options(device_name, no_passphrase)?;
         bootstrapped_without_passphrase = passphrase.is_none();
         store.initialize_encryption(&name, passphrase.as_ref())?
     };
@@ -102,7 +85,7 @@ pub fn decrypt_store(config_path: &Path, config: &Config) -> AppResult<()> {
         .into());
     }
     let passphrase = if store.identity_needs_passphrase()? {
-        Some(prompt_unlock_passphrase()?)
+        Some(prompts::prompt_unlock_passphrase()?)
     } else {
         None
     };

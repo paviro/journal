@@ -147,7 +147,7 @@ pub(crate) fn draw_pending_notice(frame: &mut Frame<'_>, device_name: &str, noti
                 "{subject} isn't a recipient of this journal, so it can't read any entries."
             ),
             "Run this to request access, then approve it from a device that can already read this journal:".to_string(),
-            "journal encryption device enroll".to_string(),
+            crate::ENROLL_CMD.to_string(),
         ),
     };
 

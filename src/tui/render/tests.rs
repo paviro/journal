@@ -8,51 +8,53 @@ use crate::{
     },
 };
 use journal_storage::{Entry, EntryEncryptionState, SearchHit};
-use ratatui::{Terminal, backend::TestBackend, layout::Rect, style::Modifier, text::Line};
+use ratatui::{Frame, Terminal, backend::TestBackend, layout::Rect, style::Modifier, text::Line};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
 use unicode_width::UnicodeWidthStr;
 
-fn render_text(mut app: App, width: u16, height: u16) -> String {
+/// Draw `draw` onto a fresh `width`×`height` test terminal and return the
+/// backend, the shared plumbing behind the typed render helpers below.
+fn render_backend(width: u16, height: u16, draw: impl FnOnce(&mut Frame)) -> TestBackend {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
-
-    terminal.draw(|frame| draw(frame, &mut app)).unwrap();
-
-    terminal
-        .backend()
-        .buffer()
-        .content()
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
-}
-
-fn render_app(mut app: App, width: u16, height: u16) -> TestBackend {
-    let backend = TestBackend::new(width, height);
-    let mut terminal = Terminal::new(backend).unwrap();
-
-    terminal.draw(|frame| draw(frame, &mut app)).unwrap();
-
+    terminal.draw(draw).unwrap();
     terminal.backend().clone()
 }
 
-fn render_edit_tags_dialog_text(mut state: EditMetadataState, width: u16, height: u16) -> String {
-    let backend = TestBackend::new(width, height);
-    let mut terminal = Terminal::new(backend).unwrap();
-
-    terminal
-        .draw(|frame| dialogs::draw_edit_metadata_dialog(frame, &mut state))
-        .unwrap();
-
-    terminal
-        .backend()
+/// The rendered buffer as one flat string (every cell symbol, row by row).
+fn render_to_text(width: u16, height: u16, draw: impl FnOnce(&mut Frame)) -> String {
+    render_backend(width, height, draw)
         .buffer()
         .content()
         .iter()
         .map(|cell| cell.symbol())
         .collect()
+}
+
+/// The rendered buffer split into one string per row.
+fn render_to_rows(width: u16, height: u16, draw: impl FnOnce(&mut Frame)) -> Vec<String> {
+    render_backend(width, height, draw)
+        .buffer()
+        .content()
+        .chunks(width as usize)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+        .collect()
+}
+
+fn render_text(mut app: App, width: u16, height: u16) -> String {
+    render_to_text(width, height, |frame| draw(frame, &mut app))
+}
+
+fn render_app(mut app: App, width: u16, height: u16) -> TestBackend {
+    render_backend(width, height, |frame| draw(frame, &mut app))
+}
+
+fn render_edit_tags_dialog_text(mut state: EditMetadataState, width: u16, height: u16) -> String {
+    render_to_text(width, height, |frame| {
+        dialogs::draw_edit_metadata_dialog(frame, &mut state)
+    })
 }
 
 fn metadata_values<'a>(
@@ -70,25 +72,12 @@ fn metadata_values<'a>(
 }
 
 fn render_confirm_delete_rows(width: u16, height: u16) -> Vec<String> {
-    let backend = TestBackend::new(width, height);
-    let mut terminal = Terminal::new(backend).unwrap();
-
-    terminal
-        .draw(|frame| {
-            dialogs::draw_confirm_delete(
-                frame,
-                &crate::tui::state::DeleteContext::Entry { has_body: true },
-            )
-        })
-        .unwrap();
-
-    terminal
-        .backend()
-        .buffer()
-        .content()
-        .chunks(width as usize)
-        .map(|row| row.iter().map(|cell| cell.symbol()).collect())
-        .collect()
+    render_to_rows(width, height, |frame| {
+        dialogs::draw_confirm_delete(
+            frame,
+            &crate::tui::state::DeleteContext::Entry { has_body: true },
+        )
+    })
 }
 
 #[test]
@@ -1290,18 +1279,9 @@ fn entry_group_labels_fall_back_to_filename_date() {
 }
 
 fn render_unlock_text(input: &str, error: Option<&str>, caret_visible: bool) -> String {
-    let backend = TestBackend::new(60, 16);
-    let mut terminal = Terminal::new(backend).unwrap();
-    terminal
-        .draw(|frame| draw_unlock(frame, input, error, caret_visible))
-        .unwrap();
-    terminal
-        .backend()
-        .buffer()
-        .content()
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
+    render_to_text(60, 16, |frame| {
+        draw_unlock(frame, input, error, caret_visible)
+    })
 }
 
 #[test]
@@ -1329,22 +1309,9 @@ fn unlock_screen_replaces_hint_with_error() {
 }
 
 fn render_unlock_rows(width: u16, height: u16, error: Option<&str>) -> Vec<String> {
-    let backend = TestBackend::new(width, height);
-    let mut terminal = Terminal::new(backend).unwrap();
-    terminal
-        .draw(|frame| draw_unlock(frame, "", error, false))
-        .unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    buffer
-        .content()
-        .chunks(width as usize)
-        .map(|row| {
-            row.iter()
-                .map(|cell| cell.symbol())
-                .collect::<String>()
-                .trim()
-                .to_string()
-        })
+    render_to_rows(width, height, |frame| draw_unlock(frame, "", error, false))
+        .into_iter()
+        .map(|row| row.trim().to_string())
         .collect()
 }
 
@@ -1361,18 +1328,9 @@ fn unlock_status_wraps_on_a_narrow_terminal() {
 }
 
 fn render_pending_notice_text(device_name: &str, notice: &AccessNotice) -> String {
-    let backend = TestBackend::new(72, 20);
-    let mut terminal = Terminal::new(backend).unwrap();
-    terminal
-        .draw(|frame| draw_pending_notice(frame, device_name, notice))
-        .unwrap();
-    terminal
-        .backend()
-        .buffer()
-        .content()
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
+    render_to_text(72, 20, |frame| {
+        draw_pending_notice(frame, device_name, notice)
+    })
 }
 
 #[test]

@@ -98,6 +98,24 @@ pub struct JournalStore {
     identity: Option<crypto::UnlockedIdentity>,
 }
 
+/// Whether this device can open the store once the unlock phase is done, and why
+/// not when it can't. Resolved in one call so the caller matches a single
+/// outcome instead of threading several encryption predicates together.
+pub enum StoreAccess {
+    /// Plaintext store, or this device's unlocked identity is a current
+    /// recipient — ready to load.
+    Ready,
+    /// This device's join request is still queued; it keeps its identity while
+    /// waiting for another device to approve it.
+    AwaitingApproval { device_name: String },
+    /// This device has no usable key. `retired_key` is true when a now-dead
+    /// (revoked) key was just renamed aside during this call.
+    NeedsEnroll {
+        device_name: String,
+        retired_key: bool,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JournalStorePaths {
     pub journal_root: PathBuf,
@@ -259,6 +277,29 @@ impl JournalStore {
             .pending_requests()?
             .iter()
             .any(|request| request.recipient.key == own_key))
+    }
+
+    /// Resolve whether this device can open the store, after its identity has
+    /// been unlocked (or found not to need unlocking). On an encrypted store this
+    /// device isn't a recipient of, a now-dead (revoked) key is retired aside as
+    /// a side effect so the user only has to re-enroll — reported via
+    /// [`StoreAccess::NeedsEnroll`]'s `retired_key`.
+    pub fn resolve_access(&self) -> AppResult<StoreAccess> {
+        if !self.encryption_enabled() || self.is_current_recipient()? {
+            return Ok(StoreAccess::Ready);
+        }
+        let device_name = self
+            .this_device()?
+            .map(|device| device.name)
+            .unwrap_or_default();
+        if self.self_request_pending()? {
+            return Ok(StoreAccess::AwaitingApproval { device_name });
+        }
+        let retired_key = self.retire_revoked_identity()?.is_some();
+        Ok(StoreAccess::NeedsEnroll {
+            device_name,
+            retired_key,
+        })
     }
 
     /// Add `recipient` and re-encrypt every entry (and asset) to the new set so

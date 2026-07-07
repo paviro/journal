@@ -169,18 +169,56 @@ struct SecretBundle {
     ed25519: Zeroizing<String>,
 }
 
-/// This device's private age identity plus the label it stores itself under.
-/// Exactly one of `encrypted_identity` (scrypt-wrapped) / `plain_identity`
-/// (stored in the clear, mode 0600) is present, per the device's passphrase
-/// choice.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// How this device's secret bundle is stored, per its passphrase choice. The
+/// on-disk file carries exactly one of the two forms; this enum makes that
+/// either/or explicit in memory (see [`StoredIdentityWire`]).
+enum KeyMaterial {
+    /// scrypt-wrapped bundle, opened with a passphrase.
+    Encrypted(Vec<u8>),
+    /// plaintext bundle, stored mode 0600 and opened without a passphrase.
+    Plain(Zeroizing<String>),
+}
+
+/// This device's stored identity: the label it stores itself under and its key
+/// material. Deserialized from [`StoredIdentityWire`], which enforces that
+/// exactly one key form is present.
+#[derive(Deserialize)]
+#[serde(try_from = "StoredIdentityWire")]
 struct StoredIdentity {
+    device_name: String,
+    key: KeyMaterial,
+}
+
+/// The on-disk shape of `identity.age`: `device_name` plus exactly one of the
+/// scrypt-wrapped or plaintext key fields. Kept as the wire form so the file
+/// layout is unchanged; [`StoredIdentity`] is the validated in-memory view.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredIdentityWire {
     device_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     encrypted_identity: Option<Vec<u8>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     plain_identity: Option<Zeroizing<String>>,
+}
+
+impl TryFrom<StoredIdentityWire> for StoredIdentity {
+    type Error = &'static str;
+
+    fn try_from(wire: StoredIdentityWire) -> std::result::Result<Self, Self::Error> {
+        let key = match (wire.encrypted_identity, wire.plain_identity) {
+            (Some(blob), None) => KeyMaterial::Encrypted(blob),
+            (None, Some(plain)) => KeyMaterial::Plain(plain),
+            (Some(_), Some(_)) => {
+                return Err("journal identity file has both encrypted and plaintext key material");
+            }
+            (None, None) => return Err("journal identity file has no key material"),
+        };
+        Ok(Self {
+            device_name: wire.device_name,
+            key,
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -312,7 +350,7 @@ pub fn device_identity_info(paths: &KeyPaths) -> Result<Option<DeviceIdentityInf
     let stored = read_stored_identity(&paths.identity_file)?;
     Ok(Some(DeviceIdentityInfo {
         name: stored.device_name,
-        passphrase_protected: stored.encrypted_identity.is_some(),
+        passphrase_protected: matches!(stored.key, KeyMaterial::Encrypted(_)),
     }))
 }
 
@@ -329,7 +367,7 @@ pub fn initialize_store_identity(
         return Err("device roster already exists; use request_store_access to join instead".into());
     }
     let (recipient, identity) = create_device_identity(paths, name, passphrase)?;
-    append_op(paths, &identity, roster::GENESIS, &recipient)?;
+    append_op(paths, &identity, roster::OpKind::Genesis, &recipient)?;
     advance_trust_pins(paths)?;
     Ok(recipient)
 }
@@ -435,7 +473,7 @@ pub fn add_recipient(
         )
         .into());
     }
-    append_op(paths, signer, roster::ADD, recipient)
+    append_op(paths, signer, roster::OpKind::Add, recipient)
 }
 
 /// Append a signed `remove` op for the recipient named `name`, authorized by
@@ -453,7 +491,7 @@ pub fn remove_recipient(
     if recipients.len() == 1 {
         return Err("cannot remove the last recipient; the store would become unreadable".into());
     }
-    append_op(paths, signer, roster::REMOVE, target)
+    append_op(paths, signer, roster::OpKind::Remove, target)
 }
 
 /// Append a signed `rename` op relabelling a recipient, authorized by `signer`.
@@ -479,7 +517,7 @@ pub fn rename_recipient(
         key: target.key.clone(),
         sign: target.sign.clone(),
     };
-    append_op(paths, signer, roster::RENAME, &relabelled)
+    append_op(paths, signer, roster::OpKind::Rename, &relabelled)
 }
 
 /// Whether `identity`'s public key is one of the store's current recipients —
@@ -596,7 +634,7 @@ pub fn rotate_add_new_key(
         sign: new_identity.signing_public(),
     };
     // Signed by the old key, which is trusted until it's dropped below.
-    append_op(paths, old, roster::ADD, &recipient)?;
+    append_op(paths, old, roster::OpKind::Add, &recipient)?;
     Ok((recipient, new_identity))
 }
 
@@ -623,7 +661,7 @@ pub fn drop_old_recipient(
     let Some(target) = recipients.iter().find(|recipient| recipient.key == old_key) else {
         return Ok(());
     };
-    append_op(paths, signer, roster::REMOVE, target)
+    append_op(paths, signer, roster::OpKind::Remove, target)
 }
 
 fn create_device_identity(
@@ -665,7 +703,7 @@ fn validate_recipient(recipient: &Recipient) -> Result<()> {
 fn append_op(
     paths: &KeyPaths,
     signer: &UnlockedIdentity,
-    kind: &str,
+    kind: roster::OpKind,
     subject: &Recipient,
 ) -> Result<()> {
     let signer_pub = signer.signing_public();
@@ -699,16 +737,14 @@ fn write_stored_identity(
         ed25519: Zeroizing::new(hex::encode(identity.signing.to_bytes())),
     };
     let bundle_toml = Zeroizing::new(toml::to_string(&bundle)?);
-    let stored = StoredIdentity {
+    let (encrypted_identity, plain_identity) = match passphrase {
+        Some(passphrase) => (Some(encrypt_secret(bundle_toml.as_bytes(), passphrase)?), None),
+        None => (None, Some(bundle_toml.clone())),
+    };
+    let stored = StoredIdentityWire {
         device_name: name.to_string(),
-        encrypted_identity: match passphrase {
-            Some(passphrase) => Some(encrypt_secret(bundle_toml.as_bytes(), passphrase)?),
-            None => None,
-        },
-        plain_identity: match passphrase {
-            Some(_) => None,
-            None => Some(bundle_toml.clone()),
-        },
+        encrypted_identity,
+        plain_identity,
     };
     // The serialized document carries the plaintext key bundle in the
     // no-passphrase case; zeroize the buffer once it's on disk.
@@ -815,15 +851,14 @@ fn decrypt_identity(
     let stored = read_stored_identity(&paths.identity_file)?;
     // The decrypted secret bundle lives in this string; zeroize it on drop so it
     // doesn't linger in freed heap after we parse it into keys.
-    let bundle_toml: Zeroizing<String> = match (&stored.encrypted_identity, &stored.plain_identity) {
-        (Some(blob), _) => {
+    let bundle_toml: Zeroizing<String> = match &stored.key {
+        KeyMaterial::Encrypted(blob) => {
             let passphrase = passphrase
                 .ok_or("journal identity is passphrase-protected; a passphrase is required")?;
             let identity = age::scrypt::Identity::new(passphrase.clone());
             Zeroizing::new(String::from_utf8(age::decrypt(&identity, blob)?)?)
         }
-        (None, Some(plain)) => plain.clone(),
-        (None, None) => return Err("journal identity file has no key material".into()),
+        KeyMaterial::Plain(plain) => plain.clone(),
     };
     let bundle: SecretBundle = toml::from_str(&bundle_toml)?;
     let identity = x25519::Identity::from_str(bundle.x25519.trim())?;
