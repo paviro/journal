@@ -8,6 +8,8 @@ use ratatui::{
 
 use journal_storage::PendingRequest;
 
+use crate::tui::entry_rows::wrap_text;
+
 /// Width of the request container, clamped to the available width.
 const CONTAINER_WIDTH: u16 = 68;
 
@@ -120,43 +122,42 @@ pub(crate) fn draw_pending_notice(frame: &mut Frame<'_>, device_name: &str, awai
     } else {
         format!("'{device_name}'")
     };
-    let bold = Style::default().add_modifier(Modifier::BOLD);
     let dim = Style::default().add_modifier(Modifier::DIM);
 
-    let (title, mut lines) = if awaiting {
+    let container_width = CONTAINER_WIDTH.min(area.width);
+    // The width the prose wraps to (borders + horizontal padding removed). Wrapping
+    // here instead of hand-splitting sizes the box to the real line count.
+    let text_width = container_width.saturating_sub(6) as usize;
+
+    let (title, intro, instruction, command) = if awaiting {
         (
             " Awaiting approval ",
-            vec![
-                Line::from(vec![
-                    Span::raw("Device "),
-                    Span::styled(label, bold),
-                    Span::raw(" has requested access but isn't approved yet."),
-                ]),
-                Line::from(""),
-                Line::from("Approve it from a device that can already read this journal:"),
-                Line::from(Span::styled(
-                    format!("  journal encryption device approve {device_name}"),
-                    dim,
-                )),
-            ],
+            format!("Device {label} has requested access but isn't approved yet."),
+            "Approve it from a device that can already read this journal:".to_string(),
+            format!("journal encryption device approve {device_name}"),
         )
     } else {
         (
             " Not authorized ",
-            vec![
-                Line::from(vec![
-                    Span::raw("Device "),
-                    Span::styled(label, bold),
-                    Span::raw(" isn't a recipient of this journal, and no"),
-                ]),
-                Line::from("access request is queued — it may have been denied or removed,"),
-                Line::from("or the request never synced."),
-                Line::from(""),
-                Line::from("To request access again, delete this device's identity and run:"),
-                Line::from(Span::styled("  journal encryption device enroll", dim)),
-            ],
+            format!(
+                "Device {label} isn't a recipient of this journal, and no access request \
+                 is queued — it may have been denied or removed, or the request never synced."
+            ),
+            "To request access again, delete this device's identity and run:".to_string(),
+            "journal encryption device enroll".to_string(),
         )
     };
+
+    let wrapped = |text: &str| {
+        wrap_text(text, text_width, usize::MAX)
+            .into_iter()
+            .map(Line::from)
+            .collect::<Vec<_>>()
+    };
+    let mut lines = wrapped(&intro);
+    lines.push(Line::from(""));
+    lines.extend(wrapped(&instruction));
+    lines.push(Line::from(Span::styled(format!("  {command}"), dim)));
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("Press any key to exit.", dim)));
 
@@ -164,7 +165,61 @@ pub(crate) fn draw_pending_notice(frame: &mut Frame<'_>, device_name: &str, awai
         .borders(Borders::ALL)
         .title_top(Line::from(title))
         .padding(Padding::new(2, 2, 1, 1));
+    let container_height = (lines.len() as u16 + 4).min(area.height);
+    let [group] = Layout::vertical([Constraint::Length(container_height)])
+        .flex(Flex::Center)
+        .areas(area);
+    let [container_box] = Layout::horizontal([Constraint::Length(container_width)])
+        .flex(Flex::Center)
+        .areas(group);
+    let inner = block.inner(container_box);
+    frame.render_widget(block, container_box);
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+}
+
+/// Draw the full-screen notice shown when encryption was disabled on another
+/// device: this device fell back to plaintext and retired its key and trust pins
+/// (renamed aside, not deleted). Dismissed on any key.
+pub(crate) fn draw_disable_notice(frame: &mut Frame<'_>) {
+    let area = frame.area();
+    frame.render_widget(Clear, area);
+
+    let bold = Style::default().add_modifier(Modifier::BOLD);
+    let dim = Style::default().add_modifier(Modifier::DIM);
+
     let container_width = CONTAINER_WIDTH.min(area.width);
+    // Borders (1 each side) plus the 2-cell horizontal padding: the width the body
+    // text wraps to. Wrapping it here (rather than hand-splitting) lets the box
+    // size to the real line count, so the dismiss hint is never pushed off-screen.
+    let text_width = container_width.saturating_sub(6) as usize;
+    let body = "This journal is now plaintext. This device's encryption key and trust pins \
+        have been retired — renamed aside next to the config, not deleted, so they can be \
+        recovered if this was unexpected.";
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "Encryption was disabled on another device.",
+            bold,
+        )),
+        Line::from(""),
+    ];
+    lines.extend(wrap_text(body, text_width, usize::MAX).into_iter().map(Line::from));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::raw("To turn encryption back on, run "),
+        Span::styled("journal encryption enable", dim),
+        Span::raw("."),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Press any key to continue.", dim)));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title_top(Line::from(" Encryption disabled "))
+        .padding(Padding::new(2, 2, 1, 1));
     let container_height = (lines.len() as u16 + 4).min(area.height);
     let [group] = Layout::vertical([Constraint::Length(container_height)])
         .flex(Flex::Center)

@@ -150,6 +150,17 @@ impl JournalStore {
         storage::ensure_store(&self.paths.journal_root)
     }
 
+    /// Pick up an encryption *disable* performed on another device: when the
+    /// synced roster is gone but this device still holds the key and pins it used
+    /// while encrypted, retire them locally (renamed aside, recoverable) and fall
+    /// back to plaintext. Returns `true` when it just did so, so the caller can
+    /// tell the user. A no-op (`false`) on a store still encrypted, never
+    /// encrypted here, or with encrypted entries still to sync. Call once per open,
+    /// right after [`ensure`](Self::ensure).
+    pub fn reconcile_disabled_encryption(&self) -> AppResult<bool> {
+        Ok(migrate::reconcile_disabled_encryption(self)?.is_some())
+    }
+
     pub fn encryption_enabled(&self) -> bool {
         crypto::has_devices_file(&self.paths.keys)
     }

@@ -138,13 +138,121 @@ fn disable_clears_age_artifacts() {
     assert!(age_dir.join("devices.toml").exists());
     assert!(!laptop.pending_requests().unwrap().is_empty());
 
-    laptop.decrypt_store(|_, _| {}).unwrap();
+    let summary = laptop.decrypt_store(|_, _| {}).unwrap();
 
     // Disabling encryption tears the whole key folder down, pending requests included.
     assert!(
         !age_dir.exists(),
         ".age folder should be gone after disable"
     );
+
+    // The local trust pins are renamed aside (recoverable), not deleted — the
+    // same treatment the identity gets.
+    let trust_file = dir.path().join("devices-trust.toml");
+    assert!(!trust_file.exists(), "trust pins should be renamed away");
+    let retired_pins = summary.disabled_trust_file.expect("trust pins were present");
+    assert!(retired_pins.exists());
+    assert_eq!(
+        retired_pins.file_name().and_then(|n| n.to_str()).map(|n| {
+            n.starts_with("devices-trust.disabled-") && n.ends_with(".toml")
+        }),
+        Some(true)
+    );
+}
+
+#[test]
+fn other_device_picks_up_a_remote_disable_and_retires_its_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let journals = dir.path().join("journals");
+
+    // Laptop creates the encrypted store and writes an entry.
+    let mut laptop = JournalStore::new(&journals, dir.path().join("laptop"));
+    laptop.ensure().unwrap();
+    laptop.initialize_encryption("laptop", None).unwrap();
+    laptop.unlock(None).unwrap();
+    laptop.create_journal("diary").unwrap();
+    laptop
+        .create_entry_with_body("diary", "shared body", &Metadata::default())
+        .unwrap();
+
+    // Phone joins, is approved, then unlocks so it pins the roster locally.
+    let mut phone = JournalStore::new(&journals, dir.path().join("phone"));
+    phone.ensure().unwrap();
+    let phone_recipient = phone.request_access("phone", None).unwrap();
+    laptop.add_recipient(phone_recipient, |_, _| {}).unwrap();
+    phone.unlock(None).unwrap();
+
+    let phone_identity = dir.path().join("phone").join("identity.age");
+    let phone_trust = dir.path().join("phone").join("devices-trust.toml");
+    assert!(phone_identity.exists());
+    assert!(phone_trust.exists());
+
+    // Laptop disables encryption: entries return to plaintext and the synced
+    // roster is removed. Over a shared folder that is all the phone observes.
+    laptop.decrypt_store(|_, _| {}).unwrap();
+    assert!(!journals.join(".age").join("devices.toml").exists());
+
+    // The phone reopens. Reconciliation notices the roster it had pinned is gone
+    // with no encrypted entries left, so it retires its own key and pins.
+    let phone = JournalStore::new(&journals, dir.path().join("phone"));
+    phone.ensure().unwrap();
+    assert!(phone.reconcile_disabled_encryption().unwrap());
+
+    assert!(!phone_identity.exists(), "phone identity should be retired");
+    assert!(!phone_trust.exists(), "phone trust pins should be retired");
+    assert!(!phone.encryption_enabled());
+    assert!(!phone.unlock_available());
+
+    let names: Vec<String> = std::fs::read_dir(dir.path().join("phone"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        names
+            .iter()
+            .any(|n| n.starts_with("identity.disabled-") && n.ends_with(".age")),
+        "retired identity copy should remain: {names:?}"
+    );
+    assert!(
+        names
+            .iter()
+            .any(|n| n.starts_with("devices-trust.disabled-") && n.ends_with(".toml")),
+        "retired trust-pin copy should remain: {names:?}"
+    );
+
+    // And the phone still reads the now-plaintext shared entry.
+    let entries = phone.scan_entries().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].content.contains("shared body"));
+}
+
+#[test]
+fn remote_disable_reconcile_holds_off_while_entries_are_still_encrypted() {
+    // A half-synced disable: the roster deletion arrived before the plaintext
+    // entry conversions. The device must keep its key to read what's still
+    // encrypted, so reconciliation holds off.
+    let dir = tempfile::tempdir().unwrap();
+    let journals = dir.path().join("journals");
+    let mut laptop = JournalStore::new(&journals, dir.path().join("laptop"));
+    laptop.ensure().unwrap();
+    laptop.initialize_encryption("laptop", None).unwrap();
+    laptop.unlock(None).unwrap();
+    laptop.create_journal("diary").unwrap();
+    laptop
+        .create_entry_with_body("diary", "still secret", &Metadata::default())
+        .unwrap();
+
+    // Remove only the roster, leaving the encrypted entry in place.
+    std::fs::remove_file(journals.join(".age").join("devices.toml")).unwrap();
+    let identity = dir.path().join("laptop").join("identity.age");
+    let trust = dir.path().join("laptop").join("devices-trust.toml");
+    assert!(trust.exists());
+
+    assert!(!laptop.reconcile_disabled_encryption().unwrap());
+
+    assert!(identity.exists(), "key must survive while entries are encrypted");
+    assert!(trust.exists(), "pins must survive while entries are encrypted");
 }
 
 #[test]

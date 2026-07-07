@@ -119,5 +119,8 @@ pub fn decrypt_store(config_path: &Path, config: &Config) -> AppResult<()> {
         "Disabled age identity at {}",
         summary.disabled_identity_file.display()
     );
+    if let Some(trust) = summary.disabled_trust_file {
+        println!("Retired device trust pins to {}", trust.display());
+    }
     Ok(())
 }

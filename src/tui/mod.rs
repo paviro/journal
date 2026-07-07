@@ -42,7 +42,12 @@ const REFRESH_DEBOUNCE: Duration = Duration::from_millis(400);
 
 use app::App;
 
-pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResult<()> {
+pub fn run(
+    config_path: PathBuf,
+    config: Config,
+    store: JournalStore,
+    encryption_disabled_elsewhere: bool,
+) -> AppResult<()> {
     // Ensure the store exists before probing for a lock so identity checks
     // reflect on-disk state.
     store.ensure()?;
@@ -54,7 +59,13 @@ pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResu
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_after_unlock(&mut terminal, config_path, config, store);
+    let result = run_after_unlock(
+        &mut terminal,
+        config_path,
+        config,
+        store,
+        encryption_disabled_elsewhere,
+    );
 
     let restore_result = restore_terminal(terminal.backend_mut());
     if restore_result.is_ok() {
@@ -76,7 +87,15 @@ fn run_after_unlock(
     config_path: PathBuf,
     config: Config,
     mut store: JournalStore,
+    encryption_disabled_elsewhere: bool,
 ) -> AppResult<()> {
+    // Encryption was turned off on another device and this one just fell back to
+    // plaintext (its key and pins retired). Tell the user before anything loads,
+    // since the change is silent and consequential.
+    if encryption_disabled_elsewhere {
+        run_disable_notice(terminal)?;
+    }
+
     if store.unlock_available() {
         if store.identity_needs_passphrase()? {
             if !run_unlock_screen(terminal, &mut store)? {
@@ -181,6 +200,20 @@ fn run_pending_notice(
 ) -> AppResult<()> {
     loop {
         terminal.draw(|frame| render::draw_pending_notice(frame, device_name, awaiting))?;
+        if let Event::Key(_) = event::read()? {
+            return Ok(());
+        }
+    }
+}
+
+/// Notify that encryption was disabled on another device, so this device retired
+/// its key and trust pins and now opens the journal as plaintext. Dismissed on
+/// any key, after which the app loads normally.
+fn run_disable_notice(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> AppResult<()> {
+    loop {
+        terminal.draw(render::draw_disable_notice)?;
         if let Event::Key(_) = event::read()? {
             return Ok(());
         }

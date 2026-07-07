@@ -208,7 +208,8 @@ pub fn run() -> AppResult<()> {
             config_path,
             config,
             store,
-        } => tui::run(config_path, config, *store),
+            encryption_disabled_elsewhere,
+        } => tui::run(config_path, config, *store, encryption_disabled_elsewhere),
         // Setup already printed what the user needs (e.g. enrollment instructions
         // for an encrypted store this device can't yet read); nothing to open.
         config::Startup::Done => Ok(()),

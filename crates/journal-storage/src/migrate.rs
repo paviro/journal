@@ -18,6 +18,16 @@ pub struct DecryptSummary {
     pub migrated_files: usize,
     pub backup_path: Option<PathBuf>,
     pub disabled_identity_file: PathBuf,
+    pub disabled_trust_file: Option<PathBuf>,
+}
+
+/// The local files a device retires when it notices encryption was disabled on
+/// another device — the private key and roster pins it held while encrypted,
+/// renamed aside rather than deleted. Returned by [`reconcile_disabled_encryption`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisabledElsewhereCleanup {
+    pub disabled_identity_file: Option<PathBuf>,
+    pub disabled_trust_file: Option<PathBuf>,
 }
 
 enum MigrationMode<'a> {
@@ -61,26 +71,65 @@ pub fn decrypt_store(
         progress,
     )?;
     clear_age_dir(&paths.keys)?;
+    let disabled_trust_file = disable_trust_file(&paths.keys)?;
     let disabled_identity_file = disable_identity_file(&paths.keys)?;
     Ok(DecryptSummary {
         migrated_files: migration.migrated_files,
         backup_path: migration.backup_path,
         disabled_identity_file,
+        disabled_trust_file,
     })
+}
+
+/// Notice an encryption *disable* that happened on another device and mirror it
+/// locally. When that device turned encryption off it deleted the synced roster
+/// (`devices.toml`) and decrypted every entry, but this device still holds the
+/// `identity.age` and `devices-trust.toml` it used while encrypted. Detect that —
+/// a roster this device had pinned that is now gone — and retire the key and pins
+/// by renaming them aside, exactly as a local [`decrypt_store`] does, so the
+/// device drops back to plaintext instead of trying to unlock a store that no
+/// longer exists. Returns `None` (no change) when there is nothing to reconcile.
+///
+/// Gated to fail safe:
+/// - Requires the local trust pins to exist, so a freshly-enrolled device whose
+///   synced `.age/` folder simply hasn't downloaded yet is never mistaken for a
+///   disable — it has an identity but has never pinned a roster.
+/// - Requires no encrypted entries to remain, so a half-synced store (roster gone
+///   but entries still `.age`) keeps the key that can still read them until the
+///   plaintext conversions finish syncing.
+pub fn reconcile_disabled_encryption(
+    store: &JournalStore,
+) -> AppResult<Option<DisabledElsewhereCleanup>> {
+    let paths = &store.paths().keys;
+    if paths.devices_file.exists() || !paths.trust_file.exists() {
+        return Ok(None);
+    }
+    if store_has_encrypted_entry_files(store)? {
+        return Ok(None);
+    }
+    let disabled_trust_file = disable_trust_file(paths)?;
+    let disabled_identity_file = if paths.identity_file.exists() {
+        Some(disable_identity_file(paths)?)
+    } else {
+        None
+    };
+    Ok(Some(DisabledElsewhereCleanup {
+        disabled_identity_file,
+        disabled_trust_file,
+    }))
 }
 
 /// Tear down the synced key folder when encryption is disabled: drop the signed
 /// `devices.toml` roster and any leftover `pending-*.toml` join requests (which
 /// would otherwise keep syncing and resurface as phantom approval modals), then
-/// remove the `.age` folder itself if nothing else is left in it. Also clears
-/// this device's local trust pins, which are meaningless once the roster is gone
-/// and would otherwise reject a freshly re-enabled store as a "changed genesis".
+/// remove the `.age` folder itself if nothing else is left in it. The local trust
+/// pins are not deleted here — the caller renames `devices-trust.toml` aside (like
+/// the identity), keeping a recoverable copy; they are meaningless once the roster
+/// is gone and would otherwise reject a freshly re-enabled store as a "changed
+/// genesis".
 fn clear_age_dir(paths: &KeyPaths) -> AppResult<()> {
     if paths.devices_file.exists() {
         fs::remove_file(&paths.devices_file)?;
-    }
-    if paths.trust_file.exists() {
-        fs::remove_file(&paths.trust_file)?;
     }
     if !paths.age_dir.exists() {
         return Ok(());
@@ -474,33 +523,53 @@ fn copy_dir_all(source: &Path, target: &Path) -> AppResult<()> {
     Ok(())
 }
 
+/// Retire this device's private key when encryption is turned off: rename
+/// `identity.age` aside as `identity.disabled-<timestamp>.age` — a recoverable
+/// copy, not a delete. Returns the new path.
 fn disable_identity_file(paths: &KeyPaths) -> AppResult<PathBuf> {
-    let target = disabled_identity_path(&paths.identity_file);
-    fs::rename(&paths.identity_file, &target)?;
+    rename_aside(&paths.identity_file, "identity", "age")
+}
+
+/// Retire this device's roster trust pins the same way as its key, renaming
+/// `devices-trust.toml` aside rather than deleting it. Returns the new path, or
+/// `None` when there were no pins on this device to retire.
+fn disable_trust_file(paths: &KeyPaths) -> AppResult<Option<PathBuf>> {
+    if !paths.trust_file.exists() {
+        return Ok(None);
+    }
+    Ok(Some(rename_aside(&paths.trust_file, "devices-trust", "toml")?))
+}
+
+/// Rename `path` aside as `<stem>.disabled-<timestamp>.<ext>` next to it,
+/// returning the new path. Shared by the key and trust-pin retirement so both
+/// leave a recoverable, uniformly-named copy when encryption is disabled.
+fn rename_aside(path: &Path, stem: &str, ext: &str) -> AppResult<PathBuf> {
+    let target = disabled_path(path, stem, ext);
+    fs::rename(path, &target)?;
     Ok(target)
 }
 
-fn disabled_identity_path(identity_file: &Path) -> PathBuf {
+fn disabled_path(path: &Path, stem: &str, ext: &str) -> PathBuf {
     let timestamp = Local::now().format("%Y%m%d%H%M%S");
-    disabled_identity_path_for_timestamp(identity_file, &timestamp.to_string())
+    disabled_path_for_timestamp(path, stem, ext, &timestamp.to_string())
 }
 
-fn disabled_identity_path_for_timestamp(identity_file: &Path, timestamp: &str) -> PathBuf {
-    let parent = identity_file.parent().unwrap_or_else(|| Path::new(""));
-    let base = parent.join(format!("identity.disabled-{timestamp}.age"));
+fn disabled_path_for_timestamp(path: &Path, stem: &str, ext: &str, timestamp: &str) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let base = parent.join(format!("{stem}.disabled-{timestamp}.{ext}"));
     if !base.exists() {
         return base;
     }
 
     for _ in 0..32 {
-        let candidate = parent.join(format!("identity.disabled-{timestamp}-{}.age", nanoid!(6)));
+        let candidate = parent.join(format!("{stem}.disabled-{timestamp}-{}.{ext}", nanoid!(6)));
         if !candidate.exists() {
             return candidate;
         }
     }
 
     parent.join(format!(
-        "identity.disabled-{timestamp}-{}.age",
+        "{stem}.disabled-{timestamp}-{}.{ext}",
         Local::now().timestamp_nanos_opt().unwrap_or_default()
     ))
 }
@@ -511,15 +580,29 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn disabled_identity_path_uses_timestamped_age_filename() {
+    fn disabled_path_uses_timestamped_filename() {
         let dir = tempdir().unwrap();
         let identity = dir.path().join("identity.age");
 
-        let disabled = disabled_identity_path_for_timestamp(&identity, "20260702123456");
+        let disabled = disabled_path_for_timestamp(&identity, "identity", "age", "20260702123456");
 
         assert_eq!(
             disabled,
             dir.path().join("identity.disabled-20260702123456.age")
+        );
+    }
+
+    #[test]
+    fn disabled_path_reuses_stem_and_extension_for_trust_pins() {
+        let dir = tempdir().unwrap();
+        let trust = dir.path().join("devices-trust.toml");
+
+        let disabled =
+            disabled_path_for_timestamp(&trust, "devices-trust", "toml", "20260702123456");
+
+        assert_eq!(
+            disabled,
+            dir.path().join("devices-trust.disabled-20260702123456.toml")
         );
     }
 }

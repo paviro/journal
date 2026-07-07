@@ -76,6 +76,9 @@ pub enum Startup {
         config_path: PathBuf,
         config: Config,
         store: Box<JournalStore>,
+        /// Set when opening this store just retired local encryption because it
+        /// was disabled on another device — the TUI surfaces this as a notice.
+        encryption_disabled_elsewhere: bool,
     },
     Done,
 }
@@ -83,13 +86,15 @@ pub enum Startup {
 pub fn load_or_setup_with_path(path_override: Option<&Path>) -> AppResult<Startup> {
     let config_path = config_path(path_override)?;
 
-    let (config, store) = if config_path.exists() {
+    let (config, store, encryption_disabled_elsewhere) = if config_path.exists() {
         let config = load_config(&config_path)?;
         let store = JournalStore::for_config(&config_path, &config.journal_root)?;
         store.ensure()?;
-        (config, store)
+        let disabled_elsewhere = store.reconcile_disabled_encryption()?;
+        (config, store, disabled_elsewhere)
     } else {
-        interactive_setup(&config_path)?
+        let (config, store) = interactive_setup(&config_path)?;
+        (config, store, false)
     };
 
     // An encrypted store this device has no key for can't be opened; point the
@@ -105,6 +110,7 @@ pub fn load_or_setup_with_path(path_override: Option<&Path>) -> AppResult<Startu
         config_path,
         config,
         store: Box::new(store),
+        encryption_disabled_elsewhere,
     })
 }
 
@@ -125,7 +131,13 @@ pub fn load_existing(path_override: Option<&Path>) -> AppResult<(PathBuf, Config
     }
 
     let config = load_config(&config_path)?;
-    JournalStore::for_config(&config_path, &config.journal_root)?.ensure()?;
+    let store = JournalStore::for_config(&config_path, &config.journal_root)?;
+    store.ensure()?;
+    if store.reconcile_disabled_encryption()? {
+        eprintln!(
+            "Note: encryption was disabled on another device; retired this device's key and trust pins."
+        );
+    }
     Ok((config_path, config))
 }
 
