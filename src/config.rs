@@ -258,8 +258,8 @@ mod tests {
     use tempfile::tempdir;
 
     fn store_in(dir: &Path) -> JournalStore {
-        let store = JournalStore::for_config(&dir.join("config.toml"), &dir.join("journals"))
-            .unwrap();
+        let store =
+            JournalStore::for_config(&dir.join("config.toml"), &dir.join("journals")).unwrap();
         store.ensure().unwrap();
         store
     }

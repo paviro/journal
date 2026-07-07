@@ -1,8 +1,8 @@
 use super::edit::{write_encrypted_entry_content, write_plain_atomic};
 use super::paths::is_encrypted_entry_file;
 use super::read::read_entry_content;
-use crate::markdown;
 use crate::AppResult;
+use crate::markdown;
 use journal_encryption::{self as crypto, KeyPaths, UnlockedIdentity};
 use std::path::Path;
 

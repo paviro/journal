@@ -2,8 +2,8 @@ use super::codec::EntryCodec;
 use super::create::create_entry_file;
 use super::paths::entry_path_with_id;
 use super::*;
-use journal_encryption::{self as crypto, KeyPaths};
 use chrono::{DateTime, Local, LocalResult, TimeZone};
+use journal_encryption::{self as crypto, KeyPaths};
 use std::fs;
 use tempfile::tempdir;
 

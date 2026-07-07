@@ -602,7 +602,10 @@ fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
         store.paths().keys.devices_file,
         root.join(".age").join("devices.toml")
     );
-    assert_eq!(store.paths().keys.identity_file, dir.path().join("identity.age"));
+    assert_eq!(
+        store.paths().keys.identity_file,
+        dir.path().join("identity.age")
+    );
     assert!(store.paths().keys.devices_file.exists());
     assert!(store.paths().keys.identity_file.exists());
     assert!(!dir.path().join("encryption").exists());
@@ -925,7 +928,8 @@ fn encrypted_entries_can_be_decrypted_with_age_cli() {
     let encrypted = Path::new(std::str::from_utf8(&output.stdout).unwrap().trim()).to_path_buf();
 
     let identity = dir.path().join("age-identity.txt");
-    let secret = extract_age_secret(&fs::read_to_string(&store.paths().keys.identity_file).unwrap());
+    let secret =
+        extract_age_secret(&fs::read_to_string(&store.paths().keys.identity_file).unwrap());
     fs::write(&identity, format!("{secret}\n")).unwrap();
 
     let output = Command::new("age")

@@ -11,12 +11,12 @@ mod storage;
 use journal_encryption as crypto;
 
 pub use error::StorageError;
-pub use journal_encryption::{
-    DeviceIdentityInfo, EncryptionError, ExposeSecret, PendingRequest, Recipient, SecretString,
-};
 pub use journal_core::{
     AppResult, Entry, EntryEncryptionState, EntryPath, MOOD_RANGE, Metadata, MetadataField,
     SearchHit, SearchScope, Timestamp, search_loaded_entries,
+};
+pub use journal_encryption::{
+    DeviceIdentityInfo, EncryptionError, ExposeSecret, PendingRequest, Recipient, SecretString,
 };
 pub use migrate::{DecryptSummary, MigrationSummary};
 pub use storage::{
@@ -218,10 +218,8 @@ impl JournalStore {
     /// for a plaintext identity (or when no identity exists), so the caller can
     /// skip the unlock prompt and auto-load.
     pub fn identity_needs_passphrase(&self) -> AppResult<bool> {
-        Ok(
-            crypto::device_identity_info(&self.paths.keys)?
-                .is_some_and(|info| info.passphrase_protected),
-        )
+        Ok(crypto::device_identity_info(&self.paths.keys)?
+            .is_some_and(|info| info.passphrase_protected))
     }
 
     pub fn has_encrypted_entries(&self) -> AppResult<bool> {
@@ -247,7 +245,11 @@ impl JournalStore {
         device_name: &str,
         passphrase: Option<&SecretString>,
     ) -> AppResult<Recipient> {
-        Ok(crypto::request_store_access(&self.paths.keys, device_name, passphrase)?)
+        Ok(crypto::request_store_access(
+            &self.paths.keys,
+            device_name,
+            passphrase,
+        )?)
     }
 
     /// Whether this device's unlocked identity is one of the store's current
@@ -366,7 +368,11 @@ impl JournalStore {
         current: Option<&SecretString>,
         new: Option<&SecretString>,
     ) -> AppResult<()> {
-        Ok(crypto::set_identity_passphrase(&self.paths.keys, current, new)?)
+        Ok(crypto::set_identity_passphrase(
+            &self.paths.keys,
+            current,
+            new,
+        )?)
     }
 
     /// Rotate this device's keypair: generate a new key, re-encrypt all entries
@@ -400,7 +406,12 @@ impl JournalStore {
             let (recipient, new_identity) = crypto::rotate_add_new_key(&self.paths.keys, &old)?;
             let first = migrate::reencrypt_store(self, &old, &mut progress)?;
 
-            crypto::commit_rotated_identity(&self.paths.keys, &recipient, &new_identity, passphrase)?;
+            crypto::commit_rotated_identity(
+                &self.paths.keys,
+                &recipient,
+                &new_identity,
+                passphrase,
+            )?;
             self.identity = Some(new_identity);
 
             // Retire the old key, signed by the freshly rotated key (now trusted).

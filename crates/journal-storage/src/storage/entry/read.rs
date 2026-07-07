@@ -5,9 +5,9 @@ use crate::{
     AppResult,
     markdown::{FrontMatter, display_preview, front_matter_fields, split_front_matter},
 };
-use journal_encryption as crypto;
 use journal_core::entry::build_search_haystack;
 use journal_core::feelings::normalize_feelings;
+use journal_encryption as crypto;
 use rayon::prelude::*;
 use std::{fs, path::Path};
 

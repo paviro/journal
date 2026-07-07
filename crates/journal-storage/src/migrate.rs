@@ -1,6 +1,6 @@
 use crate::{AppResult, JournalStore, storage};
-use journal_encryption::{self as crypto, KeyPaths};
 use chrono::Local;
+use journal_encryption::{self as crypto, KeyPaths};
 use nanoid::nanoid;
 use std::{
     ffi::OsStr,
@@ -50,9 +50,7 @@ pub fn encrypt_store(
     let paths = store.paths();
     let migrated_files = migrate_store(
         paths.journal_root.as_path(),
-        MigrationMode::Encrypt {
-            paths: &paths.keys,
-        },
+        MigrationMode::Encrypt { paths: &paths.keys },
         progress,
     )?
     .migrated_files;
@@ -553,7 +551,11 @@ fn disable_trust_file(paths: &KeyPaths) -> AppResult<Option<PathBuf>> {
     if !paths.trust_file.exists() {
         return Ok(None);
     }
-    Ok(Some(rename_aside(&paths.trust_file, "devices-trust", "toml")?))
+    Ok(Some(rename_aside(
+        &paths.trust_file,
+        "devices-trust",
+        "toml",
+    )?))
 }
 
 /// Rename `path` aside as `<stem>.disabled-<timestamp>.<ext>` next to it,
@@ -618,7 +620,8 @@ mod tests {
 
         assert_eq!(
             disabled,
-            dir.path().join("devices-trust.disabled-20260702123456.toml")
+            dir.path()
+                .join("devices-trust.disabled-20260702123456.toml")
         );
     }
 }

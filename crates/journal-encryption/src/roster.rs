@@ -199,7 +199,9 @@ pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
             return Err(unverified("the signature chain is broken"));
         }
         if !trusted.iter().any(|key| key == &op.signer) {
-            return Err(unverified("an op is signed by a device that was not trusted"));
+            return Err(unverified(
+                "an op is signed by a device that was not trusted",
+            ));
         }
         verify_op_sig(op)?;
 
@@ -243,7 +245,10 @@ pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
     Ok(Verified {
         recipients,
         genesis: genesis_hash,
-        head: hashes.into_iter().next_back().expect("genesis pushed above"),
+        head: hashes
+            .into_iter()
+            .next_back()
+            .expect("genesis pushed above"),
     })
 }
 
@@ -365,7 +370,10 @@ fn verify_op_sig(op: &RosterOp) -> Result<()> {
     if crate::verify_signature(&op.signer, &op.signing_bytes(), &op.sig) {
         Ok(())
     } else {
-        Err(unverified(&format!("op #{} has an invalid signature", op.seq)))
+        Err(unverified(&format!(
+            "op #{} has an invalid signature",
+            op.seq
+        )))
     }
 }
 

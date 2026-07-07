@@ -22,7 +22,11 @@ pub(crate) fn draw_pending_request(
     request: &PendingRequest,
     progress: Option<(usize, usize)>,
 ) {
-    let inner = super::draw_modal_frame(frame, "Device access request", "y approve · n deny · esc later");
+    let inner = super::draw_modal_frame(
+        frame,
+        "Device access request",
+        "y approve · n deny · esc later",
+    );
     if inner.height == 0 || inner.width == 0 {
         return;
     }
@@ -216,7 +220,11 @@ pub(crate) fn draw_disable_notice(frame: &mut Frame<'_>) {
         )),
         Line::from(""),
     ];
-    lines.extend(wrap_text(body, text_width, usize::MAX).into_iter().map(Line::from));
+    lines.extend(
+        wrap_text(body, text_width, usize::MAX)
+            .into_iter()
+            .map(Line::from),
+    );
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::raw("To turn encryption back on, run "),

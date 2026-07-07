@@ -369,7 +369,9 @@ pub fn initialize_store_identity(
     passphrase: Option<&SecretString>,
 ) -> Result<Recipient> {
     if has_devices_file(paths) {
-        return Err("device roster already exists; use request_store_access to join instead".into());
+        return Err(
+            "device roster already exists; use request_store_access to join instead".into(),
+        );
     }
     let (recipient, identity) = create_device_identity(paths, name, passphrase)?;
     append_op(paths, &identity, roster::OpKind::Genesis, &recipient)?;
@@ -417,11 +419,7 @@ pub fn unlock_identity(
     Ok(unlocked)
 }
 
-pub fn encrypt_to_file(
-    paths: &KeyPaths,
-    plaintext: &[u8],
-    output: &Path,
-) -> Result<()> {
+pub fn encrypt_to_file(paths: &KeyPaths, plaintext: &[u8], output: &Path) -> Result<()> {
     fs::write(output, encrypt_bytes(paths, plaintext)?)?;
     Ok(())
 }
@@ -484,11 +482,7 @@ pub fn add_recipient(
 /// Append a signed `remove` op for the recipient named `name`, authorized by
 /// `signer`. Refuses to remove the last recipient, which would leave the store
 /// impossible to re-encrypt.
-pub fn remove_recipient(
-    paths: &KeyPaths,
-    signer: &UnlockedIdentity,
-    name: &str,
-) -> Result<()> {
+pub fn remove_recipient(paths: &KeyPaths, signer: &UnlockedIdentity, name: &str) -> Result<()> {
     let recipients = read_recipients(paths)?;
     let Some(target) = recipients.iter().find(|r| r.name == name) else {
         return Err(format!("no recipient named '{name}'").into());
@@ -528,10 +522,7 @@ pub fn rename_recipient(
 /// Whether `identity`'s public key is one of the store's current recipients —
 /// i.e. this device can already decrypt the store, and so is allowed to
 /// re-encrypt it (and sign roster ops) when approving or removing another device.
-pub fn identity_is_recipient(
-    paths: &KeyPaths,
-    identity: &UnlockedIdentity,
-) -> Result<bool> {
+pub fn identity_is_recipient(paths: &KeyPaths, identity: &UnlockedIdentity) -> Result<bool> {
     let own = identity.public_key();
     Ok(read_recipients(paths)?
         .iter()
@@ -743,7 +734,10 @@ fn write_stored_identity(
     };
     let bundle_toml = Zeroizing::new(toml::to_string(&bundle)?);
     let (encrypted_identity, plain_identity) = match passphrase {
-        Some(passphrase) => (Some(encrypt_secret(bundle_toml.as_bytes(), passphrase)?), None),
+        Some(passphrase) => (
+            Some(encrypt_secret(bundle_toml.as_bytes(), passphrase)?),
+            None,
+        ),
         None => (None, Some(bundle_toml.clone())),
     };
     let stored = StoredIdentityWire {
@@ -779,7 +773,10 @@ fn generate_signing_key() -> Result<SigningKey> {
 
 /// A signing key's public half encoded as `ed25519:<hex>`.
 fn signing_public(signing: &SigningKey) -> String {
-    format!("ed25519:{}", hex::encode(signing.verifying_key().to_bytes()))
+    format!(
+        "ed25519:{}",
+        hex::encode(signing.verifying_key().to_bytes())
+    )
 }
 
 /// Sign `msg` with `signing`, returning the hex Ed25519 signature.
@@ -837,10 +834,7 @@ fn encrypt_to_recipients(recipients: &[x25519::Recipient], plaintext: &[u8]) -> 
     Ok(ciphertext)
 }
 
-fn decrypt_bytes_with_identity(
-    ciphertext: &[u8],
-    identity: &x25519::Identity,
-) -> Result<Vec<u8>> {
+fn decrypt_bytes_with_identity(ciphertext: &[u8], identity: &x25519::Identity) -> Result<Vec<u8>> {
     Ok(age::decrypt(identity, ciphertext)?)
 }
 
@@ -997,8 +991,7 @@ mod tests {
         )
         .unwrap();
 
-        initialize_store_identity(&laptop, "laptop", Some(&SecretString::from("pw")))
-            .unwrap();
+        initialize_store_identity(&laptop, "laptop", Some(&SecretString::from("pw"))).unwrap();
         let laptop_id = unlock_identity(&laptop, Some(&SecretString::from("pw"))).unwrap();
         let phone_recipient = request_store_access(&phone, "phone", None).unwrap();
         add_recipient(&laptop, &laptop_id, &phone_recipient).unwrap();
@@ -1026,8 +1019,7 @@ mod tests {
         )
         .unwrap();
 
-        initialize_store_identity(&laptop, "laptop", Some(&SecretString::from("pw")))
-            .unwrap();
+        initialize_store_identity(&laptop, "laptop", Some(&SecretString::from("pw"))).unwrap();
         request_store_access(&phone, "phone", None).unwrap();
 
         let pending = read_pending(&laptop).unwrap();
@@ -1043,8 +1035,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let paths = paths_in(dir.path());
         let recipient =
-            initialize_store_identity(&paths, "laptop", Some(&SecretString::from("pw")))
-                .unwrap();
+            initialize_store_identity(&paths, "laptop", Some(&SecretString::from("pw"))).unwrap();
         let identity = unlock_identity(&paths, Some(&SecretString::from("pw"))).unwrap();
 
         // Same key → rejected for the key clash.
@@ -1061,8 +1052,7 @@ mod tests {
     fn remove_recipient_refuses_the_last_one() {
         let dir = tempdir().unwrap();
         let paths = paths_in(dir.path());
-        initialize_store_identity(&paths, "laptop", Some(&SecretString::from("pw")))
-            .unwrap();
+        initialize_store_identity(&paths, "laptop", Some(&SecretString::from("pw"))).unwrap();
         let identity = unlock_identity(&paths, Some(&SecretString::from("pw"))).unwrap();
 
         assert!(remove_recipient(&paths, &identity, "laptop").is_err());
@@ -1128,10 +1118,7 @@ mod tests {
 
     /// Decrypt an in-memory ciphertext with an unlocked identity (test helper;
     /// the production path decrypts files, not buffers).
-    fn decrypt_file_bytes_from(
-        identity: &UnlockedIdentity,
-        ciphertext: &[u8],
-    ) -> Result<Vec<u8>> {
+    fn decrypt_file_bytes_from(identity: &UnlockedIdentity, ciphertext: &[u8]) -> Result<Vec<u8>> {
         decrypt_bytes_with_identity(ciphertext, &identity.identity)
     }
 }

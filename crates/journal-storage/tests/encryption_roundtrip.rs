@@ -150,12 +150,15 @@ fn disable_clears_age_artifacts() {
     // same treatment the identity gets.
     let trust_file = dir.path().join("devices-trust.toml");
     assert!(!trust_file.exists(), "trust pins should be renamed away");
-    let retired_pins = summary.disabled_trust_file.expect("trust pins were present");
+    let retired_pins = summary
+        .disabled_trust_file
+        .expect("trust pins were present");
     assert!(retired_pins.exists());
     assert_eq!(
-        retired_pins.file_name().and_then(|n| n.to_str()).map(|n| {
-            n.starts_with("devices-trust.disabled-") && n.ends_with(".toml")
-        }),
+        retired_pins
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| { n.starts_with("devices-trust.disabled-") && n.ends_with(".toml") }),
         Some(true)
     );
 }
@@ -263,7 +266,10 @@ fn revoked_device_retires_its_identity_but_keeps_trust_pins() {
     // retires its now-dead key.
     let phone = JournalStore::new(&journals, dir.path().join("phone"));
     phone.ensure().unwrap();
-    let retired = phone.retire_revoked_identity().unwrap().expect("identity retired");
+    let retired = phone
+        .retire_revoked_identity()
+        .unwrap()
+        .expect("identity retired");
     assert!(retired.exists());
 
     // The identity is renamed aside; the trust pins are deliberately kept so a
@@ -315,8 +321,14 @@ fn remote_disable_reconcile_holds_off_while_entries_are_still_encrypted() {
 
     assert!(!laptop.reconcile_disabled_encryption().unwrap());
 
-    assert!(identity.exists(), "key must survive while entries are encrypted");
-    assert!(trust.exists(), "pins must survive while entries are encrypted");
+    assert!(
+        identity.exists(),
+        "key must survive while entries are encrypted"
+    );
+    assert!(
+        trust.exists(),
+        "pins must survive while entries are encrypted"
+    );
 }
 
 #[test]
