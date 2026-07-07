@@ -306,6 +306,23 @@ mod tests {
     }
 
     #[test]
+    fn empty_metadata_lists_are_omitted_from_front_matter() {
+        let rendered = render_entry(&FrontMatter::default(), "# Body\n");
+
+        for key in ["tags", "people", "activities", "feelings"] {
+            assert!(
+                !rendered.contains(key),
+                "empty `{key}` should not appear in front matter:\n{rendered}"
+            );
+        }
+
+        // A non-empty list is still written.
+        let mut fm = FrontMatter::default();
+        fm.metadata.tags = vec!["work".to_string()];
+        assert!(render_entry(&fm, "# Body\n").contains("tags = [\"work\"]"));
+    }
+
+    #[test]
     fn malformed_front_matter_returns_empty_metadata() {
         assert_eq!(
             front_matter_fields("tags = [unterminated").metadata.tags,
