@@ -34,6 +34,7 @@ impl EntryCodec {
         Self {
             paths: JournalStorePaths {
                 journal_root: std::path::PathBuf::new(),
+                age_dir: std::path::PathBuf::new(),
                 recipients_file: std::path::PathBuf::new(),
                 identity_file: std::path::PathBuf::new(),
             },
@@ -60,7 +61,7 @@ impl EntryCodec {
     /// [`encrypts_new_entries`]: Self::encrypts_new_entries
     pub(crate) fn encode_new(&self, content: &str) -> AppResult<Vec<u8>> {
         if self.encrypts_new_entries() {
-            crypto::encrypt_bytes(&self.paths, content.as_bytes())
+            crypto::encrypt_new_entry(&self.paths, content.as_bytes(), self.identity.as_ref())
         } else {
             Ok(content.as_bytes().to_vec())
         }

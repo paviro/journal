@@ -81,7 +81,16 @@ pub fn read_entry(
     } else {
         EntryEncryptionState::Plain
     };
-    let content = read_entry_content(path, identity)?;
+    let content = match read_entry_content(path, identity) {
+        Ok(content) => content,
+        // An encrypted entry the loaded identity can't decrypt (e.g. a device
+        // not yet approved as a recipient, or a partially re-encrypted store)
+        // degrades to a locked placeholder rather than failing the whole scan.
+        Err(_) if matches!(encryption_state, EntryEncryptionState::EncryptedUnlocked) => {
+            return locked_entry(journal, path);
+        }
+        Err(error) => return Err(error),
+    };
     let (front_matter, body) = split_front_matter(&content);
     // One TOML parse per entry instead of one per field.
     let FrontMatter {

@@ -268,8 +268,11 @@ fn markdown_image(alt: &str, dir_name: &str, file_name: &str) -> String {
     format!("![{alt}]({dir_name}/{file_name})")
 }
 
-/// Write bytes as `<id>.<ext>` (`.age`-suffixed when encrypting) under a
-/// collision-free random id, returning the file name.
+/// Write bytes under a collision-free random id and return the **clean**
+/// reference name `<id>.<ext>` (never `.age`). When the store is encrypted the
+/// file on disk gets the `.age` suffix, but the body link stays clean — the app
+/// appends/strips `.age` when resolving, so toggling encryption never rewrites
+/// entry bodies.
 fn write_asset(
     assets_dir: &Path,
     encryption: Option<&JournalStorePaths>,
@@ -280,19 +283,20 @@ fn write_asset(
 
     for _ in 0..ASSET_ID_ATTEMPTS {
         let id = nanoid!(ASSET_ID_LEN);
-        let file_name = match encryption {
-            Some(_) => format!("{id}.{ext}.age"),
-            None => format!("{id}.{ext}"),
-        };
-        let path = assets_dir.join(&file_name);
         if id_taken(assets_dir, &id)? {
             continue;
         }
+        let link_name = format!("{id}.{ext}");
+        let disk_name = match encryption {
+            Some(_) => format!("{link_name}.age"),
+            None => link_name.clone(),
+        };
+        let path = assets_dir.join(&disk_name);
         match encryption {
             Some(paths) => crypto::encrypt_to_file(paths, bytes, &path)?,
             None => fs::write(&path, bytes)?,
         }
-        return Ok(file_name);
+        return Ok(link_name);
     }
 
     Err("could not allocate a unique asset id".into())
@@ -336,8 +340,11 @@ fn cleanup_orphans(
             remaining += 1;
             continue;
         }
+        // Body links are clean, but the file may carry a `.age` suffix — compare
+        // by the clean key so a referenced encrypted asset isn't seen as orphaned.
         let name = item.file_name().to_string_lossy().to_string();
-        if referenced.contains(&name) {
+        let key = name.strip_suffix(".age").unwrap_or(&name);
+        if referenced.contains(key) {
             remaining += 1;
         } else {
             fs::remove_file(item.path())?;
@@ -441,6 +448,27 @@ pub(crate) fn resolve_entry_asset_path(
     let Some(assets_dir) = entry_assets_dir(entry_path) else {
         return Ok(None);
     };
+
+    // A body link is always clean (`<id>.<ext>`); the file on disk carries a
+    // `.age` suffix when encrypted. Try the plaintext name, then the encrypted
+    // sibling.
+    for candidate in asset_name_candidates(file_name) {
+        if let Some(path) = resolve_regular_file(&assets_dir, &candidate)? {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+/// The on-disk names a clean reference `<id>.<ext>` might map to: the plaintext
+/// file itself, or its encrypted `.age` sibling.
+fn asset_name_candidates(file_name: &str) -> [String; 2] {
+    [file_name.to_string(), format!("{file_name}.age")]
+}
+
+/// Resolve `file_name` in `assets_dir` to an absolute path if it's a regular
+/// file that doesn't escape the folder (rejecting symlinks and traversal).
+fn resolve_regular_file(assets_dir: &Path, file_name: &str) -> AppResult<Option<PathBuf>> {
     let path = assets_dir.join(file_name);
     let meta = match fs::symlink_metadata(&path) {
         Ok(meta) => meta,
@@ -451,7 +479,7 @@ pub(crate) fn resolve_entry_asset_path(
         return Ok(None);
     }
 
-    let assets_dir = fs::canonicalize(&assets_dir)?;
+    let assets_dir = fs::canonicalize(assets_dir)?;
     let path = fs::canonicalize(&path)?;
     if !path.starts_with(&assets_dir) {
         return Ok(None);
@@ -960,8 +988,14 @@ mod tests {
             &dir.path().join("journals"),
         )
         .unwrap();
-        crypto::generate_identity_store(&paths, "secret").unwrap();
-        let identity = crypto::unlock_identity(&paths, "secret").unwrap();
+        crypto::initialize_store_identity(
+            &paths,
+            "laptop",
+            Some(&crate::SecretString::from("secret")),
+        )
+        .unwrap();
+        let identity =
+            crypto::unlock_identity(&paths, Some(&crate::SecretString::from("secret"))).unwrap();
 
         let src = dir.path().join("pic.png");
         let original = png_bytes();
@@ -972,10 +1006,11 @@ mod tests {
 
         let new_body = new_body.expect("body should change");
         assert_eq!(report.stored, 1);
-        // The stored asset carries the `.age` suffix and the link reflects it.
+        // The body link stays clean (no `.age`) even though the store is encrypted;
+        // only the file on disk carries the `.age` suffix.
         assert!(
-            new_body.contains(".age)"),
-            "link should point at .age asset"
+            new_body.contains(".png)") && !new_body.contains(".age"),
+            "link should stay clean: {new_body}"
         );
         let assets = entry_assets_dir(&entry).unwrap();
         let stored = fs::read_dir(&assets)
@@ -987,6 +1022,16 @@ mod tests {
         assert!(stored.to_string_lossy().ends_with(".png.age"));
         let decrypted = crypto::decrypt_file_bytes(&identity, &stored).unwrap();
         assert_eq!(decrypted, original);
+
+        // The clean link resolves to the encrypted file on disk.
+        let file_name = new_body
+            .rsplit_once('/')
+            .and_then(|(_, rest)| rest.strip_suffix(')'))
+            .unwrap();
+        let resolved = resolve_entry_asset_path(&entry, file_name)
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved, fs::canonicalize(&stored).unwrap());
     }
 
     #[test]

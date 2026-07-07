@@ -1,7 +1,7 @@
 use crate::{AppResult, config, editor, migrate, tui};
 use clap::{Args, Parser, Subcommand};
 use journal_core::feelings;
-use journal_storage::{JournalStore, MOOD_RANGE, Metadata};
+use journal_storage::{JournalStore, MOOD_RANGE, Metadata, SecretString};
 use std::{
     io::{self, Read},
     path::{Path, PathBuf},
@@ -50,15 +50,92 @@ enum CliCommand {
         #[arg(value_name = "NAME")]
         name: String,
     },
-    /// Encrypt every plaintext entry in the store
-    Encrypt,
-    /// Decrypt every encrypted entry in the store
-    Decrypt,
     /// Import entries from another journaling app
     Import {
         #[command(subcommand)]
         source: ImportSource,
     },
+    /// Manage journal encryption: enable/disable and the device keystore
+    #[command(alias = "enc")]
+    Encryption {
+        #[command(subcommand)]
+        command: EncryptionCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum EncryptionCommand {
+    /// Turn on encryption for this device (creating its key if needed) and encrypt every plaintext entry
+    Enable(NewIdentityArgs),
+    /// Decrypt every encrypted entry, turning encryption off
+    Disable,
+    /// Manage the devices that can read this encrypted journal
+    Device {
+        #[command(subcommand)]
+        command: DeviceCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum DeviceCommand {
+    /// Request access for this device to an already-encrypted journal (approve it from an existing device)
+    Enroll(NewIdentityArgs),
+    /// List the devices that can read this journal, plus pending requests
+    List,
+    /// Remove a device and re-encrypt all entries to exclude it
+    Remove {
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+    /// Rename a device's label (no re-encryption)
+    Rename {
+        #[arg(value_name = "OLD")]
+        old: String,
+        #[arg(value_name = "NEW")]
+        new: String,
+    },
+    /// Approve pending device-access requests (add + re-encrypt)
+    Approve(RequestSelectionArgs),
+    /// Reject pending device-access requests without granting access
+    Reject(RequestSelectionArgs),
+    /// Add, remove, or change this device's key passphrase
+    Passphrase(PassphraseArgs),
+    /// Replace this device's key and re-encrypt, retiring the old key
+    Rotate,
+}
+
+#[derive(Debug, Args)]
+struct PassphraseArgs {
+    /// Remove the passphrase, storing the key unprotected
+    #[arg(long)]
+    remove: bool,
+}
+
+/// Options for creating a new device identity, shared by `encryption enable`
+/// (first key on this device) and `device enroll` (joining an existing store).
+#[derive(Debug, Args)]
+struct NewIdentityArgs {
+    /// Name for this device when creating a new identity (prompted if omitted)
+    #[arg(long, value_name = "NAME")]
+    name: Option<String>,
+
+    /// Create the key without a passphrase; it opens automatically. Omit to be
+    /// asked interactively whether to protect the key with a passphrase.
+    #[arg(long)]
+    no_passphrase: bool,
+}
+
+/// Which pending join requests a command acts on. Shared by `approve` and
+/// `reject`: name/id selects one, `--all` selects every queued request.
+#[derive(Debug, Args)]
+struct RequestSelectionArgs {
+    /// Act only on the request whose name or id matches
+    #[arg(value_name = "NAME_OR_ID")]
+    which: Option<String>,
+
+    /// Act on every pending request
+    #[arg(long)]
+    all: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -135,18 +212,290 @@ fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppRe
     match command {
         CliCommand::Log(args) => create_entry_from_log_command(cli, args, stdin_is_pipe),
         CliCommand::Use { name } => set_default_journal(cli, name),
-        CliCommand::Encrypt => {
-            let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-            migrate::encrypt_store(&config_path, &config)
-        }
-        CliCommand::Decrypt => {
-            let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-            migrate::decrypt_store(&config_path, &config)
-        }
         CliCommand::Import { source } => match source {
             ImportSource::Dayone(args) => import_dayone_command(cli, args),
         },
+        CliCommand::Encryption { command } => handle_encryption_command(cli, command),
     }
+}
+
+fn handle_encryption_command(cli: &Cli, command: &EncryptionCommand) -> AppResult<()> {
+    match command {
+        EncryptionCommand::Enable(args) => {
+            let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+            migrate::encrypt_store(
+                &config_path,
+                &config,
+                args.name.as_deref(),
+                args.no_passphrase,
+            )
+        }
+        EncryptionCommand::Disable => {
+            let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+            migrate::decrypt_store(&config_path, &config)
+        }
+        EncryptionCommand::Device { command } => handle_device_command(cli, command),
+    }
+}
+
+fn handle_device_command(cli: &Cli, command: &DeviceCommand) -> AppResult<()> {
+    match command {
+        DeviceCommand::Enroll(args) => device_enroll_command(cli, args),
+        DeviceCommand::List => device_list_command(cli),
+        DeviceCommand::Remove { name } => device_remove_command(cli, name),
+        DeviceCommand::Rename { old, new } => device_rename_command(cli, old, new),
+        DeviceCommand::Approve(args) => device_approve_command(cli, args),
+        DeviceCommand::Reject(args) => device_reject_command(cli, args),
+        DeviceCommand::Passphrase(args) => device_passphrase_command(cli, args),
+        DeviceCommand::Rotate => device_rotate_command(cli),
+    }
+}
+
+/// Open the store and unlock this device's identity, prompting for a passphrase
+/// only when the identity is passphrase-protected. Returns the passphrase too
+/// (for rotation, which re-wraps the new key with it). Used by the device
+/// operations that must decrypt in order to re-encrypt.
+fn open_unlocked_store_with_passphrase(
+    cli: &Cli,
+) -> AppResult<(JournalStore, Option<SecretString>)> {
+    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+    let mut store = JournalStore::for_config(&config_path, &config.journal_root)?;
+    store.ensure()?;
+    if !store.unlock_available() {
+        return Err(
+            "no encryption identity on this device; run `journal encryption device enroll` first"
+                .into(),
+        );
+    }
+    let passphrase = if store.identity_needs_passphrase()? {
+        Some(migrate::prompt_unlock_passphrase()?)
+    } else {
+        None
+    };
+    store.unlock(passphrase.as_ref())?;
+    Ok((store, passphrase))
+}
+
+fn open_unlocked_store(cli: &Cli) -> AppResult<JournalStore> {
+    Ok(open_unlocked_store_with_passphrase(cli)?.0)
+}
+
+fn device_passphrase_command(cli: &Cli, args: &PassphraseArgs) -> AppResult<()> {
+    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+    let store = JournalStore::for_config(&config_path, &config.journal_root)?;
+    store.ensure()?;
+    let Some(info) = store.this_device()? else {
+        return Err(
+            "no encryption identity on this device; run `journal encryption device enroll` first"
+                .into(),
+        );
+    };
+
+    let current = if info.passphrase_protected {
+        Some(migrate::prompt_unlock_passphrase()?)
+    } else {
+        None
+    };
+    let new = if args.remove {
+        None
+    } else {
+        Some(migrate::prompt_new_passphrase()?)
+    };
+    store.set_passphrase(current.as_ref(), new.as_ref())?;
+
+    if new.is_some() {
+        println!("Updated this device's key passphrase.");
+    } else {
+        println!(
+            "Removed the passphrase; the key now opens automatically. Keep this device secure."
+        );
+    }
+    Ok(())
+}
+
+fn device_rotate_command(cli: &Cli) -> AppResult<()> {
+    let (mut store, passphrase) = open_unlocked_store_with_passphrase(cli)?;
+    let summary = store.rotate_identity(passphrase.as_ref(), migrate::cli_progress())?;
+    println!(
+        "Rotated this device's key and re-encrypted {} file(s).",
+        summary.migrated_files
+    );
+    println!("The previous key can no longer read this journal.");
+    Ok(())
+}
+
+fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
+    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+    let store = JournalStore::for_config(&config_path, &config.journal_root)?;
+    store.ensure()?;
+    if !store.encryption_enabled() {
+        return Err(
+            "this journal is not encrypted yet; run `journal encryption enable` to turn it on for this device".into(),
+        );
+    }
+    if store.unlock_available() {
+        let name = store
+            .this_device()?
+            .map(|device| device.name)
+            .unwrap_or_default();
+        return Err(format!(
+            "this device already has an identity ('{name}') at {}.\n\
+             If you're waiting for approval, run `journal encryption device list` to see the \
+             request, or approve it from a device that can already read this journal.\n\
+             To start over, delete that identity file and re-run enroll.",
+            store.paths().identity_file.display()
+        )
+        .into());
+    }
+
+    let (name, passphrase) =
+        config::resolve_new_identity_options(args.name.as_deref(), args.no_passphrase)?;
+
+    // Joining a store that already exists (its recipients synced here): drop a
+    // request for a device that can decrypt to approve.
+    let recipient = store.request_access(&name, passphrase.as_ref())?;
+    println!("Requested access as '{name}'. Your public recipient (safe to share):");
+    println!("  {}", recipient.key);
+    println!(
+        "On a device that can already read this journal, approve it — this request\nappears in `journal encryption device list` and a modal at launch — then run there:"
+    );
+    println!("  journal encryption device approve {name}");
+    println!(
+        "Age identity: {}. Back it up; without it encrypted entries cannot be decrypted.",
+        store.paths().identity_file.display()
+    );
+    if passphrase.is_none() {
+        println!("This key has no passphrase — keep this device and its backups secure.");
+    }
+    Ok(())
+}
+
+fn device_list_command(cli: &Cli) -> AppResult<()> {
+    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+    let store = JournalStore::for_config(&config_path, &config.journal_root)?;
+    store.ensure()?;
+
+    let recipients = store.recipients()?;
+    if recipients.is_empty() {
+        println!("This journal is not encrypted.");
+        return Ok(());
+    }
+
+    let this_device = store.this_device()?;
+    println!("Recipients:");
+    for recipient in &recipients {
+        let marker = if this_device
+            .as_ref()
+            .is_some_and(|device| device_matches(device, recipient))
+        {
+            "  (this device)"
+        } else {
+            ""
+        };
+        println!("  {}  {}{marker}", recipient.name, recipient.key);
+    }
+
+    let pending = store.pending_requests()?;
+    if !pending.is_empty() {
+        println!("\nPending approval (run `journal encryption device approve`):");
+        for request in &pending {
+            println!(
+                "  {}  {}  [{}]",
+                request.recipient.name, request.recipient.key, request.id
+            );
+        }
+    }
+    Ok(())
+}
+
+fn device_remove_command(cli: &Cli, name: &str) -> AppResult<()> {
+    let store = open_unlocked_store(cli)?;
+    let summary = store.remove_recipient(name, migrate::cli_progress())?;
+    println!(
+        "Removed '{name}' and re-encrypted {} file(s).",
+        summary.migrated_files
+    );
+    println!("Revocation is forward-only: entries that device already synced stay readable to it.");
+    Ok(())
+}
+
+fn device_rename_command(cli: &Cli, old: &str, new: &str) -> AppResult<()> {
+    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+    let store = JournalStore::for_config(&config_path, &config.journal_root)?;
+    store.ensure()?;
+    store.rename_recipient(old, new)?;
+    println!("Renamed '{old}' to '{new}'.");
+    Ok(())
+}
+
+/// The pending requests an `approve`/`reject` invocation targets: `--all` picks
+/// every queued request, otherwise `which` matches a request by id or device
+/// name. `action` names the operation in the "how to select" error. Errors if
+/// nothing was selected or matched; the empty-queue case is handled by callers.
+fn select_requests(
+    pending: Vec<journal_storage::PendingRequest>,
+    args: &RequestSelectionArgs,
+    action: &str,
+) -> AppResult<Vec<journal_storage::PendingRequest>> {
+    let selected: Vec<_> = if args.all {
+        pending
+    } else if let Some(which) = &args.which {
+        pending
+            .into_iter()
+            .filter(|request| &request.id == which || &request.recipient.name == which)
+            .collect()
+    } else {
+        return Err(format!("specify a device name or id to {action}, or pass --all").into());
+    };
+    if selected.is_empty() {
+        return Err("no pending request matched".into());
+    }
+    Ok(selected)
+}
+
+fn device_approve_command(cli: &Cli, args: &RequestSelectionArgs) -> AppResult<()> {
+    let store = open_unlocked_store(cli)?;
+    let pending = store.pending_requests()?;
+    if pending.is_empty() {
+        println!("No pending requests.");
+        return Ok(());
+    }
+
+    for request in select_requests(pending, args, "approve")? {
+        let summary = store.approve_pending(&request, migrate::cli_progress())?;
+        println!(
+            "Approved '{}' and re-encrypted {} file(s).",
+            request.recipient.name, summary.migrated_files
+        );
+    }
+    Ok(())
+}
+
+fn device_reject_command(cli: &Cli, args: &RequestSelectionArgs) -> AppResult<()> {
+    // Rejecting only deletes the request file, so no unlock/re-encryption needed.
+    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+    let store = JournalStore::for_config(&config_path, &config.journal_root)?;
+    store.ensure()?;
+    let pending = store.pending_requests()?;
+    if pending.is_empty() {
+        println!("No pending requests.");
+        return Ok(());
+    }
+
+    for request in select_requests(pending, args, "reject")? {
+        store.deny_pending(&request)?;
+        println!("Rejected '{}'.", request.recipient.name);
+    }
+    Ok(())
+}
+
+/// Whether `recipient` labels the same device as this machine's stored identity,
+/// matched on name.
+fn device_matches(
+    device: &journal_storage::DeviceIdentityInfo,
+    recipient: &journal_storage::Recipient,
+) -> bool {
+    device.name == recipient.name
 }
 
 fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {

@@ -20,7 +20,7 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use journal_storage::JournalStore;
+use journal_storage::{JournalStore, SecretString};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::path::PathBuf;
 use std::{
@@ -43,10 +43,9 @@ const REFRESH_DEBOUNCE: Duration = Duration::from_millis(400);
 use app::App;
 
 pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResult<()> {
-    // Ensure the store exists before probing for a lock so `unlock_available`
-    // reflects on-disk state.
+    // Ensure the store exists before probing for a lock so identity checks
+    // reflect on-disk state.
     store.ensure()?;
-    let needs_unlock = store.unlock_available();
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -55,7 +54,7 @@ pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResu
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_after_unlock(&mut terminal, config_path, config, store, needs_unlock);
+    let result = run_after_unlock(&mut terminal, config_path, config, store);
 
     let restore_result = restore_terminal(terminal.backend_mut());
     if restore_result.is_ok() {
@@ -77,10 +76,32 @@ fn run_after_unlock(
     config_path: PathBuf,
     config: Config,
     mut store: JournalStore,
-    needs_unlock: bool,
 ) -> AppResult<()> {
-    if needs_unlock && !run_unlock_screen(terminal, &mut store)? {
-        // User quit at the unlock screen; exit cleanly without loading entries.
+    if store.unlock_available() {
+        if store.identity_needs_passphrase()? {
+            if !run_unlock_screen(terminal, &mut store)? {
+                // User quit at the unlock screen; exit cleanly without loading.
+                return Ok(());
+            }
+        } else {
+            // A plaintext identity opens without a passphrase — no unlock screen.
+            store.unlock(None)?;
+        }
+    }
+
+    // A device that has an identity but isn't (yet) a store recipient can't
+    // decrypt history — explain why and exit instead of failing to load.
+    if store.unlock_available() && store.encryption_enabled() && !store.is_current_recipient()? {
+        let name = store
+            .this_device()?
+            .map(|device| device.name)
+            .unwrap_or_default();
+        let awaiting = store.self_request_pending()?;
+        return run_pending_notice(terminal, &name, awaiting);
+    }
+
+    if !approve_pending_requests(terminal, &mut store)? {
+        // User quit at a pending-request modal; exit cleanly.
         return Ok(());
     }
 
@@ -89,6 +110,81 @@ fn run_after_unlock(
     // replies from stdin.
     app.image.runtime = image::ImageRuntime::detect(&app.store);
     run_loop(terminal, app)
+}
+
+/// Surface any pending device-access requests as a modal before the app loads,
+/// approving/denying each in turn. Runs only on a device that can decrypt, since
+/// approval re-encrypts the store with the unlocked identity. Returns `Ok(false)`
+/// if the user quit with Ctrl-C; `Esc` defers the rest (they reappear next launch)
+/// and returns `Ok(true)`.
+fn approve_pending_requests(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    store: &mut JournalStore,
+) -> AppResult<bool> {
+    // Only a device that can already read the store may approve others: approval
+    // re-encrypts history, which a not-yet-approved device can't decrypt.
+    if !store.is_current_recipient()? {
+        return Ok(true);
+    }
+
+    let recipients = store.recipients()?;
+    for request in store.pending_requests()? {
+        // A request whose key is already a recipient (e.g. this device's own
+        // request that synced back before its deletion) needs no approval — just
+        // clear the stale file rather than prompting to re-add it.
+        if recipients
+            .iter()
+            .any(|recipient| recipient.key == request.recipient.key)
+        {
+            store.deny_pending(&request)?;
+            continue;
+        }
+        loop {
+            terminal.draw(|frame| render::draw_pending_request(frame, &request, None))?;
+            let Event::Key(key) = event::read()? else {
+                continue;
+            };
+            if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+                return Ok(false);
+            }
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    store.approve_pending(&request, |done, total| {
+                        let _ = terminal.draw(|frame| {
+                            render::draw_pending_request(frame, &request, Some((done, total)))
+                        });
+                    })?;
+                    break;
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') => {
+                    store.deny_pending(&request)?;
+                    break;
+                }
+                // Defer: leave this and any remaining requests for next launch.
+                KeyCode::Esc => return Ok(true),
+                _ => {}
+            }
+        }
+    }
+
+    Ok(true)
+}
+
+/// Show why a device that has an identity but isn't a store recipient can't open
+/// the journal, then exit on any key. `awaiting` picks the message: a request
+/// still queued for approval versus a device that isn't authorized and has
+/// nothing pending (denied, removed, or never synced).
+fn run_pending_notice(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    device_name: &str,
+    awaiting: bool,
+) -> AppResult<()> {
+    loop {
+        terminal.draw(|frame| render::draw_pending_notice(frame, device_name, awaiting))?;
+        if let Event::Key(_) = event::read()? {
+            return Ok(());
+        }
+    }
 }
 
 /// Outcome of a single key press on the unlock screen.
@@ -143,16 +239,18 @@ fn run_unlock_screen(
                         input.zeroize();
                         return Ok(false);
                     }
-                    UnlockAction::Submit => match store.unlock(&input) {
-                        Ok(()) => {
-                            input.zeroize();
-                            return Ok(true);
+                    UnlockAction::Submit => {
+                        match store.unlock(Some(&SecretString::from(input.as_str()))) {
+                            Ok(()) => {
+                                input.zeroize();
+                                return Ok(true);
+                            }
+                            Err(_) => {
+                                input.zeroize();
+                                error = Some("Incorrect passphrase".to_string());
+                            }
                         }
-                        Err(_) => {
-                            input.zeroize();
-                            error = Some("Incorrect passphrase".to_string());
-                        }
-                    },
+                    }
                     UnlockAction::Insert(ch) => input.push(ch),
                     UnlockAction::Delete => {
                         input.pop();

@@ -12,6 +12,7 @@ clap = { version = "4", features = ["derive"] }
 crossterm = "0.29"
 dirs = "6"
 image = { version = "0.25", default-features = false }
+indicatif = "0.17"
 # rascii_art still targets image 0.24; a second, decode-feature-free copy lets us
 # hand it images we already decoded on the 0.25 side (see `tui::image::to_rascii_image`).
 image_024 = { package = "image", version = "0.24", default-features = false }

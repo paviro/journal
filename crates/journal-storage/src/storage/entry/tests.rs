@@ -299,7 +299,8 @@ fn scan_entries_marks_encrypted_entry_unlocked_with_identity() {
     let config = dir.path().join("config.toml");
     let root = dir.path().join("journals");
     let paths = JournalStorePaths::for_config(&config, &root).unwrap();
-    crypto::generate_identity_store(&paths, "secret").unwrap();
+    crypto::initialize_store_identity(&paths, "laptop", Some(&crate::SecretString::from("secret")))
+        .unwrap();
     let encrypted = create_entry(
         &EntryCodec::new(paths.clone(), None),
         &root,
@@ -308,7 +309,8 @@ fn scan_entries_marks_encrypted_entry_unlocked_with_identity() {
         &Metadata::default(),
     )
     .unwrap();
-    let identity = crypto::unlock_identity(&paths, "secret").unwrap();
+    let identity =
+        crypto::unlock_identity(&paths, Some(&crate::SecretString::from("secret"))).unwrap();
 
     let entries = scan_entries(&root, Some(&identity)).unwrap();
 

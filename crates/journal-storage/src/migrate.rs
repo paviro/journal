@@ -2,6 +2,7 @@ use crate::{AppResult, JournalStore, JournalStorePaths, crypto, storage};
 use chrono::Local;
 use nanoid::nanoid;
 use std::{
+    ffi::OsStr,
     fs,
     path::{Path, PathBuf},
 };
@@ -27,11 +28,19 @@ enum MigrationMode<'a> {
     },
 }
 
-pub fn encrypt_store(store: &JournalStore) -> AppResult<MigrationSummary> {
+/// Progress sink for a whole-store migration: called with `(done, total)` once
+/// at the start (`0, total`) and after each file is converted.
+pub type ProgressFn<'a> = &'a mut dyn FnMut(usize, usize);
+
+pub fn encrypt_store(
+    store: &JournalStore,
+    progress: ProgressFn<'_>,
+) -> AppResult<MigrationSummary> {
     let paths = store.paths();
     let migrated_files = migrate_store(
         paths.journal_root.as_path(),
         MigrationMode::Encrypt { paths },
+        progress,
     )?
     .migrated_files;
     Ok(MigrationSummary { migrated_files })
@@ -40,21 +49,92 @@ pub fn encrypt_store(store: &JournalStore) -> AppResult<MigrationSummary> {
 pub fn decrypt_store(
     store: &JournalStore,
     identity: &crypto::UnlockedIdentity,
+    progress: ProgressFn<'_>,
 ) -> AppResult<DecryptSummary> {
     let paths = store.paths();
     let migration = migrate_store(
         paths.journal_root.as_path(),
         MigrationMode::Decrypt { identity },
+        progress,
     )?;
-    if paths.recipients_file.exists() {
-        fs::remove_file(&paths.recipients_file)?;
-    }
+    clear_age_dir(paths)?;
     let disabled_identity_file = disable_identity_file(paths)?;
     Ok(DecryptSummary {
         migrated_files: migration.migrated_files,
         backup_path: migration.backup_path,
         disabled_identity_file,
     })
+}
+
+/// Tear down the synced key folder when encryption is disabled: drop
+/// `recipients.toml` and any leftover `pending-*.toml` join requests (which
+/// would otherwise keep syncing and resurface as phantom approval modals), then
+/// remove the `.age` folder itself if nothing else is left in it.
+fn clear_age_dir(paths: &JournalStorePaths) -> AppResult<()> {
+    if paths.recipients_file.exists() {
+        fs::remove_file(&paths.recipients_file)?;
+    }
+    if !paths.age_dir.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(&paths.age_dir)? {
+        let path = entry?.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("pending-") && name.ends_with(".toml"))
+        {
+            fs::remove_file(path)?;
+        }
+    }
+    // Leaves the folder in place if the user dropped unrelated files in it.
+    let _ = fs::remove_dir(&paths.age_dir);
+    Ok(())
+}
+
+/// Re-encrypt every encrypted file (entries and their assets) to the store's
+/// *current* recipient set. Runs after a recipient is added or removed so the
+/// change reaches existing history, not just new entries. Requires an unlocked
+/// identity that can decrypt the store as it stands now.
+///
+/// Converts every file or returns `Err` on the first failure, leaving the store
+/// partially converted. Callers must run this inside [`atomic`] so such a
+/// failure rolls the whole store back rather than stranding it mid-conversion.
+pub fn reencrypt_store(
+    store: &JournalStore,
+    identity: &crypto::UnlockedIdentity,
+    progress: ProgressFn<'_>,
+) -> AppResult<MigrationSummary> {
+    let paths = store.paths();
+    let mut files = Vec::new();
+    collect_store_files_including_trash(paths.journal_root.as_path(), &mut |path| {
+        if path.extension() == Some(OsStr::new("age")) {
+            files.push(path.to_path_buf());
+        }
+        Ok(())
+    })?;
+    files.sort();
+
+    progress(0, files.len());
+    for (done, path) in files.iter().enumerate() {
+        reencrypt_file(path, paths, identity)?;
+        progress(done + 1, files.len());
+    }
+    Ok(MigrationSummary {
+        migrated_files: files.len(),
+    })
+}
+
+fn reencrypt_file(
+    path: &Path,
+    paths: &JournalStorePaths,
+    identity: &crypto::UnlockedIdentity,
+) -> AppResult<()> {
+    let plaintext = crypto::decrypt_file_bytes(identity, path)?;
+    let temp = crate::sibling_temp_path(path, "tmp.age");
+    crypto::encrypt_to_file(paths, &plaintext, &temp)?;
+    fs::rename(&temp, path)?;
+    Ok(())
 }
 
 pub fn store_has_encrypted_entry_files(store: &JournalStore) -> AppResult<bool> {
@@ -73,23 +153,41 @@ struct MigrationResult {
     backup_path: Option<PathBuf>,
 }
 
-fn migrate_store(root: &Path, mode: MigrationMode<'_>) -> AppResult<MigrationResult> {
-    let files = migration_files(root, &mode)?;
-    if files.is_empty() {
+fn migrate_store(
+    root: &Path,
+    mode: MigrationMode<'_>,
+    progress: ProgressFn<'_>,
+) -> AppResult<MigrationResult> {
+    let entry_files = migration_files(root, &mode)?;
+    let asset_files = migration_asset_files(root, &mode)?;
+    let total = entry_files.len() + asset_files.len();
+    if total == 0 {
         return Ok(MigrationResult {
             migrated_files: 0,
             backup_path: None,
         });
     }
-    ensure_no_migration_collisions(&files, &mode)?;
+    ensure_no_migration_collisions(&entry_files, &mode)?;
+    ensure_no_asset_collisions(&asset_files, &mode)?;
     let backup = backup_store(root)?;
 
+    progress(0, total);
+    let mut done = 0usize;
     let result = (|| -> AppResult<()> {
-        for source in &files {
+        for source in &entry_files {
             match mode {
                 MigrationMode::Encrypt { paths } => encrypt_plain_entry(source, paths)?,
                 MigrationMode::Decrypt { identity } => decrypt_encrypted_entry(source, identity)?,
             }
+            done += 1;
+            progress(done, total);
+        }
+        // Assets carry the same `.age` suffix as entries but keep clean body
+        // links, so converting them only renames files — no entry is rewritten.
+        for source in &asset_files {
+            convert_asset_file(source, &mode)?;
+            done += 1;
+            progress(done, total);
         }
         Ok(())
     })();
@@ -110,9 +208,77 @@ fn migrate_store(root: &Path, mode: MigrationMode<'_>) -> AppResult<MigrationRes
     };
 
     Ok(MigrationResult {
-        migrated_files: files.len(),
+        migrated_files: total,
         backup_path,
     })
+}
+
+/// Collect asset files (inside any `*.assets/` folder) that need converting:
+/// plaintext files when encrypting, `.age` files when decrypting.
+fn migration_asset_files(root: &Path, mode: &MigrationMode<'_>) -> AppResult<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    collect_store_files_including_trash(root, &mut |path| {
+        if is_in_assets_dir(path) && asset_matches_mode(path, mode) {
+            files.push(path.to_path_buf());
+        }
+        Ok(())
+    })?;
+    files.sort();
+    Ok(files)
+}
+
+fn is_in_assets_dir(path: &Path) -> bool {
+    path.parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".assets"))
+}
+
+fn asset_matches_mode(path: &Path, mode: &MigrationMode<'_>) -> bool {
+    let is_encrypted = path.extension() == Some(OsStr::new("age"));
+    match mode {
+        MigrationMode::Encrypt { .. } => !is_encrypted,
+        MigrationMode::Decrypt { .. } => is_encrypted,
+    }
+}
+
+/// Encrypt (`<name>` → `<name>.age`) or decrypt (`<name>.age` → `<name>`) one
+/// asset file in place, atomically via temp + rename.
+fn convert_asset_file(path: &Path, mode: &MigrationMode<'_>) -> AppResult<()> {
+    match mode {
+        MigrationMode::Encrypt { paths } => {
+            let target = append_age(path);
+            let temp = crate::sibling_temp_path(&target, "tmp.age");
+            crypto::encrypt_to_file(paths, &fs::read(path)?, &temp)?;
+            fs::rename(&temp, &target)?;
+            fs::remove_file(path)?;
+        }
+        MigrationMode::Decrypt { identity } => {
+            let target = strip_age(path)?;
+            let temp = crate::sibling_temp_path(&target, "tmp");
+            fs::write(&temp, crypto::decrypt_file_bytes(identity, path)?)?;
+            fs::rename(&temp, &target)?;
+            fs::remove_file(path)?;
+        }
+    }
+    Ok(())
+}
+
+fn append_age(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".age");
+    path.with_file_name(name)
+}
+
+fn strip_age(path: &Path) -> AppResult<PathBuf> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("asset path has no UTF-8 file name")?;
+    let base = name
+        .strip_suffix(".age")
+        .ok_or("encrypted asset does not end in .age")?;
+    Ok(path.with_file_name(base))
 }
 
 fn migration_files(root: &Path, mode: &MigrationMode<'_>) -> AppResult<Vec<PathBuf>> {
@@ -167,6 +333,28 @@ fn ensure_no_migration_collisions(files: &[PathBuf], mode: &MigrationMode<'_>) -
     Ok(())
 }
 
+/// Guard the asset conversions the same way [`ensure_no_migration_collisions`]
+/// guards entries: refuse to run if converting an asset would clobber a file
+/// that already exists (an inconsistent store holding both `x.png` and
+/// `x.png.age`), since the conversion renames onto the target in place.
+fn ensure_no_asset_collisions(files: &[PathBuf], mode: &MigrationMode<'_>) -> AppResult<()> {
+    for source in files {
+        let target = match mode {
+            MigrationMode::Encrypt { .. } => append_age(source),
+            MigrationMode::Decrypt { .. } => strip_age(source)?,
+        };
+        if target.exists() {
+            return Err(format!(
+                "cannot migrate asset {}; target already exists: {}",
+                source.display(),
+                target.display()
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
 fn encrypt_plain_entry(path: &Path, paths: &JournalStorePaths) -> AppResult<()> {
     let target = path.with_extension("md.age");
     let temp = crate::sibling_temp_path(&target, "tmp.age");
@@ -208,7 +396,46 @@ fn decrypted_entry_path(path: &Path) -> AppResult<PathBuf> {
     Ok(path.with_file_name(format!("{plain_name}.md")))
 }
 
-fn backup_store(root: &Path) -> AppResult<PathBuf> {
+/// Run `op` as an all-or-nothing change to the store: snapshot the whole
+/// journal root first, and on any error roll every file (entries, assets, and
+/// `recipients.toml`) back to the snapshot so a failed key change leaves no
+/// trace. The snapshot is deleted on success. Key-changing operations must run
+/// their `recipients.toml` mutation *and* [`reencrypt_store`] inside this so the
+/// two can't diverge.
+pub(crate) fn atomic<T>(store: &JournalStore, op: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
+    let root = store.paths().journal_root.clone();
+    let backup = backup_store(&root)?;
+    match op() {
+        Ok(value) => {
+            fs::remove_dir_all(&backup)?;
+            Ok(value)
+        }
+        Err(error) => {
+            if let Err(restore_error) = restore_store(&root, &backup) {
+                return Err(format!(
+                    "{error}; ALSO failed to roll back the store: {restore_error}. \
+                     A backup of the pre-change store remains at {}",
+                    backup.display()
+                )
+                .into());
+            }
+            Err(error)
+        }
+    }
+}
+
+/// Replace `root` with `backup` wholesale: drop the (partially changed) root and
+/// move the snapshot into its place. A single rename, so no half-converted files
+/// or leftover temps survive.
+pub(crate) fn restore_store(root: &Path, backup: &Path) -> AppResult<()> {
+    if root.exists() {
+        fs::remove_dir_all(root)?;
+    }
+    fs::rename(backup, root)?;
+    Ok(())
+}
+
+pub(crate) fn backup_store(root: &Path) -> AppResult<PathBuf> {
     let backup = backup_path(root);
     copy_dir_all(root, &backup)?;
     Ok(backup)

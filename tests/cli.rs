@@ -1,4 +1,4 @@
-use journal_storage::{Entry, JournalStore, Metadata};
+use journal_storage::{Entry, JournalStore, Metadata, SecretString};
 use std::{
     env, fs,
     io::Write,
@@ -30,7 +30,9 @@ fn scan_entries_for(root: &Path, journal: &str) -> Vec<Entry> {
 
 fn generate_identity_store(config: &Path, root: &Path, passphrase: &str) -> (JournalStore, String) {
     let store = JournalStore::for_config(config, root).unwrap();
-    let recipient = store.initialize_encryption(passphrase).unwrap();
+    let recipient = store
+        .initialize_encryption("laptop", Some(&SecretString::from(passphrase)))
+        .unwrap();
     (store, recipient)
 }
 
@@ -580,7 +582,7 @@ fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
-        .arg("encrypt")
+        .args(["encryption", "enable"])
         .output()
         .unwrap();
 
@@ -594,7 +596,7 @@ fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
     assert!(!entry.exists());
     assert!(encrypted_entry.exists());
     assert!(encrypted_trash.exists());
-    store.unlock("secret").unwrap();
+    store.unlock(Some(&SecretString::from("secret"))).unwrap();
     assert!(
         store
             .read_entry_content(&encrypted_entry)
@@ -607,9 +609,12 @@ fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
             .recipients_file
             .file_name()
             .and_then(|name| name.to_str()),
-        Some(".recipients.txt")
+        Some("recipients.toml")
     );
-    assert_eq!(store.paths().recipients_file, root.join(".recipients.txt"));
+    assert_eq!(
+        store.paths().recipients_file,
+        root.join(".age").join("recipients.toml")
+    );
     assert_eq!(store.paths().identity_file, dir.path().join("identity.age"));
     assert!(store.paths().recipients_file.exists());
     assert!(store.paths().identity_file.exists());
@@ -667,7 +672,7 @@ fn encrypt_command_can_be_rerun_when_store_is_already_encrypted() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
-        .arg("encrypt")
+        .args(["encryption", "enable"])
         .output()
         .unwrap();
 
@@ -677,7 +682,7 @@ fn encrypt_command_can_be_rerun_when_store_is_already_encrypted() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(encrypted.exists());
-    store.unlock("secret").unwrap();
+    store.unlock(Some(&SecretString::from("secret"))).unwrap();
     assert!(
         store
             .read_entry_content(&encrypted)
@@ -711,7 +716,7 @@ fn encrypt_command_finishes_partial_encryption_without_touching_existing_age_fil
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
-        .arg("encrypt")
+        .args(["encryption", "enable"])
         .output()
         .unwrap();
 
@@ -724,7 +729,7 @@ fn encrypt_command_finishes_partial_encryption_without_touching_existing_age_fil
     assert!(existing_encrypted.exists());
     assert!(!remaining_plain.exists());
     assert!(remaining_encrypted.exists());
-    store.unlock("secret").unwrap();
+    store.unlock(Some(&SecretString::from("secret"))).unwrap();
     assert!(
         store
             .read_entry_content(&existing_encrypted)
@@ -756,7 +761,7 @@ fn encrypt_command_fails_when_plain_entry_target_age_file_already_exists() {
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
-        .arg("encrypt")
+        .args(["encryption", "enable"])
         .output()
         .unwrap();
 
@@ -781,7 +786,7 @@ fn encrypt_command_fails_when_encrypted_entries_exist_without_recipients_file() 
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(&config)
-        .arg("encrypt")
+        .args(["encryption", "enable"])
         .output()
         .unwrap();
 
@@ -792,12 +797,33 @@ fn encrypt_command_fails_when_encrypted_entries_exist_without_recipients_file() 
 }
 
 #[test]
+fn encrypt_command_fails_when_recipients_exist_but_device_has_no_identity() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    let config = dir.path().join("config.toml");
+    // Recipients synced from another device, but this one never enrolled.
+    let (store, _recipient) = generate_identity_store(&config, &root, "secret");
+    fs::remove_file(&store.paths().identity_file).unwrap();
+    write_config(&config, &root, Some("work"));
+
+    let output = Command::new(journal_bin())
+        .arg("--config")
+        .arg(&config)
+        .args(["encryption", "enable"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("device enroll"));
+}
+
+#[test]
 fn encrypted_entry_command_writes_age_files_without_unlocking() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
     let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
-    store.unlock("secret").unwrap();
+    store.unlock(Some(&SecretString::from("secret"))).unwrap();
     fs::remove_file(&store.paths().identity_file).unwrap();
     fs::create_dir_all(root.join("work")).unwrap();
     write_config(&config, &root, Some("work"));
@@ -836,7 +862,7 @@ fn encrypted_editor_log_command_writes_age_files_without_unlocking() {
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
     let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
-    store.unlock("secret").unwrap();
+    store.unlock(Some(&SecretString::from("secret"))).unwrap();
     fs::remove_file(&store.paths().identity_file).unwrap();
     fs::create_dir_all(root.join("work")).unwrap();
 
@@ -891,8 +917,12 @@ fn encrypted_entries_can_be_decrypted_with_age_cli() {
     let (identity, recipient) = generate_age_cli_identity(dir.path());
     let store = JournalStore::for_config(&config, &root).unwrap();
     fs::create_dir_all(root.join("work")).unwrap();
-    fs::create_dir_all(&root).unwrap();
-    fs::write(&store.paths().recipients_file, format!("{recipient}\n")).unwrap();
+    fs::create_dir_all(store.paths().recipients_file.parent().unwrap()).unwrap();
+    fs::write(
+        &store.paths().recipients_file,
+        format!("[[recipient]]\nname = \"age-cli\"\nkey = \"{recipient}\"\n"),
+    )
+    .unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -926,4 +956,142 @@ fn encrypted_entries_can_be_decrypted_with_age_cli() {
     let decrypted = String::from_utf8(output.stdout).unwrap();
 
     assert!(decrypted.contains("age CLI readable body"));
+}
+
+/// Run the journal binary against `config` and assert success, returning stdout.
+fn run_ok(config: &Path, args: &[&str]) -> String {
+    let output = Command::new(journal_bin())
+        .arg("--config")
+        .arg(config)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+#[test]
+fn key_workflow_grants_second_device_history_access() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    fs::create_dir_all(root.join("work")).unwrap();
+    // Two config dirs sharing one journal root simulate two devices; each keeps
+    // its own identity next to its config.
+    let laptop_cfg = dir.path().join("laptop/config.toml");
+    let phone_cfg = dir.path().join("phone/config.toml");
+    fs::create_dir_all(laptop_cfg.parent().unwrap()).unwrap();
+    fs::create_dir_all(phone_cfg.parent().unwrap()).unwrap();
+    write_config(&laptop_cfg, &root, Some("work"));
+    write_config(&phone_cfg, &root, Some("work"));
+
+    // Laptop enables encryption and writes an entry before the phone exists.
+    run_ok(
+        &laptop_cfg,
+        &[
+            "encryption",
+            "enable",
+            "--name",
+            "laptop",
+            "--no-passphrase",
+        ],
+    );
+    run_ok(&laptop_cfg, &["log", "--journal", "work", "secret history"]);
+
+    // Phone requests access; laptop lists it pending, then approves it.
+    run_ok(
+        &phone_cfg,
+        &[
+            "encryption",
+            "device",
+            "enroll",
+            "--name",
+            "phone",
+            "--no-passphrase",
+        ],
+    );
+    let listing = run_ok(&laptop_cfg, &["encryption", "device", "list"]);
+    assert!(listing.contains("Pending approval"), "{listing}");
+    assert!(listing.contains("phone"), "{listing}");
+    run_ok(&laptop_cfg, &["encryption", "device", "approve", "--all"]);
+
+    // After re-encryption the phone can read the entry written before it joined.
+    let mut phone = JournalStore::for_config(&phone_cfg, &root).unwrap();
+    phone.unlock(None).unwrap();
+    let entries = phone.scan_entries().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].content.contains("secret history"));
+
+    // Both devices are recipients; the pending request is cleared.
+    assert_eq!(phone.recipients().unwrap().len(), 2);
+    assert!(phone.pending_requests().unwrap().is_empty());
+}
+
+#[test]
+fn encrypt_decrypt_converts_assets_and_keeps_clean_links() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    let config = dir.path().join("config.toml");
+    fs::create_dir_all(root.join("work")).unwrap();
+    write_config(&config, &root, Some("work"));
+    let image = dir.path().join("photo.png");
+    fs::write(&image, png_bytes()).unwrap();
+
+    // A plaintext entry with an ingested image; its body link is clean.
+    run_ok(
+        &config,
+        &["log", "--journal", "work", image.to_string_lossy().as_ref()],
+    );
+    let plain = JournalStore::for_config(&config, &root).unwrap();
+    let body = plain.scan_entries().unwrap().remove(0).content;
+    assert!(
+        body.contains(".assets/") && !body.contains(".age"),
+        "{body}"
+    );
+
+    // Encrypt without a passphrase.
+    run_ok(&config, &["encryption", "enable", "--no-passphrase"]);
+    let mut enc = JournalStore::for_config(&config, &root).unwrap();
+    assert!(!enc.identity_needs_passphrase().unwrap());
+    enc.unlock(None).unwrap();
+    let entry = enc.scan_entries().unwrap().remove(0);
+    // The body is byte-for-byte unchanged (link still clean) though it's encrypted.
+    assert_eq!(entry.content, body);
+    assert!(entry.path.to_string_lossy().ends_with(".md.age"));
+
+    // The asset on disk is now `.age`, and the clean link still resolves+decrypts.
+    let stem = journal_storage::entry_id(&entry.path).unwrap();
+    let assets_dir = entry.path.parent().unwrap().join(format!("{stem}.assets"));
+    let asset = fs::read_dir(&assets_dir).unwrap().next().unwrap().unwrap();
+    let asset_name = asset.file_name().into_string().unwrap();
+    assert!(
+        asset_name.ends_with(".age"),
+        "asset encrypted: {asset_name}"
+    );
+    let clean = asset_name.strip_suffix(".age").unwrap();
+    assert!(
+        enc.read_entry_asset_bytes(&entry.path, clean)
+            .unwrap()
+            .is_some()
+    );
+
+    // Decrypt (plaintext identity → no prompt): asset returns to plaintext, body unchanged.
+    run_ok(&config, &["encryption", "disable"]);
+    let dec = JournalStore::for_config(&config, &root).unwrap();
+    let dec_entry = dec.scan_entries().unwrap().remove(0);
+    assert_eq!(dec_entry.content, body);
+    let dec_stem = journal_storage::entry_id(&dec_entry.path).unwrap();
+    let dec_assets = dec_entry
+        .path
+        .parent()
+        .unwrap()
+        .join(format!("{dec_stem}.assets"));
+    let dec_asset = fs::read_dir(&dec_assets).unwrap().next().unwrap().unwrap();
+    assert!(
+        !dec_asset.file_name().to_string_lossy().ends_with(".age"),
+        "asset plaintext again"
+    );
 }

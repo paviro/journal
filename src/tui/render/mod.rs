@@ -5,6 +5,7 @@ mod image_viewer;
 mod journals;
 mod layout;
 mod markdown_panel;
+mod pending;
 pub(crate) mod stats;
 mod unlock;
 
@@ -57,6 +58,7 @@ use journals::draw_journals;
 pub(crate) use journals::{JOURNAL_BOX_HEIGHT, journal_list_rect, journals_per_page};
 pub(crate) use layout::{TuiLayout, tui_layout};
 use markdown_panel::draw_selected_entry_view;
+pub(crate) use pending::{draw_pending_notice, draw_pending_request};
 use stats::draw_journal_stats;
 #[cfg(test)]
 pub(crate) use stats::{centered_stats_layout, journal_stats};
