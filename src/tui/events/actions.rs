@@ -70,9 +70,11 @@ fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<Option<PathBuf>> {
         )
     })?;
     if let Some(path) = &created {
-        let report =
-            app.store
-                .process_entry_assets(path, app.config.attachments.download_remote_images, false)?;
+        let report = app.store.process_entry_assets(
+            path,
+            app.config.attachments.download_remote_images,
+            false,
+        )?;
         app.set_status(save_status("Entry saved", &report));
     }
     app.refresh()?;

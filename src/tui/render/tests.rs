@@ -90,9 +90,9 @@ fn layout_places_hit_targets_in_three_columns() {
     assert!(!layout.single_panel);
     assert!(layout.entry_view.is_some());
     assert!(layout.stats.is_none());
-    assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 22, 19));
-    assert_eq!(layout.entries.unwrap().panel.area, Rect::new(22, 0, 42, 19));
-    assert_eq!(layout.entry_view.unwrap().area, Rect::new(64, 0, 76, 19));
+    assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 27, 19));
+    assert_eq!(layout.entries.unwrap().panel.area, Rect::new(27, 0, 47, 19));
+    assert_eq!(layout.entry_view.unwrap().area, Rect::new(74, 0, 66, 19));
     assert_eq!(layout.footer, Rect::new(0, 19, 140, 1));
 }
 
@@ -107,9 +107,9 @@ fn layout_keeps_three_columns_at_minimum_inline_width() {
     assert!(layout.entry_view.is_some());
     assert!(layout.stats.is_none());
     let ch = 20 - footer_height(&app, INLINE_ENTRY_VIEW_MIN_WIDTH);
-    assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 22, ch));
-    assert_eq!(layout.entries.unwrap().panel.area, Rect::new(22, 0, 42, ch));
-    assert_eq!(layout.entry_view.unwrap().area, Rect::new(64, 0, 61, ch));
+    assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 27, ch));
+    assert_eq!(layout.entries.unwrap().panel.area, Rect::new(27, 0, 47, ch));
+    assert_eq!(layout.entry_view.unwrap().area, Rect::new(74, 0, 51, ch));
 }
 
 #[test]
@@ -122,8 +122,8 @@ fn layout_places_hit_targets_in_two_columns_without_inline_entry_view() {
     assert!(!layout.single_panel);
     assert!(layout.entry_view.is_none());
     assert!(layout.stats.is_none());
-    assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 22, 19));
-    assert_eq!(layout.entries.unwrap().panel.area, Rect::new(22, 0, 68, 19));
+    assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 27, 19));
+    assert_eq!(layout.entries.unwrap().panel.area, Rect::new(27, 0, 63, 19));
 }
 
 #[test]
@@ -140,11 +140,11 @@ fn layout_shifts_two_columns_to_entries_and_preview_when_entries_are_active() {
     let content_height = 20 - footer_height(&app, 90);
     assert_eq!(
         layout.entries.unwrap().panel.area,
-        Rect::new(0, 0, 42, content_height)
+        Rect::new(0, 0, 47, content_height)
     );
     assert_eq!(
         layout.entry_view.unwrap().area,
-        Rect::new(42, 0, 48, content_height)
+        Rect::new(47, 0, 43, content_height)
     );
 }
 
@@ -925,7 +925,7 @@ fn selected_entry_is_not_reversed_when_journals_are_focused() {
     );
     assert!(
         !buffer
-            .cell((24, 3))
+            .cell((29, 3))
             .unwrap()
             .modifier
             .contains(Modifier::REVERSED)

@@ -712,7 +712,8 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
         })?
     };
     if let Some(path) = path {
-        let report = store.process_entry_assets(&path, config.attachments.download_remote_images, false)?;
+        let report =
+            store.process_entry_assets(&path, config.attachments.download_remote_images, false)?;
         if !report.is_noop() {
             eprintln!("{}", asset_report_message(&report));
         }

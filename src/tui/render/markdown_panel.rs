@@ -33,6 +33,11 @@ use crate::tui::{
 
 const SCROLLING_METADATA_ENTRY_VIEW_HEIGHT_CUTOFF: u16 = 20;
 
+/// The entry body is capped at this width and centered within the panel; wider
+/// panels gutter the sides so long-form text stays readable. Metadata rows keep
+/// the full panel width.
+const MAX_ENTRY_BODY_WIDTH: u16 = 100;
+
 pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     if let Some((title, content)) = app.selected_entry_view() {
         let tags = app.selected_entry_tags();
@@ -117,8 +122,15 @@ fn draw_markdown_panel(
     } else {
         layout.content
     };
+    // The metadata (when it scrolls with the body) shares the paragraph, so keep
+    // the full width there; otherwise gutter the body to a readable max width.
+    let body_rect = if metadata_scrolls {
+        content_rect
+    } else {
+        centered_body_rect(content_rect)
+    };
 
-    let width = content_rect.width.saturating_sub(1).max(1) as usize;
+    let width = body_rect.width.saturating_sub(1).max(1) as usize;
     // Memoized on (entry path, width, data version): the markdown parse + syntax
     // highlight + render is the preview's dominant per-frame cost, so a frame that
     // only scrolled, blinked, or ticked images reuses the rendered lines.
@@ -130,31 +142,55 @@ fn draw_markdown_panel(
     let mut lines = body.0.clone();
     let labels = body.1.clone();
     if metadata_scrolls {
-        lines.extend(metadata_section_lines(content_rect.width, metadata));
+        lines.extend(metadata_section_lines(body_rect.width, metadata));
     }
     let line_count = lines.len();
-    let scroll = viewer_scroll(requested_scroll, line_count, content_rect.height);
+    let scroll = viewer_scroll(requested_scroll, line_count, body_rect.height);
+    // When the whole entry fits (no scrollbar), float it in the vertical middle.
+    let body_rect = center_body_vertically(body_rect, line_count, scroll);
 
     frame.render_widget(block, area);
-    frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), content_rect);
+    frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), body_rect);
 
     if !metadata_scrolls && layout.metadata.is_some() {
         draw_metadata_section(frame, layout, metadata);
     }
 
-    render_scrollbar_if_needed(
-        frame,
-        area,
-        line_count,
-        content_rect.height,
-        scroll as usize,
-    );
+    render_scrollbar_if_needed(frame, area, line_count, body_rect.height, scroll as usize);
 
-    (scroll, labels, content_rect, line_count)
+    (scroll, labels, body_rect, line_count)
 }
 
 fn metadata_scrolls_with_body(area: Rect) -> bool {
     area.height < SCROLLING_METADATA_ENTRY_VIEW_HEIGHT_CUTOFF
+}
+
+/// Cap `rect` at [`MAX_ENTRY_BODY_WIDTH`] and center it horizontally, leaving the
+/// height and narrower panels untouched.
+fn centered_body_rect(rect: Rect) -> Rect {
+    if rect.width <= MAX_ENTRY_BODY_WIDTH {
+        return rect;
+    }
+    let x = rect.x + (rect.width - MAX_ENTRY_BODY_WIDTH) / 2;
+    Rect {
+        x,
+        width: MAX_ENTRY_BODY_WIDTH,
+        ..rect
+    }
+}
+
+/// When the entry fits without scrolling, push it down so it sits in the vertical
+/// middle of `rect`; otherwise render from the top so scrolling covers every line.
+fn center_body_vertically(rect: Rect, line_count: usize, scroll: u16) -> Rect {
+    if scroll > 0 || line_count >= rect.height as usize {
+        return rect;
+    }
+    let pad = (rect.height - line_count as u16) / 2;
+    Rect {
+        y: rect.y + pad,
+        height: rect.height - pad,
+        ..rect
+    }
 }
 
 /// Build the entry-body lines, replacing each lone in-folder image with a

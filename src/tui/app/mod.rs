@@ -30,8 +30,8 @@ use crate::tui::entry_rows::{EntryRowCache, RowMeta, build_entry_row_cache};
 use crate::tui::image::{ImageAsset, ImageRuntime, entry_images, viewer_image_size};
 use crate::tui::render::stats::JournalStats;
 
-pub(crate) const JOURNAL_LIST_WIDTH: u16 = 22;
-pub(crate) const ENTRY_LIST_INLINE_WIDTH: u16 = 42;
+pub(crate) const JOURNAL_LIST_WIDTH: u16 = 27;
+pub(crate) const ENTRY_LIST_INLINE_WIDTH: u16 = 47;
 pub(crate) const ENTRY_LIST_MIN_WIDTH: u16 = 40;
 pub(crate) const TWO_PANEL_MIN_WIDTH: u16 = 87;
 pub(crate) const INLINE_ENTRY_VIEW_MIN_WIDTH: u16 = 125;
