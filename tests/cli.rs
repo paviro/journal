@@ -607,9 +607,9 @@ fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
             .recipients_file
             .file_name()
             .and_then(|name| name.to_str()),
-        Some("recipients.txt")
+        Some(".recipients.txt")
     );
-    assert_eq!(store.paths().recipients_file, root.join("recipients.txt"));
+    assert_eq!(store.paths().recipients_file, root.join(".recipients.txt"));
     assert_eq!(store.paths().identity_file, dir.path().join("identity.age"));
     assert!(store.paths().recipients_file.exists());
     assert!(store.paths().identity_file.exists());

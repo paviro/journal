@@ -110,7 +110,7 @@ impl JournalStorePaths {
             .ok_or("config path has no parent directory")?;
         Ok(Self {
             journal_root: journal_root.to_path_buf(),
-            recipients_file: journal_root.join("recipients.txt"),
+            recipients_file: journal_root.join(".recipients.txt"),
             identity_file: config_dir.join("identity.age"),
         })
     }

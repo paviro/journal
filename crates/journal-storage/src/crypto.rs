@@ -128,11 +128,23 @@ fn read_stored_identity(path: &Path) -> AppResult<StoredIdentity> {
     Ok(toml::from_str(&fs::read_to_string(path)?)?)
 }
 
+/// Comment header written above the recipient. `first_recipient` skips `#`
+/// lines, so this stays parse-safe while telling anyone who opens the file that
+/// it is managed by the app and holds a non-secret public key.
+const RECIPIENTS_HEADER: &str = "\
+# Managed by journal — do not edit or delete.
+# This is your age encryption recipient (a public key, not a secret).
+# New entries are encrypted to it; losing it stops further encryption.
+";
+
 fn write_public_recipient(paths: &JournalStorePaths, recipient: &str) -> AppResult<()> {
     if let Some(parent) = paths.recipients_file.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(&paths.recipients_file, format!("{recipient}\n"))?;
+    fs::write(
+        &paths.recipients_file,
+        format!("{RECIPIENTS_HEADER}{recipient}\n"),
+    )?;
     Ok(())
 }
 

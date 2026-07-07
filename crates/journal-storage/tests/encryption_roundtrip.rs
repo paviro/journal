@@ -8,7 +8,7 @@ use journal_storage::{JournalStore, Metadata};
 fn store_at(dir: &std::path::Path) -> JournalStore {
     JournalStore::new(
         dir.join("journals"),
-        dir.join("recipients.txt"),
+        dir.join(".recipients.txt"),
         dir.join("identity.age"),
     )
 }
@@ -35,7 +35,7 @@ fn decrypt_store_restores_plaintext_and_disables_encryption() {
     assert!(summary.disabled_identity_file.exists());
 
     // Recipients gone → a fresh store treats everything as plaintext and reads it.
-    assert!(!dir.path().join("recipients.txt").exists());
+    assert!(!dir.path().join(".recipients.txt").exists());
     let plain = store_at(dir.path());
     assert!(!plain.encryption_enabled());
     let entries = plain.scan_entries().unwrap();

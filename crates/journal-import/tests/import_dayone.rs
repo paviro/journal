@@ -13,7 +13,7 @@ fn plaintext_store() -> (TempDir, JournalStore) {
     let dir = tempfile::tempdir().unwrap();
     let store = JournalStore::new(
         dir.path().join("journals"),
-        dir.path().join("recipients.txt"),
+        dir.path().join(".recipients.txt"),
         dir.path().join("identity.age"),
     );
     store.ensure().unwrap();
