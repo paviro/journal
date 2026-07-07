@@ -65,8 +65,8 @@ pub fn encrypt_store(
         store.public_recipient()?
     } else if store.has_encrypted_entries()? {
         return Err(format!(
-            "encrypted entries already exist but recipients file is missing at {}; cannot safely continue encryption",
-            store.paths().recipients_file.display()
+            "encrypted entries already exist but the device roster is missing at {}; cannot safely continue encryption",
+            store.paths().devices_file.display()
         )
         .into());
     } else {

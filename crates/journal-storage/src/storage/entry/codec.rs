@@ -35,8 +35,9 @@ impl EntryCodec {
             paths: JournalStorePaths {
                 journal_root: std::path::PathBuf::new(),
                 age_dir: std::path::PathBuf::new(),
-                recipients_file: std::path::PathBuf::new(),
+                devices_file: std::path::PathBuf::new(),
                 identity_file: std::path::PathBuf::new(),
+                trust_file: std::path::PathBuf::new(),
             },
             identity: None,
         }
@@ -46,7 +47,7 @@ impl EntryCodec {
     /// file exists for this store). Independent of whether the store is unlocked:
     /// encryption only needs the recipient, decryption needs the identity.
     pub(crate) fn encrypts_new_entries(&self) -> bool {
-        crypto::has_recipients_file(&self.paths)
+        crypto::has_devices_file(&self.paths)
     }
 
     /// The store's file locations, for the asset-encryption side.

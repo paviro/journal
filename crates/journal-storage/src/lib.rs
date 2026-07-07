@@ -7,6 +7,7 @@ mod crypto;
 mod error;
 pub(crate) mod markdown;
 mod migrate;
+mod roster;
 mod storage;
 
 pub use age::secrecy::{ExposeSecret, SecretString};
@@ -99,23 +100,31 @@ pub struct JournalStore {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JournalStorePaths {
     pub journal_root: PathBuf,
-    /// The hidden, synced key folder holding `recipients.toml` and any
-    /// `pending-<id>.toml` join requests.
+    /// The hidden, synced key folder holding the signed `devices.toml` roster and
+    /// any `pending-<id>.toml` join requests.
     pub age_dir: PathBuf,
-    pub recipients_file: PathBuf,
+    /// The signed, append-only device roster (`<root>/.age/devices.toml`).
+    pub devices_file: PathBuf,
     pub identity_file: PathBuf,
+    /// This device's local trust pins for the roster (genesis + last-seen head).
+    /// Sits next to the identity, never synced, so a sync-folder attacker can't
+    /// reach it.
+    pub trust_file: PathBuf,
 }
 
 impl JournalStorePaths {
     /// Derive the store's file locations from the journal root and the config
     /// directory: public key material lives in the synced `<root>/.age/` folder,
-    /// the private age identity next to the config (never synced).
+    /// the private age identity and roster trust pins next to the config (never
+    /// synced).
     pub fn new(journal_root: impl Into<PathBuf>, config_dir: impl AsRef<Path>) -> Self {
         let journal_root = journal_root.into();
         let age_dir = journal_root.join(".age");
+        let config_dir = config_dir.as_ref();
         Self {
-            recipients_file: age_dir.join("recipients.toml"),
-            identity_file: config_dir.as_ref().join("identity.age"),
+            devices_file: age_dir.join("devices.toml"),
+            identity_file: config_dir.join("identity.age"),
+            trust_file: config_dir.join("devices-trust.toml"),
             age_dir,
             journal_root,
         }
@@ -155,7 +164,7 @@ impl JournalStore {
     }
 
     pub fn encryption_enabled(&self) -> bool {
-        crypto::has_recipients_file(&self.paths)
+        crypto::has_devices_file(&self.paths)
     }
 
     pub fn unlock_available(&self) -> bool {
@@ -256,10 +265,12 @@ impl JournalStore {
         mut progress: impl FnMut(usize, usize),
     ) -> AppResult<MigrationSummary> {
         let identity = self.require_reencrypt_identity("add-recipient")?;
-        migrate::atomic(self, || {
-            crypto::add_recipient(&self.paths, recipient)?;
+        let summary = migrate::atomic(self, || {
+            crypto::add_recipient(&self.paths, identity, &recipient)?;
             migrate::reencrypt_store(self, identity, &mut progress)
-        })
+        })?;
+        crypto::advance_trust_pins(&self.paths)?;
+        Ok(summary)
     }
 
     /// Remove the recipient named `name` and re-encrypt every entry to exclude
@@ -282,15 +293,22 @@ impl JournalStore {
         {
             return Err("refusing to remove this device's own recipient".into());
         }
-        migrate::atomic(self, || {
-            crypto::remove_recipient(&self.paths, name)?;
+        let summary = migrate::atomic(self, || {
+            crypto::remove_recipient(&self.paths, identity, name)?;
             migrate::reencrypt_store(self, identity, &mut progress)
-        })
+        })?;
+        crypto::advance_trust_pins(&self.paths)?;
+        Ok(summary)
     }
 
-    /// Relabel a recipient. No re-encryption needed.
+    /// Relabel a recipient by appending a signed `rename` op. No re-encryption
+    /// needed, but it must be signed, so it requires an unlocked recipient
+    /// identity — an unsigned relabel would be a tamper vector.
     pub fn rename_recipient(&self, old: &str, new: &str) -> AppResult<()> {
-        crypto::rename_recipient(&self.paths, old, new)
+        let identity = self.require_reencrypt_identity("rename-recipient")?;
+        crypto::rename_recipient(&self.paths, identity, old, new)?;
+        crypto::advance_trust_pins(&self.paths)?;
+        Ok(())
     }
 
     /// Add, remove, or change the passphrase on this device's identity. `current`
@@ -329,6 +347,7 @@ impl JournalStore {
         let root = self.paths.journal_root.clone();
 
         let identity_backup = crypto::read_identity_file_bytes(&self.paths)?;
+        let trust_backup = fs::read(&self.paths.trust_file).ok();
         let backup = migrate::backup_store(&root)?;
 
         let result = (|| -> AppResult<MigrationSummary> {
@@ -338,8 +357,9 @@ impl JournalStore {
             crypto::commit_rotated_identity(&self.paths, &recipient, &new_identity, passphrase)?;
             self.identity = Some(new_identity);
 
-            crypto::drop_old_recipient(&self.paths, &old_key)?;
+            // Retire the old key, signed by the freshly rotated key (now trusted).
             let identity = self.identity.as_ref().expect("identity set above");
+            crypto::drop_old_recipient(&self.paths, identity, &old_key)?;
             let second = migrate::reencrypt_store(self, identity, &mut progress)?;
 
             Ok(MigrationSummary {
@@ -350,13 +370,29 @@ impl JournalStore {
         match result {
             Ok(summary) => {
                 fs::remove_dir_all(&backup)?;
+                crypto::advance_trust_pins(&self.paths)?;
                 Ok(summary)
             }
             Err(error) => {
                 migrate::restore_store(&root, &backup)?;
                 crypto::restore_identity_file(&self.paths, &identity_backup)?;
+                self.restore_trust_file(trust_backup.as_deref())?;
                 self.identity = Some(old);
                 Err(error)
+            }
+        }
+    }
+
+    /// Put the roster trust pins back to a snapshot taken before a rotation:
+    /// rewrite the captured bytes, or delete the file if there were none.
+    fn restore_trust_file(&self, bytes: Option<&[u8]>) -> AppResult<()> {
+        match bytes {
+            Some(bytes) => crypto::atomic_write(&self.paths.trust_file, bytes),
+            None => {
+                if self.paths.trust_file.exists() {
+                    fs::remove_file(&self.paths.trust_file)?;
+                }
+                Ok(())
             }
         }
     }
@@ -382,12 +418,14 @@ impl JournalStore {
             crypto::remove_pending(&self.paths, &request.id)?;
             return Ok(MigrationSummary { migrated_files: 0 });
         }
-        migrate::atomic(self, || {
-            crypto::add_recipient(&self.paths, request.recipient.clone())?;
+        let summary = migrate::atomic(self, || {
+            crypto::add_recipient(&self.paths, identity, &request.recipient)?;
             let summary = migrate::reencrypt_store(self, identity, &mut progress)?;
             crypto::remove_pending(&self.paths, &request.id)?;
             Ok(summary)
-        })
+        })?;
+        crypto::advance_trust_pins(&self.paths)?;
+        Ok(summary)
     }
 
     /// Reject a pending join request without granting access.
@@ -647,7 +685,7 @@ impl JournalStore {
     ) -> AppResult<migrate::MigrationSummary> {
         if !self.encryption_enabled() && migrate::store_has_encrypted_entry_files(self)? {
             return Err(StorageError::RecipientsMissing {
-                path: self.paths.recipients_file.clone(),
+                path: self.paths.devices_file.clone(),
             }
             .into());
         }

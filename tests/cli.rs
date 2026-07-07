@@ -47,32 +47,18 @@ fn age_cli_available() -> bool {
         && Command::new("age-keygen").arg("--version").output().is_ok()
 }
 
-fn generate_age_cli_identity(dir: &Path) -> (std::path::PathBuf, String) {
-    let identity = dir.join("age-identity.txt");
-    let output = Command::new("age-keygen")
-        .arg("-o")
-        .arg(&identity)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output_text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let recipient = output_text
-        .lines()
-        .find_map(|line| line.strip_prefix("Public key: "))
-        .expect("age-keygen output did not include public key")
-        .to_string();
-
-    (identity, recipient)
+/// Pull this device's age secret key out of its plaintext `identity.age` so the
+/// standard `age` CLI can decrypt what the journal wrote. The key material is
+/// bundled inside the file; the `AGE-SECRET-KEY-…` bech32 string is unambiguous
+/// to slice out without depending on the internal serialization.
+fn extract_age_secret(identity_text: &str) -> String {
+    let start = identity_text
+        .find("AGE-SECRET-KEY-")
+        .expect("identity file has no age secret key");
+    identity_text[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '-')
+        .collect()
 }
 
 #[test]
@@ -606,17 +592,17 @@ fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
     assert_eq!(
         store
             .paths()
-            .recipients_file
+            .devices_file
             .file_name()
             .and_then(|name| name.to_str()),
-        Some("recipients.toml")
+        Some("devices.toml")
     );
     assert_eq!(
-        store.paths().recipients_file,
-        root.join(".age").join("recipients.toml")
+        store.paths().devices_file,
+        root.join(".age").join("devices.toml")
     );
     assert_eq!(store.paths().identity_file, dir.path().join("identity.age"));
-    assert!(store.paths().recipients_file.exists());
+    assert!(store.paths().devices_file.exists());
     assert!(store.paths().identity_file.exists());
     assert!(!dir.path().join("encryption").exists());
     assert!(!fs::read_dir(dir.path()).unwrap().any(|entry| {
@@ -772,7 +758,7 @@ fn encrypt_command_fails_when_plain_entry_target_age_file_already_exists() {
 }
 
 #[test]
-fn encrypt_command_fails_when_encrypted_entries_exist_without_recipients_file() {
+fn encrypt_command_fails_when_encrypted_entries_exist_without_device_roster() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
@@ -780,7 +766,7 @@ fn encrypt_command_fails_when_encrypted_entries_exist_without_recipients_file() 
     let encrypted = store
         .create_entry_with_body("work", "# Secret", &Metadata::default())
         .unwrap();
-    fs::remove_file(&store.paths().recipients_file).unwrap();
+    fs::remove_file(&store.paths().devices_file).unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -791,9 +777,9 @@ fn encrypt_command_fails_when_encrypted_entries_exist_without_recipients_file() 
         .unwrap();
 
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("recipients file is missing"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("device roster is missing"));
     assert!(encrypted.exists());
-    assert!(!store.paths().recipients_file.exists());
+    assert!(!store.paths().devices_file.exists());
 }
 
 #[test]
@@ -914,15 +900,11 @@ fn encrypted_entries_can_be_decrypted_with_age_cli() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
-    let (identity, recipient) = generate_age_cli_identity(dir.path());
-    let store = JournalStore::for_config(&config, &root).unwrap();
     fs::create_dir_all(root.join("work")).unwrap();
-    fs::create_dir_all(store.paths().recipients_file.parent().unwrap()).unwrap();
-    fs::write(
-        &store.paths().recipients_file,
-        format!("[[recipient]]\nname = \"age-cli\"\nkey = \"{recipient}\"\n"),
-    )
-    .unwrap();
+    // A normal no-passphrase device: its own age key is the sole recipient, so the
+    // standard age CLI can decrypt what the journal writes to prove it is real age.
+    let store = JournalStore::for_config(&config, &root).unwrap();
+    store.initialize_encryption("laptop", None).unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -940,6 +922,10 @@ fn encrypted_entries_can_be_decrypted_with_age_cli() {
         String::from_utf8_lossy(&output.stderr)
     );
     let encrypted = Path::new(std::str::from_utf8(&output.stdout).unwrap().trim()).to_path_buf();
+
+    let identity = dir.path().join("age-identity.txt");
+    let secret = extract_age_secret(&fs::read_to_string(&store.paths().identity_file).unwrap());
+    fs::write(&identity, format!("{secret}\n")).unwrap();
 
     let output = Command::new("age")
         .arg("--decrypt")

@@ -357,6 +357,10 @@ fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
     println!("Requested access as '{name}'. Your public recipient (safe to share):");
     println!("  {}", recipient.key);
     println!(
+        "Fingerprint (read this out to confirm it on the approving device):\n  {}",
+        recipient.fingerprint()
+    );
+    println!(
         "On a device that can already read this journal, approve it — this request\nappears in `journal encryption device list` and a modal at launch — then run there:"
     );
     println!("  journal encryption device approve {name}");
@@ -393,16 +397,19 @@ fn device_list_command(cli: &Cli) -> AppResult<()> {
             ""
         };
         println!("  {}  {}{marker}", recipient.name, recipient.key);
+        println!("      fingerprint: {}", recipient.fingerprint());
     }
 
     let pending = store.pending_requests()?;
     if !pending.is_empty() {
         println!("\nPending approval (run `journal encryption device approve`):");
+        println!("Confirm each fingerprint out-of-band before approving.");
         for request in &pending {
             println!(
                 "  {}  {}  [{}]",
                 request.recipient.name, request.recipient.key, request.id
             );
+            println!("      fingerprint: {}", request.recipient.fingerprint());
         }
     }
     Ok(())
@@ -420,9 +427,7 @@ fn device_remove_command(cli: &Cli, name: &str) -> AppResult<()> {
 }
 
 fn device_rename_command(cli: &Cli, old: &str, new: &str) -> AppResult<()> {
-    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-    let store = JournalStore::for_config(&config_path, &config.journal_root)?;
-    store.ensure()?;
+    let store = open_unlocked_store(cli)?;
     store.rename_recipient(old, new)?;
     println!("Renamed '{old}' to '{new}'.");
     Ok(())

@@ -7,6 +7,10 @@ edition = "2024"
 journal-core = { path = "../journal-core" }
 age = { version = "0.11.3", default-features = false }
 chrono = { version = "0.4", features = ["serde"] }
+ed25519-dalek = { version = "2", features = ["zeroize"] }
+getrandom = "0.2"
+hex = "0.4"
+sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "avif-native"] }
 moxcms = "0.8"
 nanoid = "0.5.0"

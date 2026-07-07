@@ -66,13 +66,18 @@ pub fn decrypt_store(
     })
 }
 
-/// Tear down the synced key folder when encryption is disabled: drop
-/// `recipients.toml` and any leftover `pending-*.toml` join requests (which
+/// Tear down the synced key folder when encryption is disabled: drop the signed
+/// `devices.toml` roster and any leftover `pending-*.toml` join requests (which
 /// would otherwise keep syncing and resurface as phantom approval modals), then
-/// remove the `.age` folder itself if nothing else is left in it.
+/// remove the `.age` folder itself if nothing else is left in it. Also clears
+/// this device's local trust pins, which are meaningless once the roster is gone
+/// and would otherwise reject a freshly re-enabled store as a "changed genesis".
 fn clear_age_dir(paths: &JournalStorePaths) -> AppResult<()> {
-    if paths.recipients_file.exists() {
-        fs::remove_file(&paths.recipients_file)?;
+    if paths.devices_file.exists() {
+        fs::remove_file(&paths.devices_file)?;
+    }
+    if paths.trust_file.exists() {
+        fs::remove_file(&paths.trust_file)?;
     }
     if !paths.age_dir.exists() {
         return Ok(());
@@ -398,10 +403,11 @@ fn decrypted_entry_path(path: &Path) -> AppResult<PathBuf> {
 
 /// Run `op` as an all-or-nothing change to the store: snapshot the whole
 /// journal root first, and on any error roll every file (entries, assets, and
-/// `recipients.toml`) back to the snapshot so a failed key change leaves no
-/// trace. The snapshot is deleted on success. Key-changing operations must run
-/// their `recipients.toml` mutation *and* [`reencrypt_store`] inside this so the
-/// two can't diverge.
+/// the `devices.toml` roster) back to the snapshot so a failed key change leaves
+/// no trace. The snapshot is deleted on success. Key-changing operations must run
+/// their roster mutation *and* [`reencrypt_store`] inside this so the two can't
+/// diverge. (The local trust pins live outside the root; callers advance them
+/// only after this returns `Ok`.)
 pub(crate) fn atomic<T>(store: &JournalStore, op: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
     let root = store.paths().journal_root.clone();
     let backup = backup_store(&root)?;

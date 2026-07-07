@@ -14,10 +14,10 @@ pub enum StorageError {
     #[error("encrypted {context} requires an unlocked journal encryption identity")]
     LockedIdentity { context: &'static str },
 
-    /// Encrypted entries exist but the recipients file needed to encrypt more is
-    /// gone — continuing could leave the store partially encrypted.
+    /// Encrypted entries exist but the signed device roster needed to encrypt
+    /// more is gone — continuing could leave the store partially encrypted.
     #[error(
-        "encrypted entries already exist but recipients file is missing at {}; cannot safely continue encryption",
+        "encrypted entries already exist but the device roster is missing at {}; cannot safely continue encryption",
         path.display()
     )]
     RecipientsMissing { path: PathBuf },
@@ -26,4 +26,12 @@ pub enum StorageError {
     /// (e.g. `"asset trash destination"`).
     #[error("{what} already exists: {}", path.display())]
     TargetExists { what: &'static str, path: PathBuf },
+
+    /// The signed device roster failed verification: a forged/unauthorized op, a
+    /// broken signature chain, a changed genesis, or a rolled-back history. The
+    /// store refuses to encrypt or decrypt to an untrusted recipient set, so this
+    /// is surfaced rather than silently trusting the tampered file. `detail`
+    /// explains which check failed.
+    #[error("device roster failed verification: {detail}")]
+    RosterUnverified { detail: String },
 }

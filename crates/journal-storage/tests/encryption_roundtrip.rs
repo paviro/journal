@@ -41,7 +41,7 @@ fn decrypt_store_restores_plaintext_and_disables_encryption() {
         !dir.path()
             .join("journals")
             .join(".age")
-            .join("recipients.toml")
+            .join("devices.toml")
             .exists()
     );
     let plain = store_at(dir.path());
@@ -135,7 +135,7 @@ fn disable_clears_age_artifacts() {
     phone.ensure().unwrap();
     phone.request_access("phone", None).unwrap();
     let age_dir = dir.path().join("journals").join(".age");
-    assert!(age_dir.join("recipients.toml").exists());
+    assert!(age_dir.join("devices.toml").exists());
     assert!(!laptop.pending_requests().unwrap().is_empty());
 
     laptop.decrypt_store(|_, _| {}).unwrap();
@@ -283,4 +283,86 @@ fn rotate_identity_replaces_the_key_and_keeps_reading() {
             .unwrap()
             .contains("before rotation")
     );
+}
+
+// --- roster integrity: the whole point of the signed device log ---------------
+//
+// A folder-write attacker can rewrite `.age/devices.toml`. These assert the store
+// refuses to hand back a recipient set (fails closed) rather than silently
+// trusting a tampered roster — which would leak future entries to an injected key.
+
+fn devices_file(dir: &std::path::Path) -> std::path::PathBuf {
+    dir.join("journals").join(".age").join("devices.toml")
+}
+
+/// A hand-appended recipient (no valid signature by a trusted device) is rejected,
+/// so the store won't encrypt to the attacker's key.
+#[test]
+fn injected_recipient_in_roster_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = store_at(dir.path());
+    store.ensure().unwrap();
+    store.initialize_encryption("laptop", None).unwrap();
+    store.unlock(None).unwrap();
+    assert!(store.recipients().is_ok());
+
+    // Attacker appends themselves as a recipient by editing the synced file.
+    let path = devices_file(dir.path());
+    let mut roster = std::fs::read_to_string(&path).unwrap();
+    roster.push_str(
+        "\n[[op]]\nseq = 1\nprev = \"\"\nkind = \"add\"\nname = \"attacker\"\n\
+         key = \"age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsuaxjx\"\n\
+         sign = \"ed25519:0000000000000000000000000000000000000000000000000000000000000000\"\n\
+         signer = \"ed25519:0000000000000000000000000000000000000000000000000000000000000000\"\n\
+         sig = \"00\"\n",
+    );
+    std::fs::write(&path, roster).unwrap();
+
+    let error = store.recipients().unwrap_err().to_string();
+    assert!(error.contains("roster failed verification"), "{error}");
+}
+
+/// Flipping a signed field of the genesis op breaks its signature and is rejected.
+#[test]
+fn tampered_roster_field_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = store_at(dir.path());
+    store.ensure().unwrap();
+    store.initialize_encryption("laptop", None).unwrap();
+    store.unlock(None).unwrap();
+
+    let path = devices_file(dir.path());
+    let roster = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace("name = \"laptop\"", "name = \"hacker\"");
+    std::fs::write(&path, roster).unwrap();
+
+    let error = store.recipients().unwrap_err().to_string();
+    assert!(error.contains("roster failed verification"), "{error}");
+}
+
+/// A roster rewound below a state this device already pinned (e.g. the sync host
+/// hiding an added device) is rejected as a rollback.
+#[test]
+fn rolled_back_roster_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut laptop = store_at(dir.path());
+    laptop.ensure().unwrap();
+    laptop.initialize_encryption("laptop", None).unwrap();
+    laptop.unlock(None).unwrap();
+
+    // Snapshot the genesis-only roster, then genuinely add a second device so the
+    // laptop pins the new head.
+    let path = devices_file(dir.path());
+    let genesis_only = std::fs::read_to_string(&path).unwrap();
+
+    let phone = JournalStore::new(dir.path().join("journals"), dir.path().join("phone"));
+    let phone_recipient = phone.request_access("phone", None).unwrap();
+    laptop.add_recipient(phone_recipient, |_, _| {}).unwrap();
+    assert_eq!(laptop.recipients().unwrap().len(), 2);
+
+    // The sync host serves the old, pre-add roster back: the pinned head is gone.
+    std::fs::write(&path, genesis_only).unwrap();
+    let error = laptop.recipients().unwrap_err().to_string();
+    assert!(error.contains("roster failed verification"), "{error}");
 }

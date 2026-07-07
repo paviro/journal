@@ -36,17 +36,19 @@ pub(crate) fn draw_pending_request(
     let recipient = &request.recipient;
 
     let dim = Style::default().add_modifier(Modifier::DIM);
+    let bold = Style::default().add_modifier(Modifier::BOLD);
     let info_lines = vec![
         Line::from(vec![
             Span::raw("Device "),
-            Span::styled(
-                format!("'{}'", recipient.name),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(format!("'{}'", recipient.name), bold),
             Span::raw(" requests access."),
         ]),
+        Line::from(vec![
+            Span::styled("fingerprint: ", dim),
+            Span::styled(recipient.fingerprint(), bold),
+        ]),
         Line::from(Span::styled(
-            format!("key: {}", key_preview(&recipient.key)),
+            "Confirm this matches what the joining device shows before approving.",
             dim,
         )),
         Line::from(""),
@@ -176,15 +178,4 @@ pub(crate) fn draw_pending_notice(frame: &mut Frame<'_>, device_name: &str, awai
         return;
     }
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
-}
-
-/// A truncated preview of the public key, enough to eyeball against what the
-/// other device printed without filling the modal with a full bech32 string.
-fn key_preview(key: &str) -> String {
-    let head: String = key.chars().take(24).collect();
-    if head.len() < key.len() {
-        format!("{head}…")
-    } else {
-        head
-    }
 }
