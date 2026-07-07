@@ -76,33 +76,29 @@ pub struct Startup {
     pub config_path: PathBuf,
     pub config: Config,
     pub store: Box<JournalStore>,
-    /// Set when opening this store just retired local encryption because it was
-    /// disabled on another device — the TUI surfaces this as a notice.
-    pub encryption_disabled_elsewhere: bool,
 }
 
 pub fn load_or_setup_with_path(path_override: Option<&Path>) -> AppResult<Startup> {
     let config_path = config_path(path_override)?;
 
-    let (config, store, encryption_disabled_elsewhere) = if config_path.exists() {
-        let config = load_config(&config_path)?;
-        let store = JournalStore::for_config(&config_path, &config.journal_root)?;
-        store.ensure()?;
-        let disabled_elsewhere = store.reconcile_disabled_encryption()?;
-        (config, store, disabled_elsewhere)
-    } else {
-        let (config, store) = interactive_setup(&config_path)?;
-        (config, store, false)
-    };
-
     // An encrypted store this device can't yet read (no key, awaiting approval, or
     // revoked) is still opened: the TUI shows the enroll/awaiting notice instead
     // of the CLI printing a hint, so every unreadable-store case looks the same.
+    // Reconciling a remote encryption *disable* is likewise deferred to the TUI,
+    // which must run it before probing for a lock.
+    let (config, store) = if config_path.exists() {
+        let config = load_config(&config_path)?;
+        let store = JournalStore::for_config(&config_path, &config.journal_root)?;
+        store.ensure()?;
+        (config, store)
+    } else {
+        interactive_setup(&config_path)?
+    };
+
     Ok(Startup {
         config_path,
         config,
         store: Box::new(store),
-        encryption_disabled_elsewhere,
     })
 }
 

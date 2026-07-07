@@ -1065,8 +1065,8 @@ fn encrypt_decrypt_converts_assets_and_keeps_clean_links() {
             .is_some()
     );
 
-    // Decrypt (plaintext identity → no prompt): asset returns to plaintext, body unchanged.
-    run_ok(&config, &["encryption", "disable"]);
+    // Decrypt (plaintext identity → no unlock prompt): asset returns to plaintext, body unchanged.
+    run_ok(&config, &["encryption", "disable", "--yes"]);
     let dec = JournalStore::for_config(&config, &root).unwrap();
     let dec_entry = dec.scan_entries().unwrap().remove(0);
     assert_eq!(dec_entry.content, body);

@@ -42,12 +42,7 @@ const REFRESH_DEBOUNCE: Duration = Duration::from_millis(400);
 
 use app::App;
 
-pub fn run(
-    config_path: PathBuf,
-    config: Config,
-    store: JournalStore,
-    encryption_disabled_elsewhere: bool,
-) -> AppResult<()> {
+pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResult<()> {
     // Ensure the store exists before probing for a lock so identity checks
     // reflect on-disk state.
     store.ensure()?;
@@ -59,13 +54,7 @@ pub fn run(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_after_unlock(
-        &mut terminal,
-        config_path,
-        config,
-        store,
-        encryption_disabled_elsewhere,
-    );
+    let result = run_after_unlock(&mut terminal, config_path, config, store);
 
     let restore_result = restore_terminal(terminal.backend_mut());
     if restore_result.is_ok() {
@@ -87,12 +76,11 @@ fn run_after_unlock(
     config_path: PathBuf,
     config: Config,
     mut store: JournalStore,
-    encryption_disabled_elsewhere: bool,
 ) -> AppResult<()> {
-    // Encryption was turned off on another device and this one just fell back to
-    // plaintext (its key and pins retired). Tell the user before anything loads,
-    // since the change is silent and consequential.
-    if encryption_disabled_elsewhere {
+    // Pick up an encryption *disable* performed on another device before probing
+    // for a lock: if this device just fell back to plaintext (its key and pins
+    // retired), tell the user, since the change is silent and consequential.
+    if store.reconcile_disabled_encryption()? {
         run_disable_notice(terminal)?;
     }
 

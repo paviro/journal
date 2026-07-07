@@ -219,9 +219,8 @@ pub fn run() -> AppResult<()> {
         config_path,
         config,
         store,
-        encryption_disabled_elsewhere,
     } = config::load_or_setup_with_path(cli.config.as_deref())?;
-    tui::run(config_path, config, *store, encryption_disabled_elsewhere)
+    tui::run(config_path, config, *store)
 }
 
 fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppResult<()> {
