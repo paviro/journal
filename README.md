@@ -119,7 +119,8 @@ folder.
 If you use encryption, this is exactly the design: the synced folder carries
 only ciphertext and public key material. Each device's **private key stays
 local** and is never synced, so a compromised sync account cannot read your
-entries.
+entries. Encryption protects the *secrecy* of your journal, not its *authenticity* —
+see [What encryption does and doesn't protect](#what-encryption-does-and-doesnt-protect).
 
 ## Encryption
 
@@ -127,6 +128,20 @@ Encryption is end-to-end and device-based, built on [age](https://age-encryption
 
 Every device that can read the journal has its own keypair; entries are encrypted to all trusted devices. Adding a device
 is an explicit approval step performed from a device that can already read the journal.
+
+### What encryption does and doesn't protect
+
+Encryption here is deliberately scoped — it's a serverless, single-owner design:
+
+- **Protects:** entry and attachment *contents* are unreadable to anyone without a
+  trusted device key, and the device roster is signed, so nobody can add a rogue
+  device without the out-of-band fingerprint approval below.
+- **Does not protect:** entries and attachments are **not signed** and carry no
+  author attribution. Someone with **write** access to your synced folder can inject
+  or replace entries and attachments without detection. (They still can't *read*
+  anything, and they could equally just delete files.) The guarantee is the *secrecy*
+  of your journal, not its *authenticity* against a tamperer who controls the sync
+  medium.
 
 ### Enable encryption
 

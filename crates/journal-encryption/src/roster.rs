@@ -15,7 +15,7 @@
 //!
 //! # Residual threats (accepted by design)
 //!
-//! Two gaps can't be closed by signatures alone over an untrusted shared folder,
+//! Three gaps can't be closed by signatures alone over an untrusted shared folder,
 //! and are conscious trade-offs for a serverless, single-owner journal:
 //!
 //! 1. **Pending-request injection.** Anyone who can write the folder can drop a
@@ -30,6 +30,15 @@
 //!    already saw the newer state, but a brand-new device on its first sync has no
 //!    pin to compare against (trust on first use) — which is why the genesis
 //!    fingerprint is confirmed out of band when a device joins.
+//! 3. **Entry/attachment forgery.** The roster authenticates *membership*, not
+//!    *content*: individual entries and assets are encrypted but not signed, and
+//!    carry no authorship. Recipient public keys are public in the roster, so
+//!    anyone who can write the folder can encrypt to them — forging brand-new
+//!    entries/attachments or replacing existing ones wholesale, undetected. (age's
+//!    per-file AEAD only catches bit-level corruption of a given ciphertext, not
+//!    substitution of a freshly forged one.) This is accepted because the threat
+//!    model is confidentiality against untrusted storage, not defending content
+//!    integrity against a writer who could equally just delete entries.
 
 use crate::{EncryptionError, Recipient, Result};
 use serde::{Deserialize, Serialize};
