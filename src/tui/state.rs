@@ -322,6 +322,28 @@ impl EditMetadataState {
             }
         }
     }
+
+    /// Add the trimmed input as a selected value, then clear the input and
+    /// refilter. A brand-new value is inserted at the active/archived boundary
+    /// (a fresh value has count 0, the tail of the active region) and grows it,
+    /// so it stays in the range `rebuild_filter` searches with an empty query —
+    /// otherwise the newly added value wouldn't show until save + reopen.
+    pub(crate) fn add_from_input(&mut self) {
+        let tag = self.input.trim().to_lowercase();
+        if !tag.is_empty() && !self.selected.contains(&tag) {
+            self.selected.push(tag.clone());
+            if !self
+                .all_values
+                .iter()
+                .any(|(t, _)| t.eq_ignore_ascii_case(&tag))
+            {
+                self.all_values.insert(self.active_len, (tag, 0));
+                self.active_len += 1;
+            }
+        }
+        self.input.clear();
+        self.rebuild_filter();
+    }
 }
 
 impl ListNav for EditMetadataState {
@@ -867,5 +889,45 @@ mod tests {
         state.input.clear();
         state.rebuild_filter();
         assert_eq!(state.filtered, vec![0]);
+    }
+
+    #[test]
+    fn add_from_input_shows_the_new_value_immediately() {
+        // One active value; an archived-only value sits after the active boundary.
+        let all_values = vec![("berlin".to_string(), 3), ("wanderlust".to_string(), 5)];
+        let mut state =
+            EditMetadataState::new(MetadataKind::Tags, all_values, vec![0], Vec::new(), 1);
+
+        state.input = "hiking".to_string();
+        state.add_from_input();
+
+        // Adding selects the value and clears the input.
+        assert!(state.selected.contains(&"hiking".to_string()));
+        assert!(state.input.is_empty());
+        // The new value lands in the active region and is visible with the empty
+        // filter — it must not vanish until save + reopen.
+        assert_eq!(state.active_len, 2);
+        let shown: Vec<&str> = state
+            .filtered
+            .iter()
+            .map(|&i| state.all_values[i].0.as_str())
+            .collect();
+        assert!(shown.contains(&"hiking"));
+        // The archived-only value stays hidden until its query matches.
+        assert!(!shown.contains(&"wanderlust"));
+    }
+
+    #[test]
+    fn add_from_input_reuses_existing_value_without_duplicating() {
+        let mut state = tag_state(3);
+        let before = state.all_values.len();
+
+        state.input = "TAG-01".to_string();
+        state.add_from_input();
+
+        // Case-insensitive match to an existing value: selected, but not duplicated.
+        assert_eq!(state.all_values.len(), before);
+        assert_eq!(state.active_len, 3);
+        assert!(state.selected.contains(&"tag-01".to_string()));
     }
 }

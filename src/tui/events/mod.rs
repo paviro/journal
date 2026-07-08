@@ -179,19 +179,7 @@ pub(crate) fn dispatch_action(
         }
         Action::MetadataAddFromInput => {
             if let Some(state) = app.edit_metadata_state_mut() {
-                let tag = state.input.trim().to_lowercase();
-                if !tag.is_empty() && !state.selected.contains(&tag) {
-                    state.selected.push(tag.clone());
-                    if !state
-                        .all_values
-                        .iter()
-                        .any(|(t, _)| t.eq_ignore_ascii_case(&tag))
-                    {
-                        state.all_values.push((tag, 0));
-                    }
-                }
-                state.input.clear();
-                state.rebuild_filter();
+                state.add_from_input();
             }
         }
         Action::MetadataSave => {
