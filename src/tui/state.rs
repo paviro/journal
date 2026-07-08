@@ -413,6 +413,29 @@ impl EditFeelingState {
         rows
     }
 
+    /// The number of [`visible_rows`](Self::visible_rows), computed without
+    /// allocating — this is the `ListNav` item count, queried on every navigation,
+    /// layout and render pass.
+    pub(crate) fn visible_row_count(&self) -> usize {
+        if self.is_filtering() {
+            let query = self.input.trim().to_lowercase();
+            return self
+                .groups
+                .iter()
+                .flat_map(|g| g.feelings.iter())
+                .filter(|item| {
+                    item.name.contains(&query)
+                        || item.search_aliases.iter().any(|alias| alias.contains(&query))
+                })
+                .count();
+        }
+        self.groups
+            .iter()
+            .enumerate()
+            .map(|(group, g)| 1 + if self.expanded[group] { g.feelings.len() } else { 0 })
+            .sum()
+    }
+
     /// Toggle keyboard focus between the list and the search input.
     pub(crate) fn switch_focus(&mut self) {
         self.focus = match self.focus {
@@ -511,7 +534,7 @@ impl ListNav for EditFeelingState {
     }
 
     fn item_count(&self) -> usize {
-        self.visible_rows().len()
+        self.visible_row_count()
     }
 }
 
@@ -684,6 +707,20 @@ mod tests {
         state.collapse_selected();
         assert_eq!(state.item_count(), 2);
         assert_eq!(state.selected_index(), Some(0));
+    }
+
+    #[test]
+    fn visible_row_count_matches_visible_rows_len() {
+        let mut state = feeling_state();
+        let check = |state: &EditFeelingState| {
+            assert_eq!(state.visible_row_count(), state.visible_rows().len());
+        };
+        check(&state); // all collapsed
+        state.expand_selected();
+        check(&state); // one group open
+        state.input = "co".to_string();
+        state.rebuild_filter();
+        check(&state); // filtering
     }
 
     #[test]
