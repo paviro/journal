@@ -121,19 +121,25 @@ pub(crate) fn metadata_dialog_area(frame_area: Rect, filtered_len: usize) -> Rec
     super::centered_rect_fixed_size(LIST_DIALOG_WIDTH, h, frame_area)
 }
 
+/// Height of every row inside the dialog border that is *not* the list: the
+/// title, both list separators, the search input, the selected summary and the
+/// two blank spacers around it, and the hint block. Sizing the dialog and placing
+/// the list both derive from this one value so they can't drift apart.
+fn feelings_dialog_chrome_height(frame_area: Rect, selected_lines: usize) -> u16 {
+    // title + two separators + search input + spacer + summary + spacer + hints
+    1 + 2 + 1 + 1 + selected_lines as u16 + 1 + feelings_dialog_hint_height(frame_area)
+}
+
 pub(crate) fn feelings_dialog_area(
     frame_area: Rect,
     all_len: usize,
     selected_lines: usize,
 ) -> Rect {
-    // borders + title + two separators + search input + two blank spacers
-    // (one above the selected summary, one below it).
-    const FIXED: u16 = 5 + 1 + 1 + 1;
-    let hint_height = feelings_dialog_hint_height(frame_area);
     // Clamp to at least one row so the "(no matches)" line has somewhere to render
     // when a filter matches nothing, matching the metadata dialog.
     let visible = (all_len as u16).clamp(1, FEELINGS_DIALOG_MAX_VISIBLE_ROWS);
-    let h = (FIXED + selected_lines as u16 + hint_height + visible)
+    const BORDERS: u16 = 2;
+    let h = (BORDERS + feelings_dialog_chrome_height(frame_area, selected_lines) + visible)
         .min(frame_area.height.saturating_sub(2));
     super::centered_rect_fixed_size(LIST_DIALOG_WIDTH, h, frame_area)
 }
@@ -253,9 +259,7 @@ pub(crate) fn feelings_dialog_layout(
     let inner = super::panel_inner(area);
     let hint_height = feelings_dialog_hint_height(frame_area);
     let selected_h = selected_lines as u16;
-    // Rows besides the list: title, both separators, search input, a blank spacer,
-    // the selected summary, another blank spacer, and the hint block.
-    let chrome = 3 + 1 + 1 + selected_h + 1 + hint_height;
+    let chrome = feelings_dialog_chrome_height(frame_area, selected_lines);
     let list = Rect {
         x: inner.x,
         y: inner.y + 2,
