@@ -46,7 +46,7 @@ pub(crate) fn app_with_entry() -> App {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -66,7 +66,7 @@ pub(crate) fn app_with_entries(count: usize) -> App {
         fs::write(
             entry_dir.join(format!("{index}.md")),
             format!(
-                "+++\ncreated_at = \"2026-07-01T10:{index:02}:00+02:00\"\n+++\n\n# Entry {index}\nPreview {index}\n"
+                "+++\n[dates]\ncreated = \"2026-07-01T10:{index:02}:00+02:00\"\n+++\n\n# Entry {index}\nPreview {index}\n"
             ),
         )
         .unwrap();

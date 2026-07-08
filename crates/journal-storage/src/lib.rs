@@ -13,8 +13,8 @@ use journal_encryption as crypto;
 
 pub use error::StorageError;
 pub use journal_core::{
-    AppResult, Entry, EntryEncryptionState, EntryPath, Location, MOOD_RANGE, Metadata,
-    MetadataField, SearchHit, SearchScope, Timestamp, search_loaded_entries,
+    AppResult, Entry, EntryEncryptionState, EntryPath, ImportSource, Location, MOOD_RANGE,
+    Metadata, MetadataField, SearchHit, SearchScope, Timestamp, search_loaded_entries,
 };
 pub use journal_encryption::{
     DeviceIdentityInfo, EncryptionError, ExposeSecret, PendingRequest, Recipient, SecretString,
@@ -574,7 +574,7 @@ impl JournalStore {
     }
 
     /// Create an entry from an external import, preserving its original
-    /// creation/modification dates and recording an `import_id` provenance
+    /// creation/modification dates and recording an `[import]` provenance
     /// marker in the front matter. Encryption follows the store's setting, like
     /// [`create_entry_with_body`].
     #[allow(clippy::too_many_arguments)]
@@ -587,7 +587,7 @@ impl JournalStore {
         edited_at: chrono::DateTime<chrono::FixedOffset>,
         timezone: Option<&str>,
         location: Option<&Location>,
-        import_id: &str,
+        import: &ImportSource,
     ) -> AppResult<PathBuf> {
         storage::create_imported_entry(
             &self.entry_codec(),
@@ -599,7 +599,7 @@ impl JournalStore {
             edited_at,
             timezone,
             location,
-            import_id,
+            import,
         )
     }
 

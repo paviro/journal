@@ -4,7 +4,7 @@ use super::paths::{ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_path_with_i
 use crate::AppResult;
 use anyhow::bail;
 use chrono::{DateTime, FixedOffset, Local};
-use journal_core::Location;
+use journal_core::{ImportSource, Location};
 use nanoid::nanoid;
 use std::{
     fs::{self, OpenOptions},
@@ -32,7 +32,7 @@ pub fn create_entry(
 }
 
 /// Create an entry that carries an explicit creation/modification date and an
-/// `import_id` provenance marker (used by importers). The on-disk path and
+/// `[import]` provenance marker (used by importers). The on-disk path and
 /// filename are derived from `created_at`, so imported entries land in their
 /// original date folder rather than today's. Encryption follows the `codec`.
 #[allow(clippy::too_many_arguments)]
@@ -46,7 +46,7 @@ pub fn create_imported_entry(
     edited_at: DateTime<FixedOffset>,
     timezone: Option<&str>,
     location: Option<&Location>,
-    import_id: &str,
+    import: &ImportSource,
 ) -> AppResult<PathBuf> {
     let content = entry_content(
         created_at,
@@ -55,7 +55,7 @@ pub fn create_imported_entry(
         metadata,
         timezone,
         location,
-        Some(import_id),
+        Some(import),
     );
     create_entry_file(codec, root, journal, created_at, &content, || {
         nanoid!(ENTRY_ID_LEN)
@@ -70,14 +70,16 @@ fn entry_content(
     metadata: &Metadata,
     timezone: Option<&str>,
     location: Option<&Location>,
-    import_id: Option<&str>,
+    import: Option<&ImportSource>,
 ) -> String {
     let front_matter = crate::markdown::FrontMatter {
-        created_at: Some(created_at.to_rfc3339()),
-        edited_at: Some(edited_at.to_rfc3339()),
-        timezone: timezone.map(str::to_string),
         metadata: metadata.clone(),
-        import_id: import_id.map(str::to_string),
+        dates: crate::markdown::Dates {
+            created: Some(created_at.to_rfc3339()),
+            edited: Some(edited_at.to_rfc3339()),
+            timezone: timezone.map(str::to_string),
+        },
+        import: import.cloned(),
         location: location.cloned(),
     };
     let mut content = crate::markdown::render_entry(&front_matter, body);

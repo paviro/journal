@@ -77,11 +77,11 @@ fn create_entry_with_body_writes_body_after_front_matter() {
     let (front_matter, body) = crate::markdown::split_front_matter(&text);
     let fields = crate::markdown::front_matter_fields(front_matter.unwrap());
 
-    assert!(fields.created_at.is_some());
-    assert!(fields.edited_at.is_some());
+    assert!(fields.dates.created.is_some());
+    assert!(fields.dates.edited.is_some());
     assert!(fields.metadata.tags.is_empty());
     // A native entry captures this machine's IANA zone name, when resolvable.
-    assert_eq!(fields.timezone, iana_time_zone::get_timezone().ok());
+    assert_eq!(fields.dates.timezone, iana_time_zone::get_timezone().ok());
     assert_eq!(body.trim_start_matches('\n'), "Some text\n");
 }
 
@@ -109,7 +109,7 @@ fn entry_id_and_journal_come_from_path_not_front_matter() {
     let path = dir.path().join("id-from-file.md");
     fs::write(
         &path,
-        "+++\nid = \"wrong\"\njournal = \"wrong\"\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
+        "+++\nid = \"wrong\"\njournal = \"wrong\"\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
     )
     .unwrap();
 
@@ -125,7 +125,7 @@ fn entry_preview_collapses_body_with_markdown_stripped() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Hi how is it going?\nThis is a test entry\n",
+        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Hi how is it going?\nThis is a test entry\n",
     )
     .unwrap();
 
@@ -213,7 +213,7 @@ fn plain_entry_preview_is_the_whole_body() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\nPlain title\nPlain preview\n",
+        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\nPlain title\nPlain preview\n",
     )
     .unwrap();
 
@@ -229,7 +229,7 @@ fn empty_entry_preview_is_empty_and_label_falls_back_to_timestamp() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n",
+        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n",
     )
     .unwrap();
 

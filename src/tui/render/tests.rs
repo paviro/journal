@@ -393,7 +393,7 @@ fn entry_view_wraps_metadata_rows_without_leading_space_or_separator() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\ntags = [\"work\", \"personal\", \"health\"]\nfeelings = [\"calm\", \"focused\", \"tired\"]\n+++\n\n# A\nBody\n",
+            "+++\ntags = [\"work\", \"personal\", \"health\"]\nfeelings = [\"calm\", \"focused\", \"tired\"]\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -463,7 +463,7 @@ fn short_entry_view_scrolls_metadata_after_body() {
     fs::write(
             entry_dir.join("a.md"),
             format!(
-                "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\ntags = [\"tiny-screen\"]\nfeelings = [\"focused\"]\n+++\n\n# A\n{body}\n",
+                "+++\ntags = [\"tiny-screen\"]\nfeelings = [\"focused\"]\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n{body}\n",
             ),
         )
         .unwrap();
@@ -698,12 +698,12 @@ fn entry_hit_testing_ignores_month_divider_and_maps_boxed_entries() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nFirst preview\n",
+        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nFirst preview\n",
     )
     .unwrap();
     fs::write(
         entry_dir.join("b.md"),
-        "+++\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nSecond preview\n",
+        "+++\n[dates]\ncreated = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nSecond preview\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -766,7 +766,7 @@ fn first_month_rides_border_and_next_month_takes_over_after_scrolling() {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join(format!("e{index}.md")),
-            format!("+++\ncreated_at = \"{ts}\"\n+++\n\n# e{index}\nBody text\n"),
+            format!("+++\n[dates]\ncreated = \"{ts}\"\n+++\n\n# e{index}\nBody text\n"),
         )
         .unwrap();
     }
@@ -807,7 +807,7 @@ fn entry_view_renders_feelings_metadata() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\nfeelings = [\"calm\", \"focused\"]\n+++\n\n# A\nBody\n",
+            "+++\nfeelings = [\"calm\", \"focused\"]\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -827,7 +827,7 @@ fn entry_view_renders_indented_mermaid_diagram() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n```mermaid\n  graph TD\n      A[Open journal] --> B[Write entry]\n      B --> C{Preview}\n      C -->|looks good| D[Save]\n      C -->|needs work| B\n  ```\n",
+            "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n```mermaid\n  graph TD\n      A[Open journal] --> B[Write entry]\n      B --> C{Preview}\n      C -->|looks good| D[Save]\n      C -->|needs work| B\n  ```\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -850,12 +850,12 @@ fn list_panels_show_counts_in_bottom_titles() {
     fs::create_dir_all(&work_entry_dir).unwrap();
     fs::write(
         work_entry_dir.join("a.md"),
-        "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     fs::write(
         work_entry_dir.join("b.md"),
-        "+++\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
+        "+++\n[dates]\ncreated = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
     )
     .unwrap();
     fs::create_dir_all(root.join("personal")).unwrap();
@@ -1296,7 +1296,7 @@ fn plain_entry(created_at: Option<&str>, preview: &str) -> Entry {
         preview: preview.to_string(),
         metadata: journal_storage::Metadata::default(),
         location: None,
-        import_id: None,
+        import: None,
         content: String::new(),
         word_count: 0,
         search_haystack: String::new(),
@@ -1371,7 +1371,7 @@ fn entry_group_labels_use_created_timestamp() {
         preview: String::new(),
         metadata: journal_storage::Metadata::default(),
         location: None,
-        import_id: None,
+        import: None,
         content: String::new(),
         word_count: 0,
         search_haystack: String::new(),
@@ -1393,7 +1393,7 @@ fn entry_group_labels_fall_back_to_filename_date() {
         preview: String::new(),
         metadata: journal_storage::Metadata::default(),
         location: None,
-        import_id: None,
+        import: None,
         content: String::new(),
         word_count: 0,
         search_haystack: String::new(),

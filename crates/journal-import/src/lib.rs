@@ -2,7 +2,7 @@
 //!
 //! Currently supports [Day One](https://dayoneapp.com/) JSON exports via
 //! [`import_dayone`]. Each importer maps an external format onto the store's
-//! entry model, records provenance (`import_id`) so re-runs skip already-imported
+//! entry model, records provenance (`[import]`) so re-runs skip already-imported
 //! entries, and preserves original timestamps.
 
 mod dayone;
@@ -13,7 +13,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use chrono::{DateTime, FixedOffset};
-use journal_storage::{AppResult, AssetFailure, JournalStore, Location, Metadata};
+use journal_storage::{AppResult, AssetFailure, ImportSource, JournalStore, Location, Metadata};
 
 /// Map Day One's parsed location onto the store's [`Location`], keeping only the
 /// place hierarchy and coordinates (the geofence `region` and `timeZoneName` are
@@ -52,7 +52,7 @@ fn zoned_timestamp(rfc3339_utc: &str, tz: Option<&str>) -> Option<DateTime<Fixed
 pub struct ImportReport {
     /// Entries created.
     pub imported: usize,
-    /// Entries skipped because their `import_id` was already present.
+    /// Entries skipped because their `[import]` provenance was already present.
     pub skipped_duplicate: usize,
     /// Photos copied into entry asset folders.
     pub images_stored: usize,
@@ -92,17 +92,20 @@ pub fn import_dayone(
         store.create_journal(journal)?;
     }
 
-    let mut seen: HashSet<String> = store
+    let mut seen: HashSet<ImportSource> = store
         .scan_entries()?
         .into_iter()
-        .filter_map(|entry| entry.import_id)
+        .filter_map(|entry| entry.import)
         .collect();
 
     let mut report = ImportReport::default();
 
     for entry in &export.entries {
-        let import_id = format!("dayone:{}", entry.uuid);
-        if seen.contains(&import_id) {
+        let import = ImportSource {
+            source: "dayone".to_string(),
+            id: entry.uuid.clone(),
+        };
+        if seen.contains(&import) {
             report.skipped_duplicate += 1;
             continue;
         }
@@ -160,7 +163,7 @@ pub fn import_dayone(
             edited_at,
             tz,
             location.as_ref(),
-            &import_id,
+            &import,
         )?;
         // Replace un-fetchable images with a placeholder only when we actually
         // tried to download — otherwise remote links are kept so they can be
@@ -189,7 +192,7 @@ pub fn import_dayone(
         }
         report.attachments_skipped += rewrite.skipped_attachments();
         report.imported += 1;
-        seen.insert(import_id);
+        seen.insert(import);
     }
 
     Ok(report)

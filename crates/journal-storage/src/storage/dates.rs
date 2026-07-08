@@ -48,7 +48,7 @@ mod tests {
             preview: String::new(),
             metadata: journal_core::Metadata::default(),
             location: None,
-            import_id: None,
+            import: None,
             content: String::new(),
             word_count: 0,
             search_haystack: String::new(),

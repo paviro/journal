@@ -56,6 +56,16 @@ pub struct Location {
     pub longitude: Option<f64>,
 }
 
+/// Provenance of an imported entry: which tool it came from and that tool's own
+/// identifier for it (e.g. `source = "dayone"`, `id = "<UUID>"`). Serialized as
+/// the `[import]` front-matter table; absent for entries created in the app. The
+/// (source, id) pair is what importers dedup on to skip re-importing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ImportSource {
+    pub source: String,
+    pub id: String,
+}
+
 impl Location {
     pub fn is_empty(&self) -> bool {
         self.place.is_none()
@@ -134,10 +144,10 @@ pub struct Entry {
     /// Where the entry was written, captured on import. Displayed but not edited
     /// or searched, so it lives outside [`Metadata`].
     pub location: Option<Location>,
-    /// Provenance of an imported entry, e.g. `"dayone:<UUID>"`. `None` for
+    /// Provenance of an imported entry (source tool + its id). `None` for
     /// entries created directly in the app. Used to skip re-importing and as an
     /// anchor for back-filling richer metadata once the format supports it.
-    pub import_id: Option<String>,
+    pub import: Option<ImportSource>,
     pub content: String,
     /// Word count of `content`, computed once at load so the entry-list row
     /// builder never tokenizes the full body on the render path.

@@ -79,7 +79,7 @@ mod tests {
             preview: String::new(),
             metadata,
             location: None,
-            import_id: None,
+            import: None,
             content: content.to_string(),
             word_count: content.split_whitespace().count(),
             search_haystack,

@@ -1,28 +1,41 @@
-use journal_core::{Location, Metadata, MetadataField};
+use journal_core::{ImportSource, Location, Metadata, MetadataField};
 use serde::{Deserialize, Serialize};
 
 /// Every entry front-matter field, parsed and serialized in a single TOML pass.
 /// The user metadata is the shared [`Metadata`] type, flattened so its fields
-/// sit at the top level of the front matter (mood clamped on read there).
+/// sit at the top level of the front matter (mood clamped on read there). The
+/// system/provenance fields group into TOML tables, which — being tables — must
+/// all follow the flattened scalars: hence `metadata` comes first.
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct FrontMatter {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub edited_at: Option<String>,
-    /// IANA zone name where the entry was authored (e.g. `Europe/Berlin`). The
-    /// offset already lives in `created_at`; this keeps the zone *name*, which
-    /// the offset can't recover. Capture-only — round-tripped, not surfaced.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timezone: Option<String>,
     #[serde(flatten)]
     pub metadata: Metadata,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub import_id: Option<String>,
-    /// Where the entry was written (Day One import). Keep last — a TOML table
-    /// can't be followed by scalar keys.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Dates::is_empty")]
+    pub dates: Dates,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import: Option<ImportSource>,
+    /// Where the entry was written (Day One import).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location: Option<Location>,
+}
+
+/// The `[dates]` table: when an entry was created and last edited, plus the IANA
+/// zone name it was authored in. `timezone` is capture-only — the offset already
+/// lives in `created`, but the zone *name* it can't recover, so we keep it.
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct Dates {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+}
+
+impl Dates {
+    fn is_empty(&self) -> bool {
+        self.created.is_none() && self.edited.is_none() && self.timezone.is_none()
+    }
 }
 
 pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
@@ -128,7 +141,7 @@ pub fn with_metadata_field(content: &str, field: &MetadataField) -> Option<Strin
             MetadataField::Mood(mood) => fm.metadata.mood = *mood,
             MetadataField::Starred(starred) => fm.metadata.starred = *starred,
         }
-        fm.edited_at = Some(chrono::Local::now().to_rfc3339());
+        fm.dates.edited = Some(chrono::Local::now().to_rfc3339());
     })
 }
 
@@ -253,7 +266,7 @@ mod tests {
 
     #[test]
     fn with_metadata_field_writes_and_clears_mood() {
-        let content = "+++\ncreated_at = \"x\"\n+++\n\n# Body\n";
+        let content = "+++\n[dates]\ncreated = \"x\"\n+++\n\n# Body\n";
 
         let with_mood = with_metadata_field(content, &MetadataField::Mood(Some(4))).unwrap();
         assert_eq!(
@@ -273,17 +286,25 @@ mod tests {
     }
 
     #[test]
-    fn location_table_serializes_after_scalars_and_round_trips() {
-        // The gate: a `[location]` table under `#[serde(flatten)] metadata` must
-        // serialize (as the last thing) and re-parse. render_entry swallows a
-        // serialize failure into empty output, so assert the table is actually there.
+    fn tables_serialize_after_flattened_scalars_and_round_trip() {
+        // The gate: the `[dates]`, `[import]`, and `[location]` tables must
+        // serialize *after* the flattened `metadata` scalars (TOML requires
+        // tables last) and re-parse. render_entry swallows a serialize failure
+        // into empty output, so assert the tables are actually there.
         let fm = FrontMatter {
-            created_at: Some("2021-04-03T08:30:05+02:00".to_string()),
             metadata: Metadata {
                 tags: vec!["dream".to_string()],
                 ..Metadata::default()
             },
-            import_id: Some("dayone:X".to_string()),
+            dates: Dates {
+                created: Some("2021-04-03T08:30:05+02:00".to_string()),
+                timezone: Some("Europe/Berlin".to_string()),
+                ..Dates::default()
+            },
+            import: Some(ImportSource {
+                source: "dayone".to_string(),
+                id: "X".to_string(),
+            }),
             location: Some(Location {
                 place: Some("1 Example Plaza".to_string()),
                 locality: Some("Testville".to_string()),
@@ -291,41 +312,52 @@ mod tests {
                 latitude: Some(10.0),
                 ..Location::default()
             }),
-            ..FrontMatter::default()
         };
 
         let rendered = render_entry(&fm, "# Body\n");
         assert!(rendered.contains("[location]"), "table missing: {rendered}");
-        // Scalars precede the table (valid TOML), and the body survives.
-        let table_at = rendered.find("[location]").unwrap();
-        assert!(rendered.find("import_id").unwrap() < table_at);
+        // The flattened `tags` scalar precedes every table (valid TOML), and the
+        // tables keep struct order: [dates], [import], [location].
+        let tags_at = rendered.find("tags = ").unwrap();
+        let dates_at = rendered.find("[dates]").unwrap();
+        let import_at = rendered.find("[import]").unwrap();
+        let location_at = rendered.find("[location]").unwrap();
+        assert!(tags_at < dates_at);
+        assert!(dates_at < import_at);
+        assert!(import_at < location_at);
         assert!(rendered.contains("\n+++\n\n# Body\n"));
 
         let (front_matter, _) = split_front_matter(&rendered);
         let parsed = front_matter_fields(front_matter.unwrap());
         assert_eq!(parsed.location, fm.location);
         assert_eq!(parsed.metadata.tags, vec!["dream".to_string()]);
-        assert_eq!(parsed.import_id.as_deref(), Some("dayone:X"));
+        assert_eq!(parsed.import, fm.import);
+        assert_eq!(
+            parsed.dates.created.as_deref(),
+            Some("2021-04-03T08:30:05+02:00")
+        );
     }
 
     #[test]
     fn timezone_is_preserved_across_metadata_edits() {
-        let content = "+++\ncreated_at = \"2021-04-03T08:30:05+02:00\"\ntimezone = \"Europe/Berlin\"\n+++\n\n# Body\n";
+        let content = "+++\n[dates]\ncreated = \"2021-04-03T08:30:05+02:00\"\ntimezone = \"Europe/Berlin\"\n+++\n\n# Body\n";
 
         // A metadata edit re-renders the whole front matter; the capture-only
-        // timezone must survive untouched, like import_id does.
+        // timezone must survive untouched, like the import provenance does.
         let updated =
             with_metadata_field(content, &MetadataField::Tags(vec!["x".to_string()])).unwrap();
 
         assert_eq!(
-            front_matter_fields(split_front_matter(&updated).0.unwrap()).timezone,
+            front_matter_fields(split_front_matter(&updated).0.unwrap())
+                .dates
+                .timezone,
             Some("Europe/Berlin".to_string())
         );
     }
 
     #[test]
     fn starred_round_trips_and_omits_when_false() {
-        let content = "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
+        let content = "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
 
         let starred = with_metadata_field(content, &MetadataField::Starred(true)).unwrap();
         assert!(starred.contains("starred = true"));
@@ -369,14 +401,16 @@ mod tests {
             Vec::<String>::new()
         );
         assert_eq!(
-            front_matter_fields("created_at = [unterminated").created_at,
+            front_matter_fields("[dates]\ncreated = [unterminated")
+                .dates
+                .created,
             None
         );
     }
 
     #[test]
     fn with_metadata_field_replaces_list_without_stale_entries() {
-        let content = "+++\ncreated_at = \"2026-07-01T10:00:00+02:00\"\ntags = [\"old\", \"stale\"]\n+++\n\n# Body\n";
+        let content = "+++\ntags = [\"old\", \"stale\"]\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
         let tags = vec!["new".to_string(), "next".to_string()];
 
         let updated = with_metadata_field(content, &MetadataField::Tags(tags)).unwrap();
@@ -394,7 +428,7 @@ mod tests {
 
     #[test]
     fn with_metadata_field_refreshes_edited_at_and_preserves_body() {
-        let content = "+++\ncreated_at = \"old\"\ntags = []\n+++\n\n# Body\n\nTrailing\n";
+        let content = "+++\ntags = []\n\n[dates]\ncreated = \"old\"\n+++\n\n# Body\n\nTrailing\n";
 
         let updated =
             with_metadata_field(content, &MetadataField::Feelings(vec!["calm".to_string()]))
@@ -410,7 +444,8 @@ mod tests {
         );
         assert!(
             front_matter_fields(split_front_matter(&updated).0.unwrap())
-                .edited_at
+                .dates
+                .edited
                 .is_some()
         );
     }

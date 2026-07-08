@@ -116,7 +116,7 @@ impl<'a> EntryCodec<'a> {
         let content = match front_matter {
             Some(front_matter) => match markdown::parse_front_matter(front_matter) {
                 Some(mut parsed) => {
-                    parsed.edited_at = Some(chrono::Local::now().to_rfc3339());
+                    parsed.dates.edited = Some(chrono::Local::now().to_rfc3339());
                     markdown::render_entry(&parsed, body)
                 }
                 None => format!(

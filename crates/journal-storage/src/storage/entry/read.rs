@@ -96,16 +96,15 @@ pub fn read_entry(
     let (front_matter, body) = split_front_matter(&content);
     // One TOML parse per entry instead of one per field.
     let FrontMatter {
-        created_at,
-        edited_at,
-        // Capture-only: preserved on disk, not surfaced on the in-memory entry.
-        timezone: _,
         mut metadata,
-        import_id,
+        dates,
+        import,
         location,
     } = front_matter.map(front_matter_fields).unwrap_or_default();
     metadata.feelings = normalize_feelings(metadata.feelings.iter().map(String::as_str));
-    let created_at = created_at.map(Timestamp::parse);
+    let created_at = dates.created.map(Timestamp::parse);
+    // `dates.timezone` is capture-only: preserved on disk, not surfaced here.
+    let edited_at = dates.edited;
     let id = entry_id(path).context("entry file has no UTF-8 stem")?;
     let preview = display_preview(body);
     let body = body.trim_start_matches('\n').to_string();
@@ -122,7 +121,7 @@ pub fn read_entry(
         preview,
         metadata,
         location,
-        import_id,
+        import,
         content: body,
         word_count,
         search_haystack,
@@ -141,7 +140,7 @@ fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {
         preview: "[locked] Encrypted entry".to_string(),
         metadata: Metadata::default(),
         location: None,
-        import_id: None,
+        import: None,
         content: "Encryption identity not available".to_string(),
         word_count: 0,
         search_haystack: String::new(),

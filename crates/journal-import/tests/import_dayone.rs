@@ -5,8 +5,16 @@
 use std::fs;
 
 use journal_import::import_dayone;
-use journal_storage::JournalStore;
+use journal_storage::{ImportSource, JournalStore};
 use tempfile::TempDir;
+
+/// The provenance a Day One import records for the entry with this uuid.
+fn dayone(id: &str) -> ImportSource {
+    ImportSource {
+        source: "dayone".to_string(),
+        id: id.to_string(),
+    }
+}
 
 /// A plaintext store rooted in a fresh temp dir, plus the dir (kept alive).
 fn plaintext_store() -> (TempDir, JournalStore) {
@@ -46,7 +54,7 @@ fn imports_entry_with_body_tags_and_provenance() {
     let entries = store.scan_entries().unwrap();
     assert_eq!(entries.len(), 1);
     let entry = &entries[0];
-    assert_eq!(entry.import_id.as_deref(), Some("dayone:ABC123"));
+    assert_eq!(entry.import.as_ref(), Some(&dayone("ABC123")));
     assert!(entry.content.contains("Hello from Day One"));
     assert_eq!(entry.metadata.tags, vec!["travel", "notes"]);
     // The on-disk date folder comes from the creationDate, not today.
@@ -77,11 +85,11 @@ fn imports_starred_flag() {
     let entries = store.scan_entries().unwrap();
     let starred = entries
         .iter()
-        .find(|e| e.import_id.as_deref() == Some("dayone:STAR1"))
+        .find(|e| e.import.as_ref() == Some(&dayone("STAR1")))
         .unwrap();
     let plain = entries
         .iter()
-        .find(|e| e.import_id.as_deref() == Some("dayone:PLAIN1"))
+        .find(|e| e.import.as_ref() == Some(&dayone("PLAIN1")))
         .unwrap();
     assert!(starred.metadata.starred);
     assert!(!plain.metadata.starred);
@@ -111,7 +119,7 @@ fn imports_zone_into_offset_and_keeps_iana_name() {
 
     let raw = std::fs::read_to_string(&entry.path).unwrap();
     // Offset folded into the timestamp; IANA name kept alongside for fidelity.
-    assert!(raw.contains("created_at = \"2021-04-03T08:30:05+02:00\""));
+    assert!(raw.contains("created = \"2021-04-03T08:30:05+02:00\""));
     assert!(raw.contains("timezone = \"Europe/Berlin\""));
 }
 
@@ -132,7 +140,7 @@ fn imports_without_zone_fall_back_to_utc_offset() {
 
     let entry = &store.scan_entries().unwrap()[0];
     let raw = std::fs::read_to_string(&entry.path).unwrap();
-    assert!(raw.contains("created_at = \"2026-07-01T12:30:00+00:00\""));
+    assert!(raw.contains("created = \"2026-07-01T12:30:00+00:00\""));
     assert!(!raw.contains("timezone"));
 }
 
@@ -174,7 +182,7 @@ fn imports_location_storing_only_present_fields() {
     let raw = |uuid: &str| {
         let e = entries
             .iter()
-            .find(|e| e.import_id.as_deref() == Some(&format!("dayone:{uuid}")))
+            .find(|e| e.import.as_ref() == Some(&dayone(uuid)))
             .unwrap();
         std::fs::read_to_string(&e.path).unwrap()
     };
@@ -237,5 +245,5 @@ fn entry_with_invalid_creation_date_is_recorded_as_a_failure() {
     assert!(report.failures[0].contains("BAD"));
     let entries = store.scan_entries().unwrap();
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].import_id.as_deref(), Some("dayone:GOOD"));
+    assert_eq!(entries[0].import.as_ref(), Some(&dayone("GOOD")));
 }
