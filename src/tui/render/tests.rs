@@ -1100,7 +1100,7 @@ fn insights_panel_shows_all_tabs_in_its_border() {
     // Wide enough that the strip uses full titles rather than short/initials.
     let text = render_text(app, 170, 20);
 
-    for title in ["Overview", "Writing", "Mood", "Feelings", "Drivers"] {
+    for title in ["Overview", "Writing", "Feelings", "Drivers"] {
         assert!(text.contains(title), "tab bar missing {title}: {text}");
     }
 }
@@ -1126,9 +1126,9 @@ fn insights_switching_tab_changes_the_body() {
 
     let text = render_text(app, 140, 20);
 
-    // The lone fixture entry has no feelings, so the Feelings tab shows its empty
-    // state rather than the Overview cards.
-    assert!(text.contains("No feelings logged yet"));
+    // The lone fixture entry has no mood and no feelings, so the merged Feelings tab
+    // shows its empty state rather than the Overview cards.
+    assert!(text.contains("No mood or feelings logged yet"));
     assert!(!text.contains("Days"));
 }
 
@@ -1137,7 +1137,8 @@ fn insights_feelings_tab_renders_frequency_bar() {
     let mut app = app_with_metadata_entry();
     focus_insights(&mut app, insights::InsightsTab::Feelings);
 
-    let text = render_text(app, 140, 20);
+    // Tall enough that the feelings table still fits below Balance + the breakdowns.
+    let text = render_text(app, 140, 26);
 
     assert!(text.contains("calm"));
     assert!(text.contains('▓'), "expected a bar glyph: {text}");
@@ -1311,30 +1312,29 @@ fn insights_writing_tab_renders_habit_sections() {
 }
 
 #[test]
-fn insights_mood_tab_renders_temporal_sections() {
+fn insights_feelings_tab_renders_mood_breakdowns() {
     let mut app = app_with_metadata_entry();
-    focus_insights(&mut app, insights::InsightsTab::Mood);
+    focus_insights(&mut app, insights::InsightsTab::Feelings);
+    // Wide + full screen so the three breakdown charts sit side by side.
+    app.nav.insights_fullscreen = true;
 
-    let text = render_text(app, 140, 20);
+    let text = render_text(app, 140, 24);
 
-    // The trimmed Mood tab keeps the temporal views and drops the abstract stats.
+    // The merged tab carries the signed mood breakdowns below Balance...
     assert!(
-        text.contains("Mood over time"),
-        "mood tab missing time series: {text}"
+        text.contains("By year") && text.contains("By weekday") && text.contains("By month"),
+        "feelings tab missing the mood breakdown charts: {text}"
     );
+    // ...and drops the old Mood tab's abstract series.
     assert!(
-        text.contains("By weekday"),
-        "mood tab missing weekday: {text}"
-    );
-    assert!(
-        !text.contains("Distribution"),
-        "distribution should be gone: {text}"
+        !text.contains("Mood over time"),
+        "mood-over-time series should be gone: {text}"
     );
 }
 
 #[test]
 fn insights_tab_hit_test_maps_border_columns_to_tabs() {
-    // Inner width 47 fits all five full labels: " Overview · Writing · Mood ·
+    // Inner width 47 fits all four full labels: " Overview · Writing · Mood /
     // Feelings · Drivers", the title starting one past the corner at 75.
     let area = Rect::new(74, 0, 49, 19);
     assert_eq!(
@@ -1346,20 +1346,17 @@ fn insights_tab_hit_test_maps_border_columns_to_tabs() {
         Some(insights::InsightsTab::Writing)
     ); // 87..94
     assert_eq!(
-        insights_tab_at(area, 98, 0),
-        Some(insights::InsightsTab::Mood)
-    ); // 97..101
-    assert_eq!(
-        insights_tab_at(area, 107, 0),
-        Some(insights::InsightsTab::Feelings) // 104..112
+        insights_tab_at(area, 100, 0),
+        Some(insights::InsightsTab::Feelings) // 97..112
     );
     assert_eq!(
-        insights_tab_at(area, 117, 0),
+        insights_tab_at(area, 118, 0),
         Some(insights::InsightsTab::Drivers)
     ); // 115..122
     // The corner, the gaps, and other rows are not tabs.
     assert_eq!(insights_tab_at(area, 74, 0), None);
-    assert_eq!(insights_tab_at(area, 85, 0), None);
+    assert_eq!(insights_tab_at(area, 85, 0), None); // " · " between Overview and Writing
+    assert_eq!(insights_tab_at(area, 96, 0), None); // " · " between Writing and Mood / Feelings
     assert_eq!(insights_tab_at(area, 78, 1), None);
 }
 

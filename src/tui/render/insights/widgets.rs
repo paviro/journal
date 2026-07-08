@@ -189,11 +189,6 @@ impl Stat {
         }
     }
 
-    pub(crate) fn styled(mut self, style: ratatui::style::Style) -> Self {
-        self.value_style = style;
-        self
-    }
-
     pub(crate) fn sub(mut self, sub: Span<'static>) -> Self {
         self.sub = Some(sub);
         self
@@ -354,8 +349,179 @@ pub(crate) fn draw_more_note(frame: &mut Frame<'_>, more: Option<(Rect, String)>
 /// The eighths ramp used by histograms and sparklines: index 0 is blank, 8 full.
 const RAMP: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
+/// The eighths ramp filling from the *top* of the cell downward, for bars that
+/// grow below a baseline: index 0 is blank, 8 a full cell.
 fn ramp_cell(eighths: usize) -> char {
     RAMP[eighths.min(8)]
+}
+
+/// The downward counterpart of [`ramp_cell`], for bars hanging below a baseline.
+/// Only the "Block Elements" upper glyphs are universally rendered by terminal
+/// fonts (the finer eighth-height *upper* blocks live in "Symbols for Legacy
+/// Computing", which most fonts lack), so the tip quantises to empty / one-eighth
+/// (`▔`) / half (`▀`) / full (`█`).
+fn ramp_cell_down(eighths: usize) -> char {
+    match eighths.min(8) {
+        0 => ' ',
+        1..=2 => '▔',
+        3..=6 => '▀',
+        _ => '█',
+    }
+}
+
+/// A vertical bar chart of signed averages around a zero baseline: each column
+/// grows *up* (positive, green) or *down* (negative, red) from a dim mid-line. The
+/// chart **auto-scales to its own largest-magnitude bar**, so the extreme value
+/// fills its half and the rest are drawn in proportion — clustered values (e.g.
+/// every weekday slightly negative) stay legible, and the shortest bar still marks
+/// the best/least-bad bucket. Scale is therefore relative, not an absolute value.
+/// The height is fixed by `area`, never by the data; the bottom row carries dim
+/// `labels` centred under their columns (truncated to the column width, so wide
+/// columns show a full year and narrow ones an initial). `None` values leave an
+/// empty column with just its baseline tick, so gaps still read positionally.
+pub(crate) fn draw_signed_columns(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    values: &[Option<f32>],
+    labels: &[&str],
+) {
+    let n = values.len();
+    if area.width == 0 || area.height < 2 || n == 0 {
+        return;
+    }
+    // Consistent spacing that doesn't depend on the column count: a full gap cell
+    // between bars, and half that (`edge`) as the leading/trailing padding, so the
+    // strip hugs the chart edges more tightly than the bars sit from each other.
+    // The bars absorb the leftover width (the first `extra` are one cell wider)
+    // rather than centring the strip. `col_w(i)` is column `i`'s bar width.
+    let width = area.width as usize;
+    let gap = usize::from(width > 2 * n);
+    let edge = gap / 2;
+    let inner = width.saturating_sub(2 * edge + (n - 1) * gap);
+    let base_w = (inner / n).max(1);
+    let extra = inner % n;
+    let col_w = |i: usize| base_w + usize::from(i < extra);
+
+    // Rows: a label row at the bottom, a baseline row, and the plot split evenly
+    // into a positive half above and a negative half below the baseline.
+    let plot_h = area.height as usize - 1;
+    let up_h = plot_h.saturating_sub(1) / 2;
+    let down_h = plot_h - 1 - up_h;
+    let baseline_row = area.y + up_h as u16;
+    let label_row = area.y + area.height - 1;
+    let up_eighths = up_h * 8;
+    let down_eighths = down_h * 8;
+    // Scale to the largest magnitude present, so the extreme bar fills its half and
+    // differences between clustered values stay visible. Guard the all-zero case.
+    let range = values
+        .iter()
+        .flatten()
+        .fold(0.0_f32, |max, avg| max.max(avg.abs()))
+        .max(f32::EPSILON);
+    let norm = |avg: f32| (avg / range).clamp(-1.0, 1.0);
+
+    // The character each column shows on plot row `y`, with whether it is a
+    // positive (green) or negative (red) cell.
+    let column_cell = |value: &Option<f32>, y: u16| -> (char, bool) {
+        match value {
+            Some(avg) if *avg > 0.0 && y < baseline_row => {
+                let level = (baseline_row - y) as usize; // 1 = nearest the baseline
+                let filled = (norm(*avg) * up_eighths as f32).round() as usize;
+                (ramp_cell(filled.saturating_sub((level - 1) * 8)), true)
+            }
+            Some(avg) if *avg < 0.0 && y > baseline_row => {
+                let level = (y - baseline_row) as usize;
+                let filled = (-norm(*avg) * down_eighths as f32).round() as usize;
+                (
+                    ramp_cell_down(filled.saturating_sub((level - 1) * 8)),
+                    false,
+                )
+            }
+            _ => (' ', true),
+        }
+    };
+
+    for r in 0..plot_h {
+        let y = area.y + r as u16;
+        if y == baseline_row {
+            continue; // drawn as one dim rule below.
+        }
+        let mut spans = vec![Span::raw(" ".repeat(edge))];
+        for (i, value) in values.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw(" ".repeat(gap)));
+            }
+            let (ch, positive) = column_cell(value, y);
+            let style = if positive {
+                theme().positive()
+            } else {
+                theme().negative()
+            };
+            spans.push(Span::styled(ch.to_string().repeat(col_w(i)), style));
+        }
+        spans.push(Span::raw(" ".repeat(edge)));
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)),
+            Rect {
+                y,
+                height: 1,
+                ..area
+            },
+        );
+    }
+
+    // The dim zero baseline: a rule under each bar, a lighter tick across the gaps.
+    let mut base = vec![Span::styled("┈".repeat(edge), theme().muted())];
+    for i in 0..n {
+        if i > 0 {
+            base.push(Span::styled("┈".repeat(gap), theme().muted()));
+        }
+        base.push(Span::styled("─".repeat(col_w(i)), theme().muted()));
+    }
+    base.push(Span::styled("┈".repeat(edge), theme().muted()));
+    frame.render_widget(
+        Paragraph::new(Line::from(base)),
+        Rect {
+            y: baseline_row,
+            height: 1,
+            ..area
+        },
+    );
+
+    // Dim labels centred in each column, truncated to what the column holds.
+    let mut label_spans = vec![Span::raw(" ".repeat(edge))];
+    for i in 0..n {
+        if i > 0 {
+            label_spans.push(Span::raw(" ".repeat(gap)));
+        }
+        let label = labels.get(i).copied().unwrap_or("");
+        label_spans.push(Span::styled(
+            center_truncate(label, col_w(i)),
+            theme().muted(),
+        ));
+    }
+    label_spans.push(Span::raw(" ".repeat(edge)));
+    frame.render_widget(
+        Paragraph::new(Line::from(label_spans)),
+        Rect {
+            y: label_row,
+            height: 1,
+            ..area
+        },
+    );
+}
+
+/// Fit `text` into `width` cells, centred with space padding; when it is too long,
+/// keep the leading `width` chars with no ellipsis (an initial for a single cell,
+/// `Mon`/`2024` when the column is wider).
+fn center_truncate(text: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let trimmed: String = text.chars().take(width).collect();
+    let pad = width - text_width(&trimmed);
+    let left = pad / 2;
+    format!("{}{}{}", " ".repeat(left), trimmed, " ".repeat(pad - left))
 }
 
 /// A vertical bar chart of `values` drawn with the block ramp, scaled to the
@@ -429,9 +595,86 @@ pub(crate) fn sentiment_segments(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
 
     fn rect(width: u16, height: u16) -> Rect {
         Rect::new(0, 0, width, height)
+    }
+
+    /// Render `draw_signed_columns` and return its rows as strings.
+    fn signed_rows(vals: &[Option<f32>], labels: &[&str], width: u16, height: u16) -> Vec<String> {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_signed_columns(frame, rect(width, height), vals, labels))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .chunks(width as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn signed_columns_grow_up_for_positive_down_for_negative() {
+        // Six 8-wide columns; the baseline sits at row 3, labels on the last row.
+        let vals = [
+            Some(-4.0),
+            Some(4.0),
+            Some(0.0),
+            Some(-1.0),
+            None,
+            Some(2.5),
+        ];
+        // Width 41 → six 6-wide bars flush to the left with a 1-cell gap between
+        // each (leading/trailing padding is half the gap, i.e. 0), so column `col`'s
+        // first bar cell sits at `7*col`.
+        let rows: Vec<Vec<char>> = signed_rows(&vals, &["A", "B", "C", "D", "E", "F"], 41, 9)
+            .iter()
+            .map(|row| row.chars().collect())
+            .collect();
+        let cell = |row: usize, col: usize| rows[row][7 * col];
+
+        // The positive column B fills upward above the baseline (rows 0..3)...
+        assert_eq!(cell(2, 1), '█', "B should fill up nearest the baseline");
+        // ...and the strongest negative A fills downward below it (rows 4..8).
+        assert_eq!(cell(4, 0), '█', "A should fill down from the baseline");
+        // A zero value (C) and a `None` (E) leave their columns blank on both halves.
+        for row in [0, 1, 2, 4, 5, 6, 7] {
+            assert_eq!(cell(row, 2), ' ', "C stays blank");
+            assert_eq!(cell(row, 4), ' ', "E stays blank");
+        }
+        // The baseline rule and centred labels land on their own rows.
+        assert_eq!(cell(3, 0), '─', "baseline rule");
+        let labels: String = rows[8].iter().collect();
+        assert!(
+            labels.contains('A') && labels.contains('F'),
+            "column labels: {labels}"
+        );
+    }
+
+    #[test]
+    fn signed_columns_auto_scale_to_the_largest_magnitude() {
+        // All three below zero; auto-scaling to the deepest (-4) keeps the milder
+        // days visibly shorter, so "which is least bad" still reads.
+        let vals = [Some(-1.0), Some(-2.0), Some(-4.0)];
+        // Width 23 → three 7-wide bars flush left with 1-cell gaps; column `col` at `8*col`.
+        let rows: Vec<Vec<char>> = signed_rows(&vals, &["A", "B", "C"], 23, 9)
+            .iter()
+            .map(|row| row.chars().collect())
+            .collect();
+        let cell = |row: usize, col: usize| rows[row][8 * col];
+
+        // Row 4 is the cell just below the baseline: every column reaches it.
+        assert_eq!((cell(4, 0), cell(4, 1), cell(4, 2)), ('█', '█', '█'));
+        // Only the extreme (-4) reaches the deepest row; the milder days stop short.
+        assert_eq!(cell(7, 2), '█', "-4 fills its whole half");
+        assert_eq!(cell(7, 0), ' ', "-1 stays shallow");
+        assert_eq!(cell(7, 1), ' ', "-2 stays mid-depth");
+        assert_eq!(cell(5, 0), ' ', "-1 is a single cell deep");
+        assert_eq!(cell(5, 1), '█', "-2 is deeper than -1");
     }
 
     #[test]

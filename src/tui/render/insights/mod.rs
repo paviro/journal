@@ -1,6 +1,6 @@
 //! The tabbed insights panel. [`draw_journal_insights`] frames the panel with the
 //! tab strip in its top border, resolves the memoized [`Analytics`] once, and
-//! dispatches to one of the five tab renderers. The tab renderers (in the
+//! dispatches to one of the four tab renderers. The tab renderers (in the
 //! sibling modules) are pure `(Rect, &Analytics) -> buffer` functions with no
 //! `App` access, so they snapshot-test directly. Colour flows through
 //! [`crate::tui::theme`]; the layout adapts to whatever `Rect` it is handed
@@ -10,7 +10,6 @@ mod cadence;
 mod correlate;
 mod drivers;
 mod feelings;
-mod mood;
 mod nav;
 mod overview;
 mod widgets;
@@ -102,7 +101,6 @@ pub(crate) fn draw_journal_insights(frame: &mut Frame<'_>, area: Rect, app: &mut
             overview::draw(frame, content, &analytics, &title);
         }
         InsightsTab::Writing => cadence::draw(frame, content, &analytics),
-        InsightsTab::Mood => mood::draw(frame, content, &analytics),
         InsightsTab::Feelings => draw_scrollable(frame, area, app, |frame, scroll| {
             feelings::draw(frame, content, &analytics, scroll)
         }),
@@ -205,7 +203,7 @@ fn tab_strip_segments(width: u16) -> Vec<(InsightsTab, Range<u16>)> {
     segments
 }
 
-/// The tab bar as a border title: `Overview · Cadence · Mood · Feelings · People`
+/// The tab bar as a border title: `Overview · Writing · Mood / Feelings · Drivers`
 /// (short labels when they won't fit). The active tab is inverted while focused,
 /// otherwise just bold; the rest stay dim.
 fn tabs_title_line(active: InsightsTab, focused: bool, width: u16) -> Line<'static> {

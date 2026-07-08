@@ -14,20 +14,15 @@ pub(crate) enum InsightsTab {
     Overview,
     /// Writing habits: streaks, when you write, and word volume.
     Writing,
-    Mood,
+    /// Mood balance, the signed mood breakdowns, and the feeling frequency table.
     Feelings,
     /// People, activities, and tags merged into one lift/drain ranking.
     Drivers,
 }
 
 impl InsightsTab {
-    pub(crate) const ALL: [InsightsTab; 5] = [
-        Self::Overview,
-        Self::Writing,
-        Self::Mood,
-        Self::Feelings,
-        Self::Drivers,
-    ];
+    pub(crate) const ALL: [InsightsTab; 4] =
+        [Self::Overview, Self::Writing, Self::Feelings, Self::Drivers];
 
     pub(crate) fn index(self) -> usize {
         Self::ALL.iter().position(|tab| *tab == self).unwrap_or(0)
@@ -44,7 +39,7 @@ impl InsightsTab {
     /// which already opens with its own blank row. Such tabs skip the panel's top
     /// margin so the first title sits one row below the border, not two.
     pub(crate) fn leads_with_heading(self) -> bool {
-        matches!(self, Self::Mood | Self::Feelings)
+        matches!(self, Self::Feelings)
     }
 
     /// Whether this tab windows to the selected [`InsightsTimeframe`]. Only Drivers:
@@ -58,8 +53,7 @@ impl InsightsTab {
         match self {
             Self::Overview => "Overview",
             Self::Writing => "Writing",
-            Self::Mood => "Mood",
-            Self::Feelings => "Feelings",
+            Self::Feelings => "Mood / Feelings",
             Self::Drivers => "Drivers",
         }
     }
@@ -69,8 +63,7 @@ impl InsightsTab {
         match self {
             Self::Overview => "Over",
             Self::Writing => "Writ",
-            Self::Mood => "Mood",
-            Self::Feelings => "Feel",
+            Self::Feelings => "Mood",
             Self::Drivers => "Driv",
         }
     }
@@ -81,8 +74,7 @@ impl InsightsTab {
         match self {
             Self::Overview => "O",
             Self::Writing => "W",
-            Self::Mood => "M",
-            Self::Feelings => "F",
+            Self::Feelings => "M",
             Self::Drivers => "D",
         }
     }

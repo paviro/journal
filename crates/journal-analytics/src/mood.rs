@@ -22,10 +22,14 @@ pub struct MoodAnalytics {
     pub by_weekday: [Option<f32>; 7],
     /// Average mood by calendar month, January (`0`) through December (`11`).
     pub by_month: [Option<f32>; 12],
+    /// Average mood per calendar year, chronological. Unlike `series` (which
+    /// switches to month buckets for single-year journals), this is always keyed
+    /// by year so the "By year" chart has one column per year.
+    pub by_year: Vec<MoodBucket>,
     /// Feeling frequency, most common first.
     pub feelings: Vec<Tally>,
-    /// All-time mood balance, and the same over the trailing year / month / week
-    /// (indices `0`/`1`/`2` of `sentiment_windows`) so Balance can show the trend.
+    /// All-time mood balance, and the same over the current calendar year / month /
+    /// week (indices `0`/`1`/`2` of `sentiment_windows`) so Balance can show the trend.
     pub sentiment: Sentiment,
     pub sentiment_windows: [Sentiment; 3],
     /// The highest- and lowest-average periods from `series`.
@@ -51,10 +55,6 @@ impl Sentiment {
     }
 }
 
-/// Trailing-window spans (in days) for the Balance sentiment trend: year, month,
-/// week. Rolling rather than calendar so each window is always a full span.
-const SENTIMENT_WINDOW_DAYS: [i64; 3] = [365, 30, 7];
-
 pub(crate) fn build(
     entries: &[&Entry],
     dates: &[Option<NaiveDate>],
@@ -63,6 +63,7 @@ pub(crate) fn build(
 ) -> MoodAnalytics {
     let mut moods: Vec<i8> = Vec::new();
     let mut series_acc: BTreeMap<(i32, u32), (i64, usize)> = BTreeMap::new();
+    let mut year_acc: BTreeMap<i32, (i64, usize)> = BTreeMap::new();
     let mut weekday_acc: [(i64, usize); 7] = Default::default();
     let mut month_acc: [(i64, usize); 12] = Default::default();
 
@@ -80,19 +81,27 @@ pub(crate) fn build(
                     .or_insert((0, 0));
                 slot.0 += i64::from(mood);
                 slot.1 += 1;
+                let year = year_acc.entry(date.year()).or_insert((0, 0));
+                year.0 += i64::from(mood);
+                year.1 += 1;
                 let weekday = date.weekday().num_days_from_monday() as usize;
                 weekday_acc[weekday].0 += i64::from(mood);
                 weekday_acc[weekday].1 += 1;
                 let month = (date.month() - 1) as usize;
                 month_acc[month].0 += i64::from(mood);
                 month_acc[month].1 += 1;
-                // The trailing-window Balance tallies: an entry counts in a window
-                // when its date is within that many days of `today`.
-                let age = (today - *date).num_days();
-                for (window, span) in sentiment_windows.iter_mut().zip(SENTIMENT_WINDOW_DAYS) {
-                    if (0..span).contains(&age) {
-                        add_mood_valence(window, mood);
+                // The calendar-window Balance tallies (this year / month / week): an
+                // entry counts in a window when it shares that period with `today`.
+                // ISO week comparison already carries its own week-year, so it needs
+                // no separate year guard.
+                if date.year() == today.year() {
+                    add_mood_valence(&mut sentiment_windows[0], mood);
+                    if date.month() == today.month() {
+                        add_mood_valence(&mut sentiment_windows[1], mood);
                     }
+                }
+                if date.iso_week() == today.iso_week() {
+                    add_mood_valence(&mut sentiment_windows[2], mood);
                 }
             }
         }
@@ -110,12 +119,22 @@ pub(crate) fn build(
         .collect();
     let (best_period, worst_period) = best_and_worst(&series);
 
+    let by_year: Vec<MoodBucket> = year_acc
+        .into_iter()
+        .map(|(year, (sum, count))| MoodBucket {
+            label: year.to_string(),
+            avg: sum as f32 / count as f32,
+            count,
+        })
+        .collect();
+
     MoodAnalytics {
         best_period,
         worst_period,
         mean: mean(&moods),
         by_weekday: averages(&weekday_acc),
         by_month: averages(&month_acc),
+        by_year,
         feelings: rank_feelings(feelings),
         sentiment,
         sentiment_windows,
@@ -206,21 +225,23 @@ mod tests {
     }
 
     #[test]
-    fn sentiment_windows_track_trailing_days() {
-        // `mood()` anchors today at 2024-12-31. mood>=2 positive, <=-2 negative.
+    fn sentiment_windows_track_calendar_periods() {
+        // Today is Friday 2024-03-15 (ISO week 11). mood>=2 positive, <=-2 negative.
         let entries = [
-            mood_entry("2024-12-30T00:00:00Z", Some(4), &[]), // within week, positive
-            mood_entry("2024-12-10T00:00:00Z", Some(-3), &[]), // within month, not week, negative
-            mood_entry("2024-06-01T00:00:00Z", Some(4), &[]), // within year, not month, positive
-            mood_entry("2020-01-01T00:00:00Z", Some(-3), &[]), // all-time only, negative
+            mood_entry("2024-03-14T00:00:00Z", Some(4), &[]), // this week (Thu), positive
+            mood_entry("2024-03-01T00:00:00Z", Some(-3), &[]), // this month, earlier week, negative
+            mood_entry("2024-01-05T00:00:00Z", Some(4), &[]), // this year, earlier month, positive
+            mood_entry("2023-12-20T00:00:00Z", Some(-3), &[]), // last calendar year, negative
         ];
-        let mood = mood(&entries);
+        let mood = analyze(&refs(&entries), date(2024, 3, 15)).mood;
         // All-time: 2 positive, 2 negative.
         assert_eq!((mood.sentiment.positive, mood.sentiment.negative), (2, 2));
         let [year, month, week] = mood.sentiment_windows;
-        assert_eq!((year.positive, year.negative), (2, 1)); // 2 calm, 1 sad in last 365d
-        assert_eq!((month.positive, month.negative), (1, 1)); // 1 calm, 1 sad in last 30d
-        assert_eq!((week.positive, week.negative), (1, 0)); // 1 calm in last 7d
+        // 2023-12-20 is inside a rolling 365-day window but a *different* calendar
+        // year, so calendar windowing excludes it.
+        assert_eq!((year.positive, year.negative), (2, 1));
+        assert_eq!((month.positive, month.negative), (1, 1));
+        assert_eq!((week.positive, week.negative), (1, 0));
     }
 
     #[test]
@@ -236,6 +257,23 @@ mod tests {
         assert_eq!(mood.by_month[1], Some(2.0));
         assert_eq!(mood.by_month[2], None);
         assert_eq!(mood.by_weekday[0], Some(3.0)); // both Mondays: (4+2)/2
+    }
+
+    #[test]
+    fn by_year_buckets_each_calendar_year() {
+        let entries = [
+            mood_entry("2023-03-01T00:00:00Z", Some(-1), &[]),
+            mood_entry("2023-09-01T00:00:00Z", Some(3), &[]),
+            mood_entry("2024-05-01T00:00:00Z", Some(4), &[]),
+        ];
+        let mood = mood(&entries);
+        let years: Vec<(&str, f32)> = mood
+            .by_year
+            .iter()
+            .map(|bucket| (bucket.label.as_str(), bucket.avg))
+            .collect();
+        assert_eq!(years, vec![("2023", 1.0), ("2024", 4.0)]);
+        assert_eq!(mood.by_year[0].count, 2);
     }
 
     #[test]

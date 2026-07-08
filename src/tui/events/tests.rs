@@ -231,7 +231,7 @@ fn clicking_a_border_tab_focuses_the_panel_and_selects_that_tab() {
     app.nav.focus = Focus::Journals;
 
     // Click the "Drivers" label in the insights panel's top border. At width 160 the
-    // panel is wide enough for full titles; Drivers is the fifth tab, at x≈117.
+    // panel is wide enough for full titles; Drivers is the fourth (last) tab, at x≈117.
     mouse_in_area(&mut app, mouse(down(), 117, 0), 160, 20);
 
     assert_eq!(app.nav.focus, Focus::Insights);
