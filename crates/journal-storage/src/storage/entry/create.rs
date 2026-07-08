@@ -36,6 +36,7 @@ pub fn create_entry(
         None,
         None,
         None,
+        None,
     );
     create_entry_file(codec, root, journal, now, &content, || {
         nanoid!(ENTRY_ID_LEN)
@@ -59,6 +60,7 @@ pub fn create_imported_entry(
     location: Option<&Location>,
     weather: Option<&Weather>,
     celestial: Option<&Celestial>,
+    editing_seconds: Option<u64>,
     import: &ImportSource,
 ) -> AppResult<PathBuf> {
     let content = entry_content(
@@ -70,6 +72,7 @@ pub fn create_imported_entry(
         location,
         weather,
         celestial,
+        editing_seconds,
         Some(import),
     );
     create_entry_file(codec, root, journal, created_at, &content, || {
@@ -87,14 +90,16 @@ fn entry_content(
     location: Option<&Location>,
     weather: Option<&Weather>,
     celestial: Option<&Celestial>,
+    editing_seconds: Option<u64>,
     import: Option<&ImportSource>,
 ) -> String {
     let front_matter = crate::markdown::FrontMatter {
         metadata: metadata.clone(),
-        dates: crate::markdown::Dates {
-            created: Some(created_at.to_rfc3339()),
-            edited: Some(edited_at.to_rfc3339()),
+        datetime: crate::markdown::Datetime {
+            created_at: Some(created_at.to_rfc3339()),
+            edited_at: Some(edited_at.to_rfc3339()),
             timezone: timezone.map(str::to_string),
+            writing_seconds: editing_seconds,
         },
         import: import.cloned(),
         location: location.cloned(),

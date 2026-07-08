@@ -22,7 +22,7 @@ pub use journal_encryption::{
 pub use markdown::{Celestial, Weather, Wind};
 pub use migrate::{DecryptSummary, MigrationSummary};
 pub use storage::{
-    ARCHIVED_SUFFIX, AssetFailure, AssetReport, Journal, entry_group_date, entry_id,
+    ARCHIVED_SUFFIX, AssetFailure, AssetReport, EditOutcome, Journal, entry_group_date, entry_id,
     entry_timestamp_label, is_archived_name, is_entry_file, journal_display_name,
     parse_entry_timestamp, sole_stored_image, stored_image_reference,
 };
@@ -590,6 +590,7 @@ impl JournalStore {
         location: Option<&Location>,
         weather: Option<&Weather>,
         celestial: Option<&Celestial>,
+        editing_seconds: Option<u64>,
         import: &ImportSource,
     ) -> AppResult<PathBuf> {
         storage::create_imported_entry(
@@ -604,8 +605,23 @@ impl JournalStore {
             location,
             weather,
             celestial,
+            editing_seconds,
             import,
         )
+    }
+
+    /// Add `secs` to an entry's accumulated `[datetime].writing_seconds` without
+    /// touching `edited_at`. Used to record editor-open time after a real edit.
+    pub fn add_writing_seconds(&self, path: &Path, secs: u64) -> AppResult<()> {
+        if secs == 0 {
+            return Ok(());
+        }
+        let codec = self.entry_codec();
+        let content = codec.read(path)?;
+        let Some(updated) = markdown::add_writing_seconds(&content, secs) else {
+            return Ok(());
+        };
+        codec.write_existing(path, &updated)
     }
 
     /// Open a new entry in the editor. The callback receives an empty string
@@ -633,7 +649,7 @@ impl JournalStore {
         path: &Path,
         remove_if_empty: bool,
         edit: impl FnOnce(&str) -> AppResult<Option<String>>,
-    ) -> AppResult<bool> {
+    ) -> AppResult<EditOutcome> {
         storage::edit_entry_body(&self.entry_codec(), path, remove_if_empty, edit)
     }
 

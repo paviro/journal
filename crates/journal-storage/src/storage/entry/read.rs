@@ -97,7 +97,7 @@ pub fn read_entry(
     // One TOML parse per entry instead of one per field.
     let FrontMatter {
         mut metadata,
-        dates,
+        datetime,
         import,
         location,
         // Capture-only: preserved on disk, not surfaced on the in-memory entry.
@@ -105,9 +105,10 @@ pub fn read_entry(
         celestial: _,
     } = front_matter.map(front_matter_fields).unwrap_or_default();
     metadata.feelings = normalize_feelings(metadata.feelings.iter().map(String::as_str));
-    let created_at = dates.created.map(Timestamp::parse);
-    // `dates.timezone` is capture-only: preserved on disk, not surfaced here.
-    let edited_at = dates.edited;
+    let created_at = datetime.created_at.map(Timestamp::parse);
+    // `datetime.timezone`/`writing_seconds` are capture-only: preserved on disk,
+    // not surfaced here.
+    let edited_at = datetime.edited_at;
     let id = entry_id(path).context("entry file has no UTF-8 stem")?;
     let preview = display_preview(body);
     let body = body.trim_start_matches('\n').to_string();

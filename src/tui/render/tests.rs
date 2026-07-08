@@ -394,7 +394,7 @@ fn entry_view_wraps_metadata_rows_without_leading_space_or_separator() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\ntags = [\"work\", \"personal\", \"health\"]\nfeelings = [\"calm\", \"focused\", \"tired\"]\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+            "+++\ntags = [\"work\", \"personal\", \"health\"]\nfeelings = [\"calm\", \"focused\", \"tired\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -464,7 +464,7 @@ fn short_entry_view_scrolls_metadata_after_body() {
     fs::write(
             entry_dir.join("a.md"),
             format!(
-                "+++\ntags = [\"tiny-screen\"]\nfeelings = [\"focused\"]\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n{body}\n",
+                "+++\ntags = [\"tiny-screen\"]\nfeelings = [\"focused\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n{body}\n",
             ),
         )
         .unwrap();
@@ -634,9 +634,15 @@ fn feelings_dialog_folds_groups_and_marks_disclosure() {
     // Collapsed group: header keeps its stored casing (no all-caps), carries a
     // trailing ▸ and a selected count, and its feelings are hidden.
     let collapsed = rows.iter().find(|row| row.contains("Peaceful")).unwrap();
-    assert!(!collapsed.contains('['), "header must not render a checkbox");
+    assert!(
+        !collapsed.contains('['),
+        "header must not render a checkbox"
+    );
     assert!(collapsed.contains('▸'), "collapsed header shows ▸");
-    assert!(collapsed.contains("(1)"), "collapsed header shows selected count");
+    assert!(
+        collapsed.contains("(1)"),
+        "collapsed header shows selected count"
+    );
     // "calm" appears in the selected summary; it must NOT appear as a list row.
     assert!(!rows.iter().any(|row| row.contains("[x] calm")));
 
@@ -777,12 +783,12 @@ fn entry_hit_testing_ignores_month_divider_and_maps_boxed_entries() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nFirst preview\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nFirst preview\n",
     )
     .unwrap();
     fs::write(
         entry_dir.join("b.md"),
-        "+++\n[dates]\ncreated = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nSecond preview\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nSecond preview\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -845,7 +851,7 @@ fn first_month_rides_border_and_next_month_takes_over_after_scrolling() {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join(format!("e{index}.md")),
-            format!("+++\n[dates]\ncreated = \"{ts}\"\n+++\n\n# e{index}\nBody text\n"),
+            format!("+++\n[datetime]\ncreated_at = \"{ts}\"\n+++\n\n# e{index}\nBody text\n"),
         )
         .unwrap();
     }
@@ -886,7 +892,7 @@ fn entry_view_renders_feelings_metadata() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\nfeelings = [\"calm\", \"focused\"]\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+            "+++\nfeelings = [\"calm\", \"focused\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -906,7 +912,7 @@ fn entry_view_renders_indented_mermaid_diagram() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n```mermaid\n  graph TD\n      A[Open journal] --> B[Write entry]\n      B --> C{Preview}\n      C -->|looks good| D[Save]\n      C -->|needs work| B\n  ```\n",
+            "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n```mermaid\n  graph TD\n      A[Open journal] --> B[Write entry]\n      B --> C{Preview}\n      C -->|looks good| D[Save]\n      C -->|needs work| B\n  ```\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -929,12 +935,12 @@ fn list_panels_show_counts_in_bottom_titles() {
     fs::create_dir_all(&work_entry_dir).unwrap();
     fs::write(
         work_entry_dir.join("a.md"),
-        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     fs::write(
         work_entry_dir.join("b.md"),
-        "+++\n[dates]\ncreated = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
     )
     .unwrap();
     fs::create_dir_all(root.join("personal")).unwrap();
@@ -1069,7 +1075,7 @@ fn app_with_metadata_entry() -> App {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\ntags = [\"work\"]\nfeelings = [\"calm\"]\npeople = [\"alex\"]\nactivities = [\"running\"]\nmood = 3\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\ntags = [\"work\"]\nfeelings = [\"calm\"]\npeople = [\"alex\"]\nactivities = [\"running\"]\nmood = 3\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -1157,7 +1163,7 @@ fn app_with_drivers() -> App {
         fs::write(
             entry_dir.join("a.md"),
             format!(
-                "+++\n{meta}\nmood = {mood}\n[dates]\ncreated = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# E\nBody\n"
+                "+++\n{meta}\nmood = {mood}\n[datetime]\ncreated_at = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# E\nBody\n"
             ),
         )
         .unwrap();
@@ -1228,7 +1234,7 @@ fn app_with_many_drivers(count: usize) -> App {
         fs::write(
             entry_dir.join("a.md"),
             format!(
-                "+++\n{meta}mood = {mood}\n[dates]\ncreated = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# A\nBody\n"
+                "+++\n{meta}mood = {mood}\n[datetime]\ncreated_at = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# A\nBody\n"
             ),
         )
         .unwrap();

@@ -161,7 +161,7 @@ fn imports_zone_into_offset_and_keeps_iana_name() {
 
     let raw = std::fs::read_to_string(&entry.path).unwrap();
     // Offset folded into the timestamp; IANA name kept alongside for fidelity.
-    assert!(raw.contains("created = \"2021-04-03T08:30:05+02:00\""));
+    assert!(raw.contains("created_at = \"2021-04-03T08:30:05+02:00\""));
     assert!(raw.contains("timezone = \"Europe/Berlin\""));
 }
 
@@ -182,8 +182,42 @@ fn imports_without_zone_fall_back_to_utc_offset() {
 
     let entry = &store.scan_entries().unwrap()[0];
     let raw = std::fs::read_to_string(&entry.path).unwrap();
-    assert!(raw.contains("created = \"2026-07-01T12:30:00+00:00\""));
+    assert!(raw.contains("created_at = \"2026-07-01T12:30:00+00:00\""));
     assert!(!raw.contains("timezone"));
+}
+
+#[test]
+fn imports_editing_time_as_writing_seconds() {
+    let (dir, store) = plaintext_store();
+    let json = r#"{
+        "entries": [
+            {
+                "uuid": "TIMED",
+                "text": "Took a while",
+                "creationDate": "2026-07-01T10:00:00Z",
+                "editingTime": 45.7
+            },
+            {
+                "uuid": "UNTIMED",
+                "text": "No timing",
+                "creationDate": "2026-07-01T11:00:00Z"
+            }
+        ]
+    }"#;
+
+    import_dayone(&store, "diary", &write_export(&dir, json), false).unwrap();
+    let entries = store.scan_entries().unwrap();
+    let raw = |uuid: &str| {
+        let entry = entries
+            .iter()
+            .find(|e| e.import.as_ref() == Some(&dayone(uuid)))
+            .unwrap();
+        std::fs::read_to_string(&entry.path).unwrap()
+    };
+
+    // Fractional seconds truncate to whole seconds.
+    assert!(raw("TIMED").contains("writing_seconds = 45"));
+    assert!(!raw("UNTIMED").contains("writing_seconds"));
 }
 
 #[test]

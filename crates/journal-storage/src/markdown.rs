@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 pub struct FrontMatter {
     #[serde(flatten)]
     pub metadata: Metadata,
-    #[serde(default, skip_serializing_if = "Dates::is_empty")]
-    pub dates: Dates,
+    #[serde(default, skip_serializing_if = "Datetime::is_empty")]
+    pub datetime: Datetime,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import: Option<ImportSource>,
     /// Where the entry was written (Day One import).
@@ -27,22 +27,29 @@ pub struct FrontMatter {
     pub celestial: Option<Celestial>,
 }
 
-/// The `[dates]` table: when an entry was created and last edited, plus the IANA
-/// zone name it was authored in. `timezone` is capture-only — the offset already
-/// lives in `created`, but the zone *name* it can't recover, so we keep it.
+/// The `[datetime]` table: when an entry was created and last edited, the IANA
+/// zone it was authored in, and how long was spent editing it. `timezone` is
+/// capture-only — the offset already lives in `created_at`, but the zone *name* it
+/// can't recover, so we keep it. `writing_seconds` accumulates the editor-open
+/// time across edits (seeded from Day One's `editingTime` on import).
 #[derive(Serialize, Deserialize, Default, Clone)]
-pub struct Dates {
+pub struct Datetime {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created: Option<String>,
+    pub created_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub edited: Option<String>,
+    pub edited_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writing_seconds: Option<u64>,
 }
 
-impl Dates {
+impl Datetime {
     fn is_empty(&self) -> bool {
-        self.created.is_none() && self.edited.is_none() && self.timezone.is_none()
+        self.created_at.is_none()
+            && self.edited_at.is_none()
+            && self.timezone.is_none()
+            && self.writing_seconds.is_none()
     }
 }
 
@@ -222,7 +229,21 @@ pub fn with_metadata_field(content: &str, field: &MetadataField) -> Option<Strin
             MetadataField::Mood(mood) => fm.metadata.mood = *mood,
             MetadataField::Starred(starred) => fm.metadata.starred = *starred,
         }
-        fm.dates.edited = Some(chrono::Local::now().to_rfc3339());
+        fm.datetime.edited_at = Some(chrono::Local::now().to_rfc3339());
+    })
+}
+
+/// Return a copy of `content` with `secs` added to `[datetime].writing_seconds`.
+/// Unlike [`with_metadata_field`], it does **not** refresh `edited_at` — recording
+/// editing time is not itself a content edit. `None` when there is no front matter.
+pub(crate) fn add_writing_seconds(content: &str, secs: u64) -> Option<String> {
+    map_front_matter(content, |fm| {
+        let total = fm
+            .datetime
+            .writing_seconds
+            .unwrap_or(0)
+            .saturating_add(secs);
+        fm.datetime.writing_seconds = Some(total);
     })
 }
 
@@ -347,7 +368,7 @@ mod tests {
 
     #[test]
     fn with_metadata_field_writes_and_clears_mood() {
-        let content = "+++\n[dates]\ncreated = \"x\"\n+++\n\n# Body\n";
+        let content = "+++\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
 
         let with_mood = with_metadata_field(content, &MetadataField::Mood(Some(4))).unwrap();
         assert_eq!(
@@ -368,7 +389,7 @@ mod tests {
 
     #[test]
     fn tables_serialize_after_flattened_scalars_and_round_trip() {
-        // The gate: the `[dates]`, `[import]`, and `[location]` tables must
+        // The gate: the `[datetime]`, `[import]`, and `[location]` tables must
         // serialize *after* the flattened `metadata` scalars (TOML requires
         // tables last) and re-parse. render_entry swallows a serialize failure
         // into empty output, so assert the tables are actually there.
@@ -377,10 +398,10 @@ mod tests {
                 tags: vec!["dream".to_string()],
                 ..Metadata::default()
             },
-            dates: Dates {
-                created: Some("2021-04-03T08:30:05+02:00".to_string()),
+            datetime: Datetime {
+                created_at: Some("2021-04-03T08:30:05+02:00".to_string()),
                 timezone: Some("Europe/Berlin".to_string()),
-                ..Dates::default()
+                ..Datetime::default()
             },
             import: Some(ImportSource {
                 source: "dayone".to_string(),
@@ -399,9 +420,9 @@ mod tests {
         let rendered = render_entry(&fm, "# Body\n");
         assert!(rendered.contains("[location]"), "table missing: {rendered}");
         // The flattened `tags` scalar precedes every table (valid TOML), and the
-        // tables keep struct order: [dates], [import], [location].
+        // tables keep struct order: [datetime], [import], [location].
         let tags_at = rendered.find("tags = ").unwrap();
-        let dates_at = rendered.find("[dates]").unwrap();
+        let dates_at = rendered.find("[datetime]").unwrap();
         let import_at = rendered.find("[import]").unwrap();
         let location_at = rendered.find("[location]").unwrap();
         assert!(tags_at < dates_at);
@@ -415,7 +436,7 @@ mod tests {
         assert_eq!(parsed.metadata.tags, vec!["dream".to_string()]);
         assert_eq!(parsed.import, fm.import);
         assert_eq!(
-            parsed.dates.created.as_deref(),
+            parsed.datetime.created_at.as_deref(),
             Some("2021-04-03T08:30:05+02:00")
         );
     }
@@ -465,7 +486,7 @@ mod tests {
 
     #[test]
     fn timezone_is_preserved_across_metadata_edits() {
-        let content = "+++\n[dates]\ncreated = \"2021-04-03T08:30:05+02:00\"\ntimezone = \"Europe/Berlin\"\n+++\n\n# Body\n";
+        let content = "+++\n[datetime]\ncreated_at = \"2021-04-03T08:30:05+02:00\"\ntimezone = \"Europe/Berlin\"\n+++\n\n# Body\n";
 
         // A metadata edit re-renders the whole front matter; the capture-only
         // timezone must survive untouched, like the import provenance does.
@@ -474,15 +495,43 @@ mod tests {
 
         assert_eq!(
             front_matter_fields(split_front_matter(&updated).0.unwrap())
-                .dates
+                .datetime
                 .timezone,
             Some("Europe/Berlin".to_string())
         );
     }
 
     #[test]
+    fn add_writing_seconds_accumulates_without_touching_edited_at() {
+        let content = "+++\n[datetime]\ncreated_at = \"2021-04-03T08:30:05+02:00\"\nedited_at = \"2021-04-03T08:30:05+02:00\"\n+++\n\n# Body\n";
+
+        let once = add_writing_seconds(content, 60).unwrap();
+        let after_once = front_matter_fields(split_front_matter(&once).0.unwrap());
+        assert_eq!(after_once.datetime.writing_seconds, Some(60));
+        // Recording editing time must not look like a content edit.
+        assert_eq!(
+            after_once.datetime.edited_at.as_deref(),
+            Some("2021-04-03T08:30:05+02:00")
+        );
+
+        // A second session accumulates on top of the first.
+        let twice = add_writing_seconds(&once, 30).unwrap();
+        assert_eq!(
+            front_matter_fields(split_front_matter(&twice).0.unwrap())
+                .datetime
+                .writing_seconds,
+            Some(90)
+        );
+
+        // Omitted from the rendered TOML when never set.
+        let no_field = with_metadata_field(content, &MetadataField::Tags(vec![])).unwrap();
+        assert!(!no_field.contains("writing_seconds"));
+    }
+
+    #[test]
     fn starred_round_trips_and_omits_when_false() {
-        let content = "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
+        let content =
+            "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
 
         let starred = with_metadata_field(content, &MetadataField::Starred(true)).unwrap();
         assert!(starred.contains("starred = true"));
@@ -526,16 +575,16 @@ mod tests {
             Vec::<String>::new()
         );
         assert_eq!(
-            front_matter_fields("[dates]\ncreated = [unterminated")
-                .dates
-                .created,
+            front_matter_fields("[datetime]\ncreated_at = [unterminated")
+                .datetime
+                .created_at,
             None
         );
     }
 
     #[test]
     fn with_metadata_field_replaces_list_without_stale_entries() {
-        let content = "+++\ntags = [\"old\", \"stale\"]\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
+        let content = "+++\ntags = [\"old\", \"stale\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
         let tags = vec!["new".to_string(), "next".to_string()];
 
         let updated = with_metadata_field(content, &MetadataField::Tags(tags)).unwrap();
@@ -553,7 +602,8 @@ mod tests {
 
     #[test]
     fn with_metadata_field_refreshes_edited_at_and_preserves_body() {
-        let content = "+++\ntags = []\n\n[dates]\ncreated = \"old\"\n+++\n\n# Body\n\nTrailing\n";
+        let content =
+            "+++\ntags = []\n\n[datetime]\ncreated_at = \"old\"\n+++\n\n# Body\n\nTrailing\n";
 
         let updated =
             with_metadata_field(content, &MetadataField::Feelings(vec!["calm".to_string()]))
@@ -569,8 +619,8 @@ mod tests {
         );
         assert!(
             front_matter_fields(split_front_matter(&updated).0.unwrap())
-                .dates
-                .edited
+                .datetime
+                .edited_at
                 .is_some()
         );
     }

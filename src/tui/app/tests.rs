@@ -124,7 +124,7 @@ fn selected_entry_view_title_uses_entry_timestamp() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[dates]\ncreated = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
 
@@ -145,7 +145,7 @@ fn search_entry_view_title_uses_entry_timestamp() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[dates]\ncreated = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nneedle\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nneedle\n",
     )
     .unwrap();
 
@@ -356,12 +356,12 @@ fn entry_rows_cache_is_reused_until_inputs_change() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     fs::write(
         entry_dir.join("b.md"),
-        "+++\n[dates]\ncreated = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -388,7 +388,7 @@ fn search_insert_defers_hit_recompute_until_committed() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nneedle\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nneedle\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");
@@ -414,7 +414,7 @@ fn write_entry(dir: &std::path::Path, name: &str, created: &str, body: &str) -> 
     let path = dir.join(name);
     fs::write(
         &path,
-        format!("+++\n[dates]\ncreated = \"{created}\"\n+++\n\n{body}\n"),
+        format!("+++\n[datetime]\ncreated_at = \"{created}\"\n+++\n\n{body}\n"),
     )
     .unwrap();
     path
@@ -592,12 +592,12 @@ fn metadata_partitioned_excludes_archived_and_isolates_archived_only() {
     fs::create_dir_all(&archived_dir).unwrap();
     fs::write(
         active_dir.join("a.md"),
-        "+++\ntags = [\"berlin\", \"shared\"]\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n",
+        "+++\ntags = [\"berlin\", \"shared\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n",
     )
     .unwrap();
     fs::write(
         archived_dir.join("b.md"),
-        "+++\ntags = [\"wanderlust\", \"shared\"]\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# B\n",
+        "+++\ntags = [\"wanderlust\", \"shared\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# B\n",
     )
     .unwrap();
 

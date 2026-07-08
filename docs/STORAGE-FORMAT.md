@@ -38,16 +38,22 @@ lines, a blank line, then the Markdown body.
 
 ```markdown
 +++
-created_at = "2026-07-05T14:30:00+02:00"
-edited_at = "2026-07-05T14:30:00+02:00"
-timezone = "Europe/Berlin"
 tags = ["work", "release"]
 people = ["Alice"]
 activities = ["coding"]
 feelings = ["focused", "proud"]
 mood = 3
 starred = true
-import_id = "dayone:UUID"
+
+[datetime]
+created_at = "2026-07-05T14:30:00+02:00"
+edited_at = "2026-07-05T14:30:00+02:00"
+timezone = "Europe/Berlin"
+writing_seconds = 320
+
+[import]
+source = "dayone"
+id = "UUID"
 
 [location]
 place = "Twin Peaks"
@@ -90,18 +96,19 @@ Markdown content here.
 
 ### Front matter fields
 
+The flattened user metadata comes first (TOML requires scalars before tables),
+then the system/import tables.
+
 | Key            | Type            | Meaning |
 |----------------|-----------------|---------|
-| `created_at`   | RFC 3339 string | When the entry was created. If missing or unparseable, the app falls back to the date in the filename. |
-| `edited_at`    | RFC 3339 string | Last time a human edited the entry (its body or metadata). It is **not** touched by encryption, re-encryption, or asset rewrites — only genuine edits move it. |
-| `timezone`     | string          | IANA zone name where the entry was authored (e.g. `Europe/Berlin`). The wall-clock offset lives in `created_at`; this preserves the zone *name*. Capture-only: recorded on create/import, not surfaced or edited. |
 | `tags`         | array of string | Free-form tags. |
 | `people`       | array of string | Free-form people references. |
 | `activities`   | array of string | Free-form activities. |
 | `feelings`     | array of string | From a fixed vocabulary (below); unknown values are dropped on read. |
 | `mood`         | integer         | Overall mood, clamped to `-5..=5`. Out-of-range or non-integer values are dropped to “no mood” rather than failing the parse. |
 | `starred`      | boolean         | Whether the entry is flagged as a favorite. Omitted when false. |
-| `import_id`    | string          | Provenance of an imported entry, as `source:id` (e.g. `dayone:<UUID>`). Absent for entries created in the app. Used to skip re-importing. |
+| `[datetime]`   | table           | `created_at` (RFC 3339; falls back to the filename date if missing), `edited_at` (RFC 3339; only genuine human edits move it — not encryption or asset rewrites), `timezone` (IANA zone name the entry was authored in, e.g. `Europe/Berlin` — capture-only, complements the offset in `created_at`), and `writing_seconds` (accumulated editor-open time, whole seconds; seeded from Day One's `editingTime` and grown by native edits that change the body). |
+| `[import]`     | table           | Provenance of an imported entry: `source` (e.g. `dayone`) and `id` (the source's identifier). Absent for entries created in the app. Used to skip re-importing. |
 | `[location]`   | table           | Where the entry was written (Day One import): optional `place`, `locality`, `administrative_area`, `country`, `latitude`, `longitude` — only the provided fields are stored. Capture-only: displayed, not edited or searched. |
 | `[weather]`    | table           | Weather at the time of writing (Day One import): optional `condition` (a slug, e.g. `partly-cloudy`), `temperature_celsius`, `feels_like_celsius`, `humidity` (0–1), `pressure_mb`, `visibility_km`, plus a nested `[weather.wind]` with `speed_kph` and `direction` (degrees). Capture-only, stored not surfaced. |
 | `[celestial]`  | table           | Sun/moon at the time of writing (Day One import): optional `moon_phase` (0–1), `moon_phase_name`, `sunrise`, `sunset`. Capture-only. |

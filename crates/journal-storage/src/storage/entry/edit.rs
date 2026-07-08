@@ -43,35 +43,55 @@ pub fn delete_journal(
     Ok(())
 }
 
+/// The result of an edit-via-editor session, so callers can tell a real edit
+/// from a no-op open (e.g. to record editing time only when the body changed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditOutcome {
+    /// The body was changed and written.
+    Changed,
+    /// Kept as-is — the editor failed/cancelled, or was closed without changes.
+    Unchanged,
+    /// The entry was deleted for being emptied.
+    Deleted,
+}
+
+impl EditOutcome {
+    /// Whether the entry still exists after the session.
+    pub fn kept(self) -> bool {
+        !matches!(self, EditOutcome::Deleted)
+    }
+}
+
 /// Read, extract body, call `edit`, then reassemble and write back.
 ///
 /// The callback receives the body text (without front matter) and returns the
-/// new body, or `None` to cancel without making any changes.
-/// Returns `true` if the entry was kept, `false` if it was deleted.
+/// new body, or `None` when the editor cancelled/failed.
 pub fn edit_entry_body(
     codec: &EntryCodec<'_>,
     path: &Path,
     remove_if_empty: bool,
     edit: impl FnOnce(&str) -> AppResult<Option<String>>,
-) -> AppResult<bool> {
+) -> AppResult<EditOutcome> {
     let entry = codec.open(path)?;
 
     let Some(new_body) = edit(&entry.body)? else {
-        return Ok(true);
+        return Ok(EditOutcome::Unchanged);
     };
 
     if remove_if_empty && new_body.trim().is_empty() {
         fs::remove_file(path)?;
         remove_entry_assets(path);
-        return Ok(false);
+        return Ok(EditOutcome::Deleted);
     }
 
-    codec.write_body(
-        path,
-        entry.front_matter.as_deref(),
-        new_body.trim_start_matches('\n'),
-    )?;
-    Ok(true)
+    let new_body = new_body.trim_start_matches('\n');
+    let changed = new_body != entry.body;
+    codec.write_body(path, entry.front_matter.as_deref(), new_body)?;
+    Ok(if changed {
+        EditOutcome::Changed
+    } else {
+        EditOutcome::Unchanged
+    })
 }
 
 pub fn delete_empty_entry(path: &Path) -> AppResult<()> {

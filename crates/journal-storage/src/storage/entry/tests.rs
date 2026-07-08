@@ -77,11 +77,14 @@ fn create_entry_with_body_writes_body_after_front_matter() {
     let (front_matter, body) = crate::markdown::split_front_matter(&text);
     let fields = crate::markdown::front_matter_fields(front_matter.unwrap());
 
-    assert!(fields.dates.created.is_some());
-    assert!(fields.dates.edited.is_some());
+    assert!(fields.datetime.created_at.is_some());
+    assert!(fields.datetime.edited_at.is_some());
     assert!(fields.metadata.tags.is_empty());
     // A native entry captures this machine's IANA zone name, when resolvable.
-    assert_eq!(fields.dates.timezone, iana_time_zone::get_timezone().ok());
+    assert_eq!(
+        fields.datetime.timezone,
+        iana_time_zone::get_timezone().ok()
+    );
     assert_eq!(body.trim_start_matches('\n'), "Some text\n");
 }
 
@@ -104,12 +107,44 @@ fn create_entry_with_body_preserves_multiline_body_and_trailing_newline() {
 }
 
 #[test]
+fn edit_entry_body_reports_changed_unchanged_and_deleted() {
+    let dir = tempdir().unwrap();
+    let codec = EntryCodec::plain();
+    let path = create_entry(
+        &codec,
+        dir.path(),
+        "work",
+        "original body\n",
+        &Metadata::default(),
+    )
+    .unwrap();
+
+    // Saving the same body is not a change.
+    let outcome = edit_entry_body(&codec, &path, true, |body| Ok(Some(body.to_string()))).unwrap();
+    assert_eq!(outcome, EditOutcome::Unchanged);
+
+    // A different body is a change.
+    let outcome =
+        edit_entry_body(&codec, &path, true, |_| Ok(Some("new body\n".to_string()))).unwrap();
+    assert_eq!(outcome, EditOutcome::Changed);
+
+    // A cancelled/failed editor (None) leaves it unchanged.
+    let outcome = edit_entry_body(&codec, &path, true, |_| Ok(None)).unwrap();
+    assert_eq!(outcome, EditOutcome::Unchanged);
+
+    // Emptying it deletes the entry.
+    let outcome = edit_entry_body(&codec, &path, true, |_| Ok(Some("   ".to_string()))).unwrap();
+    assert_eq!(outcome, EditOutcome::Deleted);
+    assert!(!path.exists());
+}
+
+#[test]
 fn entry_id_and_journal_come_from_path_not_front_matter() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("id-from-file.md");
     fs::write(
         &path,
-        "+++\nid = \"wrong\"\njournal = \"wrong\"\n\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
+        "+++\nid = \"wrong\"\njournal = \"wrong\"\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
     )
     .unwrap();
 
@@ -125,7 +160,7 @@ fn entry_preview_collapses_body_with_markdown_stripped() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Hi how is it going?\nThis is a test entry\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Hi how is it going?\nThis is a test entry\n",
     )
     .unwrap();
 
@@ -213,7 +248,7 @@ fn plain_entry_preview_is_the_whole_body() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\nPlain title\nPlain preview\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\nPlain title\nPlain preview\n",
     )
     .unwrap();
 
@@ -229,7 +264,7 @@ fn empty_entry_preview_is_empty_and_label_falls_back_to_timestamp() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\n[dates]\ncreated = \"2026-07-01T10:00:00+02:00\"\n+++\n\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n",
     )
     .unwrap();
 

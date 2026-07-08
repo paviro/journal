@@ -1,9 +1,10 @@
 use crate::{AppResult, editor};
-use journal_storage::MetadataField;
+use journal_storage::{EditOutcome, MetadataField};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     io,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 use super::terminal::suspend_terminal;
@@ -13,13 +14,25 @@ use crate::tui::state::MetadataKind;
 type Term = Terminal<CrosstermBackend<io::Stdout>>;
 
 /// Open the entry at `path` in the editor, transparently handling encrypted
-/// entries (decrypt to a temp file, edit, re-encrypt) and plaintext ones.
-/// Returns `true` if the entry was kept, `false` if it was deleted for being empty.
-fn edit_entry_at(terminal: &mut Term, app: &App, path: &Path, editor_cmd: &str) -> AppResult<bool> {
-    suspend_terminal(terminal, || {
+/// entries (decrypt to a temp file, edit, re-encrypt) and plaintext ones. Records
+/// the editor-open time against the entry when the edit actually changed it.
+/// Returns the [`EditOutcome`].
+fn edit_entry_at(
+    terminal: &mut Term,
+    app: &App,
+    path: &Path,
+    editor_cmd: &str,
+) -> AppResult<EditOutcome> {
+    let start = Instant::now();
+    let outcome = suspend_terminal(terminal, || {
         app.store
             .edit_entry_via_editor(path, true, |body| editor::edit_body(editor_cmd, body))
-    })
+    })?;
+    if outcome == EditOutcome::Changed {
+        app.store
+            .add_writing_seconds(path, start.elapsed().as_secs())?;
+    }
+    Ok(outcome)
 }
 
 pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
@@ -62,6 +75,7 @@ fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<Option<PathBuf>> {
 
     let editor_cmd = app.config.editor.command.clone();
     let journal_name = journal.name;
+    let start = Instant::now();
     let created = suspend_terminal(terminal, || {
         app.store.create_entry_via_editor(
             &journal_name,
@@ -69,6 +83,7 @@ fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<Option<PathBuf>> {
             |body| editor::edit_body(&editor_cmd, body),
         )
     })?;
+    let elapsed = start.elapsed();
     if let Some(path) = &created {
         let report = app.store.process_entry_assets(
             path,
@@ -76,6 +91,8 @@ fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<Option<PathBuf>> {
             false,
         )?;
         app.set_status(save_status("Entry saved", &report));
+        // A new entry always counts as written.
+        app.store.add_writing_seconds(path, elapsed.as_secs())?;
     }
     app.refresh()?;
     Ok(created)
@@ -127,8 +144,8 @@ pub(super) fn edit_selected(terminal: &mut Term, app: &mut App) -> AppResult<()>
     }
 
     let editor = app.config.editor.command.clone();
-    let kept = edit_entry_at(terminal, app, &target.path, &editor)?;
-    if kept {
+    let outcome = edit_entry_at(terminal, app, &target.path, &editor)?;
+    if outcome.kept() {
         let report = app.store.process_entry_assets(
             &target.path,
             app.config.attachments.download_remote_images,

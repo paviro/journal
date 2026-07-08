@@ -93,7 +93,7 @@ fn expanded_entry_title_matches_entry_view_timestamp_title() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[dates]\ncreated = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf(), "true");

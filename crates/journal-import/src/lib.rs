@@ -210,6 +210,8 @@ pub fn import_dayone(
             .as_ref()
             .map(map_celestial)
             .filter(|c| !c.is_empty());
+        // Day One records fractional seconds; whole seconds are plenty.
+        let editing_seconds = entry.editing_time.map(|secs| secs as u64);
 
         let path = store.create_imported_entry(
             journal,
@@ -221,6 +223,7 @@ pub fn import_dayone(
             location.as_ref(),
             weather.as_ref(),
             celestial.as_ref(),
+            editing_seconds,
             &import,
         )?;
         // Replace un-fetchable images with a placeholder only when we actually

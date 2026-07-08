@@ -12,7 +12,7 @@ pub use entry::entry_id;
 pub use entry::is_entry_file;
 pub use entry::sole_stored_image;
 pub use entry::stored_image_reference;
-pub use entry::{AssetFailure, AssetReport};
+pub use entry::{AssetFailure, AssetReport, EditOutcome};
 pub(crate) use entry::{
     EntryCodec, collect_entry_paths, create_entry, create_imported_entry, delete_empty_entry,
     delete_journal, edit_entry_body, ingest_and_cleanup_opts, is_encrypted_entry_file,

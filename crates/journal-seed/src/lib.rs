@@ -126,6 +126,7 @@ pub fn generate(store: &JournalStore, config: &GenConfig) -> AppResult<usize> {
             None,
             None,
             None,
+            None,
             &import,
         )?;
     }
