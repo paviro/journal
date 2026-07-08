@@ -1,5 +1,5 @@
 use crate::AppResult;
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{Event, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use std::io;
 
@@ -65,6 +65,47 @@ pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect)
     }
 
     Ok(())
+}
+
+/// True for the two wheel event kinds.
+pub(crate) fn is_wheel(kind: MouseEventKind) -> bool {
+    matches!(kind, MouseEventKind::ScrollUp | MouseEventKind::ScrollDown)
+}
+
+/// One line per notch: up scrolls toward the top (negative), down toward the
+/// bottom (positive). Non-wheel kinds contribute nothing.
+fn wheel_delta(kind: MouseEventKind) -> i16 {
+    match kind {
+        MouseEventKind::ScrollUp => -1,
+        MouseEventKind::ScrollDown => 1,
+        _ => 0,
+    }
+}
+
+/// Sum the deltas of the leading run of wheel events, returning the net movement
+/// and how many events were consumed. Stops at the first non-wheel event so its
+/// handling isn't skipped. Used to collapse a macOS smooth-scroll burst into one
+/// applied step.
+pub(crate) fn fold_leading_wheel(events: &[Event]) -> (i16, usize) {
+    let mut net = 0;
+    let mut count = 0;
+    for event in events {
+        match event {
+            Event::Mouse(m) if is_wheel(m.kind) => {
+                net += wheel_delta(m.kind);
+                count += 1;
+            }
+            _ => break,
+        }
+    }
+    (net, count)
+}
+
+/// Apply a coalesced wheel delta at `mouse`'s position. Mirrors the non-overlay
+/// wheel path of `handle_mouse_in_area`; the caller guarantees no overlay is open.
+pub(crate) fn handle_scroll(app: &mut App, mouse: MouseEvent, area: Rect, net_delta: i16) {
+    let layout = render::tui_layout(area, app);
+    handle_wheel(app, mouse, layout, net_delta);
 }
 
 /// A pane's scrollbar geometry, resolved from the live layout and caches so both a

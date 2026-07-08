@@ -23,6 +23,7 @@ use crossterm::{
 };
 use journal_storage::{JournalStore, SecretString, StoreAccess};
 use ratatui::{Frame, Terminal, backend::CrosstermBackend};
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::{
     io::{self, Write},
@@ -343,6 +344,9 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
     // accumulated changed paths let the reload touch only affected entries.
     let mut pending_refresh_at: Option<Instant> = None;
     let mut pending_paths: Vec<PathBuf> = Vec::new();
+    // Events drained while coalescing a scroll burst that weren't wheel events;
+    // handled on the next iterations before polling for more input.
+    let mut pending_events: VecDeque<Event> = VecDeque::new();
 
     loop {
         // A newly finished image build makes the frame stale; repaint below.
@@ -374,7 +378,9 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
             poll_timeout = poll_timeout.min(at.saturating_duration_since(Instant::now()));
         }
 
-        let event = if event::poll(poll_timeout)? {
+        let event = if let Some(ev) = pending_events.pop_front() {
+            Some(ev)
+        } else if event::poll(poll_timeout)? {
             Some(event::read()?)
         } else {
             None
@@ -389,6 +395,29 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
                 if events::handle_key(terminal, &mut app, key)? {
                     break;
                 }
+                true
+            }
+            Some(Event::Mouse(mouse)) if events::is_wheel(mouse.kind) && !app.has_overlay() => {
+                // Coalesce a macOS smooth-scroll burst into one applied step and
+                // one repaint: drain everything already queued, sum the net
+                // wheel movement, and apply it once. A reverse flick cancels the
+                // queued momentum instead of the app crawling back through the
+                // whole tail one repaint at a time.
+                let mut batch = vec![Event::Mouse(mouse)];
+                while event::poll(Duration::ZERO)? {
+                    batch.push(event::read()?);
+                }
+                let (net, consumed) = events::fold_leading_wheel(&batch);
+                // Non-wheel events after the run are handled on later iterations.
+                for ev in batch.split_off(consumed).into_iter().rev() {
+                    pending_events.push_front(ev);
+                }
+                let last = match batch.last() {
+                    Some(Event::Mouse(m)) => *m,
+                    _ => mouse,
+                };
+                let area = events::terminal_area(terminal)?;
+                events::handle_scroll(&mut app, last, area, net);
                 true
             }
             Some(Event::Mouse(mouse)) => {

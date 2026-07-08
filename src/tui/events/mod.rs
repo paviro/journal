@@ -25,7 +25,7 @@ use actions::{
 use keyboard::{keep_selection_visible, move_focus_left, move_focus_right};
 
 pub(crate) use keyboard::handle_key;
-pub(crate) use mouse::handle_mouse;
+pub(crate) use mouse::{fold_leading_wheel, handle_mouse, handle_scroll, is_wheel};
 
 pub(crate) fn dispatch_action(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -393,7 +393,7 @@ fn confirm_delete(app: &mut App) -> AppResult<()> {
     app.refresh()
 }
 
-pub(super) fn terminal_area(
+pub(crate) fn terminal_area(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> AppResult<Rect> {
     let size = terminal.size()?;

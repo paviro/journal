@@ -10,7 +10,9 @@ use crate::{
         test_support::{app_with_entries, app_with_journals, new_app},
     },
 };
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use journal_storage::JournalStore;
 use ratatui::layout::Rect;
 use std::fs;
@@ -1048,4 +1050,38 @@ fn scrollbar_track_press_scrolls_journals() {
     );
     assert_eq!(app.scrollbar.active, Some(ScrollbarDrag::Journals));
     assert!(app.nav.journal_list.offset() > 0);
+}
+
+// ── Scroll-burst coalescing ────────────────────────────────────────────────
+
+fn wheel_event(kind: MouseEventKind) -> Event {
+    Event::Mouse(mouse(kind, 0, 0))
+}
+
+#[test]
+fn fold_leading_wheel_nets_opposing_scrolls() {
+    let up = wheel_event(MouseEventKind::ScrollUp);
+    let down = wheel_event(MouseEventKind::ScrollDown);
+    // Five up + two down → net -3, all seven consumed.
+    let events = vec![up.clone(), up.clone(), up.clone(), up.clone(), up, down.clone(), down];
+    assert_eq!(fold_leading_wheel(&events), (-3, 7));
+}
+
+#[test]
+fn fold_leading_wheel_stops_at_first_non_wheel() {
+    let down = wheel_event(MouseEventKind::ScrollDown);
+    let key = Event::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::empty()));
+    // Only the leading wheel run is folded; the key stays for later handling.
+    let events = vec![down.clone(), down, key, wheel_event(MouseEventKind::ScrollUp)];
+    assert_eq!(fold_leading_wheel(&events), (2, 2));
+}
+
+#[test]
+fn fold_leading_wheel_edge_cases() {
+    assert_eq!(fold_leading_wheel(&[]), (0, 0));
+    let single = vec![wheel_event(MouseEventKind::ScrollUp)];
+    assert_eq!(fold_leading_wheel(&single), (-1, 1));
+    // A leading non-wheel event consumes nothing.
+    let click = vec![Event::Mouse(mouse(down(), 0, 0))];
+    assert_eq!(fold_leading_wheel(&click), (0, 0));
 }
