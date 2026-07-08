@@ -118,6 +118,12 @@ impl Theme {
         Style::default().add_modifier(Modifier::DIM)
     }
 
+    /// The border of the focused panel, paired with its thick border type so focus
+    /// reads without colour.
+    pub(crate) fn focus_border(self) -> Style {
+        Style::default().add_modifier(Modifier::BOLD)
+    }
+
     /// The inter-row grid lines of a table, drawn fainter than the outer borders
     /// and header rule so the rows separate without the grid competing with the
     /// data. Colour uses a dim grey; monochrome falls back to plain [`Self::muted`]

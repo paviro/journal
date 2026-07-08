@@ -73,7 +73,7 @@ pub fn analyze(entries: &[&Entry], today: NaiveDate) -> Analytics {
     // histogram and the mood series always agree on year-vs-month buckets.
     let by_year = multi_year(dates.iter().flatten().map(|date| date.year()));
 
-    let correlations = correlations::build(entries);
+    let correlations = correlations::build_correlations(entries);
     let lifts_person = pick_extreme(correlations.people.iter(), today, true);
     let lifts_thing = pick_extreme(
         correlations.activities.iter().chain(&correlations.tags),

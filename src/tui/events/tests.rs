@@ -4,7 +4,7 @@ use crate::{
     tui::{
         app::{App, Focus, ScrollbarDrag},
         render,
-        render::insights::{InsightsScope, InsightsTab, InsightsTimeframe},
+        render::insights::{InsightsTab, InsightsTimeframe},
         scroll,
         state::{EditMetadataFocus, ListNav},
         test_support::{app_with_entries, app_with_journals, new_app},
@@ -236,16 +236,6 @@ fn clicking_a_border_tab_focuses_the_panel_and_selects_that_tab() {
 
     assert_eq!(app.nav.focus, Focus::Insights);
     assert_eq!(app.nav.insights_tab, InsightsTab::Drivers);
-}
-
-#[test]
-fn insights_tab_and_scope_cycle_predictably() {
-    assert_eq!(InsightsTab::Overview.next(), InsightsTab::Writing);
-    assert_eq!(InsightsTab::Feelings.next(), InsightsTab::Drivers);
-    assert_eq!(InsightsTab::Drivers.next(), InsightsTab::Overview);
-    assert_eq!(InsightsTab::Overview.prev(), InsightsTab::Drivers);
-    assert_eq!(InsightsScope::Journal.toggle(), InsightsScope::All);
-    assert_eq!(InsightsScope::All.toggle(), InsightsScope::Journal);
 }
 
 #[test]

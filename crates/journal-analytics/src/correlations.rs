@@ -52,10 +52,6 @@ struct Acc {
 /// relative to *this slice's* mean mood, so a windowed slice (e.g. the last 30
 /// days) yields deltas against that window's baseline rather than all-time.
 pub fn build_correlations(entries: &[&Entry]) -> Correlations {
-    build(entries)
-}
-
-pub(crate) fn build(entries: &[&Entry]) -> Correlations {
     let mut people: HashMap<String, Acc> = HashMap::new();
     let mut activities: HashMap<String, Acc> = HashMap::new();
     let mut tags: HashMap<String, Acc> = HashMap::new();

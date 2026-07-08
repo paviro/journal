@@ -22,7 +22,6 @@ use std::ops::Range;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders},
 };
@@ -50,7 +49,7 @@ pub(crate) fn draw_journal_insights(frame: &mut Frame<'_>, area: Rect, app: &mut
     if focused {
         block = block
             .border_type(BorderType::Thick)
-            .border_style(Style::default().add_modifier(Modifier::BOLD));
+            .border_style(theme().focus_border());
     }
     if tab != InsightsTab::Overview {
         block = block.title_bottom(
