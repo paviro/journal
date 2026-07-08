@@ -1,0 +1,108 @@
+//! Background weather lookups over the shared [`Worker`], fired when an entry's
+//! location is set or changed. Each request carries the target entry's path so
+//! the reply is persisted to the right file regardless of what's selected by the
+//! time it lands, and a per-path id so a rapid re-request supersedes an earlier
+//! one and stale replies are dropped.
+
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
+use chrono::{DateTime, FixedOffset};
+use journal_storage::{Weather, fetch_weather};
+
+use crate::tui::worker::Worker;
+
+/// A weather lookup for one entry, tagged with the id the worker assigned.
+pub(crate) struct WeatherRequest {
+    id: u64,
+    path: PathBuf,
+    lat: f64,
+    lon: f64,
+    datetime: DateTime<FixedOffset>,
+}
+
+/// A finished lookup. `weather` is `Ok(None)` when Open-Meteo had no sample, or
+/// `Err` on a network failure — both are dropped when draining.
+struct WeatherResult {
+    id: u64,
+    path: PathBuf,
+    weather: Result<Option<Weather>, String>,
+}
+
+/// Background weather worker, plus the per-path supersede bookkeeping: `next_id`
+/// hands out request ids and `latest` records the most recent id dispatched for
+/// each entry, so a reply is kept only if it's still the newest for its path.
+#[derive(Default)]
+pub(crate) struct WeatherWorker {
+    worker: Worker<WeatherRequest, WeatherResult>,
+    next_id: u64,
+    latest: HashMap<PathBuf, u64>,
+}
+
+impl WeatherWorker {
+    /// Dispatch a lookup for `path`, superseding any earlier one for it.
+    pub(crate) fn request(
+        &mut self,
+        path: PathBuf,
+        lat: f64,
+        lon: f64,
+        datetime: DateTime<FixedOffset>,
+    ) {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.latest.insert(path.clone(), id);
+        self.worker.request(
+            WeatherRequest {
+                id,
+                path,
+                lat,
+                lon,
+                datetime,
+            },
+            resolve,
+        );
+    }
+
+    /// Forget any in-flight lookup for `path` so its eventual reply is dropped —
+    /// used when the entry's location is cleared.
+    pub(crate) fn forget(&mut self, path: &Path) {
+        self.latest.remove(path);
+    }
+
+    /// Drain finished lookups, yielding `(path, weather)` only for replies that
+    /// are still the newest for their entry and actually carry weather.
+    pub(crate) fn drain(&mut self) -> Vec<(PathBuf, Weather)> {
+        self.worker
+            .drain()
+            .into_iter()
+            .filter_map(|result| {
+                if self.latest.get(&result.path) != Some(&result.id) {
+                    return None;
+                }
+                self.latest.remove(&result.path);
+                match result.weather {
+                    Ok(Some(weather)) => Some((result.path, weather)),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    /// Whether a lookup is still outstanding.
+    pub(crate) fn has_pending(&self) -> bool {
+        self.worker.has_pending()
+    }
+}
+
+/// Resolve one weather request. Runs on the worker thread.
+fn resolve(request: WeatherRequest) -> WeatherResult {
+    let weather =
+        fetch_weather(request.lat, request.lon, request.datetime).map_err(|error| error.to_string());
+    WeatherResult {
+        id: request.id,
+        path: request.path,
+        weather,
+    }
+}

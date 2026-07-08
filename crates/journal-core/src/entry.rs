@@ -174,6 +174,80 @@ impl Location {
     }
 }
 
+/// The `[weather]` table. `condition` is a condition slug (e.g.
+/// `"partly-cloudy"`). `source` names the provider the data came from, kept for
+/// attribution. Every field is optional — only what the source provided is
+/// stored. First captured on Day One import; now also fetched from Open-Meteo
+/// after a location is set.
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
+pub struct Weather {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature_celsius: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feels_like_celsius: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub humidity: Option<f64>,
+    /// The dew point — the temperature at which the air would saturate; a truer
+    /// "mugginess" signal than relative humidity alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dew_point_celsius: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pressure_mb: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visibility_km: Option<f64>,
+    /// Total sky cloudiness, as a 0–1 fraction (like `humidity`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_cover: Option<f64>,
+    /// Precipitation total for the hour, in millimetres (rain plus melted snow).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub precipitation_mm: Option<f64>,
+    /// The sustained wind speed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wind_speed_kph: Option<f64>,
+    /// The peak momentary gust (always ≥ `wind_speed_kph`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wind_gust_kph: Option<f64>,
+    /// The direction the wind blows *from*, as a compass bearing in degrees.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wind_direction: Option<f64>,
+    /// The weather data provider/service, stored verbatim for attribution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+/// The `[celestial]` table: sun/moon at the time of writing. `moon_phase` is the
+/// 0–1 cycle fraction; `moon_phase_name` its named phase; `sunrise`/`sunset` are
+/// RFC3339 timestamps. First captured on Day One import; now also computed
+/// locally from the location's coordinates and date.
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
+pub struct Celestial {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moon_phase: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moon_phase_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sunrise: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sunset: Option<String>,
+}
+
+impl Weather {
+    /// Whether no field carries data — every field is `Option`, so an all-`None`
+    /// value equals the default.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl Celestial {
+    /// Whether no field carries data (see [`Weather::is_empty`]).
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// Read `mood` as an integer and clamp it to [`MOOD_RANGE`], dropping
 /// out-of-range values to `None` without failing the whole parse.
 fn deserialize_mood<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<i8>, D::Error> {
@@ -303,6 +377,12 @@ pub enum MetadataField {
     /// this lives outside [`Metadata`] on [`Entry::location`]. Boxed because
     /// `Location` is far larger than the other variants.
     Location(Option<Box<Location>>),
+    /// The whole `[weather]` table. `None` clears it. Written independently of
+    /// `[celestial]` so the network-fetched weather and the locally-computed
+    /// celestial data land as separate writes. Boxed to keep the enum small.
+    Weather(Option<Box<Weather>>),
+    /// The whole `[celestial]` table. `None` clears it. Boxed to match `Weather`.
+    Celestial(Option<Box<Celestial>>),
 }
 
 pub struct EntryPath {

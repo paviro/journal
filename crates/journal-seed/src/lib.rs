@@ -88,7 +88,12 @@ const ACTIVITIES: &[&str] = &[
     "gaming",
 ];
 
-const POSITIVE_TITLES: &[&str] = &["Small wins", "A good conversation", "Deep work", "Morning pages"];
+const POSITIVE_TITLES: &[&str] = &[
+    "Small wins",
+    "A good conversation",
+    "Deep work",
+    "Morning pages",
+];
 const NEUTRAL_TITLES: &[&str] = &["A quiet day", "Notes to self", "Weekend recap"];
 const NEGATIVE_TITLES: &[&str] = &["Late night thoughts", "Rainy afternoon", "On the road"];
 
@@ -531,7 +536,10 @@ mod tests {
         let values: Vec<f32> = (0..=100).map(|i| curve.value(i as f32 / 100.0)).collect();
         let max = values.iter().copied().fold(f32::MIN, f32::max);
         let min = values.iter().copied().fold(f32::MAX, f32::min);
-        assert!(max - min > 1.5, "baseline should vary over time: {min}..{max}");
+        assert!(
+            max - min > 1.5,
+            "baseline should vary over time: {min}..{max}"
+        );
     }
 
     #[test]
@@ -550,6 +558,9 @@ mod tests {
         }
         assert!(total > 0);
         let ratio = on_valence as f32 / total as f32;
-        assert!(ratio > 0.8, "expected mostly positive feelings, got {ratio}");
+        assert!(
+            ratio > 0.8,
+            "expected mostly positive feelings, got {ratio}"
+        );
     }
 }

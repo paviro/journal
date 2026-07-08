@@ -73,12 +73,15 @@ condition = "partly-cloudy"
 temperature_celsius = 19.9
 feels_like_celsius = 19.5
 humidity = 0.62
+dew_point_celsius = 12.4
 pressure_mb = 1013.2
 visibility_km = 12.5
-
-[weather.wind]
-speed_kph = 12.0
-direction = 210.0
+cloud_cover = 0.4
+precipitation_mm = 0.0
+wind_speed_kph = 12.0
+wind_gust_kph = 28.0
+wind_direction = 210.0
+source = "Open-Meteo"
 
 [celestial]
 moon_phase = 0.5
@@ -115,8 +118,8 @@ then the system/import tables.
 | `[datetime]`   | table           | `created_at` (RFC 3339; falls back to the filename date if missing), `edited_at` (RFC 3339; only genuine human edits move it — not encryption or asset rewrites), `timezone` (IANA zone name the entry was authored in, e.g. `Europe/Berlin` — capture-only, complements the offset in `created_at`), and `writing_seconds` (accumulated editor-open time, whole seconds; seeded from Day One's `editingTime` and grown by native edits that change the body). |
 | `[import]`     | table           | Provenance of an imported entry: `source` (e.g. `dayone`) and `id` (the source's identifier). Absent for entries created in the app. Used to skip re-importing. |
 | `[location]`   | table           | Where the entry was written. Fields are OpenStreetMap / Nominatim address keys, stored one-to-one — optional `name` (a place/venue label), `house_number`, `road`, `neighbourhood`, `quarter`, `suburb`, `borough`, `city_district`, `city`, `town`, `village`, `municipality`, `hamlet`, `postcode`, `county`, `state_district`, `province`, `region`, `state`, `country`, `latitude`, `longitude`. Only the keys a geocode returns are stored (the rest omitted). Set in the app via the location dialog (name a place, or enter an address/coordinates geocoded through Nominatim); Day One import maps its coarse placemark onto `name`/`city`/`state`/`country`. Displayed but not searched. |
-| `[weather]`    | table           | Weather at the time of writing (Day One import): optional `condition` (a slug, e.g. `partly-cloudy`), `temperature_celsius`, `feels_like_celsius`, `humidity` (0–1), `pressure_mb`, `visibility_km`, plus a nested `[weather.wind]` with `speed_kph` and `direction` (degrees). Capture-only, stored not surfaced. |
-| `[celestial]`  | table           | Sun/moon at the time of writing (Day One import): optional `moon_phase` (0–1), `moon_phase_name`, `sunrise`, `sunset`. Capture-only. |
+| `[weather]`    | table           | Weather at the time of writing — fetched from Open-Meteo when a location is set, or captured on Day One import. All optional: `condition` (a slug, e.g. `partly-cloudy`), `temperature_celsius`, `feels_like_celsius`, `humidity` (0–1), `dew_point_celsius`, `pressure_mb`, `visibility_km`, `cloud_cover` (0–1), `precipitation_mm`, `wind_speed_kph`, `wind_gust_kph`, `wind_direction` (degrees), and `source` (provider, for attribution). Capture-only, stored not surfaced. |
+| `[celestial]`  | table           | Sun/moon at the time of writing — computed locally when a location is set, or captured on Day One import. All optional: `moon_phase` (0–1), `moon_phase_name`, `sunrise`, `sunset`. Capture-only. |
 
 All list fields are plural; timestamps are RFC 3339 with an offset. There is no
 schema-version field — the format evolves by adding optional fields, and readers

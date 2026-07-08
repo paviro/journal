@@ -141,7 +141,7 @@ impl App {
             };
             GeocodeRequest { id, query }
         };
-        self.geocode.request(dispatch);
+        self.geocode.request(dispatch, crate::tui::geocode::resolve);
     }
 
     /// Fold any finished geocode replies into the open dialog, ignoring stale ones

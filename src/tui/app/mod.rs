@@ -373,6 +373,9 @@ pub(crate) struct App {
     pub(crate) image: ImageState,
     /// Background geocoding for the location dialog; spawned on first lookup.
     pub(crate) geocode: crate::tui::geocode::GeocodeWorker,
+    /// Background weather lookups, fired when an entry's location is set/changed;
+    /// spawned on first request.
+    pub(crate) weather: crate::tui::weather::WeatherWorker,
     /// Clickable `[Image N …]` label positions from the last entry-view render.
     pub(crate) entry_view_image_hits: EntryViewImageHits,
     /// The insights list scrollbar geometry from the last render, so a mouse drag
@@ -451,6 +454,7 @@ impl App {
             status_bar: StatusBar::default(),
             image: ImageState::default(),
             geocode: crate::tui::geocode::GeocodeWorker::default(),
+            weather: crate::tui::weather::WeatherWorker::default(),
             entry_view_image_hits: EntryViewImageHits::default(),
             insights_scroll: InsightsScrollGeometry::default(),
             scrollbar: ScrollbarDragState::default(),
@@ -836,6 +840,7 @@ mod metadata;
 mod overlays;
 mod search;
 mod selection;
+mod weather;
 
 #[cfg(test)]
 mod tests;

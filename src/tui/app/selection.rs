@@ -178,7 +178,7 @@ impl App {
 
     /// The entry backing the current selection, resolving a search hit through
     /// the id index. Unifies the Search/Browse branches the preview getters share.
-    pub(super) fn resolved_selected_entry(&self) -> Option<&Entry> {
+    pub(crate) fn resolved_selected_entry(&self) -> Option<&Entry> {
         match self.nav.mode {
             Mode::Search => self.library.entry_by_id(&self.selected_search_hit()?.id),
             Mode::Browse => self.selected_entry(),

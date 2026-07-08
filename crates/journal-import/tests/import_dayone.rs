@@ -343,19 +343,19 @@ fn imports_weather_and_celestial_tables() {
     assert!(full.contains("source = \"TestWeather\""));
     assert!(full.contains("temperature_celsius = 19.9"));
     assert!(full.contains("feels_like_celsius = 19.5"));
-    assert!(full.contains("[weather.wind]"));
-    assert!(full.contains("speed_kph = 12.0"));
-    assert!(full.contains("direction = 210"));
+    // Wind is flat on `[weather]`, not a sub-table.
+    assert!(full.contains("wind_speed_kph = 12.0"));
+    assert!(full.contains("wind_direction = 210"));
     assert!(full.contains("[celestial]"));
     assert!(full.contains("moon_phase = 0.5"));
     assert!(full.contains("moon_phase_name = \"full\""));
     assert!(full.contains("sunrise = \"2021-04-03T04:45:39Z\""));
 
-    // Partial: just the two scalars, no sub-table and no celestial.
+    // Partial: just the two scalars, no wind and no celestial.
     let partial = raw("PARTIAL");
     assert!(partial.contains("condition = \"clear\""));
     assert!(partial.contains("temperature_celsius = 25.0"));
-    assert!(!partial.contains("[weather.wind]"));
+    assert!(!partial.contains("wind_speed_kph"));
     assert!(!partial.contains("[celestial]"));
 
     // No weather object → none of the tables.

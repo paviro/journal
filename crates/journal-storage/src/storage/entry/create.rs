@@ -2,10 +2,9 @@ use super::Metadata;
 use super::codec::EntryCodec;
 use super::paths::{ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_path_with_id};
 use crate::AppResult;
-use crate::markdown::{Celestial, Weather};
 use anyhow::bail;
 use chrono::{DateTime, FixedOffset, Local};
-use journal_core::{ImportSource, Location};
+use journal_core::{Celestial, ImportSource, Location, Weather};
 use nanoid::nanoid;
 use std::{
     fs::{self, OpenOptions},

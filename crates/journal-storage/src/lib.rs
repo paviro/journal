@@ -4,30 +4,35 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod celestial;
 mod error;
 mod geocode;
+mod http;
 pub(crate) mod markdown;
 mod migrate;
 mod storage;
+mod weather;
 
 use journal_encryption as crypto;
 
+pub use celestial::compute_celestial;
 pub use error::StorageError;
 pub use geocode::{GeocodeHit, geocode, reverse_geocode};
 pub use journal_core::{
     AppResult, Entry, EntryEncryptionState, EntryPath, ImportSource, Location, MOOD_RANGE,
     Metadata, MetadataField, SearchHit, SearchScope, Timestamp, search_loaded_entries,
 };
+pub use journal_core::{Celestial, Weather};
 pub use journal_encryption::{
     DeviceIdentityInfo, EncryptionError, ExposeSecret, PendingRequest, Recipient, SecretString,
 };
-pub use markdown::{Celestial, Weather, Wind};
 pub use migrate::{DecryptSummary, MigrationSummary};
 pub use storage::{
     ARCHIVED_SUFFIX, AssetFailure, AssetReport, EditOutcome, Journal, entry_group_date, entry_id,
     entry_timestamp_label, is_archived_name, is_entry_file, journal_display_name,
     parse_entry_timestamp, sole_stored_image, stored_image_reference,
 };
+pub use weather::fetch_weather;
 
 /// Decode image bytes to a displayable sRGB image with EXIF orientation baked
 /// into the pixels. Both normalizations matter for terminal rendering:
@@ -681,6 +686,19 @@ impl JournalStore {
 
     pub fn delete_empty_entry(&self, path: &Path) -> AppResult<()> {
         storage::delete_empty_entry(path)
+    }
+
+    /// Whether the entry at `path` already has a `[weather]` table. Lets the
+    /// editor-save trigger fetch weather only when it's missing, so imported
+    /// (e.g. Day One) weather is never clobbered. Reads and decrypts the file.
+    pub fn entry_has_weather(&self, path: &Path) -> AppResult<bool> {
+        let codec = self.entry_codec();
+        let content = codec.read(path)?;
+        let (front_matter, _) = markdown::split_front_matter(&content);
+        Ok(front_matter
+            .map(markdown::front_matter_fields)
+            .and_then(|fm| fm.weather)
+            .is_some())
     }
 
     /// Replace one metadata field of an entry's front matter (and refresh

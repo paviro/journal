@@ -7,22 +7,16 @@
 //! user action, never per keystroke.
 
 use crate::AppResult;
+use crate::http::get;
 use journal_core::Location;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
     sync::{Mutex, OnceLock},
-    time::Duration,
 };
 
 const ENDPOINT_SEARCH: &str = "https://nominatim.openstreetmap.org/search";
 const ENDPOINT_REVERSE: &str = "https://nominatim.openstreetmap.org/reverse";
-const TIMEOUT: Duration = Duration::from_secs(10);
-/// Upper bound on a response body (bytes) — geocoding JSON is tiny.
-const MAX_BODY_BYTES: u64 = 2 * 1024 * 1024;
-/// Identifies the application to Nominatim, as its policy requires (a stock HTTP
-/// library User-Agent is explicitly rejected).
-const USER_AGENT: &str = concat!("journal-tui/", env!("CARGO_PKG_VERSION"));
 
 /// One resolved place: coordinates plus a coarse-to-fine name hierarchy, and the
 /// full human-readable name Nominatim returns for disambiguation in a list.
@@ -66,22 +60,6 @@ pub fn reverse_geocode(lat: f64, lon: f64) -> AppResult<Option<GeocodeHit>> {
         .unwrap()
         .insert(key, hit.clone().into_iter().collect());
     Ok(hit)
-}
-
-fn get(url: &str) -> AppResult<String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(TIMEOUT))
-        .build()
-        .into();
-    let body = agent
-        .get(url)
-        .header("User-Agent", USER_AGENT)
-        .call()?
-        .body_mut()
-        .with_config()
-        .limit(MAX_BODY_BYTES)
-        .read_to_string()?;
-    Ok(body)
 }
 
 /// Per-process geocode cache. Forward lookups key on the lowercased query,

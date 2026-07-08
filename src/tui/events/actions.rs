@@ -156,6 +156,21 @@ pub(super) fn edit_selected(terminal: &mut Term, app: &mut App) -> AppResult<()>
         app.set_status("Empty entry deleted");
     }
     app.refresh()?;
+
+    // After a real edit, back-fill weather for an entry that has coordinates but
+    // no weather yet — never clobbering weather already captured (e.g. imported).
+    if outcome == EditOutcome::Changed {
+        let entry_info = app.resolved_selected_entry().and_then(|entry| {
+            (entry.path == target.path).then(|| (entry.location.clone(), entry.created_time()))
+        });
+        if let Some((Some(location), Some(datetime))) = entry_info
+            && location.latitude.is_some()
+            && location.longitude.is_some()
+            && !app.store.entry_has_weather(&target.path).unwrap_or(true)
+        {
+            app.capture_weather_for_entry(&target.path, &location, datetime);
+        }
+    }
     Ok(())
 }
 
@@ -309,11 +324,26 @@ pub(super) fn set_location_on_entry(app: &mut App, location: Option<Location>) -
         return Ok(());
     }
 
+    // Capture the date before the write so weather can be looked up for it.
+    let datetime = app
+        .resolved_selected_entry()
+        .and_then(|entry| entry.created_time());
     let had_location = location.is_some();
     app.store.set_entry_metadata_field(
         &target.path,
-        MetadataField::Location(location.map(Box::new)),
+        MetadataField::Location(location.clone().map(Box::new)),
     )?;
+
+    // An explicit location change always refreshes the captured weather; clearing
+    // the location clears it. A name-only location (no coordinates) or an entry
+    // with no date leaves any existing weather untouched.
+    match (location, datetime) {
+        (Some(location), Some(datetime)) => {
+            app.capture_weather_for_entry(&target.path, &location, datetime);
+        }
+        (None, _) => app.clear_weather_for_entry(&target.path),
+        _ => {}
+    }
 
     app.set_status(if had_location {
         "Location saved"

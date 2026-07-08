@@ -15,7 +15,6 @@ use anyhow::Context;
 use chrono::{DateTime, FixedOffset};
 use journal_storage::{
     AppResult, AssetFailure, Celestial, ImportSource, JournalStore, Location, Metadata, Weather,
-    Wind,
 };
 
 /// Map Day One's parsed location onto the store's [`Location`], keeping only the
@@ -41,19 +40,22 @@ fn map_location(location: &dayone::model::Location) -> Location {
 /// is kept as `source` for attribution. The astronomy fields go to
 /// [`map_celestial`] instead.
 fn map_weather(weather: &dayone::model::Weather) -> Weather {
-    let wind = Wind {
-        speed_kph: weather.wind_speed_kph,
-        direction: weather.wind_bearing,
-    };
     Weather {
         condition: weather.weather_code.clone(),
         temperature_celsius: weather.temperature_celsius,
         feels_like_celsius: weather.wind_chill_celsius,
         humidity: weather.relative_humidity,
+        // Dew point, cloud cover, precipitation, and wind gusts aren't in the Day
+        // One export.
+        dew_point_celsius: None,
         pressure_mb: weather.pressure_mb,
         visibility_km: weather.visibility_km,
+        cloud_cover: None,
+        precipitation_mm: None,
+        wind_speed_kph: weather.wind_speed_kph,
+        wind_gust_kph: None,
+        wind_direction: weather.wind_bearing,
         source: weather.weather_service_name.clone(),
-        wind: (!wind.is_empty()).then_some(wind),
     }
 }
 
