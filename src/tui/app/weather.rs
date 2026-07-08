@@ -32,34 +32,30 @@ impl App {
     /// when its location is removed.
     pub(crate) fn clear_weather_for_entry(&mut self, path: &Path) {
         self.weather.forget(path);
-        let _ = self
-            .store
-            .set_entry_metadata_field(path, MetadataField::Weather(None));
-        let _ = self
-            .store
-            .set_entry_metadata_field(path, MetadataField::Celestial(None));
-        let _ = self
-            .store
-            .set_entry_metadata_field(path, MetadataField::AirQuality(None));
+        let _ = self.store.set_entry_metadata_fields(
+            path,
+            &[
+                MetadataField::Weather(None),
+                MetadataField::Celestial(None),
+                MetadataField::AirQuality(None),
+            ],
+        );
     }
 
-    /// Persist any finished weather/air-quality lookups to their entries. The
-    /// writes land on disk and the file watcher picks them up; nothing is shown
-    /// in the UI, so this doesn't itself request a repaint.
+    /// Persist any finished weather/air-quality lookups to their entries. Both
+    /// arrive from one lookup, so they land in a single write. The file lands on
+    /// disk and the watcher picks it up; nothing is shown in the UI, so this
+    /// doesn't itself request a repaint.
     pub(crate) fn apply_weather_results(&mut self) {
         for (path, weather, air_quality) in self.weather.drain() {
+            let mut fields = Vec::new();
             if let Some(weather) = weather {
-                let _ = self.store.set_entry_metadata_field(
-                    &path,
-                    MetadataField::Weather(Some(Box::new(weather))),
-                );
+                fields.push(MetadataField::Weather(Some(Box::new(weather))));
             }
             if let Some(air_quality) = air_quality {
-                let _ = self.store.set_entry_metadata_field(
-                    &path,
-                    MetadataField::AirQuality(Some(Box::new(air_quality))),
-                );
+                fields.push(MetadataField::AirQuality(Some(Box::new(air_quality))));
             }
+            let _ = self.store.set_entry_metadata_fields(&path, &fields);
         }
     }
 }

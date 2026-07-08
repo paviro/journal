@@ -20,11 +20,11 @@ pub use air::fetch_air_quality;
 pub use celestial::compute_celestial;
 pub use error::StorageError;
 pub use geocode::{GeocodeHit, geocode, reverse_geocode};
+pub use journal_core::{AirQuality, Celestial, Weather};
 pub use journal_core::{
     AppResult, Entry, EntryEncryptionState, EntryPath, ImportSource, Location, MOOD_RANGE,
     Metadata, MetadataField, SearchHit, SearchScope, Timestamp, search_loaded_entries,
 };
-pub use journal_core::{AirQuality, Celestial, Weather};
 pub use journal_encryption::{
     DeviceIdentityInfo, EncryptionError, ExposeSecret, PendingRequest, Recipient, SecretString,
 };
@@ -707,9 +707,25 @@ impl JournalStore {
     /// `edited_at`), leaving the body untouched. A no-op if the file has no
     /// front matter.
     pub fn set_entry_metadata_field(&self, path: &Path, field: MetadataField) -> AppResult<()> {
+        self.set_entry_metadata_fields(path, &[field])
+    }
+
+    /// Replace several metadata fields in one file rewrite, applying them in
+    /// order and refreshing `edited_at` once. Preferred when fields land together
+    /// (e.g. weather + air quality) so the entry is read, re-rendered, and
+    /// re-encrypted a single time. A no-op if `fields` is empty or the file has no
+    /// front matter.
+    pub fn set_entry_metadata_fields(
+        &self,
+        path: &Path,
+        fields: &[MetadataField],
+    ) -> AppResult<()> {
+        if fields.is_empty() {
+            return Ok(());
+        }
         let codec = self.entry_codec();
         let content = codec.read(path)?;
-        let Some(new_content) = markdown::with_metadata_field(&content, &field) else {
+        let Some(new_content) = markdown::with_metadata_fields(&content, fields) else {
             return Ok(());
         };
         codec.write_existing(path, &new_content)

@@ -1,4 +1,6 @@
-use journal_core::{AirQuality, Celestial, ImportSource, Location, Metadata, MetadataField, Weather};
+use journal_core::{
+    AirQuality, Celestial, ImportSource, Location, Metadata, MetadataField, Weather,
+};
 use serde::{Deserialize, Serialize};
 
 /// Every entry front-matter field, parsed and serialized in a single TOML pass.
@@ -149,36 +151,36 @@ fn map_front_matter(content: &str, mutate: impl FnOnce(&mut FrontMatter)) -> Opt
     Some(render_entry(&metadata, body))
 }
 
-/// Return a copy of `content` with one metadata field replaced in the front
-/// matter and `edited_at` refreshed. `None` when there is no front matter.
-pub fn with_metadata_field(content: &str, field: &MetadataField) -> Option<String> {
+/// Return a copy of `content` with the given metadata fields applied in order in
+/// a single front-matter pass, and `edited_at` refreshed once. `None` when there
+/// is no front matter. Applying together (e.g. weather + air quality) shares one
+/// re-render instead of rewriting the file per field.
+pub fn with_metadata_fields(content: &str, fields: &[MetadataField]) -> Option<String> {
     map_front_matter(content, |fm| {
-        match field {
-            MetadataField::Tags(values) => fm.metadata.tags = values.clone(),
-            MetadataField::People(values) => fm.metadata.people = values.clone(),
-            MetadataField::Activities(values) => fm.metadata.activities = values.clone(),
-            MetadataField::Feelings(values) => fm.metadata.feelings = values.clone(),
-            MetadataField::Mood(mood) => fm.metadata.mood = *mood,
-            MetadataField::Starred(starred) => fm.metadata.starred = *starred,
-            MetadataField::Location(location) => {
-                fm.location = location.as_deref().cloned();
-            }
-            MetadataField::Weather(weather) => {
-                fm.weather = weather.as_deref().cloned();
-            }
-            MetadataField::Celestial(celestial) => {
-                fm.celestial = celestial.as_deref().cloned();
-            }
-            MetadataField::AirQuality(air_quality) => {
-                fm.air_quality = air_quality.as_deref().cloned();
-            }
+        for field in fields {
+            apply_metadata_field(fm, field);
         }
         fm.datetime.edited_at = Some(chrono::Local::now().to_rfc3339());
     })
 }
 
+fn apply_metadata_field(fm: &mut FrontMatter, field: &MetadataField) {
+    match field {
+        MetadataField::Tags(values) => fm.metadata.tags = values.clone(),
+        MetadataField::People(values) => fm.metadata.people = values.clone(),
+        MetadataField::Activities(values) => fm.metadata.activities = values.clone(),
+        MetadataField::Feelings(values) => fm.metadata.feelings = values.clone(),
+        MetadataField::Mood(mood) => fm.metadata.mood = *mood,
+        MetadataField::Starred(starred) => fm.metadata.starred = *starred,
+        MetadataField::Location(location) => fm.location = location.as_deref().cloned(),
+        MetadataField::Weather(weather) => fm.weather = weather.as_deref().cloned(),
+        MetadataField::Celestial(celestial) => fm.celestial = celestial.as_deref().cloned(),
+        MetadataField::AirQuality(air_quality) => fm.air_quality = air_quality.as_deref().cloned(),
+    }
+}
+
 /// Return a copy of `content` with `secs` added to `[datetime].writing_seconds`.
-/// Unlike [`with_metadata_field`], it does **not** refresh `edited_at` — recording
+/// Unlike [`with_metadata_fields`], it does **not** refresh `edited_at` — recording
 /// editing time is not itself a content edit. `None` when there is no front matter.
 pub(crate) fn add_writing_seconds(content: &str, secs: u64) -> Option<String> {
     map_front_matter(content, |fm| {
@@ -314,7 +316,7 @@ mod tests {
     fn with_metadata_field_writes_and_clears_mood() {
         let content = "+++\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
 
-        let with_mood = with_metadata_field(content, &MetadataField::Mood(Some(4))).unwrap();
+        let with_mood = with_metadata_fields(content, &[MetadataField::Mood(Some(4))]).unwrap();
         assert_eq!(
             front_matter_fields(split_front_matter(&with_mood).0.unwrap())
                 .metadata
@@ -322,7 +324,7 @@ mod tests {
             Some(4)
         );
 
-        let cleared = with_metadata_field(&with_mood, &MetadataField::Mood(None)).unwrap();
+        let cleared = with_metadata_fields(&with_mood, &[MetadataField::Mood(None)]).unwrap();
         assert_eq!(
             front_matter_fields(split_front_matter(&cleared).0.unwrap())
                 .metadata
@@ -342,9 +344,9 @@ mod tests {
             longitude: Some(13.405),
             ..Location::default()
         };
-        let with_location = with_metadata_field(
+        let with_location = with_metadata_fields(
             content,
-            &MetadataField::Location(Some(Box::new(location.clone()))),
+            &[MetadataField::Location(Some(Box::new(location.clone())))],
         )
         .unwrap();
         assert!(with_location.contains("[location]"));
@@ -360,7 +362,8 @@ mod tests {
                 .is_some()
         );
 
-        let cleared = with_metadata_field(&with_location, &MetadataField::Location(None)).unwrap();
+        let cleared =
+            with_metadata_fields(&with_location, &[MetadataField::Location(None)]).unwrap();
         assert!(!cleared.contains("[location]"));
         assert_eq!(
             front_matter_fields(split_front_matter(&cleared).0.unwrap()).location,
@@ -478,7 +481,7 @@ mod tests {
         // A metadata edit re-renders the whole front matter; the capture-only
         // timezone must survive untouched, like the import provenance does.
         let updated =
-            with_metadata_field(content, &MetadataField::Tags(vec!["x".to_string()])).unwrap();
+            with_metadata_fields(content, &[MetadataField::Tags(vec!["x".to_string()])]).unwrap();
 
         assert_eq!(
             front_matter_fields(split_front_matter(&updated).0.unwrap())
@@ -511,7 +514,7 @@ mod tests {
         );
 
         // Omitted from the rendered TOML when never set.
-        let no_field = with_metadata_field(content, &MetadataField::Tags(vec![])).unwrap();
+        let no_field = with_metadata_fields(content, &[MetadataField::Tags(vec![])]).unwrap();
         assert!(!no_field.contains("writing_seconds"));
     }
 
@@ -520,7 +523,7 @@ mod tests {
         let content =
             "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
 
-        let starred = with_metadata_field(content, &MetadataField::Starred(true)).unwrap();
+        let starred = with_metadata_fields(content, &[MetadataField::Starred(true)]).unwrap();
         assert!(starred.contains("starred = true"));
         assert!(
             front_matter_fields(split_front_matter(&starred).0.unwrap())
@@ -528,7 +531,7 @@ mod tests {
                 .starred
         );
 
-        let unstarred = with_metadata_field(&starred, &MetadataField::Starred(false)).unwrap();
+        let unstarred = with_metadata_fields(&starred, &[MetadataField::Starred(false)]).unwrap();
         // A false flag leaves no key behind.
         assert!(!unstarred.contains("starred"));
         assert!(
@@ -574,7 +577,7 @@ mod tests {
         let content = "+++\ntags = [\"old\", \"stale\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
         let tags = vec!["new".to_string(), "next".to_string()];
 
-        let updated = with_metadata_field(content, &MetadataField::Tags(tags)).unwrap();
+        let updated = with_metadata_fields(content, &[MetadataField::Tags(tags)]).unwrap();
 
         let (front_matter, _) = split_front_matter(&updated);
         assert_eq!(
@@ -592,9 +595,11 @@ mod tests {
         let content =
             "+++\ntags = []\n\n[datetime]\ncreated_at = \"old\"\n+++\n\n# Body\n\nTrailing\n";
 
-        let updated =
-            with_metadata_field(content, &MetadataField::Feelings(vec!["calm".to_string()]))
-                .unwrap();
+        let updated = with_metadata_fields(
+            content,
+            &[MetadataField::Feelings(vec!["calm".to_string()])],
+        )
+        .unwrap();
 
         assert!(updated.contains("\n+++\n\n# Body\n"));
         assert!(updated.ends_with("\n# Body\n\nTrailing\n"));
