@@ -75,6 +75,31 @@ fn focusing_journals_shows_insights_even_with_a_lingering_entry_selection() {
 }
 
 #[test]
+fn focusing_insights_shows_insights_even_with_a_lingering_entry_selection() {
+    let dir = tempdir().unwrap();
+    let entry_dir = dir.path().join("work").join("2026-07-01");
+    fs::create_dir_all(&entry_dir).unwrap();
+    fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
+
+    let config = Config::new(dir.path().to_path_buf(), "true");
+    let mut app = new_app(config);
+    app.select_journal_by_name("work");
+    app.select_entry_index(0);
+    app.nav.focus = Focus::Entries;
+    assert!(!app.show_journal_insights_preview());
+    assert!(app.entries_highlighted());
+
+    // Clicking the insights column focuses it but leaves the selection index
+    // lingering. The insights panel shares the right-hand pane with the entry
+    // viewer, so it must show insights and drop the row highlight — not reopen
+    // the entry that was just closed.
+    app.nav.focus = Focus::Insights;
+    assert_eq!(app.nav.selected_entry_index, Some(0));
+    assert!(app.show_journal_insights_preview());
+    assert!(!app.entries_highlighted());
+}
+
+#[test]
 fn hidden_journals_launch_focuses_entries_with_insights_preview() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");

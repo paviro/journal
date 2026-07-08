@@ -48,12 +48,15 @@ impl App {
     }
 
     /// Whether an entry is the active preview: one is selected *and* focus sits on
-    /// a column that owns it (anything but the journal list). Browsing journals —
-    /// even with a selection lingering from an earlier preview — is not previewing
-    /// an entry. Both the entry-list highlight and the preview-vs-insights choice key
-    /// off this single predicate so they can never disagree.
+    /// a column that owns it (the entry list or the entry viewer). Browsing the
+    /// journal list or the insights panel — even with a selection lingering from an
+    /// earlier preview — is not previewing an entry; both those columns show insights
+    /// in the shared right-hand pane instead. Both the entry-list highlight and the
+    /// preview-vs-insights choice key off this single predicate so they can never
+    /// disagree.
     fn entry_is_previewed(&self) -> bool {
-        self.nav.focus != Focus::Journals && self.nav.selected_entry_index.is_some()
+        matches!(self.nav.focus, Focus::Entries | Focus::EntryView)
+            && self.nav.selected_entry_index.is_some()
     }
 
     /// The preview pane shows journal insights (instead of an entry) when browsing and
