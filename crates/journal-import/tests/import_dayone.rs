@@ -336,10 +336,11 @@ fn imports_weather_and_celestial_tables() {
     };
 
     let full = raw("FULL");
-    // condition holds the slug, not the human description; provider is dropped.
+    // condition holds the slug, not the human description; the provider is kept
+    // as `source` for attribution.
     assert!(full.contains("condition = \"partly-cloudy\""));
     assert!(!full.contains("Partly Cloudy"));
-    assert!(!full.contains("TestWeather"));
+    assert!(full.contains("source = \"TestWeather\""));
     assert!(full.contains("temperature_celsius = 19.9"));
     assert!(full.contains("feels_like_celsius = 19.5"));
     assert!(full.contains("[weather.wind]"));

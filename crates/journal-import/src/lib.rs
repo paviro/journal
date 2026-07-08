@@ -33,8 +33,9 @@ fn map_location(location: &dayone::model::Location) -> Location {
 }
 
 /// Map Day One's `weather` onto the store's `[weather]` table. `condition` takes
-/// the machine `weatherCode` slug (not the human description); the provider name
-/// and the astronomy fields (which go to [`map_celestial`]) are dropped here.
+/// the machine `weatherCode` slug (not the human description); `weatherServiceName`
+/// is kept as `source` for attribution. The astronomy fields go to
+/// [`map_celestial`] instead.
 fn map_weather(weather: &dayone::model::Weather) -> Weather {
     let wind = Wind {
         speed_kph: weather.wind_speed_kph,
@@ -47,6 +48,7 @@ fn map_weather(weather: &dayone::model::Weather) -> Weather {
         humidity: weather.relative_humidity,
         pressure_mb: weather.pressure_mb,
         visibility_km: weather.visibility_km,
+        source: weather.weather_service_name.clone(),
         wind: (!wind.is_empty()).then_some(wind),
     }
 }

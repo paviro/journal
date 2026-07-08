@@ -54,8 +54,9 @@ impl Datetime {
 }
 
 /// The `[weather]` table (Day One import, capture-only). `condition` is Day One's
-/// condition slug (e.g. `"partly-cloudy"`). Every field is optional — only what
-/// the export provided is stored.
+/// condition slug (e.g. `"partly-cloudy"`). `source` names the provider the data
+/// came from, kept for attribution. Every field is optional — only what the
+/// export provided is stored.
 #[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
 pub struct Weather {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -70,6 +71,9 @@ pub struct Weather {
     pub pressure_mb: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visibility_km: Option<f64>,
+    /// The weather data provider/service, stored verbatim for attribution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     // A TOML sub-table, so it must come after weather's scalar fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wind: Option<Wind>,
@@ -107,6 +111,7 @@ impl Weather {
             && self.humidity.is_none()
             && self.pressure_mb.is_none()
             && self.visibility_km.is_none()
+            && self.source.is_none()
             && self.wind.is_none()
     }
 }
