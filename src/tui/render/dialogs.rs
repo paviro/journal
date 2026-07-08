@@ -170,7 +170,8 @@ fn feelings_dialog_hint_height(frame_area: Rect) -> u16 {
     // Reserve the taller of the two focus states so the layout stays put as the
     // user tabs between the list and the search input.
     let width = dialog_hint_width(frame_area, LIST_DIALOG_WIDTH);
-    hint_height(&FEELINGS_DIALOG_LIST_HINTS, width).max(hint_height(&FEELINGS_DIALOG_INPUT_HINTS, width))
+    hint_height(&FEELINGS_DIALOG_LIST_HINTS, width)
+        .max(hint_height(&FEELINGS_DIALOG_INPUT_HINTS, width))
 }
 
 fn mood_dialog_hint_height(frame_area: Rect) -> u16 {
@@ -380,14 +381,23 @@ fn render_search_field(frame: &mut Frame<'_>, rect: Rect, label: &str, value: &s
     let prefix_w = UnicodeWidthStr::width(prefix.as_str());
     // Leave one blank column before the dialog border so the underlined field
     // doesn't run flush against it.
-    let field_w = (rect.width as usize).saturating_sub(prefix_w).saturating_sub(1);
+    let field_w = (rect.width as usize)
+        .saturating_sub(prefix_w)
+        .saturating_sub(1);
 
     // Pad (or clip) the value so the underline always fills the field width.
     let value_w = UnicodeWidthStr::width(value);
     let field = if value_w < field_w {
         format!("{value}{}", " ".repeat(field_w - value_w))
     } else {
-        value.chars().rev().take(field_w).collect::<Vec<_>>().into_iter().rev().collect()
+        value
+            .chars()
+            .rev()
+            .take(field_w)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
     };
 
     let mut field_style = Style::default().add_modifier(Modifier::UNDERLINED);

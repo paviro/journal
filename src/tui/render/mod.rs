@@ -49,8 +49,8 @@ use dialogs::{
     draw_edit_mood_dialog, draw_new_journal_input,
 };
 pub(crate) use dialogs::{
-    feelings_dialog_hints, feelings_dialog_layout, feelings_selected_line_count, metadata_dialog_hints,
-    metadata_dialog_layout, mood_dialog_hints, mood_dialog_layout,
+    feelings_dialog_hints, feelings_dialog_layout, feelings_selected_line_count,
+    metadata_dialog_hints, metadata_dialog_layout, mood_dialog_hints, mood_dialog_layout,
 };
 use entries::draw_entry_list;
 use image_viewer::draw_image_viewer;

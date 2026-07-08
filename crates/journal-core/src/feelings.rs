@@ -68,7 +68,10 @@ pub const FEELING_GROUPS: &[FeelingGroup] = &[
             f("alert", &[]),
             f("clear-headed", &["clear", "clear minded"]),
             f("receptive", &["open", "openhearted"]),
-            f("energetic", &["animated", "energized", "alive", "enlivened"]),
+            f(
+                "energetic",
+                &["animated", "energized", "alive", "enlivened"],
+            ),
             f("refreshed", &["renewed", "invigorated"]),
             f("inspired", &[]),
             f("eager", &["keen"]),
@@ -270,7 +273,10 @@ pub const FEELING_GROUPS: &[FeelingGroup] = &[
             f("exhausted", &["drained", "beat", "worn out", "burned out"]),
             f("bored", &[]),
             f("uninterested", &["indifferent"]),
-            f("apathetic", &["passive", "listless", "lethargic", "resigned"]),
+            f(
+                "apathetic",
+                &["passive", "listless", "lethargic", "resigned"],
+            ),
             f("numb", &["shut down", "blank"]),
             f("empty", &["hollow"]),
         ],
@@ -289,10 +295,7 @@ pub const FEELING_GROUPS: &[FeelingGroup] = &[
     },
     FeelingGroup {
         name: "Neutral & Steady",
-        feelings: &[
-            f("neutral", &["okay", "fine"]),
-            f("steady", &["stable"]),
-        ],
+        feelings: &[f("neutral", &["okay", "fine"]), f("steady", &["stable"])],
     },
 ];
 
@@ -396,10 +399,7 @@ mod tests {
     fn normalize_resolves_search_aliases_to_canonical_feeling() {
         assert_eq!(normalize_feeling("Joyful"), Some("happy".to_string()));
         assert_eq!(normalize_feeling("thankful"), Some("grateful".to_string()));
-        assert_eq!(
-            normalize_feeling("Worn Out"),
-            Some("exhausted".to_string())
-        );
+        assert_eq!(normalize_feeling("Worn Out"), Some("exhausted".to_string()));
     }
 
     #[test]

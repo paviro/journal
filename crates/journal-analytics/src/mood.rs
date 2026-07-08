@@ -209,9 +209,9 @@ mod tests {
     fn sentiment_windows_track_trailing_days() {
         // `mood()` anchors today at 2024-12-31. mood>=2 positive, <=-2 negative.
         let entries = [
-            mood_entry("2024-12-30T00:00:00Z", Some(4), &[]),  // within week, positive
+            mood_entry("2024-12-30T00:00:00Z", Some(4), &[]), // within week, positive
             mood_entry("2024-12-10T00:00:00Z", Some(-3), &[]), // within month, not week, negative
-            mood_entry("2024-06-01T00:00:00Z", Some(4), &[]),  // within year, not month, positive
+            mood_entry("2024-06-01T00:00:00Z", Some(4), &[]), // within year, not month, positive
             mood_entry("2020-01-01T00:00:00Z", Some(-3), &[]), // all-time only, negative
         ];
         let mood = mood(&entries);

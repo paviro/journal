@@ -394,7 +394,10 @@ impl EditFeelingState {
             let query = self.input.trim().to_lowercase();
             for (group, g) in self.groups.iter().enumerate() {
                 for (feeling, item) in g.feelings.iter().enumerate() {
-                    let alias_match = item.search_aliases.iter().any(|alias| alias.contains(&query));
+                    let alias_match = item
+                        .search_aliases
+                        .iter()
+                        .any(|alias| alias.contains(&query));
                     if item.name.contains(&query) || alias_match {
                         rows.push(FeelingRow::Feeling { group, feeling });
                     }
@@ -425,14 +428,23 @@ impl EditFeelingState {
                 .flat_map(|g| g.feelings.iter())
                 .filter(|item| {
                     item.name.contains(&query)
-                        || item.search_aliases.iter().any(|alias| alias.contains(&query))
+                        || item
+                            .search_aliases
+                            .iter()
+                            .any(|alias| alias.contains(&query))
                 })
                 .count();
         }
         self.groups
             .iter()
             .enumerate()
-            .map(|(group, g)| 1 + if self.expanded[group] { g.feelings.len() } else { 0 })
+            .map(|(group, g)| {
+                1 + if self.expanded[group] {
+                    g.feelings.len()
+                } else {
+                    0
+                }
+            })
             .sum()
     }
 
@@ -457,14 +469,24 @@ impl EditFeelingState {
         self.groups[group]
             .feelings
             .iter()
-            .filter(|item| self.selected.iter().any(|value| value.as_str() == item.name))
+            .filter(|item| {
+                self.selected
+                    .iter()
+                    .any(|value| value.as_str() == item.name)
+            })
             .count()
     }
 
     /// Visible-row index of `group`'s header.
     fn header_index(&self, group: usize) -> usize {
         (0..group)
-            .map(|g| 1 + if self.expanded[g] { self.groups[g].feelings.len() } else { 0 })
+            .map(|g| {
+                1 + if self.expanded[g] {
+                    self.groups[g].feelings.len()
+                } else {
+                    0
+                }
+            })
             .sum()
     }
 
@@ -701,7 +723,10 @@ mod tests {
         state.move_down(); // now on "content"
         assert!(matches!(
             state.visible_rows()[state.selected_index().unwrap()],
-            FeelingRow::Feeling { group: 0, feeling: 1 }
+            FeelingRow::Feeling {
+                group: 0,
+                feeling: 1
+            }
         ));
         // Collapsing from inside the group returns the cursor to its header.
         state.collapse_selected();
@@ -748,7 +773,10 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert!(matches!(
             rows[0],
-            FeelingRow::Feeling { group: 0, feeling: 1 } // content
+            FeelingRow::Feeling {
+                group: 0,
+                feeling: 1
+            } // content
         ));
         // Toggling the sole match selects it.
         state.toggle_selected();
@@ -770,7 +798,10 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert!(matches!(
             rows[0],
-            FeelingRow::Feeling { group: 0, feeling: 0 } // calm
+            FeelingRow::Feeling {
+                group: 0,
+                feeling: 0
+            } // calm
         ));
         // Toggling the alias match selects the canonical feeling, not the alias.
         state.toggle_selected();

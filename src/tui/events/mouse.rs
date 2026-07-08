@@ -551,7 +551,10 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
 
     if let Some(focus) = app.edit_feeling_state().map(|s| s.focus) {
         let (all_len, selected_lines) = app.edit_feeling_state().map_or((0, 1), |s| {
-            (s.item_count(), render::feelings_selected_line_count(&s.selected))
+            (
+                s.item_count(),
+                render::feelings_selected_line_count(&s.selected),
+            )
         });
         let layout = render::feelings_dialog_layout(area, all_len, selected_lines);
         if render::point_in_rect(layout.hints, col, row)
@@ -639,7 +642,10 @@ fn handle_overlay_wheel(app: &mut App, mouse: MouseEvent, area: Rect, delta: i16
 
     if app.edit_feeling_state().is_some() {
         let (all_len, selected_lines) = app.edit_feeling_state().map_or((0, 1), |s| {
-            (s.item_count(), render::feelings_selected_line_count(&s.selected))
+            (
+                s.item_count(),
+                render::feelings_selected_line_count(&s.selected),
+            )
         });
         let layout = render::feelings_dialog_layout(area, all_len, selected_lines);
         if render::point_in_rect(layout.list, mouse.column, mouse.row)
