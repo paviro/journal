@@ -1,0 +1,13 @@
+[package]
+name = "journal-seed"
+version = "2026.7.1"
+edition = "2024"
+
+[dependencies]
+chrono = "0.4"
+journal-core = { path = "../journal-core" }
+journal-storage = { path = "../journal-storage" }
+rand = "0.9"
+
+[dev-dependencies]
+tempfile = "3"

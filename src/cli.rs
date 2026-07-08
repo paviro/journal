@@ -63,6 +63,30 @@ enum CliCommand {
         #[command(subcommand)]
         command: EncryptionCommand,
     },
+    /// Fill a journal with backdated fake entries [debug builds only]
+    #[cfg(debug_assertions)]
+    Sample(SampleArgs),
+}
+
+/// Arguments for the debug-only `sample` command.
+#[cfg(debug_assertions)]
+#[derive(Debug, Args)]
+struct SampleArgs {
+    /// Journal to fill; created if it doesn't exist
+    #[arg(value_name = "NAME", default_value = "Sample")]
+    journal: String,
+
+    /// Number of entries to generate
+    #[arg(long, default_value_t = 750)]
+    count: usize,
+
+    /// Spread creation dates across the last N days
+    #[arg(long, default_value_t = 1095)]
+    days: i64,
+
+    /// Seed the generator for a reproducible dataset
+    #[arg(long)]
+    seed: Option<u64>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -230,7 +254,34 @@ fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppRe
             ImportSource::Dayone(args) => import_dayone_command(cli, args),
         },
         CliCommand::Encryption { command } => handle_encryption_command(cli, command),
+        #[cfg(debug_assertions)]
+        CliCommand::Sample(args) => generate_sample_data(cli, args),
     }
+}
+
+/// Populate a journal with fake entries for development. Debug builds only —
+/// the whole command is compiled out of release binaries.
+#[cfg(debug_assertions)]
+fn generate_sample_data(cli: &Cli, args: &SampleArgs) -> AppResult<()> {
+    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+    let store = JournalStore::for_config(&config_path, &config.journal.path)?;
+    store.ensure()?;
+
+    let created = journal_seed::generate(
+        &store,
+        &journal_seed::GenConfig {
+            journal: args.journal.clone(),
+            count: args.count,
+            days: args.days,
+            seed: args.seed,
+        },
+    )?;
+    println!(
+        "Generated {created} sample {} in journal \"{}\".",
+        if created == 1 { "entry" } else { "entries" },
+        args.journal
+    );
+    Ok(())
 }
 
 fn handle_encryption_command(cli: &Cli, command: &EncryptionCommand) -> AppResult<()> {

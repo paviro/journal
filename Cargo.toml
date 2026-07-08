@@ -4,7 +4,7 @@ version = "2026.7.1"
 edition = "2024"
 
 [workspace]
-members = ["crates/journal-core", "crates/journal-encryption", "crates/journal-storage", "crates/journal-import", "crates/journal-analytics"]
+members = ["crates/journal-core", "crates/journal-encryption", "crates/journal-storage", "crates/journal-import", "crates/journal-analytics", "crates/journal-seed"]
 
 [dependencies]
 anyhow = "1"
@@ -20,6 +20,7 @@ image_024 = { package = "image", version = "0.24", default-features = false }
 journal-analytics = { path = "crates/journal-analytics" }
 journal-core = { path = "crates/journal-core" }
 journal-import = { path = "crates/journal-import" }
+journal-seed = { path = "crates/journal-seed" }
 journal-storage = { path = "crates/journal-storage" }
 mimalloc = "0.1"
 notify = "7.0"
