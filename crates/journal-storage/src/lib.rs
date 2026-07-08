@@ -5,6 +5,7 @@ use std::{
 };
 
 mod error;
+mod geocode;
 pub(crate) mod markdown;
 mod migrate;
 mod storage;
@@ -12,6 +13,7 @@ mod storage;
 use journal_encryption as crypto;
 
 pub use error::StorageError;
+pub use geocode::{GeocodeHit, geocode, reverse_geocode};
 pub use journal_core::{
     AppResult, Entry, EntryEncryptionState, EntryPath, ImportSource, Location, MOOD_RANGE,
     Metadata, MetadataField, SearchHit, SearchScope, Timestamp, search_loaded_entries,
