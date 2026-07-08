@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod air;
 mod celestial;
 mod error;
 mod geocode;
@@ -15,6 +16,7 @@ mod weather;
 
 use journal_encryption as crypto;
 
+pub use air::fetch_air_quality;
 pub use celestial::compute_celestial;
 pub use error::StorageError;
 pub use geocode::{GeocodeHit, geocode, reverse_geocode};
@@ -22,7 +24,7 @@ pub use journal_core::{
     AppResult, Entry, EntryEncryptionState, EntryPath, ImportSource, Location, MOOD_RANGE,
     Metadata, MetadataField, SearchHit, SearchScope, Timestamp, search_loaded_entries,
 };
-pub use journal_core::{Celestial, Weather};
+pub use journal_core::{AirQuality, Celestial, Weather};
 pub use journal_encryption::{
     DeviceIdentityInfo, EncryptionError, ExposeSecret, PendingRequest, Recipient, SecretString,
 };

@@ -20,24 +20,35 @@ const REFERENCE_NEW_MOON_UNIX: f64 = 947_182_440.0;
 /// `None` when the sun never crosses the horizon that day (polar day/night) or
 /// the coordinates are out of range.
 pub fn compute_celestial(lat: f64, lon: f64, datetime: DateTime<FixedOffset>) -> Celestial {
-    let (sunrise, sunset) = match Coordinates::new(lat, lon) {
+    let (sunrise_utc, sunset_utc) = match Coordinates::new(lat, lon) {
         Some(coord) => {
             let day = SolarDay::new(coord, datetime.date_naive());
-            let render = |event| {
-                day.event_time(event)
-                    .map(|utc: DateTime<Utc>| utc.with_timezone(datetime.offset()).to_rfc3339())
-            };
-            (render(SolarEvent::Sunrise), render(SolarEvent::Sunset))
+            (
+                day.event_time(SolarEvent::Sunrise),
+                day.event_time(SolarEvent::Sunset),
+            )
         }
         None => (None, None),
+    };
+    // Daylight duration: only when both events occur (not polar day/night).
+    let day_length_seconds = match (sunrise_utc, sunset_utc) {
+        (Some(rise), Some(set)) => {
+            u64::try_from(set.signed_duration_since(rise).num_seconds()).ok()
+        }
+        _ => None,
+    };
+    // Render each event at the entry's own UTC offset, matching its wall clock.
+    let render = |event: Option<DateTime<Utc>>| {
+        event.map(|utc| utc.with_timezone(datetime.offset()).to_rfc3339())
     };
 
     let phase = moon_phase_fraction(datetime.with_timezone(&Utc));
     Celestial {
         moon_phase: Some(phase),
         moon_phase_name: Some(moon_phase_name(phase).to_string()),
-        sunrise,
-        sunset,
+        sunrise: render(sunrise_utc),
+        sunset: render(sunset_utc),
+        day_length_seconds,
     }
 }
 
@@ -83,14 +94,18 @@ mod tests {
         let sunrise = celestial.sunrise.expect("summer sunrise exists");
         let sunset = celestial.sunset.expect("summer sunset exists");
         assert!(sunrise < sunset, "{sunrise} !< {sunset}");
+        // Early-July Berlin has a long day — roughly 16½ hours of daylight.
+        let hours = celestial.day_length_seconds.expect("day length exists") as f64 / 3600.0;
+        assert!((16.0..17.0).contains(&hours), "day length was {hours}h");
     }
 
     #[test]
-    fn polar_day_has_no_sunrise_but_still_a_moon_phase() {
+    fn polar_day_has_no_sunrise_no_day_length_but_still_a_moon_phase() {
         // Above the Arctic Circle at midsummer the sun never sets.
         let celestial = compute_celestial(80.0, 20.0, utc(2026, 6, 21));
         assert!(celestial.sunrise.is_none());
         assert!(celestial.sunset.is_none());
+        assert!(celestial.day_length_seconds.is_none());
         assert!(celestial.moon_phase.is_some());
     }
 

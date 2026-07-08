@@ -104,6 +104,9 @@ fn entry_content(
         location: location.cloned(),
         weather: weather.cloned(),
         celestial: celestial.cloned(),
+        // Fetched asynchronously after creation (see the TUI weather worker),
+        // never at build time.
+        air_quality: None,
     };
     let mut content = crate::markdown::render_entry(&front_matter, body);
     if !content.ends_with('\n') {

@@ -60,13 +60,28 @@ fn map_weather(weather: &dayone::model::Weather) -> Weather {
 }
 
 /// Map Day One's `weather` onto the store's `[celestial]` table (sun/moon).
+/// Day One carries no daylight duration, so derive it from sunrise/sunset when
+/// both parse — matching how the local compute path fills the field.
 fn map_celestial(weather: &dayone::model::Weather) -> Celestial {
+    let day_length_seconds = match (&weather.sunrise_date, &weather.sunset_date) {
+        (Some(sunrise), Some(sunset)) => day_length_seconds(sunrise, sunset),
+        _ => None,
+    };
     Celestial {
         moon_phase: weather.moon_phase,
         moon_phase_name: weather.moon_phase_code.clone(),
         sunrise: weather.sunrise_date.clone(),
         sunset: weather.sunset_date.clone(),
+        day_length_seconds,
     }
+}
+
+/// Seconds between two RFC3339 instants (sunset − sunrise), or `None` when either
+/// fails to parse or sunset precedes sunrise.
+fn day_length_seconds(sunrise: &str, sunset: &str) -> Option<u64> {
+    let rise = DateTime::parse_from_rfc3339(sunrise).ok()?;
+    let set = DateTime::parse_from_rfc3339(sunset).ok()?;
+    u64::try_from(set.signed_duration_since(rise).num_seconds()).ok()
 }
 
 use dayone::model::DayOneExport;

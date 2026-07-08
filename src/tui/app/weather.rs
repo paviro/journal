@@ -28,8 +28,8 @@ impl App {
         self.weather.request(path.to_path_buf(), lat, lon, datetime);
     }
 
-    /// Clear an entry's captured weather and celestial data — used when its
-    /// location is removed.
+    /// Clear an entry's captured weather, celestial, and air-quality data — used
+    /// when its location is removed.
     pub(crate) fn clear_weather_for_entry(&mut self, path: &Path) {
         self.weather.forget(path);
         let _ = self
@@ -38,16 +38,28 @@ impl App {
         let _ = self
             .store
             .set_entry_metadata_field(path, MetadataField::Celestial(None));
+        let _ = self
+            .store
+            .set_entry_metadata_field(path, MetadataField::AirQuality(None));
     }
 
-    /// Persist any finished weather lookups to their entries. The write lands on
-    /// disk and the file watcher picks it up; nothing is shown in the UI, so this
-    /// doesn't itself request a repaint.
+    /// Persist any finished weather/air-quality lookups to their entries. The
+    /// writes land on disk and the file watcher picks them up; nothing is shown
+    /// in the UI, so this doesn't itself request a repaint.
     pub(crate) fn apply_weather_results(&mut self) {
-        for (path, weather) in self.weather.drain() {
-            let _ = self
-                .store
-                .set_entry_metadata_field(&path, MetadataField::Weather(Some(Box::new(weather))));
+        for (path, weather, air_quality) in self.weather.drain() {
+            if let Some(weather) = weather {
+                let _ = self.store.set_entry_metadata_field(
+                    &path,
+                    MetadataField::Weather(Some(Box::new(weather))),
+                );
+            }
+            if let Some(air_quality) = air_quality {
+                let _ = self.store.set_entry_metadata_field(
+                    &path,
+                    MetadataField::AirQuality(Some(Box::new(air_quality))),
+                );
+            }
         }
     }
 }

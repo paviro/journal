@@ -219,8 +219,9 @@ pub struct Weather {
 
 /// The `[celestial]` table: sun/moon at the time of writing. `moon_phase` is the
 /// 0–1 cycle fraction; `moon_phase_name` its named phase; `sunrise`/`sunset` are
-/// RFC3339 timestamps. First captured on Day One import; now also computed
-/// locally from the location's coordinates and date.
+/// RFC3339 timestamps; `day_length_seconds` is the daylight duration between
+/// them. First captured on Day One import; now also computed locally from the
+/// location's coordinates and date.
 #[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
 pub struct Celestial {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -231,6 +232,60 @@ pub struct Celestial {
     pub sunrise: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sunset: Option<String>,
+    /// Daylight duration in seconds — the sun-above-horizon span (sunset −
+    /// sunrise), excluding twilight. `None` when either event is absent (polar
+    /// day/night), mirroring `sunrise`/`sunset`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub day_length_seconds: Option<u64>,
+}
+
+/// The `[air_quality]` table: pollution and UV at the time of writing. Its own
+/// table rather than part of `[weather]` — it comes from a separate provider
+/// endpoint and is written independently, so an entry may carry one without the
+/// other. `source` names the provider, kept for attribution. Every field is
+/// optional; only what the source provided is stored.
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
+pub struct AirQuality {
+    /// European Air Quality Index (0–100+, lower is better).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub european_aqi: Option<i64>,
+    /// United States Air Quality Index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub us_aqi: Option<i64>,
+    /// Fine particulate matter (≤2.5µm), in µg/m³.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pm2_5: Option<f64>,
+    /// Coarse particulate matter (≤10µm), in µg/m³.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pm10: Option<f64>,
+    /// Ground-level ozone, in µg/m³.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ozone: Option<f64>,
+    /// Nitrogen dioxide, in µg/m³.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nitrogen_dioxide: Option<f64>,
+    /// Sulphur dioxide, in µg/m³.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sulphur_dioxide: Option<f64>,
+    /// Carbon monoxide, in µg/m³.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carbon_monoxide: Option<f64>,
+    /// The UV index — served by this same air-quality endpoint, not the weather
+    /// one, so it is stored here rather than in `[weather]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uv_index: Option<f64>,
+    /// Grass pollen, in grains/m³ (Europe only; `None` elsewhere).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grass_pollen: Option<f64>,
+    /// Birch pollen, in grains/m³ (Europe only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub birch_pollen: Option<f64>,
+    /// Ragweed pollen, in grains/m³ (Europe only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ragweed_pollen: Option<f64>,
+    /// The provider/service, stored verbatim for attribution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 impl Weather {
@@ -242,6 +297,13 @@ impl Weather {
 }
 
 impl Celestial {
+    /// Whether no field carries data (see [`Weather::is_empty`]).
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl AirQuality {
     /// Whether no field carries data (see [`Weather::is_empty`]).
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
@@ -383,6 +445,9 @@ pub enum MetadataField {
     Weather(Option<Box<Weather>>),
     /// The whole `[celestial]` table. `None` clears it. Boxed to match `Weather`.
     Celestial(Option<Box<Celestial>>),
+    /// The whole `[air_quality]` table. `None` clears it. Fetched from a separate
+    /// endpoint than `[weather]`, so it lands as its own write. Boxed to match.
+    AirQuality(Option<Box<AirQuality>>),
 }
 
 pub struct EntryPath {

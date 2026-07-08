@@ -1,4 +1,4 @@
-use journal_core::{Celestial, ImportSource, Location, Metadata, MetadataField, Weather};
+use journal_core::{AirQuality, Celestial, ImportSource, Location, Metadata, MetadataField, Weather};
 use serde::{Deserialize, Serialize};
 
 /// Every entry front-matter field, parsed and serialized in a single TOML pass.
@@ -26,6 +26,10 @@ pub struct FrontMatter {
     /// than under weather. Computed locally, or captured on Day One import.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub celestial: Option<Celestial>,
+    /// Air quality (and UV) at the time of writing: fetched from Open-Meteo's
+    /// air-quality endpoint — a separate provider than weather, so its own table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub air_quality: Option<AirQuality>,
 }
 
 /// The `[datetime]` table: when an entry was created and last edited, the IANA
@@ -164,6 +168,9 @@ pub fn with_metadata_field(content: &str, field: &MetadataField) -> Option<Strin
             }
             MetadataField::Celestial(celestial) => {
                 fm.celestial = celestial.as_deref().cloned();
+            }
+            MetadataField::AirQuality(air_quality) => {
+                fm.air_quality = air_quality.as_deref().cloned();
             }
         }
         fm.datetime.edited_at = Some(chrono::Local::now().to_rfc3339());
@@ -438,21 +445,30 @@ mod tests {
                 moon_phase_name: Some("full".to_string()),
                 ..Celestial::default()
             }),
+            air_quality: Some(AirQuality {
+                european_aqi: Some(42),
+                pm2_5: Some(12.4),
+                uv_index: Some(6.2),
+                ..AirQuality::default()
+            }),
             ..FrontMatter::default()
         };
 
         let rendered = render_entry(&fm, "# Body\n");
-        // Ordering: [location] then [weather] then [celestial].
+        // Ordering: [location] then [weather] then [celestial] then [air_quality].
         let location_at = rendered.find("[location]").unwrap();
         let weather_at = rendered.find("[weather]").unwrap();
         let celestial_at = rendered.find("[celestial]").unwrap();
+        let air_at = rendered.find("[air_quality]").unwrap();
         assert!(location_at < weather_at, "{rendered}");
         assert!(weather_at < celestial_at);
+        assert!(celestial_at < air_at);
 
         let (front_matter, _) = split_front_matter(&rendered);
         let parsed = front_matter_fields(front_matter.unwrap());
         assert_eq!(parsed.weather, fm.weather);
         assert_eq!(parsed.celestial, fm.celestial);
+        assert_eq!(parsed.air_quality, fm.air_quality);
     }
 
     #[test]

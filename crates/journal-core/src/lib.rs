@@ -6,7 +6,7 @@ pub mod markdown;
 pub mod search;
 
 pub use entry::{
-    Celestial, Entry, EntryEncryptionState, EntryPath, ImportSource, Location, MOOD_RANGE,
-    Metadata, MetadataField, SearchHit, SearchScope, Timestamp, Weather,
+    AirQuality, Celestial, Entry, EntryEncryptionState, EntryPath, ImportSource, Location,
+    MOOD_RANGE, Metadata, MetadataField, SearchHit, SearchScope, Timestamp, Weather,
 };
 pub use search::search_loaded_entries;

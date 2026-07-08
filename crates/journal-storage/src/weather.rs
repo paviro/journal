@@ -116,8 +116,9 @@ fn extract_weather(hourly: &Hourly, target: NaiveDateTime) -> Option<Weather> {
     })
 }
 
-/// The index of the hourly sample whose timestamp is closest to `target`.
-fn nearest_hour_index(times: &[String], target: NaiveDateTime) -> Option<usize> {
+/// The index of the hourly sample whose timestamp is closest to `target`. Shared
+/// with the air-quality fetch, which uses the same hourly-series shape.
+pub(crate) fn nearest_hour_index(times: &[String], target: NaiveDateTime) -> Option<usize> {
     times
         .iter()
         .enumerate()
