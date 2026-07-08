@@ -328,6 +328,14 @@ impl App {
             && self.has_selected_entry_target()
     }
 
+    /// Whether the entry viewer currently occupies the whole screen: either the
+    /// terminal is single-column (no room for other panes) or the viewer has been
+    /// expanded to full screen in a multi-column layout.
+    pub(crate) fn entry_view_is_fullscreen(&self, width: u16) -> bool {
+        self.nav.focus == Focus::EntryView
+            && (single_panel_is_active(width) || self.nav.entry_view_fullscreen)
+    }
+
     pub(crate) fn selected_entry_view(&self) -> Option<(String, String)> {
         let entry = self.resolved_selected_entry()?;
         if entry.encryption_state == EntryEncryptionState::EncryptedLocked {

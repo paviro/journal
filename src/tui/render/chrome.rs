@@ -30,6 +30,7 @@ pub(crate) enum HintId {
     ToggleStarred,
     ExitSearch,
     CancelOverlay,
+    CloseEntryView,
     MetadataToggle,
     MetadataSwitchFocus,
     MetadataAddFromInput,
@@ -518,6 +519,17 @@ fn selected_entry_action_hints(include_view: bool) -> Vec<Hint> {
     hints
 }
 
+/// The `close` hint for the full-screen viewer. Enter and Esc always close it; in
+/// multi-column full screen Left is inert, while single-column also exits on Left.
+fn close_entry_view_hint(app: &App) -> Hint {
+    let keys = if app.nav.entry_view_fullscreen {
+        "enter/esc"
+    } else {
+        "enter/esc/←"
+    };
+    Hint::new("close", keys, HintId::CloseEntryView)
+}
+
 fn expanded_footer_hints(app: &App) -> Vec<Hint> {
     let mut hints = Vec::new();
     if app.nav.mode == Mode::Browse {
@@ -525,7 +537,7 @@ fn expanded_footer_hints(app: &App) -> Vec<Hint> {
     }
     if app.has_selected_entry_target() {
         hints.push(Hint::new("edit", "e", HintId::EditSelected));
-        hints.push(Hint::new("close", "enter/esc", HintId::CancelOverlay));
+        hints.push(close_entry_view_hint(app));
         hints.push(Hint::new("del", "d", HintId::BeginDelete));
         hints.push(Hint::new("tags", "t", HintId::BeginEditTags));
         hints.push(Hint::new("ppl", "p", HintId::BeginEditPeople));
@@ -535,7 +547,7 @@ fn expanded_footer_hints(app: &App) -> Vec<Hint> {
         hints.push(Hint::new("star", "s", HintId::ToggleStarred));
         hints.extend(image_hint(app));
     } else {
-        hints.push(Hint::new("close", "enter/esc", HintId::CancelOverlay));
+        hints.push(close_entry_view_hint(app));
     }
     if app.nav.mode == Mode::Browse {
         hints.push(Hint::new("search", "/", HintId::BeginSearch));

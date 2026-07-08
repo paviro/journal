@@ -122,6 +122,91 @@ fn right_on_entry_focuses_entry_view_when_entry_view_is_available() {
     assert_eq!(app.nav.focus, Focus::EntryView);
 }
 
+fn key(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::empty())
+}
+
+#[test]
+fn multi_col_enter_focuses_then_expands_then_collapses() {
+    let mut app = app_with_entries(1);
+
+    // First Enter opens the focused preview pane (not full screen yet).
+    view_selected(&mut app).unwrap();
+    assert_eq!(app.nav.focus, Focus::EntryView);
+    assert!(!app.nav.entry_view_fullscreen);
+
+    // Second Enter expands to full screen.
+    assert_eq!(
+        keyboard::key_to_action(&app, key(KeyCode::Enter), true),
+        Some(Action::ExpandEntryView)
+    );
+    app.nav.entry_view_fullscreen = true;
+
+    // Third Enter closes full screen (collapses back to the focused pane).
+    assert_eq!(
+        keyboard::key_to_action(&app, key(KeyCode::Enter), true),
+        Some(Action::CollapseEntryView)
+    );
+}
+
+#[test]
+fn multi_col_fullscreen_esc_collapses_and_left_is_inert() {
+    let mut app = app_with_entries(1);
+    view_selected(&mut app).unwrap();
+    app.nav.entry_view_fullscreen = true;
+
+    assert_eq!(
+        keyboard::key_to_action(&app, key(KeyCode::Esc), true),
+        Some(Action::CollapseEntryView)
+    );
+    assert_eq!(
+        keyboard::key_to_action(&app, key(KeyCode::Left), true),
+        None
+    );
+}
+
+#[test]
+fn single_col_viewer_exits_on_enter_esc_and_left() {
+    let mut app = app_with_entries(1);
+    view_selected(&mut app).unwrap();
+
+    // In single-column the viewer is full screen by nature; Enter/Esc/Left all exit.
+    for code in [KeyCode::Enter, KeyCode::Esc, KeyCode::Left] {
+        assert_eq!(
+            keyboard::key_to_action(&app, key(code), false),
+            Some(Action::FocusLeft),
+            "{code:?}"
+        );
+    }
+}
+
+#[test]
+fn leaving_the_viewer_clears_fullscreen() {
+    let mut app = app_with_entries(1);
+    view_selected(&mut app).unwrap();
+    app.nav.entry_view_fullscreen = true;
+
+    move_focus_left(&mut app);
+
+    assert_eq!(app.nav.focus, Focus::Entries);
+    assert!(!app.nav.entry_view_fullscreen);
+}
+
+#[test]
+fn snapshot_restores_fullscreen_across_an_edit() {
+    let mut app = app_with_entries(1);
+    view_selected(&mut app).unwrap();
+    app.nav.entry_view_fullscreen = true;
+
+    let snapshot = EntryViewSnapshot::capture(&app);
+    app.nav.entry_view_fullscreen = false;
+    app.nav.focus = Focus::Entries;
+    restore_entry_view_or_close(&mut app, snapshot);
+
+    assert_eq!(app.nav.focus, Focus::EntryView);
+    assert!(app.nav.entry_view_fullscreen);
+}
+
 #[test]
 fn typed_hint_ids_route_to_actions_without_string_parsing() {
     let mut app = app_with_entries(1);
@@ -411,6 +496,25 @@ fn expanded_entry_wheel_scrolls_and_clicks_do_not_close() {
         20,
     );
     assert_eq!(app.nav.focus, Focus::EntryView);
+}
+
+#[test]
+fn multi_col_fullscreen_body_click_does_not_collapse() {
+    let mut app = app_with_entries(1);
+    view_selected(&mut app).unwrap();
+    app.nav.entry_view_fullscreen = true;
+
+    // A click inside the full-screen body (not on a metadata chip) must leave the
+    // viewer expanded rather than collapsing it back to the pane.
+    mouse_in_area(
+        &mut app,
+        mouse(MouseEventKind::Down(MouseButton::Left), 5, 10),
+        130,
+        20,
+    );
+
+    assert_eq!(app.nav.focus, Focus::EntryView);
+    assert!(app.nav.entry_view_fullscreen);
 }
 
 #[test]

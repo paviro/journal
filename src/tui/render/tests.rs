@@ -907,6 +907,23 @@ fn selected_journal_and_entry_remain_reversed_when_entry_view_is_focused() {
 }
 
 #[test]
+fn multi_col_fullscreen_takes_the_whole_width_and_hides_columns() {
+    let mut app = app_with_entry();
+    app.nav.focus = Focus::EntryView;
+    app.nav.entry_view_fullscreen = true;
+
+    let layout = tui_layout(Rect::new(0, 0, 130, 20), &app);
+    assert!(layout.journals.is_none());
+    assert!(layout.entries.is_none());
+    assert_eq!(layout.entry_view.unwrap().area.width, 130);
+
+    let text = render_text(app, 130, 20);
+    assert!(!text.contains(" Journals "));
+    assert!(!text.contains(" Entries "));
+    assert!(text.contains("Body"));
+}
+
+#[test]
 fn selected_entry_is_not_reversed_when_journals_are_focused() {
     let mut app = app_with_entry();
     app.nav.focus = Focus::Journals;
@@ -1027,8 +1044,15 @@ fn expanded_entry_footer_includes_inline_entry_actions() {
         assert!(!inline_text.contains(label));
         assert!(expanded_text.contains(label));
     }
-    assert!(expanded_text.contains("close (enter/esc)"));
-    assert!(expanded_text.contains("edit (e) | close (enter/esc) | del (d)"));
+    // Single-column full screen (the flag is unset): Left also exits, so it is
+    // listed alongside Enter/Esc.
+    assert!(expanded_text.contains("close (enter/esc/←)"));
+    assert!(expanded_text.contains("edit (e) | close (enter/esc/←) | del (d)"));
+
+    // Multi-column full screen: Left is inert (Esc collapses), so it drops from the
+    // close hint.
+    app.nav.entry_view_fullscreen = true;
+    assert!(expanded_footer_text(&app).contains("close (enter/esc)"));
 }
 
 #[test]

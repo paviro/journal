@@ -68,6 +68,8 @@ pub(crate) fn dispatch_action(
             restore_entry_view_or_close(app, snapshot);
         }
         Action::ViewSelected => view_selected(app)?,
+        Action::ExpandEntryView => app.nav.entry_view_fullscreen = true,
+        Action::CollapseEntryView => app.nav.entry_view_fullscreen = false,
         Action::BeginDelete => app.begin_confirm_delete(),
         Action::ConfirmDelete => confirm_delete(app)?,
         Action::CancelOverlay => {
@@ -276,6 +278,7 @@ pub(crate) fn dispatch_action(
 struct EntryViewSnapshot {
     id: String,
     focus: Focus,
+    fullscreen: bool,
     entry_view_scroll: u16,
 }
 
@@ -285,6 +288,7 @@ impl EntryViewSnapshot {
         Some(Self {
             id: target.id,
             focus: app.nav.focus,
+            fullscreen: app.nav.entry_view_fullscreen,
             entry_view_scroll: app.nav.scroll.entry_view,
         })
     }
@@ -294,6 +298,7 @@ impl EntryViewSnapshot {
             return false;
         }
         app.nav.focus = self.focus;
+        app.nav.entry_view_fullscreen = self.fullscreen;
         app.nav.scroll.entry_view = self.entry_view_scroll;
         true
     }

@@ -41,6 +41,13 @@ pub(crate) fn tui_layout(area: Rect, app: &App) -> TuiLayout {
         single_panel,
     };
 
+    // A full-screen viewer owns the whole content area at any width, so mouse
+    // hit-testing lines up with what `draw` paints.
+    if app.entry_view_is_fullscreen(content.width) {
+        layout.entry_view = Some(PanelGeometry::new(content));
+        return layout;
+    }
+
     if single_panel {
         match app.nav.focus {
             Focus::Journals if app.nav.mode == Mode::Browse && show_journals => {

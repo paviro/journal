@@ -149,6 +149,9 @@ pub(super) fn view_selected(app: &mut App) -> AppResult<()> {
     if !reject_if_locked(app, &target) {
         return Ok(());
     }
+    // Opening an entry lands on the focused viewer; full screen is a second,
+    // explicit step (multi-column) reached by pressing Enter again.
+    app.nav.entry_view_fullscreen = false;
     app.nav.focus = Focus::EntryView;
     Ok(())
 }

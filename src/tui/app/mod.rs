@@ -277,6 +277,10 @@ pub(crate) struct Nav {
     pub(crate) entry_list: ListState,
     pub(crate) scroll: ScrollState,
     pub(crate) focus: Focus,
+    /// Whether the focused entry viewer is expanded to the full screen, hiding the
+    /// other columns. Only ever set in multi-column layouts (single-column already
+    /// renders the viewer full-screen); reset when focus leaves the viewer.
+    pub(crate) entry_view_fullscreen: bool,
     pub(crate) mode: Mode,
 }
 
@@ -288,6 +292,7 @@ impl Default for Nav {
             entry_list: ListState::default(),
             scroll: ScrollState::default(),
             focus: Focus::Journals,
+            entry_view_fullscreen: false,
             mode: Mode::Browse,
         }
     }

@@ -16,7 +16,7 @@ use ratatui::{
     widgets::{ListState, Paragraph},
 };
 
-use super::app::{App, EntryViewImageHits, Focus, single_panel_is_active};
+use super::app::{App, EntryViewImageHits};
 #[cfg(test)]
 pub(crate) use super::entry_rows::entry_row_metadata;
 #[cfg(test)]
@@ -97,7 +97,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     // shown, so a stale hit-map can't leak onto stats or empty views.
     app.entry_view_image_hits = EntryViewImageHits::default();
 
-    if single_panel_is_active(area.width) && app.nav.focus == Focus::EntryView {
+    if app.entry_view_is_fullscreen(area.width) {
         let footer_height = expanded_footer_height(app, area.width).min(area.height);
         let chunks = Layout::default()
             .direction(Direction::Vertical)

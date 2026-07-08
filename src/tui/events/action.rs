@@ -17,9 +17,12 @@ pub(crate) enum Action {
     ExitSearch,
     EditSelected,
     ViewSelected,
+    // Expand the focused entry viewer to full screen (multi-column) / collapse back
+    ExpandEntryView,
+    CollapseEntryView,
     BeginDelete,
     ConfirmDelete,
-    // Cancel / close — covers Esc across all overlays and the expanded-entry close gesture
+    // Cancel / close — covers Esc across all overlays
     CancelOverlay,
     BeginEditTags,
     BeginEditPeople,

@@ -81,7 +81,15 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
     match key.code {
         KeyCode::Char('q') => Some(Action::Quit),
         KeyCode::Char('/') => Some(Action::BeginSearch),
-        KeyCode::Left => Some(Action::FocusLeft),
+        // Left backs out one level, but does nothing in multi-column full screen —
+        // there, Esc collapses back to the focused preview pane instead.
+        KeyCode::Left
+            if !(app.nav.focus == Focus::EntryView
+                && app.nav.entry_view_fullscreen
+                && entry_view_available) =>
+        {
+            Some(Action::FocusLeft)
+        }
         KeyCode::Right
             if app.nav.focus == Focus::Entries
                 && !entry_view_available
@@ -90,8 +98,27 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
             Some(Action::ViewSelected)
         }
         KeyCode::Right => Some(Action::FocusRight),
-        KeyCode::Esc if app.nav.focus == Focus::EntryView => Some(Action::FocusLeft),
+        // Second Enter on the focused viewer expands it to full screen (multi-column
+        // only; single-column already renders it full screen).
+        KeyCode::Enter
+            if app.nav.focus == Focus::EntryView
+                && entry_view_available
+                && !app.nav.entry_view_fullscreen =>
+        {
+            Some(Action::ExpandEntryView)
+        }
+        // Enter again closes the full-screen viewer: back to the focused pane in
+        // multi-column, or out to the entries column in single-column.
+        KeyCode::Enter if app.nav.focus == Focus::EntryView && app.nav.entry_view_fullscreen => {
+            Some(Action::CollapseEntryView)
+        }
         KeyCode::Enter if app.nav.focus == Focus::EntryView => Some(Action::FocusLeft),
+        // Esc collapses full screen back to the focused pane; otherwise it exits the
+        // viewer to the entries column.
+        KeyCode::Esc if app.nav.focus == Focus::EntryView && app.nav.entry_view_fullscreen => {
+            Some(Action::CollapseEntryView)
+        }
+        KeyCode::Esc if app.nav.focus == Focus::EntryView => Some(Action::FocusLeft),
         KeyCode::Enter if app.nav.focus == Focus::Journals => Some(Action::FocusRight),
         KeyCode::Enter if app.can_act_on_selected_entry() => Some(Action::ViewSelected),
         KeyCode::Up => Some(Action::MoveUp),
@@ -157,9 +184,34 @@ fn search_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
         }
     }
     match key.code {
+        // Second Enter on the focused viewer expands it to full screen (multi-column).
+        KeyCode::Enter
+            if app.nav.focus == Focus::EntryView
+                && entry_view_available
+                && !app.nav.entry_view_fullscreen =>
+        {
+            Some(Action::ExpandEntryView)
+        }
+        // Enter again closes the full-screen viewer (collapse in multi-column, or
+        // back to the results list in single-column).
+        KeyCode::Enter if app.nav.focus == Focus::EntryView && app.nav.entry_view_fullscreen => {
+            Some(Action::CollapseEntryView)
+        }
+        KeyCode::Enter if app.nav.focus == Focus::EntryView => Some(Action::FocusLeft),
+        // Esc collapses full screen back to the focused pane before it exits search.
+        KeyCode::Esc if app.nav.focus == Focus::EntryView && app.nav.entry_view_fullscreen => {
+            Some(Action::CollapseEntryView)
+        }
         KeyCode::Esc => Some(Action::ExitSearch),
         KeyCode::Char('q') => Some(Action::Quit),
-        KeyCode::Left if app.nav.focus == Focus::EntryView => Some(Action::FocusLeft),
+        // Left backs the viewer out to the results list, but is inert in multi-column
+        // full screen (Esc collapses that).
+        KeyCode::Left
+            if app.nav.focus == Focus::EntryView
+                && !(app.nav.entry_view_fullscreen && entry_view_available) =>
+        {
+            Some(Action::FocusLeft)
+        }
         // In the search field, Left/Right move the caret. Right only claims the key
         // while the caret can still advance; at the end of the query it falls
         // through to the view/focus arms below.
@@ -261,6 +313,9 @@ fn image_viewer_key_to_action(key: KeyEvent) -> Option<Action> {
 // ── Navigation helpers used by dispatch_action and tests ──────────────────────
 
 pub(super) fn move_focus_left(app: &mut App) {
+    // Leaving the viewer always drops full-screen mode so re-entering starts from
+    // the focused preview pane again.
+    app.nav.entry_view_fullscreen = false;
     app.nav.focus = match app.nav.focus {
         Focus::EntryView => Focus::Entries,
         // When the journal list is hidden, Left stops at Entries so focus never
@@ -283,6 +338,9 @@ pub(super) fn move_focus_right(app: &mut App, entry_view_available: bool) {
         }
         // Don't open the entry view when no entry is selected (stats preview).
         Focus::Entries if entry_view_available && app.has_selected_entry_target() => {
+            // Focusing the viewer lands on the preview pane; full screen is a
+            // separate, explicit Enter away.
+            app.nav.entry_view_fullscreen = false;
             Focus::EntryView
         }
         Focus::Entries | Focus::EntryView => app.nav.focus,

@@ -4,7 +4,7 @@ use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use std::io;
 
 use crate::tui::{
-    app::{App, Focus, Mode, ScrollbarDrag, inline_entry_view_is_visible, single_panel_is_active},
+    app::{App, Focus, Mode, ScrollbarDrag, inline_entry_view_is_visible},
     events::actions::view_selected,
     render,
     state::ListNav,
@@ -351,6 +351,12 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             }
             return Ok(());
         }
+        // Clicking the preview pane focuses the viewer on the pane; a click that is
+        // already inside a full-screen viewer must not collapse it, so only reset
+        // when entering from another column.
+        if app.nav.focus != Focus::EntryView {
+            app.nav.entry_view_fullscreen = false;
+        }
         app.nav.focus = Focus::EntryView;
     }
 
@@ -386,7 +392,7 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
 // ── Footer click ──────────────────────────────────────────────────────────────
 
 fn footer_click_to_action(app: &App, mouse: MouseEvent, footer: Rect) -> Option<Action> {
-    let hint_id = if single_panel_is_active(footer.width) && app.nav.focus == Focus::EntryView {
+    let hint_id = if app.entry_view_is_fullscreen(footer.width) {
         render::expanded_footer_hint_id_at_point(
             app,
             footer.x,
@@ -410,7 +416,7 @@ fn footer_click_to_action(app: &App, mouse: MouseEvent, footer: Rect) -> Option<
 }
 
 fn footer_area(app: &App, area: Rect) -> Rect {
-    if single_panel_is_active(area.width) && app.nav.focus == Focus::EntryView {
+    if app.entry_view_is_fullscreen(area.width) {
         let height = render::expanded_footer_height(app, area.width).min(area.height);
         return Rect {
             x: area.x,
@@ -641,6 +647,13 @@ pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action>
         }
         render::HintId::ExitSearch => Some(Action::ExitSearch),
         render::HintId::CancelOverlay => Some(Action::CancelOverlay),
+        // In multi-column full screen the flag is set, so collapse back to the pane;
+        // otherwise (single-column) exit the viewer to the entries list.
+        render::HintId::CloseEntryView => Some(if app.nav.entry_view_fullscreen {
+            Action::CollapseEntryView
+        } else {
+            Action::FocusLeft
+        }),
         render::HintId::MetadataToggle
             if app
                 .edit_metadata_state()
