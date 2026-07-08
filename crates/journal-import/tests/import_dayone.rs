@@ -265,20 +265,20 @@ fn imports_location_storing_only_present_fields() {
 
     let full = raw("FULL");
     assert!(full.contains("[location]"));
-    assert!(full.contains("place = \"1 Example Plaza\""));
-    assert!(full.contains("locality = \"Testville\""));
-    assert!(full.contains("administrative_area = \"Test Province\""));
+    assert!(full.contains("name = \"1 Example Plaza\""));
+    assert!(full.contains("city = \"Testville\""));
+    assert!(full.contains("state = \"Test Province\""));
     assert!(full.contains("country = \"Testland\""));
     assert!(full.contains("latitude = 10.0"));
     // The geofence radius is dropped.
     assert!(!full.contains("radius"));
 
-    // Only the two present fields are written — no place/coords lines.
+    // Only the two present fields are written — no name/coords lines.
     let partial = raw("PARTIAL");
     assert!(partial.contains("[location]"));
-    assert!(partial.contains("locality = \"Testville\""));
+    assert!(partial.contains("city = \"Testville\""));
     assert!(partial.contains("country = \"Testland\""));
-    assert!(!partial.contains("place"));
+    assert!(!partial.contains("name"));
     assert!(!partial.contains("latitude"));
 
     // No location object → no table.

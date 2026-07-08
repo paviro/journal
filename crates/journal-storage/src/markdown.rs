@@ -14,7 +14,8 @@ pub struct FrontMatter {
     pub datetime: Datetime,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import: Option<ImportSource>,
-    /// Where the entry was written (Day One import).
+    /// Where the entry was written: set via the location dialog or captured on
+    /// Day One import.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location: Option<Location>,
     /// Weather at the time of writing (Day One import). A TOML table with a
@@ -233,6 +234,9 @@ pub fn with_metadata_field(content: &str, field: &MetadataField) -> Option<Strin
             MetadataField::Feelings(values) => fm.metadata.feelings = values.clone(),
             MetadataField::Mood(mood) => fm.metadata.mood = *mood,
             MetadataField::Starred(starred) => fm.metadata.starred = *starred,
+            MetadataField::Location(location) => {
+                fm.location = location.as_deref().cloned();
+            }
         }
         fm.datetime.edited_at = Some(chrono::Local::now().to_rfc3339());
     })
@@ -393,6 +397,43 @@ mod tests {
     }
 
     #[test]
+    fn with_metadata_field_writes_and_clears_location() {
+        let content = "+++\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
+
+        let location = Location {
+            name: Some("Cafe".to_string()),
+            city: Some("Berlin".to_string()),
+            latitude: Some(52.52),
+            longitude: Some(13.405),
+            ..Location::default()
+        };
+        let with_location = with_metadata_field(
+            content,
+            &MetadataField::Location(Some(Box::new(location.clone()))),
+        )
+        .unwrap();
+        assert!(with_location.contains("[location]"));
+        assert_eq!(
+            front_matter_fields(split_front_matter(&with_location).0.unwrap()).location,
+            Some(location)
+        );
+        // A metadata edit refreshes edited_at.
+        assert!(
+            front_matter_fields(split_front_matter(&with_location).0.unwrap())
+                .datetime
+                .edited_at
+                .is_some()
+        );
+
+        let cleared = with_metadata_field(&with_location, &MetadataField::Location(None)).unwrap();
+        assert!(!cleared.contains("[location]"));
+        assert_eq!(
+            front_matter_fields(split_front_matter(&cleared).0.unwrap()).location,
+            None
+        );
+    }
+
+    #[test]
     fn tables_serialize_after_flattened_scalars_and_round_trip() {
         // The gate: the `[datetime]`, `[import]`, and `[location]` tables must
         // serialize *after* the flattened `metadata` scalars (TOML requires
@@ -413,8 +454,8 @@ mod tests {
                 id: "X".to_string(),
             }),
             location: Some(Location {
-                place: Some("1 Example Plaza".to_string()),
-                locality: Some("Testville".to_string()),
+                name: Some("1 Example Plaza".to_string()),
+                city: Some("Testville".to_string()),
                 country: Some("Testland".to_string()),
                 latitude: Some(10.0),
                 ..Location::default()
@@ -453,7 +494,7 @@ mod tests {
         // under the flattened FrontMatter is the risky bit.
         let fm = FrontMatter {
             location: Some(Location {
-                locality: Some("Testville".to_string()),
+                city: Some("Testville".to_string()),
                 ..Location::default()
             }),
             weather: Some(Weather {

@@ -22,13 +22,17 @@ use journal_storage::{
 /// place hierarchy and coordinates (the geofence `region` and `timeZoneName` are
 /// dropped — the latter is already captured as the entry's `timezone`).
 fn map_location(location: &dayone::model::Location) -> Location {
+    // Day One exposes only a coarse placemark, so map each part to the OSM key
+    // that best fits: `placeName` → `name`, `localityName` → `city` (Day One
+    // doesn't distinguish city/town/village), `administrativeArea` → `state`.
     Location {
-        place: location.place_name.clone(),
-        locality: location.locality_name.clone(),
-        administrative_area: location.administrative_area.clone(),
+        name: location.place_name.clone(),
+        city: location.locality_name.clone(),
+        state: location.administrative_area.clone(),
         country: location.country.clone(),
         latitude: location.latitude,
         longitude: location.longitude,
+        ..Location::default()
     }
 }
 

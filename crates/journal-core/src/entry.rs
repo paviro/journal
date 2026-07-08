@@ -36,18 +36,56 @@ fn is_unstarred(starred: &bool) -> bool {
     !*starred
 }
 
-/// Where an entry was written, captured on import (Day One) — a coarse-to-fine
-/// place hierarchy plus coordinates. Every field is optional: only what the
-/// source provided is stored, and an all-empty location is dropped entirely.
-/// Capture-only: displayed but not edited or searched.
+/// Where an entry was written — coordinates plus a fine-to-coarse place
+/// hierarchy. Each field is one OpenStreetMap / Nominatim address key, stored 1:1
+/// with no collapsing; whatever a geocode returns is kept and the rest omitted.
+/// First captured on import (Day One), now also user-editable via the location
+/// dialog. An all-empty location is dropped entirely.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Location {
+    /// A human label for the place — a POI/venue name from the geocoder, or one
+    /// the user typed. (Nominatim's top-level `name`, not an address key.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub place: Option<String>,
+    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub locality: Option<String>,
+    pub house_number: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub administrative_area: Option<String>,
+    pub road: Option<String>,
+    // City subdivisions, finest to coarsest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub neighbourhood: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quarter: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suburb: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub borough: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub city_district: Option<String>,
+    // Settlement — Nominatim returns exactly one of these by size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub town: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub village: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub municipality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hamlet: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub postcode: Option<String>,
+    // Region within the country, finest to coarsest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub county: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_district: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub province: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub country: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,32 +106,70 @@ pub struct ImportSource {
 
 impl Location {
     pub fn is_empty(&self) -> bool {
-        self.place.is_none()
-            && self.locality.is_none()
-            && self.administrative_area.is_none()
-            && self.country.is_none()
-            && self.latitude.is_none()
-            && self.longitude.is_none()
+        *self == Location::default()
     }
 
-    /// A one-line label: the named parts (coarse-to-fine) joined by `", "`, or
-    /// the coordinates when no names are known. `None` when nothing is known.
+    /// Whether any named part is set — i.e. more than the bare coordinates. Used
+    /// to tell a fully-resolved location from one that only has a lat/lon pair
+    /// still awaiting a reverse lookup.
+    pub fn has_named_parts(&self) -> bool {
+        let coords_only = Location {
+            latitude: self.latitude,
+            longitude: self.longitude,
+            ..Location::default()
+        };
+        *self != coords_only
+    }
+
+    /// The settlement name, whichever size key Nominatim used (city → hamlet).
+    fn settlement(&self) -> Option<&str> {
+        self.city
+            .as_deref()
+            .or(self.town.as_deref())
+            .or(self.village.as_deref())
+            .or(self.municipality.as_deref())
+            .or(self.hamlet.as_deref())
+    }
+
+    /// A one-line label for display. The `name` is set off with `" - "`; the
+    /// address parts follow, joined by `", "`. Only a curated subset is shown —
+    /// road + house number, `neighbourhood`, `suburb`, postcode + settlement, and
+    /// `country`; the coarser subdivisions (`quarter`, `borough`, `city_district`)
+    /// and the region hierarchy (`county`/`state`/…) are stored but omitted to keep
+    /// the label readable. Falls back to the coordinates when no names are known;
+    /// `None` when nothing at all is known.
     pub fn display_label(&self) -> Option<String> {
-        let parts: Vec<&str> = [
-            self.place.as_deref(),
-            self.locality.as_deref(),
-            self.administrative_area.as_deref(),
-            self.country.as_deref(),
+        let street_line = match (self.road.as_deref(), self.house_number.as_deref()) {
+            (Some(road), Some(number)) => Some(format!("{road} {number}")),
+            (Some(road), None) => Some(road.to_string()),
+            // A bare house number without a road is meaningless on its own.
+            (None, _) => None,
+        };
+        let settlement_line = match (self.postcode.as_deref(), self.settlement()) {
+            (Some(postcode), Some(settlement)) => Some(format!("{postcode} {settlement}")),
+            (None, Some(settlement)) => Some(settlement.to_string()),
+            (Some(postcode), None) => Some(postcode.to_string()),
+            (None, None) => None,
+        };
+        let address: Vec<String> = [
+            street_line,
+            self.neighbourhood.clone(),
+            self.suburb.clone(),
+            settlement_line,
+            self.country.clone(),
         ]
         .into_iter()
         .flatten()
         .collect();
-        if !parts.is_empty() {
-            return Some(parts.join(", "));
-        }
-        match (self.latitude, self.longitude) {
-            (Some(lat), Some(lon)) => Some(format!("{lat:.4}, {lon:.4}")),
-            _ => None,
+
+        match (&self.name, address.is_empty()) {
+            (Some(name), true) => Some(name.clone()),
+            (Some(name), false) => Some(format!("{name} - {}", address.join(", "))),
+            (None, false) => Some(address.join(", ")),
+            (None, true) => match (self.latitude, self.longitude) {
+                (Some(lat), Some(lon)) => Some(format!("{lat:.4}, {lon:.4}")),
+                _ => None,
+            },
         }
     }
 }
@@ -141,8 +217,8 @@ pub struct Entry {
     pub edited_at: Option<String>,
     pub preview: String,
     pub metadata: Metadata,
-    /// Where the entry was written, captured on import. Displayed but not edited
-    /// or searched, so it lives outside [`Metadata`].
+    /// Where the entry was written. Not searched, and edited on its own path
+    /// (the location dialog), so it lives outside [`Metadata`].
     pub location: Option<Location>,
     /// Provenance of an imported entry (source tool + its id). `None` for
     /// entries created directly in the app. Used to skip re-importing and as an
@@ -214,7 +290,8 @@ pub enum EntryEncryptionState {
 
 /// One front-matter metadata field paired with its new value, for targeted
 /// single-field edits (see `set_entry_metadata_field`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+// Not `Eq`: the `Location` payload carries `f64` coordinates.
+#[derive(Debug, Clone, PartialEq)]
 pub enum MetadataField {
     Tags(Vec<String>),
     People(Vec<String>),
@@ -222,6 +299,10 @@ pub enum MetadataField {
     Feelings(Vec<String>),
     Mood(Option<i8>),
     Starred(bool),
+    /// The whole `[location]` table. `None` clears it. Unlike the other fields,
+    /// this lives outside [`Metadata`] on [`Entry::location`]. Boxed because
+    /// `Location` is far larger than the other variants.
+    Location(Option<Box<Location>>),
 }
 
 pub struct EntryPath {
@@ -259,4 +340,50 @@ pub enum SearchScope {
     #[default]
     AllJournals,
     Journal(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn location_display_label_sets_off_name_and_omits_coarse_fields() {
+        let location = Location {
+            name: Some("Zuhause".to_string()),
+            road: Some("Gürtelstraße".to_string()),
+            house_number: Some("13".to_string()),
+            neighbourhood: Some("Komponistenviertel".to_string()),
+            suburb: Some("Weißensee".to_string()),
+            city_district: Some("Pankow".to_string()),
+            postcode: Some("13088".to_string()),
+            city: Some("Berlin".to_string()),
+            state: Some("Berlin".to_string()),
+            country: Some("Deutschland".to_string()),
+            latitude: Some(52.5449),
+            longitude: Some(13.4532),
+            ..Location::default()
+        };
+        // `name` is set off with " - "; `city_district` (Pankow) and `state` are
+        // stored but not shown.
+        assert_eq!(
+            location.display_label().as_deref(),
+            Some(
+                "Zuhause - Gürtelstraße 13, Komponistenviertel, Weißensee, 13088 Berlin, Deutschland"
+            )
+        );
+    }
+
+    #[test]
+    fn location_display_label_falls_back_to_coordinates() {
+        let location = Location {
+            latitude: Some(10.0),
+            longitude: Some(20.0),
+            ..Location::default()
+        };
+        assert_eq!(
+            location.display_label().as_deref(),
+            Some("10.0000, 20.0000")
+        );
+        assert_eq!(Location::default().display_label(), None);
+    }
 }
