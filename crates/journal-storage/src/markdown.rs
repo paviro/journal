@@ -17,6 +17,14 @@ pub struct FrontMatter {
     /// Where the entry was written (Day One import).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location: Option<Location>,
+    /// Weather at the time of writing (Day One import). A TOML table with a
+    /// nested `[weather.wind]`, so it stays among the trailing tables.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weather: Option<Weather>,
+    /// Sun/moon at the time of writing (Day One import) — astronomy, kept as its
+    /// own table rather than under weather.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub celestial: Option<Celestial>,
 }
 
 /// The `[dates]` table: when an entry was created and last edited, plus the IANA
@@ -35,6 +43,79 @@ pub struct Dates {
 impl Dates {
     fn is_empty(&self) -> bool {
         self.created.is_none() && self.edited.is_none() && self.timezone.is_none()
+    }
+}
+
+/// The `[weather]` table (Day One import, capture-only). `condition` is Day One's
+/// condition slug (e.g. `"partly-cloudy"`). Every field is optional — only what
+/// the export provided is stored.
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
+pub struct Weather {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature_celsius: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feels_like_celsius: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub humidity: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pressure_mb: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visibility_km: Option<f64>,
+    // A TOML sub-table, so it must come after weather's scalar fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wind: Option<Wind>,
+}
+
+/// The `[weather.wind]` sub-table. `direction` is a compass bearing in degrees.
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
+pub struct Wind {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed_kph: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<f64>,
+}
+
+/// The `[celestial]` table (Day One import, capture-only): sun/moon at the time
+/// of writing. `moon_phase` is the 0–1 cycle fraction; `moon_phase_name` its
+/// named phase; `sunrise`/`sunset` are RFC3339 timestamps.
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
+pub struct Celestial {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moon_phase: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moon_phase_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sunrise: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sunset: Option<String>,
+}
+
+impl Weather {
+    pub fn is_empty(&self) -> bool {
+        self.condition.is_none()
+            && self.temperature_celsius.is_none()
+            && self.feels_like_celsius.is_none()
+            && self.humidity.is_none()
+            && self.pressure_mb.is_none()
+            && self.visibility_km.is_none()
+            && self.wind.is_none()
+    }
+}
+
+impl Wind {
+    pub fn is_empty(&self) -> bool {
+        self.speed_kph.is_none() && self.direction.is_none()
+    }
+}
+
+impl Celestial {
+    pub fn is_empty(&self) -> bool {
+        self.moon_phase.is_none()
+            && self.moon_phase_name.is_none()
+            && self.sunrise.is_none()
+            && self.sunset.is_none()
     }
 }
 
@@ -312,6 +393,7 @@ mod tests {
                 latitude: Some(10.0),
                 ..Location::default()
             }),
+            ..FrontMatter::default()
         };
 
         let rendered = render_entry(&fm, "# Body\n");
@@ -336,6 +418,49 @@ mod tests {
             parsed.dates.created.as_deref(),
             Some("2021-04-03T08:30:05+02:00")
         );
+    }
+
+    #[test]
+    fn weather_and_celestial_tables_serialize_and_round_trip() {
+        // The gate: `[weather]` (with a nested `[weather.wind]`) and `[celestial]`
+        // must serialize after `[location]` and re-parse. The nested sub-table
+        // under the flattened FrontMatter is the risky bit.
+        let fm = FrontMatter {
+            location: Some(Location {
+                locality: Some("Testville".to_string()),
+                ..Location::default()
+            }),
+            weather: Some(Weather {
+                condition: Some("partly-cloudy".to_string()),
+                temperature_celsius: Some(19.9),
+                wind: Some(Wind {
+                    speed_kph: Some(12.0),
+                    direction: Some(210.0),
+                }),
+                ..Weather::default()
+            }),
+            celestial: Some(Celestial {
+                moon_phase: Some(0.5),
+                moon_phase_name: Some("full".to_string()),
+                ..Celestial::default()
+            }),
+            ..FrontMatter::default()
+        };
+
+        let rendered = render_entry(&fm, "# Body\n");
+        // Ordering: [location] then [weather], its sub-table, then [celestial].
+        let location_at = rendered.find("[location]").unwrap();
+        let weather_at = rendered.find("[weather]").unwrap();
+        let wind_at = rendered.find("[weather.wind]").unwrap();
+        let celestial_at = rendered.find("[celestial]").unwrap();
+        assert!(location_at < weather_at, "{rendered}");
+        assert!(weather_at < wind_at);
+        assert!(wind_at < celestial_at);
+
+        let (front_matter, _) = split_front_matter(&rendered);
+        let parsed = front_matter_fields(front_matter.unwrap());
+        assert_eq!(parsed.weather, fm.weather);
+        assert_eq!(parsed.celestial, fm.celestial);
     }
 
     #[test]

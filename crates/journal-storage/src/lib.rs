@@ -19,6 +19,7 @@ pub use journal_core::{
 pub use journal_encryption::{
     DeviceIdentityInfo, EncryptionError, ExposeSecret, PendingRequest, Recipient, SecretString,
 };
+pub use markdown::{Celestial, Weather, Wind};
 pub use migrate::{DecryptSummary, MigrationSummary};
 pub use storage::{
     ARCHIVED_SUFFIX, AssetFailure, AssetReport, Journal, entry_group_date, entry_id,
@@ -587,6 +588,8 @@ impl JournalStore {
         edited_at: chrono::DateTime<chrono::FixedOffset>,
         timezone: Option<&str>,
         location: Option<&Location>,
+        weather: Option<&Weather>,
+        celestial: Option<&Celestial>,
         import: &ImportSource,
     ) -> AppResult<PathBuf> {
         storage::create_imported_entry(
@@ -599,6 +602,8 @@ impl JournalStore {
             edited_at,
             timezone,
             location,
+            weather,
+            celestial,
             import,
         )
     }

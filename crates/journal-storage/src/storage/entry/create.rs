@@ -2,6 +2,7 @@ use super::Metadata;
 use super::codec::EntryCodec;
 use super::paths::{ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_path_with_id};
 use crate::AppResult;
+use crate::markdown::{Celestial, Weather};
 use anyhow::bail;
 use chrono::{DateTime, FixedOffset, Local};
 use journal_core::{ImportSource, Location};
@@ -25,7 +26,17 @@ pub fn create_entry(
     let now = Local::now().fixed_offset();
     // This machine's IANA zone name, matching what imports store; None if unresolved.
     let timezone = iana_time_zone::get_timezone().ok();
-    let content = entry_content(now, now, body, metadata, timezone.as_deref(), None, None);
+    let content = entry_content(
+        now,
+        now,
+        body,
+        metadata,
+        timezone.as_deref(),
+        None,
+        None,
+        None,
+        None,
+    );
     create_entry_file(codec, root, journal, now, &content, || {
         nanoid!(ENTRY_ID_LEN)
     })
@@ -46,6 +57,8 @@ pub fn create_imported_entry(
     edited_at: DateTime<FixedOffset>,
     timezone: Option<&str>,
     location: Option<&Location>,
+    weather: Option<&Weather>,
+    celestial: Option<&Celestial>,
     import: &ImportSource,
 ) -> AppResult<PathBuf> {
     let content = entry_content(
@@ -55,6 +68,8 @@ pub fn create_imported_entry(
         metadata,
         timezone,
         location,
+        weather,
+        celestial,
         Some(import),
     );
     create_entry_file(codec, root, journal, created_at, &content, || {
@@ -70,6 +85,8 @@ fn entry_content(
     metadata: &Metadata,
     timezone: Option<&str>,
     location: Option<&Location>,
+    weather: Option<&Weather>,
+    celestial: Option<&Celestial>,
     import: Option<&ImportSource>,
 ) -> String {
     let front_matter = crate::markdown::FrontMatter {
@@ -81,6 +98,8 @@ fn entry_content(
         },
         import: import.cloned(),
         location: location.cloned(),
+        weather: weather.cloned(),
+        celestial: celestial.cloned(),
     };
     let mut content = crate::markdown::render_entry(&front_matter, body);
     if !content.ends_with('\n') {

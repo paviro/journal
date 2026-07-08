@@ -56,6 +56,24 @@ administrative_area = "California"
 country = "United States"
 latitude = 37.7544
 longitude = -122.4477
+
+[weather]
+condition = "partly-cloudy"
+temperature_celsius = 19.9
+feels_like_celsius = 19.5
+humidity = 0.62
+pressure_mb = 1013.2
+visibility_km = 12.5
+
+[weather.wind]
+speed_kph = 12.0
+direction = 210.0
+
+[celestial]
+moon_phase = 0.5
+moon_phase_name = "full"
+sunrise = "2026-07-05T05:51:00+02:00"
+sunset = "2026-07-05T21:29:00+02:00"
 +++
 
 # Entry body
@@ -85,6 +103,8 @@ Markdown content here.
 | `starred`      | boolean         | Whether the entry is flagged as a favorite. Omitted when false. |
 | `import_id`    | string          | Provenance of an imported entry, as `source:id` (e.g. `dayone:<UUID>`). Absent for entries created in the app. Used to skip re-importing. |
 | `[location]`   | table           | Where the entry was written (Day One import): optional `place`, `locality`, `administrative_area`, `country`, `latitude`, `longitude` — only the provided fields are stored. Capture-only: displayed, not edited or searched. |
+| `[weather]`    | table           | Weather at the time of writing (Day One import): optional `condition` (a slug, e.g. `partly-cloudy`), `temperature_celsius`, `feels_like_celsius`, `humidity` (0–1), `pressure_mb`, `visibility_km`, plus a nested `[weather.wind]` with `speed_kph` and `direction` (degrees). Capture-only, stored not surfaced. |
+| `[celestial]`  | table           | Sun/moon at the time of writing (Day One import): optional `moon_phase` (0–1), `moon_phase_name`, `sunrise`, `sunset`. Capture-only. |
 
 All list fields are plural; timestamps are RFC 3339 with an offset. There is no
 schema-version field — the format evolves by adding optional fields, and readers

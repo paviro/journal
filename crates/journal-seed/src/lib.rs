@@ -25,8 +25,21 @@ pub struct GenConfig {
 }
 
 const TAGS: &[&str] = &[
-    "work", "home", "travel", "health", "reading", "coding", "family", "ideas", "gratitude",
-    "fitness", "music", "cooking", "garden", "finance", "learning",
+    "work",
+    "home",
+    "travel",
+    "health",
+    "reading",
+    "coding",
+    "family",
+    "ideas",
+    "gratitude",
+    "fitness",
+    "music",
+    "cooking",
+    "garden",
+    "finance",
+    "learning",
 ];
 
 const PEOPLE: &[&str] = &[
@@ -34,8 +47,16 @@ const PEOPLE: &[&str] = &[
 ];
 
 const ACTIVITIES: &[&str] = &[
-    "running", "reading", "coding", "cooking", "a meeting", "a long walk", "cycling", "writing",
-    "meditation", "gaming",
+    "running",
+    "reading",
+    "coding",
+    "cooking",
+    "a meeting",
+    "a long walk",
+    "cycling",
+    "writing",
+    "meditation",
+    "gaming",
 ];
 
 const TITLES: &[&str] = &[
@@ -101,6 +122,8 @@ pub fn generate(store: &JournalStore, config: &GenConfig) -> AppResult<usize> {
             &metadata,
             created_at,
             created_at,
+            None,
+            None,
             None,
             None,
             &import,

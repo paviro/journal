@@ -252,6 +252,84 @@ fn imports_location_storing_only_present_fields() {
 }
 
 #[test]
+fn imports_weather_and_celestial_tables() {
+    let (dir, store) = plaintext_store();
+    let json = r#"{
+        "entries": [
+            {
+                "uuid": "FULL",
+                "text": "Full weather",
+                "creationDate": "2021-04-03T06:30:05Z",
+                "weather": {
+                    "weatherCode": "partly-cloudy",
+                    "conditionsDescription": "Partly Cloudy",
+                    "temperatureCelsius": 19.9,
+                    "windChillCelsius": 19.5,
+                    "relativeHumidity": 0.62,
+                    "pressureMB": 1013.2,
+                    "visibilityKM": 12.5,
+                    "windSpeedKPH": 12.0,
+                    "windBearing": 210.0,
+                    "moonPhase": 0.5,
+                    "moonPhaseCode": "full",
+                    "sunriseDate": "2021-04-03T04:45:39Z",
+                    "sunsetDate": "2021-04-03T18:12:00Z",
+                    "weatherServiceName": "TestWeather"
+                }
+            },
+            {
+                "uuid": "PARTIAL",
+                "text": "Condition + temp only",
+                "creationDate": "2021-04-03T07:00:00Z",
+                "weather": { "weatherCode": "clear", "temperatureCelsius": 25.0 }
+            },
+            {
+                "uuid": "NONE",
+                "text": "No weather",
+                "creationDate": "2021-04-03T08:00:00Z"
+            }
+        ]
+    }"#;
+
+    import_dayone(&store, "diary", &write_export(&dir, json), false).unwrap();
+    let entries = store.scan_entries().unwrap();
+    let raw = |uuid: &str| {
+        let entry = entries
+            .iter()
+            .find(|e| e.import.as_ref() == Some(&dayone(uuid)))
+            .unwrap();
+        std::fs::read_to_string(&entry.path).unwrap()
+    };
+
+    let full = raw("FULL");
+    // condition holds the slug, not the human description; provider is dropped.
+    assert!(full.contains("condition = \"partly-cloudy\""));
+    assert!(!full.contains("Partly Cloudy"));
+    assert!(!full.contains("TestWeather"));
+    assert!(full.contains("temperature_celsius = 19.9"));
+    assert!(full.contains("feels_like_celsius = 19.5"));
+    assert!(full.contains("[weather.wind]"));
+    assert!(full.contains("speed_kph = 12.0"));
+    assert!(full.contains("direction = 210"));
+    assert!(full.contains("[celestial]"));
+    assert!(full.contains("moon_phase = 0.5"));
+    assert!(full.contains("moon_phase_name = \"full\""));
+    assert!(full.contains("sunrise = \"2021-04-03T04:45:39Z\""));
+
+    // Partial: just the two scalars, no sub-table and no celestial.
+    let partial = raw("PARTIAL");
+    assert!(partial.contains("condition = \"clear\""));
+    assert!(partial.contains("temperature_celsius = 25.0"));
+    assert!(!partial.contains("[weather.wind]"));
+    assert!(!partial.contains("[celestial]"));
+
+    // No weather object → none of the tables.
+    let none = raw("NONE");
+    assert!(!none.contains("[weather]"));
+    assert!(!none.contains("[celestial]"));
+}
+
+#[test]
 fn re_running_the_same_export_skips_already_imported_entries() {
     let (dir, store) = plaintext_store();
     let json = r#"{

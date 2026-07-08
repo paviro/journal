@@ -100,6 +100,9 @@ pub fn read_entry(
         dates,
         import,
         location,
+        // Capture-only: preserved on disk, not surfaced on the in-memory entry.
+        weather: _,
+        celestial: _,
     } = front_matter.map(front_matter_fields).unwrap_or_default();
     metadata.feelings = normalize_feelings(metadata.feelings.iter().map(String::as_str));
     let created_at = dates.created.map(Timestamp::parse);

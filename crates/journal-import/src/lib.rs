@@ -13,7 +13,10 @@ use std::path::Path;
 
 use anyhow::Context;
 use chrono::{DateTime, FixedOffset};
-use journal_storage::{AppResult, AssetFailure, ImportSource, JournalStore, Location, Metadata};
+use journal_storage::{
+    AppResult, AssetFailure, Celestial, ImportSource, JournalStore, Location, Metadata, Weather,
+    Wind,
+};
 
 /// Map Day One's parsed location onto the store's [`Location`], keeping only the
 /// place hierarchy and coordinates (the geofence `region` and `timeZoneName` are
@@ -26,6 +29,35 @@ fn map_location(location: &dayone::model::Location) -> Location {
         country: location.country.clone(),
         latitude: location.latitude,
         longitude: location.longitude,
+    }
+}
+
+/// Map Day One's `weather` onto the store's `[weather]` table. `condition` takes
+/// the machine `weatherCode` slug (not the human description); the provider name
+/// and the astronomy fields (which go to [`map_celestial`]) are dropped here.
+fn map_weather(weather: &dayone::model::Weather) -> Weather {
+    let wind = Wind {
+        speed_kph: weather.wind_speed_kph,
+        direction: weather.wind_bearing,
+    };
+    Weather {
+        condition: weather.weather_code.clone(),
+        temperature_celsius: weather.temperature_celsius,
+        feels_like_celsius: weather.wind_chill_celsius,
+        humidity: weather.relative_humidity,
+        pressure_mb: weather.pressure_mb,
+        visibility_km: weather.visibility_km,
+        wind: (!wind.is_empty()).then_some(wind),
+    }
+}
+
+/// Map Day One's `weather` onto the store's `[celestial]` table (sun/moon).
+fn map_celestial(weather: &dayone::model::Weather) -> Celestial {
+    Celestial {
+        moon_phase: weather.moon_phase,
+        moon_phase_name: weather.moon_phase_code.clone(),
+        sunrise: weather.sunrise_date.clone(),
+        sunset: weather.sunset_date.clone(),
     }
 }
 
@@ -166,6 +198,18 @@ pub fn import_dayone(
             .as_ref()
             .map(map_location)
             .filter(|l| !l.is_empty());
+        // Both the weather and the celestial tables read from Day One's single
+        // `weather` object.
+        let weather = entry
+            .weather
+            .as_ref()
+            .map(map_weather)
+            .filter(|w| !w.is_empty());
+        let celestial = entry
+            .weather
+            .as_ref()
+            .map(map_celestial)
+            .filter(|c| !c.is_empty());
 
         let path = store.create_imported_entry(
             journal,
@@ -175,6 +219,8 @@ pub fn import_dayone(
             edited_at,
             tz,
             location.as_ref(),
+            weather.as_ref(),
+            celestial.as_ref(),
             &import,
         )?;
         // Replace un-fetchable images with a placeholder only when we actually
