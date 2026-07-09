@@ -103,8 +103,14 @@ pub fn read_entry(
         // An encrypted entry the loaded identity can't decrypt (e.g. a device
         // not yet approved as a recipient, or a partially re-encrypted store)
         // degrades to a locked placeholder rather than failing the whole scan.
-        Err(_) if matches!(encryption_state, EntryEncryptionState::EncryptedUnlocked) => {
-            return locked_entry(journal, path);
+        Err(error) if matches!(encryption_state, EntryEncryptionState::EncryptedUnlocked) => {
+            if error
+                .downcast_ref::<crate::EncryptionError>()
+                .is_some_and(crate::EncryptionError::is_no_matching_keys)
+            {
+                return locked_entry(journal, path);
+            }
+            return unreadable_entry(journal, path);
         }
         Err(error) => return Err(error),
     };
@@ -175,6 +181,25 @@ fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {
         location: None,
         import: None,
         content: "Encryption identity not available".to_string(),
+        word_count: 0,
+        search_haystack: String::new(),
+    })
+}
+
+fn unreadable_entry(journal: &str, path: &Path) -> AppResult<Entry> {
+    let id = entry_id(path).context("entry file has no UTF-8 stem")?;
+    Ok(Entry {
+        id,
+        journal: journal.to_string(),
+        path: path.to_path_buf(),
+        encryption_state: EntryEncryptionState::EncryptedUnreadable,
+        created_at: None,
+        edited_at: None,
+        preview: "[unreadable] Encrypted entry".to_string(),
+        metadata: Metadata::default(),
+        location: None,
+        import: None,
+        content: "Encrypted entry could not be decrypted".to_string(),
         word_count: 0,
         search_haystack: String::new(),
     })

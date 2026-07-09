@@ -364,6 +364,37 @@ fn scan_entries_marks_encrypted_entry_unlocked_with_identity() {
 }
 
 #[test]
+fn scan_entries_marks_corrupt_encrypted_entry_unreadable_with_identity() {
+    let dir = tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    let root = dir.path().join("journals");
+    let paths = KeyPaths::for_config(&config, &root).unwrap();
+    crypto::initialize_store_identity(&paths, "laptop", Some(&crate::SecretString::from("secret")))
+        .unwrap();
+    let encrypted = create_entry(
+        &EntryCodec::new(paths.clone(), None),
+        &root,
+        "work",
+        "# Secret\nBody",
+        &Metadata::default(),
+    )
+    .unwrap();
+    fs::write(&encrypted, "not an age file").unwrap();
+    let identity =
+        crypto::unlock_identity(&paths, Some(&crate::SecretString::from("secret"))).unwrap();
+
+    let entries = scan_entries(&root, Some(&identity)).unwrap();
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0].encryption_state,
+        EntryEncryptionState::EncryptedUnreadable
+    );
+    assert_eq!(entries[0].preview, "[unreadable] Encrypted entry");
+    assert_eq!(entries[0].content, "Encrypted entry could not be decrypted");
+}
+
+#[test]
 fn delete_moves_entry_to_journal_trash() {
     let dir = tempdir().unwrap();
     let path = dir

@@ -43,7 +43,10 @@ pub fn search_loaded_entries(
         if matches!(scope, SearchScope::Journal(journal) if &entry.journal != journal) {
             continue;
         }
-        if entry.encryption_state == EntryEncryptionState::EncryptedLocked {
+        if matches!(
+            entry.encryption_state,
+            EntryEncryptionState::EncryptedLocked | EntryEncryptionState::EncryptedUnreadable
+        ) {
             continue;
         }
 
@@ -133,6 +136,16 @@ mod tests {
     fn search_skips_locked_encrypted_entries() {
         let mut entry = plain_entry("a", "work", "needle");
         entry.encryption_state = EntryEncryptionState::EncryptedLocked;
+
+        let hits = search_loaded_entries(&[entry], "needle", &SearchScope::AllJournals);
+
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn search_skips_unreadable_encrypted_entries() {
+        let mut entry = plain_entry("a", "work", "needle");
+        entry.encryption_state = EntryEncryptionState::EncryptedUnreadable;
 
         let hits = search_loaded_entries(&[entry], "needle", &SearchScope::AllJournals);
 

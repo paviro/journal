@@ -431,6 +431,7 @@ pub enum EntryEncryptionState {
     Plain,
     EncryptedUnlocked,
     EncryptedLocked,
+    EncryptedUnreadable,
 }
 
 /// One front-matter metadata field paired with its new value, for targeted

@@ -147,12 +147,14 @@ impl App {
             .entries
             .iter()
             .filter(|entry| {
-                entry.encryption_state != EntryEncryptionState::EncryptedLocked
-                    && match self.search.scope {
-                        SearchScope::AllJournals => true,
-                        SearchScope::Journal(ref journal) => entry.journal == *journal,
-                    }
-                    && predicate(entry)
+                !matches!(
+                    entry.encryption_state,
+                    EntryEncryptionState::EncryptedLocked
+                        | EntryEncryptionState::EncryptedUnreadable
+                ) && match self.search.scope {
+                    SearchScope::AllJournals => true,
+                    SearchScope::Journal(ref journal) => entry.journal == *journal,
+                } && predicate(entry)
             })
             .map(SearchHit::from_entry)
             .collect()

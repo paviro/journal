@@ -123,3 +123,9 @@ pub enum EncryptionError {
     #[error("invalid UTF-8 in key material: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
 }
+
+impl EncryptionError {
+    pub fn is_no_matching_keys(&self) -> bool {
+        matches!(self, Self::Decrypt(age::DecryptError::NoMatchingKeys))
+    }
+}

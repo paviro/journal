@@ -368,7 +368,10 @@ impl App {
             id: entry.id.clone(),
             path: entry.path.clone(),
             title,
-            locked: entry.encryption_state == EntryEncryptionState::EncryptedLocked,
+            locked: matches!(
+                entry.encryption_state,
+                EntryEncryptionState::EncryptedLocked | EntryEncryptionState::EncryptedUnreadable
+            ),
         })
     }
 
@@ -423,11 +426,20 @@ impl App {
 
     pub(crate) fn selected_entry_view(&self) -> Option<(String, String)> {
         let entry = self.resolved_selected_entry()?;
-        if entry.encryption_state == EntryEncryptionState::EncryptedLocked {
-            return Some((
-                entry_timestamp_label(entry),
-                "Encryption identity not available".to_string(),
-            ));
+        match entry.encryption_state {
+            EntryEncryptionState::EncryptedLocked => {
+                return Some((
+                    entry_timestamp_label(entry),
+                    "Encryption identity not available".to_string(),
+                ));
+            }
+            EntryEncryptionState::EncryptedUnreadable => {
+                return Some((
+                    entry_timestamp_label(entry),
+                    "Encrypted entry could not be decrypted".to_string(),
+                ));
+            }
+            EntryEncryptionState::Plain | EntryEncryptionState::EncryptedUnlocked => {}
         }
         Some((entry_timestamp_label(entry), entry.content.clone()))
     }
