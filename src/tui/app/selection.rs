@@ -1,5 +1,17 @@
 use super::*;
 
+/// Apply a wheel/keyboard scroll to a list's pixel offset. Shared by the entry
+/// list and journal column, which use the same pixel-row scroll model.
+fn scroll_pixel_list(
+    list: &mut ratatui::widgets::ListState,
+    delta: i16,
+    total_height: usize,
+    viewport_height: u16,
+) {
+    *list.offset_mut() =
+        crate::tui::render::scroll_pixels(list.offset(), delta, total_height, viewport_height);
+}
+
 /// Adjust a list's pixel scroll offset so the row for `selected` is in view, given
 /// the rows' `meta`. Shared by the entry list and journal column.
 fn ensure_pixel_row_visible(
@@ -123,8 +135,8 @@ impl App {
         total_height: usize,
         viewport_height: u16,
     ) {
-        *self.nav.journal_list.offset_mut() = crate::tui::render::scroll_pixels(
-            self.nav.journal_list.offset(),
+        scroll_pixel_list(
+            &mut self.nav.journal_list,
             delta,
             total_height,
             viewport_height,
@@ -142,8 +154,8 @@ impl App {
         total_height: usize,
         viewport_height: u16,
     ) {
-        *self.nav.entry_list.offset_mut() = crate::tui::render::scroll_pixels(
-            self.nav.entry_list.offset(),
+        scroll_pixel_list(
+            &mut self.nav.entry_list,
             delta,
             total_height,
             viewport_height,

@@ -1,4 +1,4 @@
-use chrono::{DateTime, FixedOffset, NaiveDate};
+use chrono::{DateTime, FixedOffset};
 #[cfg(test)]
 use nanoid::nanoid;
 use std::{
@@ -76,10 +76,4 @@ pub(crate) fn is_assets_dir(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.ends_with(".assets"))
-}
-
-pub(crate) fn entry_date_from_path(path: &Path) -> Option<NaiveDate> {
-    let stem = path.file_stem()?.to_str()?;
-    let date = stem.get(..10)?;
-    NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()
 }

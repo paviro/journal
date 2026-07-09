@@ -13,9 +13,8 @@ use std::path::Path;
 
 use anyhow::Context;
 use chrono::{DateTime, FixedOffset};
-use journal_storage::{
-    AppResult, AssetFailure, Celestial, ImportSource, JournalStore, Location, Metadata, Weather,
-};
+use journal_core::{AppResult, Celestial, ImportSource, Location, Metadata, Weather};
+use journal_storage::{AssetFailure, JournalStore};
 
 /// Map Day One's parsed location onto the store's [`Location`], keeping only the
 /// place hierarchy and coordinates (the geofence `region` and `timeZoneName` are

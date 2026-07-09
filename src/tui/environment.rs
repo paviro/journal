@@ -11,7 +11,8 @@ use std::{
 };
 
 use chrono::{DateTime, FixedOffset};
-use journal_storage::{AirQuality, Weather, fetch_air_quality, fetch_weather};
+use journal_context_provider::{fetch_air_quality, fetch_weather};
+use journal_core::{AirQuality, Weather};
 
 use crate::tui::worker::Worker;
 

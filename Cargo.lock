@@ -2013,6 +2013,7 @@ dependencies = [
  "image 0.25.10",
  "indicatif",
  "journal-analytics",
+ "journal-context-provider",
  "journal-core",
  "journal-import",
  "journal-seed",
@@ -2041,7 +2042,20 @@ version = "2026.7.1"
 dependencies = [
  "chrono",
  "journal-core",
- "journal-storage",
+]
+
+[[package]]
+name = "journal-context-provider"
+version = "2026.7.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "journal-core",
+ "serde",
+ "serde_json",
+ "sunrise",
+ "ureq",
+ "zbus",
 ]
 
 [[package]]
@@ -2120,12 +2134,10 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "sunrise",
  "tempfile",
  "thiserror 2.0.18",
  "toml 1.1.2+spec-1.1.0",
  "ureq",
- "zbus",
 ]
 
 [[package]]

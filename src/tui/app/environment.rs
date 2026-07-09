@@ -1,6 +1,7 @@
 use super::App;
 use chrono::{DateTime, FixedOffset};
-use journal_storage::{Location, MetadataField, compute_celestial};
+use journal_context_provider::compute_celestial;
+use journal_core::{Location, MetadataField};
 use std::path::Path;
 
 impl App {

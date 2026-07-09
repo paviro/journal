@@ -1,5 +1,6 @@
 use crate::{AppResult, editor};
-use journal_storage::{EditOutcome, Location, MetadataField};
+use journal_core::{Location, MetadataField};
+use journal_storage::EditOutcome;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     io,
@@ -79,7 +80,7 @@ fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<Option<PathBuf>> {
     let created = suspend_terminal(terminal, || {
         app.store.create_entry_via_editor(
             &journal_name,
-            &journal_storage::Metadata::default(),
+            &journal_core::Metadata::default(),
             |body| editor::edit_body(&editor_cmd, body),
         )
     })?;

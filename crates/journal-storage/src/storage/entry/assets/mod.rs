@@ -13,8 +13,8 @@
 mod net;
 
 use super::paths::{entry_assets_dir, entry_assets_dir_name};
-use crate::AppResult;
 use anyhow::bail;
+use journal_core::AppResult;
 use journal_encryption::{self as crypto, KeyPaths};
 use nanoid::nanoid;
 use net::{FetchError, fetch_source};

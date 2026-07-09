@@ -5,7 +5,7 @@
 //! same entries and `today`, the output is deterministic.
 
 use chrono::{Datelike, NaiveDate};
-use journal_storage::{Entry, entry_group_date};
+use journal_core::{Entry, entry_group_date};
 
 pub mod cadence;
 pub mod correlations;
@@ -213,7 +213,7 @@ pub(crate) mod test_support {
     use std::path::PathBuf;
 
     use chrono::NaiveDate;
-    use journal_storage::{Entry, EntryEncryptionState, Metadata, Timestamp};
+    use journal_core::{Entry, EntryEncryptionState, Metadata, Timestamp};
 
     /// Build a plain entry from defaults, letting the caller set only the fields
     /// a test cares about (created_at, word_count, metadata, id).
@@ -322,9 +322,9 @@ mod tests {
     #[test]
     fn lifts_names_a_person_and_a_thing_that_raise_mood() {
         use super::test_support::entry_with;
-        use journal_storage::Timestamp;
+        use journal_core::Timestamp;
 
-        let dated = |created: &str, mood: i8, configure: fn(&mut journal_storage::Entry)| {
+        let dated = |created: &str, mood: i8, configure: fn(&mut journal_core::Entry)| {
             entry_with(|entry| {
                 entry.created_at = Some(Timestamp::parse(created));
                 entry.metadata.mood = Some(mood);
@@ -353,9 +353,9 @@ mod tests {
     #[test]
     fn drains_names_a_person_and_a_thing_that_lower_mood() {
         use super::test_support::entry_with;
-        use journal_storage::Timestamp;
+        use journal_core::Timestamp;
 
-        let dated = |created: &str, mood: i8, configure: fn(&mut journal_storage::Entry)| {
+        let dated = |created: &str, mood: i8, configure: fn(&mut journal_core::Entry)| {
             entry_with(|entry| {
                 entry.created_at = Some(Timestamp::parse(created));
                 entry.metadata.mood = Some(mood);
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn a_lift_pick_rotates_daily_within_its_group() {
         use super::test_support::entry_with;
-        use journal_storage::Timestamp;
+        use journal_core::Timestamp;
 
         let with_person = |created: &str, mood: i8, person: &str| {
             let person = person.to_string();

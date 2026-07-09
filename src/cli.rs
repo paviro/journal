@@ -2,7 +2,8 @@ use crate::{AppResult, config, editor, encryption_cli, prompts, tui};
 use anyhow::{Context, bail};
 use clap::{Args, Parser, Subcommand};
 use journal_core::feelings;
-use journal_storage::{JournalStore, MOOD_RANGE, Metadata, SecretString};
+use journal_core::{MOOD_RANGE, Metadata};
+use journal_storage::{JournalStore, SecretString};
 use std::{
     io::{self, Read},
     path::{Path, PathBuf},

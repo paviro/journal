@@ -7,7 +7,7 @@ use crate::{
         test_support::{app_with_entry, app_with_journals, new_app},
     },
 };
-use journal_storage::{Entry, EntryEncryptionState, SearchHit};
+use journal_core::{Entry, EntryEncryptionState, SearchHit};
 use ratatui::{Frame, Terminal, backend::TestBackend, layout::Rect, style::Modifier, text::Line};
 use std::fs;
 use std::path::PathBuf;
@@ -1669,10 +1669,10 @@ fn plain_entry(created_at: Option<&str>, preview: &str) -> Entry {
         journal: "work".to_string(),
         path: PathBuf::from("id.md"),
         encryption_state: EntryEncryptionState::Plain,
-        created_at: created_at.map(journal_storage::Timestamp::parse),
+        created_at: created_at.map(journal_core::Timestamp::parse),
         edited_at: None,
         preview: preview.to_string(),
-        metadata: journal_storage::Metadata::default(),
+        metadata: journal_core::Metadata::default(),
         location: None,
         import: None,
         content: String::new(),
@@ -1742,12 +1742,10 @@ fn entry_group_labels_use_created_timestamp() {
         journal: "work".to_string(),
         path: PathBuf::from("work/2026-01-01/id.md"),
         encryption_state: EntryEncryptionState::Plain,
-        created_at: Some(journal_storage::Timestamp::parse(
-            "2026-07-01T10:23:00+02:00",
-        )),
+        created_at: Some(journal_core::Timestamp::parse("2026-07-01T10:23:00+02:00")),
         edited_at: None,
         preview: String::new(),
-        metadata: journal_storage::Metadata::default(),
+        metadata: journal_core::Metadata::default(),
         location: None,
         import: None,
         content: String::new(),
@@ -1769,7 +1767,7 @@ fn entry_group_labels_fall_back_to_filename_date() {
         created_at: None,
         edited_at: None,
         preview: String::new(),
-        metadata: journal_storage::Metadata::default(),
+        metadata: journal_core::Metadata::default(),
         location: None,
         import: None,
         content: String::new(),

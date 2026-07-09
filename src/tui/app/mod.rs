@@ -3,10 +3,10 @@ use crate::{
     config::{Config, State},
 };
 use journal_core::feelings::{FEELING_GROUPS, normalize_feeling};
-use journal_storage::{
-    Entry, EntryEncryptionState, EntryPath, Journal, JournalStore, SearchHit, entry_group_date,
-    entry_timestamp_label, is_entry_file, search_loaded_entries,
+use journal_core::{
+    Entry, EntryEncryptionState, EntryPath, SearchHit, entry_group_date, search_loaded_entries,
 };
+use journal_storage::{Journal, JournalStore, entry_timestamp_label, is_entry_file};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -37,6 +37,9 @@ pub(crate) const ENTRY_LIST_MIN_WIDTH: u16 = 40;
 pub(crate) const TWO_PANEL_MIN_WIDTH: u16 = 87;
 pub(crate) const INLINE_ENTRY_VIEW_MIN_WIDTH: u16 = 125;
 
+/// Rows moved per PageUp/PageDown, as a multiple of a single-line scroll.
+const PAGE_STEP: i16 = 10;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Focus {
     Journals,
@@ -53,7 +56,7 @@ pub(crate) enum Mode {
     Search,
 }
 
-pub(crate) use journal_storage::SearchScope;
+pub(crate) use journal_core::SearchScope;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EntryTarget {
@@ -733,7 +736,7 @@ impl App {
     }
 
     pub(crate) fn page_entry_view(&mut self, delta: i16) {
-        self.scroll_entry_view(delta.saturating_mul(10));
+        self.scroll_entry_view(delta.saturating_mul(PAGE_STEP));
     }
 
     /// Scroll the insights list by `delta` rows. The offset saturates here and is
@@ -752,7 +755,7 @@ impl App {
     }
 
     pub(crate) fn page_insights(&mut self, delta: i16) {
-        self.scroll_insights(delta.saturating_mul(10));
+        self.scroll_insights(delta.saturating_mul(PAGE_STEP));
     }
 
     pub(crate) fn set_status(&mut self, message: impl Into<String>) {

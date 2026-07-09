@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{Datelike, NaiveDate, Timelike};
-use journal_storage::Entry;
+use journal_core::Entry;
 
 use crate::{Tally, period_key, period_label};
 
@@ -196,7 +196,7 @@ mod tests {
     use super::*;
     use crate::analyze;
     use crate::test_support::{date, entry_with, mood_entry, refs};
-    use journal_storage::Timestamp;
+    use journal_core::Timestamp;
 
     /// A dated entry with a given word count and a distinct id.
     fn entry(id: &str, created: &str, words: usize) -> Entry {

@@ -6,7 +6,7 @@ use thiserror::Error;
 /// branch on. Incidental IO failures stay as boxed [`AppResult`] errors, and
 /// encryption-specific failures live in [`EncryptionError`].
 ///
-/// [`AppResult`]: crate::AppResult
+/// [`AppResult`]: journal_core::AppResult
 /// [`EncryptionError`]: crate::EncryptionError
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum StorageError {

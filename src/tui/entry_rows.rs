@@ -1,4 +1,5 @@
-use journal_storage::{Entry, SearchHit, entry_group_date, parse_entry_timestamp};
+use journal_core::{Entry, SearchHit, entry_group_date};
+use journal_storage::parse_entry_timestamp;
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},

@@ -3,7 +3,8 @@
 //! `decrypt_store` restores readable plaintext, drops the recipients file,
 //! disables the identity, and leaves a backup.
 
-use journal_storage::{JournalStore, Metadata, SecretString};
+use journal_core::Metadata;
+use journal_storage::{JournalStore, SecretString};
 
 fn store_at(dir: &std::path::Path) -> JournalStore {
     JournalStore::new(dir.join("journals"), dir)
@@ -423,7 +424,7 @@ fn non_recipient_device_reads_locked_placeholders_and_knows_it_is_pending() {
     assert_eq!(entries.len(), 1);
     assert!(matches!(
         entries[0].encryption_state,
-        journal_storage::EntryEncryptionState::EncryptedLocked
+        journal_core::EntryEncryptionState::EncryptedLocked
     ));
 }
 

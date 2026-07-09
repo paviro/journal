@@ -4,39 +4,27 @@ use std::{
     path::{Path, PathBuf},
 };
 
-mod air;
-mod celestial;
-mod device_location;
 mod error;
-mod geocode;
-mod http;
 pub(crate) mod markdown;
 mod migrate;
 mod storage;
-mod weather;
 
+use journal_core::{
+    AppResult, Celestial, Entry, EntryPath, ImportSource, Location, Metadata, MetadataField,
+    Weather,
+};
 use journal_encryption as crypto;
 
-pub use air::fetch_air_quality;
-pub use celestial::compute_celestial;
-pub use device_location::{DeviceFix, DeviceLocationSource, device_location};
 pub use error::StorageError;
-pub use geocode::{GeocodeHit, geocode, reverse_geocode};
-pub use journal_core::{AirQuality, Celestial, Weather};
-pub use journal_core::{
-    AppResult, Entry, EntryEncryptionState, EntryPath, ImportSource, Location, MOOD_RANGE,
-    Metadata, MetadataField, SearchHit, SearchScope, Timestamp, search_loaded_entries,
-};
 pub use journal_encryption::{
     DeviceIdentityInfo, EncryptionError, ExposeSecret, PendingRequest, Recipient, SecretString,
 };
 pub use migrate::{DecryptSummary, MigrationSummary};
 pub use storage::{
-    ARCHIVED_SUFFIX, AssetFailure, AssetReport, EditOutcome, Journal, entry_group_date, entry_id,
+    ARCHIVED_SUFFIX, AssetFailure, AssetReport, EditOutcome, Journal, entry_id,
     entry_timestamp_label, is_archived_name, is_entry_file, journal_display_name,
     parse_entry_timestamp, sole_stored_image, stored_image_reference,
 };
-pub use weather::fetch_weather;
 
 /// Decode image bytes to a displayable sRGB image with EXIF orientation baked
 /// into the pixels. Both normalizations matter for terminal rendering:

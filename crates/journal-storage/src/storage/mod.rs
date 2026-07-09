@@ -1,13 +1,12 @@
-use crate::AppResult;
+use journal_core::AppResult;
 use std::{fs, path::Path};
 
 mod dates;
 mod entry;
 mod journals;
 
-pub use dates::{entry_group_date, entry_timestamp_label, parse_entry_timestamp};
+pub use dates::{entry_timestamp_label, parse_entry_timestamp};
 pub use entry::Entry;
-pub(crate) use entry::entry_date_from_path;
 pub use entry::entry_id;
 pub use entry::is_entry_file;
 pub use entry::sole_stored_image;

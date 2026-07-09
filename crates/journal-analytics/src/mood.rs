@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use chrono::{Datelike, NaiveDate};
-use journal_storage::Entry;
+use journal_core::Entry;
 
 use crate::{MoodBucket, Tally, period_key, period_label, sort_by_count_desc};
 

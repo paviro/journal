@@ -1,7 +1,7 @@
 use super::codec::EntryCodec;
 use super::paths::entry_assets_dir;
-use crate::AppResult;
 use anyhow::{Context, bail};
+use journal_core::AppResult;
 use journal_encryption::{self as crypto, KeyPaths};
 use std::{
     fs,

@@ -1,4 +1,5 @@
-use journal_storage::{Entry, JournalStore, Metadata, SecretString};
+use journal_core::{Entry, Metadata};
+use journal_storage::{JournalStore, SecretString};
 use std::{
     env, fs,
     io::Write,

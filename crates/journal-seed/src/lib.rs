@@ -13,7 +13,8 @@
 
 use chrono::{Duration, Local};
 use journal_core::feelings::{self, FEELING_GROUPS};
-use journal_storage::{AppResult, ImportSource, JournalStore, MOOD_RANGE, Metadata};
+use journal_core::{AppResult, ImportSource, MOOD_RANGE, Metadata};
+use journal_storage::JournalStore;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 /// The `source` value stamped into every generated entry's `[import]` block.

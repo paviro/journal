@@ -2,7 +2,7 @@ use super::*;
 use crate::tui::geocode::{GeocodeQuery, GeocodeRequest};
 use crate::tui::state::{EditLocationState, LocationPreset, LocationResolveStatus};
 use chrono::{DateTime, FixedOffset};
-use journal_storage::Location;
+use journal_core::Location;
 use std::collections::HashMap;
 
 /// How many of the most-recent distinct places lead the preset list before it

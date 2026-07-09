@@ -21,5 +21,3 @@ pub use edit::{
 pub use paths::entry_path;
 pub use paths::{entry_id, is_encrypted_entry_file, is_entry_file, is_plain_entry_file};
 pub use read::{collect_entry_paths, read_entries, read_entry, read_entry_content, scan_entries};
-
-pub(crate) use paths::entry_date_from_path;

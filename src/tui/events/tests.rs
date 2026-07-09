@@ -350,7 +350,7 @@ fn location_dialog_keys_route_by_focus() {
         let state = app.edit_location_state_mut().unwrap();
         state.presets.push(LocationPreset {
             label: "Berlin".to_string(),
-            location: journal_storage::Location {
+            location: journal_core::Location {
                 city: Some("Berlin".to_string()),
                 ..Default::default()
             },
@@ -816,7 +816,7 @@ fn select_created_entry_path_opens_expanded_entry_view() {
         .create_entry_with_body(
             "work",
             "# Created\nBody\n",
-            &journal_storage::Metadata::default(),
+            &journal_core::Metadata::default(),
         )
         .unwrap();
     app.refresh().unwrap();

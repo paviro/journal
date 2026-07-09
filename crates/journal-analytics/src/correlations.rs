@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use journal_storage::Entry;
+use journal_core::Entry;
 
 use crate::sort_by_count_desc;
 
@@ -172,7 +172,7 @@ mod tests {
     use super::*;
     use crate::analyze;
     use crate::test_support::{date, entry_with, refs};
-    use journal_storage::Timestamp;
+    use journal_core::Timestamp;
 
     /// An entry with a mood, people, and feelings.
     fn entry(created: &str, mood: Option<i8>, people: &[&str], feelings: &[&str]) -> Entry {

@@ -4,8 +4,9 @@
 
 use std::fs;
 
+use journal_core::ImportSource;
 use journal_import::import_dayone;
-use journal_storage::{ImportSource, JournalStore};
+use journal_storage::JournalStore;
 use tempfile::TempDir;
 
 /// The provenance a Day One import records for the entry with this uuid.

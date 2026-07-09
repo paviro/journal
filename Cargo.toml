@@ -6,7 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [workspace]
-members = ["crates/journal-core", "crates/journal-encryption", "crates/journal-storage", "crates/journal-import", "crates/journal-analytics", "crates/journal-seed", "crates/journal-locate"]
+members = ["crates/journal-core", "crates/journal-encryption", "crates/journal-storage", "crates/journal-context-provider", "crates/journal-import", "crates/journal-analytics", "crates/journal-seed", "crates/journal-locate"]
 
 # One version for the whole workspace: the macOS location helper stamps this into
 # its bundle and the runtime checks it, so the crates must not drift apart.
@@ -30,6 +30,7 @@ indicatif = "0.17"
 # hand it images we already decoded on the 0.25 side (see `tui::image::to_rascii_image`).
 image_024 = { package = "image", version = "0.24", default-features = false }
 journal-analytics = { path = "crates/journal-analytics" }
+journal-context-provider = { path = "crates/journal-context-provider" }
 journal-core = { path = "crates/journal-core" }
 journal-import = { path = "crates/journal-import" }
 journal-seed = { path = "crates/journal-seed" }

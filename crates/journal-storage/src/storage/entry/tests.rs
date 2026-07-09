@@ -327,7 +327,7 @@ fn scan_entries_returns_locked_placeholder_for_encrypted_entry_without_key() {
     assert_eq!(entries[0].preview, "[locked] Encrypted entry");
     assert_eq!(entries[0].content, "Encryption identity not available");
     assert_eq!(
-        crate::storage::entry_group_date(&entries[0]),
+        journal_core::entry_group_date(&entries[0]),
         Some(chrono::NaiveDate::from_ymd_opt(2026, 7, 1).unwrap())
     );
 }

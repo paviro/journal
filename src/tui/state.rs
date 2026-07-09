@@ -3,8 +3,9 @@
 
 use std::time::{Duration, Instant};
 
+use journal_context_provider::{DeviceFix, GeocodeHit};
 use journal_core::feelings::FeelingGroup;
-use journal_storage::{DeviceFix, GeocodeHit, Location, SearchHit};
+use journal_core::{Location, SearchHit};
 use ratatui::widgets::ListState;
 
 use super::app::SearchScope;
@@ -1237,7 +1238,7 @@ mod tests {
             latitude: lat,
             longitude: lon,
             accuracy_m: Some(12.0),
-            source: journal_storage::DeviceLocationSource::CoreLocation,
+            source: journal_context_provider::DeviceLocationSource::CoreLocation,
         }
     }
 
