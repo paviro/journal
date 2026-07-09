@@ -869,6 +869,13 @@ impl EditLocationState {
                     location.latitude = resolved.latitude.or(location.latitude);
                     location.longitude = resolved.longitude.or(location.longitude);
                 }
+                // A POI/venue name fills the name field unless the user typed one,
+                // so composed() (which takes the name from that field) keeps it.
+                if self.name.trim().is_empty()
+                    && let Some(name) = &location.name
+                {
+                    self.name = name.clone();
+                }
                 self.resolved = Some(location);
                 self.status = LocationResolveStatus::Resolved;
             }
@@ -1354,6 +1361,28 @@ mod tests {
         assert_eq!(resolved.latitude, Some(1.0));
         assert_eq!(resolved.longitude, Some(2.0));
         assert_eq!(resolved.city.as_deref(), Some("Town"));
+    }
+
+    #[test]
+    fn location_reverse_poi_name_survives_into_composed() {
+        let mut state = EditLocationState::new(None, Vec::new());
+        state.seed_coordinates(52.52, 13.405);
+        // A reverse hit that carries a POI/venue name, user hasn't typed one.
+        let poi = GeocodeHit {
+            display_name: "Corner Cafe".to_string(),
+            location: Location {
+                name: Some("Corner Cafe".to_string()),
+                city: Some("Berlin".to_string()),
+                latitude: Some(9.9),
+                longitude: Some(9.9),
+                ..Location::default()
+            },
+        };
+        state.apply_reverse(Some(poi));
+
+        let composed = state.composed().unwrap();
+        assert_eq!(composed.name.as_deref(), Some("Corner Cafe"), "POI name saved");
+        assert_eq!(composed.latitude, Some(52.52), "grabbed coordinates kept");
     }
 
     #[test]
