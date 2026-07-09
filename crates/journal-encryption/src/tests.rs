@@ -101,6 +101,18 @@ fn pending_request_round_trips_and_clears() {
 }
 
 #[test]
+fn malformed_pending_request_is_ignored() {
+    let dir = tempdir().unwrap();
+    let paths = paths_in(dir.path());
+    fs::create_dir_all(&paths.age_dir).unwrap();
+    fs::write(paths.age_dir.join("pending-bad.toml"), "not valid = [").unwrap();
+
+    let pending = read_pending(&paths).unwrap();
+
+    assert!(pending.is_empty());
+}
+
+#[test]
 fn add_recipient_rejects_duplicate_key_and_name() {
     let dir = tempdir().unwrap();
     let paths = paths_in(dir.path());

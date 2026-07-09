@@ -62,7 +62,12 @@ pub fn read_pending(paths: &KeyPaths) -> Result<Vec<PendingRequest>> {
         else {
             continue;
         };
-        let parsed: PendingFile = toml::from_str(&fs::read_to_string(entry.path())?)?;
+        let Ok(text) = fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let Ok(parsed) = toml::from_str::<PendingFile>(&text) else {
+            continue;
+        };
         // Drop a request whose self-signature doesn't check out: it was corrupted
         // or forged in the synced folder. A genuine device can re-submit.
         if !verify_signature(
