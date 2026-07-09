@@ -11,14 +11,14 @@ use crate::AppResult;
 use serde::Deserialize;
 use std::{sync::mpsc, thread, time::Duration};
 
-#[cfg(target_os = "android")]
-mod termux;
 #[cfg(target_os = "linux")]
 mod geoclue;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "android")]
+mod termux;
 
-/// Which backend produced a fix — useful context for the status line and logs.
+/// Which backend produced a fix — recorded on the saved location's metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceLocationSource {
     /// macOS CoreLocation.
@@ -27,6 +27,23 @@ pub enum DeviceLocationSource {
     GeoClue,
     /// Termux `termux-location` (Android).
     Termux,
+}
+
+impl DeviceLocationSource {
+    /// The slug stored in an entry's location metadata.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CoreLocation => "corelocation",
+            Self::GeoClue => "geoclue",
+            Self::Termux => "termux",
+        }
+    }
+}
+
+impl std::fmt::Display for DeviceLocationSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// A single position reading from the device.
@@ -84,10 +101,7 @@ fn run_with_timeout<T: Send + 'static>(
 /// `termux-location` and the macOS `journal-locate` helper) into a [`DeviceFix`].
 /// Kept out of the platform modules so it can be unit-tested on any host.
 /// `accuracy` is optional; missing coordinates mean no fix was obtained.
-#[cfg_attr(
-    not(any(target_os = "android", target_os = "macos")),
-    allow(dead_code)
-)]
+#[cfg_attr(not(any(target_os = "android", target_os = "macos")), allow(dead_code))]
 fn parse_fix_json(body: &str, source: DeviceLocationSource) -> AppResult<DeviceFix> {
     #[derive(Deserialize)]
     struct Raw {
@@ -132,9 +146,11 @@ mod tests {
 
     #[test]
     fn parse_fix_json_accuracy_optional_and_carries_source() {
-        let fix =
-            parse_fix_json(r#"{"latitude": 1.0, "longitude": 2.0}"#, DeviceLocationSource::CoreLocation)
-                .unwrap();
+        let fix = parse_fix_json(
+            r#"{"latitude": 1.0, "longitude": 2.0}"#,
+            DeviceLocationSource::CoreLocation,
+        )
+        .unwrap();
         assert_eq!(fix.accuracy_m, None);
         assert_eq!(fix.source, DeviceLocationSource::CoreLocation);
     }
@@ -142,7 +158,13 @@ mod tests {
     #[test]
     fn parse_fix_json_errors_without_coordinates() {
         // A location read that never got a fix comes back with nulls.
-        assert!(parse_fix_json(r#"{"latitude": null, "longitude": null}"#, DeviceLocationSource::Termux).is_err());
+        assert!(
+            parse_fix_json(
+                r#"{"latitude": null, "longitude": null}"#,
+                DeviceLocationSource::Termux
+            )
+            .is_err()
+        );
         assert!(parse_fix_json("not json", DeviceLocationSource::Termux).is_err());
     }
 }

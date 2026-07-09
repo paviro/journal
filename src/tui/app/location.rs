@@ -178,11 +178,11 @@ impl App {
                 continue;
             }
             state.pending_request_id = None;
-            // A device grab returns coordinates first: adopt them as the resolved,
-            // saveable value and mirror them into the query field before the
-            // reverse-geocoded names (handled by the branch below) land.
-            if let Some((lat, lon)) = result.device_coords {
-                state.seed_coordinates(lat, lon);
+            // A device grab returns its fix first: adopt the coordinates (and
+            // accuracy/source) as the resolved, saveable value and mirror them
+            // into the query field before the reverse-geocoded names land below.
+            if let Some(fix) = &result.device_fix {
+                state.seed_device_fix(fix);
             }
             match result.hits {
                 Ok(hits) if result.reverse => state.apply_reverse(hits.into_iter().next()),

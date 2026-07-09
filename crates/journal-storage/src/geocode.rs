@@ -162,6 +162,9 @@ fn place_to_hit(place: NominatimPlace) -> Option<GeocodeHit> {
         country: address.country,
         latitude: place.lat.as_deref().and_then(|value| value.parse().ok()),
         longitude: place.lon.as_deref().and_then(|value| value.parse().ok()),
+        // A geocoded place has no device accuracy or provider.
+        accuracy_m: None,
+        source: None,
     };
     if location.is_empty() {
         return None;

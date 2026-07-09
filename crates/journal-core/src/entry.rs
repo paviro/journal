@@ -92,6 +92,12 @@ pub struct Location {
     pub latitude: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub longitude: Option<f64>,
+    /// Horizontal accuracy in metres, set only for a device ("grab GPS") fix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accuracy_m: Option<f64>,
+    /// The provider a device fix came from (e.g. `corelocation`); unset otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 /// Provenance of an imported entry: which tool it came from and that tool's own
@@ -109,13 +115,16 @@ impl Location {
         *self == Location::default()
     }
 
-    /// Whether any named part is set — i.e. more than the bare coordinates. Used
-    /// to tell a fully-resolved location from one that only has a lat/lon pair
-    /// still awaiting a reverse lookup.
+    /// Whether any named part is set — i.e. more than the bare coordinates (and
+    /// the device-fix metadata that rides along with them). Used to tell a
+    /// fully-resolved location from one that only has a lat/lon pair still
+    /// awaiting a reverse lookup.
     pub fn has_named_parts(&self) -> bool {
         let coords_only = Location {
             latitude: self.latitude,
             longitude: self.longitude,
+            accuracy_m: self.accuracy_m,
+            source: self.source.clone(),
             ..Location::default()
         };
         *self != coords_only

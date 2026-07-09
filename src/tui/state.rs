@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use journal_core::feelings::FeelingGroup;
-use journal_storage::{GeocodeHit, Location, SearchHit};
+use journal_storage::{DeviceFix, GeocodeHit, Location, SearchHit};
 use ratatui::widgets::ListState;
 
 use super::app::SearchScope;
@@ -845,14 +845,17 @@ impl EditLocationState {
     }
 
     /// Adopt a freshly grabbed device fix: mirror the coordinates into the query
-    /// field and make them the resolved, saveable value. Any stale address fields
-    /// are dropped — the reverse-geocoded names for this new spot arrive next, via
+    /// field and make them — with their accuracy and provider — the resolved,
+    /// saveable value. Any stale address fields are dropped; the reverse-geocoded
+    /// names for this new spot arrive next, via
     /// [`apply_reverse`](Self::apply_reverse).
-    pub(crate) fn seed_coordinates(&mut self, lat: f64, lon: f64) {
-        self.query = format!("{lat}, {lon}");
+    pub(crate) fn seed_device_fix(&mut self, fix: &DeviceFix) {
+        self.query = format!("{}, {}", fix.latitude, fix.longitude);
         self.resolved = Some(Location {
-            latitude: Some(lat),
-            longitude: Some(lon),
+            latitude: Some(fix.latitude),
+            longitude: Some(fix.longitude),
+            accuracy_m: fix.accuracy_m,
+            source: Some(fix.source.to_string()),
             ..Location::default()
         });
     }
@@ -864,10 +867,13 @@ impl EditLocationState {
         match hit {
             Some(hit) => {
                 let mut location = hit.location;
-                // Prefer the coordinates the user actually entered.
+                // Keep the coordinates the user entered or the device grabbed,
+                // along with that grab's accuracy and provider.
                 if let Some(resolved) = &self.resolved {
                     location.latitude = resolved.latitude.or(location.latitude);
                     location.longitude = resolved.longitude.or(location.longitude);
+                    location.accuracy_m = resolved.accuracy_m.or(location.accuracy_m);
+                    location.source = resolved.source.clone().or(location.source);
                 }
                 // A POI/venue name fills the name field unless the user typed one,
                 // so composed() (which takes the name from that field) keeps it.
@@ -1226,6 +1232,15 @@ mod tests {
         }
     }
 
+    fn device_fix(lat: f64, lon: f64) -> DeviceFix {
+        DeviceFix {
+            latitude: lat,
+            longitude: lon,
+            accuracy_m: Some(12.0),
+            source: journal_storage::DeviceLocationSource::CoreLocation,
+        }
+    }
+
     #[test]
     fn location_composes_name_only_and_clears_when_empty() {
         let mut state = EditLocationState::new(None, Vec::new());
@@ -1366,7 +1381,7 @@ mod tests {
     #[test]
     fn location_reverse_poi_name_survives_into_composed() {
         let mut state = EditLocationState::new(None, Vec::new());
-        state.seed_coordinates(52.52, 13.405);
+        state.seed_device_fix(&device_fix(52.52, 13.405));
         // A reverse hit that carries a POI/venue name, user hasn't typed one.
         let poi = GeocodeHit {
             display_name: "Corner Cafe".to_string(),
@@ -1381,7 +1396,11 @@ mod tests {
         state.apply_reverse(Some(poi));
 
         let composed = state.composed().unwrap();
-        assert_eq!(composed.name.as_deref(), Some("Corner Cafe"), "POI name saved");
+        assert_eq!(
+            composed.name.as_deref(),
+            Some("Corner Cafe"),
+            "POI name saved"
+        );
         assert_eq!(composed.latitude, Some(52.52), "grabbed coordinates kept");
     }
 
@@ -1396,20 +1415,28 @@ mod tests {
         });
 
         // A grabbed fix mirrors into the query field and becomes the resolved,
-        // saveable coordinates — with the stale address dropped.
-        state.seed_coordinates(52.52, 13.405);
+        // saveable coordinates (with accuracy + provider) — stale address dropped.
+        state.seed_device_fix(&device_fix(52.52, 13.405));
         assert_eq!(state.query, "52.52, 13.405");
         let resolved = state.resolved.clone().unwrap();
         assert_eq!(resolved.latitude, Some(52.52));
         assert_eq!(resolved.longitude, Some(13.405));
+        assert_eq!(resolved.accuracy_m, Some(12.0));
+        assert_eq!(resolved.source.as_deref(), Some("corelocation"));
         assert!(resolved.city.is_none(), "stale address is cleared");
 
         // The reverse lookup then names the spot, keeping the grabbed coordinates
-        // and the name the user had typed.
+        // (with accuracy + provider) and the name the user had typed.
         state.apply_reverse(Some(hit("Berlin", 9.9, 9.9)));
         let composed = state.composed().unwrap();
         assert_eq!(composed.latitude, Some(52.52));
         assert_eq!(composed.longitude, Some(13.405));
+        assert_eq!(composed.accuracy_m, Some(12.0), "device accuracy kept");
+        assert_eq!(
+            composed.source.as_deref(),
+            Some("corelocation"),
+            "provider kept"
+        );
         assert_eq!(composed.city.as_deref(), Some("Berlin"));
         assert_eq!(composed.name.as_deref(), Some("Desk"), "typed name kept");
     }
