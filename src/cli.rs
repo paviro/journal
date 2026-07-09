@@ -72,6 +72,14 @@ enum CliCommand {
         #[arg(value_name = "DEPENDENCY")]
         dependency: Option<String>,
     },
+    /// Mount the journal as a decrypted, writable filesystem
+    #[cfg(feature = "fuse")]
+    Mount {
+        /// Directory to mount at (created if missing). Omit to use a temporary
+        /// directory — on macOS the journal still appears as a drive in Finder.
+        #[arg(value_name = "MOUNTPOINT")]
+        mountpoint: Option<PathBuf>,
+    },
     /// Fill a journal with backdated fake entries [debug builds only]
     #[cfg(debug_assertions)]
     Sample(SampleArgs),
@@ -264,6 +272,8 @@ fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppRe
         },
         CliCommand::Encryption { command } => handle_encryption_command(cli, command),
         CliCommand::Licenses { dependency } => crate::licenses::run(dependency.clone()),
+        #[cfg(feature = "fuse")]
+        CliCommand::Mount { mountpoint } => mount_command(cli, mountpoint.as_deref()),
         #[cfg(debug_assertions)]
         CliCommand::Sample(args) => generate_sample_data(cli, args),
     }
@@ -360,6 +370,82 @@ fn open_unlocked_store_with_passphrase(
 
 fn open_unlocked_store(cli: &Cli) -> AppResult<JournalStore> {
     Ok(open_unlocked_store_with_passphrase(cli)?.0)
+}
+
+/// Mount the whole journal store as a decrypted filesystem. Journals appear as
+/// top-level folders; entries and their assets are decrypted on read and
+/// re-encrypted on write. Only encrypted journals can be mounted — for a
+/// plaintext journal a mount would add nothing over the files already on disk.
+/// The identity is unlocked first, prompting only when the key is passphrase-
+/// protected. Blocks until unmounted.
+///
+/// With no `mountpoint` a temporary directory is created and used (on macOS the
+/// journal still shows up as a drive in Finder); an explicit path is created if
+/// it doesn't exist. Either way, a directory we created is removed after unmount.
+#[cfg(feature = "fuse")]
+fn mount_command(cli: &Cli, mountpoint: Option<&Path>) -> AppResult<()> {
+    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+    let mut store = JournalStore::for_config(&config_path, &config.journal.path)?;
+    store.ensure()?;
+
+    if !store.encryption_enabled() {
+        bail!(
+            "`journal mount` is only for encrypted journals; this journal is not encrypted. \
+             Enable encryption with `journal encryption enable`, or open the files directly."
+        );
+    }
+    if !store.unlock_available() {
+        bail!(
+            "this journal is encrypted but this device has no key; run `{}` first",
+            crate::ENROLL_CMD
+        );
+    }
+
+    // Resolve the mount point. An explicit path is created if missing; with none,
+    // fall back to a fresh temp directory. `created` tracks whether we made the
+    // directory so we can remove it again on unmount and leave nothing behind.
+    let (mount_path, created): (PathBuf, bool) = match mountpoint {
+        Some(path) if path.exists() => {
+            if !path.is_dir() {
+                bail!("mount point {} is not a directory", path.display());
+            }
+            (path.to_path_buf(), false)
+        }
+        Some(path) => {
+            std::fs::create_dir_all(path)
+                .with_context(|| format!("creating mount point {}", path.display()))?;
+            (path.to_path_buf(), true)
+        }
+        None => {
+            let path = std::env::temp_dir().join(format!("journal-mount-{}", std::process::id()));
+            std::fs::create_dir_all(&path)
+                .with_context(|| format!("creating mount point {}", path.display()))?;
+            (path, true)
+        }
+    };
+
+    let passphrase = if store.identity_needs_passphrase()? {
+        Some(prompts::prompt_unlock_passphrase()?)
+    } else {
+        None
+    };
+    store.unlock(passphrase.as_ref())?;
+
+    println!(
+        "Mounting journal at {}. Unmount with `umount {}` (macOS: `diskutil unmount`) or Ctrl-C.",
+        mount_path.display(),
+        mount_path.display()
+    );
+    journal_fuse::mount(store, &mount_path)?;
+    println!("Unmounted {}.", mount_path.display());
+
+    // Best-effort cleanup after unmount, only for a directory we created (and
+    // only while empty — the mount left it as we found it). Ctrl-C kills the
+    // process before this runs; the empty directory is harmless if it lingers.
+    if created {
+        let _ = std::fs::remove_dir(&mount_path);
+    }
+    Ok(())
 }
 
 fn device_passphrase_command(cli: &Cli, args: &PassphraseArgs) -> AppResult<()> {

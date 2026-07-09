@@ -2015,6 +2015,7 @@ dependencies = [
  "journal-analytics",
  "journal-context-provider",
  "journal-core",
+ "journal-fuse",
  "journal-import",
  "journal-seed",
  "journal-storage",
@@ -2082,6 +2083,19 @@ dependencies = [
  "thiserror 2.0.18",
  "toml 1.1.2+spec-1.1.0",
  "zeroize",
+]
+
+[[package]]
+name = "journal-fuse"
+version = "2026.7.1"
+dependencies = [
+ "anyhow",
+ "cc",
+ "journal-core",
+ "journal-storage",
+ "libc",
+ "pkg-config",
+ "tempfile",
 ]
 
 [[package]]
@@ -2923,6 +2937,12 @@ dependencies = [
  "der",
  "spki",
 ]
+
+[[package]]
+name = "pkg-config"
+version = "0.3.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
 name = "png"

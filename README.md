@@ -26,6 +26,8 @@ on light, dark, and monochrome/e-ink terminals.
 - **End-to-end encryption** — per-device [age](https://age-encryption.org) keys,
   a signed device roster, and an approval flow for adding new devices. Private
   keys never leave the device.
+- **Decrypted FUSE mount** — expose an encrypted journal as a writable, decrypted
+  filesystem (separate `-fuse` build). See [Mount as a filesystem](#mount-as-a-filesystem-fuse).
 
 ## Install
 
@@ -288,6 +290,54 @@ journal encryption disable            # decrypts every entry and turns encryptio
 
 Destructive encryption operations prompt for confirmation; pass `-y`/`--yes` to
 skip the prompt in scripts.
+
+## Mount as a filesystem (FUSE)
+
+Mount an encrypted journal as an ordinary, decrypted directory — grep it, open
+entries in any editor, drop images into an entry's assets folder — while the
+store stays encrypted on disk. Plaintext only ever lives in memory; nothing
+decrypted is written to disk.
+
+```bash
+journal mount ~/journal-mnt        # blocks until unmounted
+umount ~/journal-mnt               # macOS: diskutil unmount ~/journal-mnt
+```
+
+- Journals appear as top-level folders; entries as `.md` files under
+  `<journal>/<year>/<month>/<day>/`, with each entry's `.assets/` alongside.
+- Fully read-write: editing, creating, deleting, and renaming files and folders
+  (including moving entries between folders and renaming journals) are
+  re-encrypted back to disk.
+- Only encrypted journals can be mounted — for a plaintext journal the files on
+  disk are already readable.
+
+This needs a **fuse-enabled build** with FUSE installed:
+
+- **macOS** — download the separate `-fuse` build and install a FUSE provider.
+  [fuse-t](https://www.fuse-t.org) is kext-free (nothing to approve) and is what
+  this has been tested with; [macFUSE](https://macfuse.io) should also work. The
+  volume shows up in Finder as **Journals**.
+- **Linux** — build from source with libfuse3: install `libfuse3-dev`, then
+  `cargo build --release --features fuse`. (No prebuilt Linux `-fuse` download —
+  it links libfuse3 and so isn't cross-compiled with the macOS releases.)
+
+The standard builds have no FUSE dependency and omit this command.
+
+Deleted entries stay recoverable: the `.trash` folder is browsable, so a trashed
+entry can be moved back into its journal. Changes made to the store by another
+process while mounted (a second `journal` instance, a sync client) show up
+promptly — the mount reads from disk on every access.
+
+One caveat: don't edit the **same entry** through the mount and via `journal` (or
+another syncing device) at the same time. If you have an entry open in a mounted
+editor and something else changes that entry on disk meanwhile, saving in the
+editor writes back the whole file and wins — silently discarding the other
+change. Editing different entries, or one at a time, is always safe. (This is the
+same last-save-wins behavior any file has when two editors hold it open at once.)
+
+Also, as in the raw journal folder, renaming an entry file does not move its
+`<id>.assets` sibling — the folder name is tied to the entry id. On macOS,
+fuse-t's own layer may lag a few seconds before external changes appear.
 
 ## Configuration
 

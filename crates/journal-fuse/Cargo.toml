@@ -1,0 +1,23 @@
+[package]
+name = "journal-fuse"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow = "1"
+journal-core = { path = "../journal-core" }
+journal-storage = { path = "../journal-storage" }
+libc = "0.2"
+
+[build-dependencies]
+# Compile the C bridge (bridge.c) and link the system libfuse3. Using libfuse's
+# own high-level API means the mount is driven by libfuse's event loop, which is
+# what kext-free backends like fuse-t require — and it works equally with libfuse3
+# on Linux and macFUSE on macOS.
+cc = "1"
+pkg-config = "0.3"
+
+[dev-dependencies]
+tempfile = "3"

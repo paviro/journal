@@ -331,9 +331,11 @@ dependencies = [
     "package-macos-universal"
 ]
 
-# Build and package in one go
-[tasks.release-all]
-description = "Build and package all platforms"
+# The release command: every artifact buildable on a Mac — all standard platform
+# binaries plus the signed+notarized macOS FUSE builds. (Linux FUSE binaries are
+# built separately on Linux: release-fuse-linux.)
+[tasks.release]
+description = "Build, sign, package and notarize every release artifact buildable on a Mac"
 dependencies = [
     "check-apple-credentials",
     "run-tests",
@@ -341,7 +343,10 @@ dependencies = [
     "package-all",
     "notarize-macos-intel",
     "notarize-macos-silicon",
-    "notarize-macos-universal"
+    "notarize-macos-universal",
+    "notarize-fuse-macos-intel",
+    "notarize-fuse-macos-silicon",
+    "notarize-fuse-macos-universal"
 ]
 
 # A release is signed and notarized, so refuse to start one without the Apple
@@ -360,7 +365,7 @@ missing=""
 [ -n "$APPLE_USERNAME" ] || missing="$missing APPLE_USERNAME"
 [ -n "$APPLE_PASSWORD" ] || missing="$missing APPLE_PASSWORD"
 if [ -n "$missing" ]; then
-    echo "release-all needs Apple credentials for signing + notarization; missing:$missing" >&2
+    echo "release needs Apple credentials for signing + notarization; missing:$missing" >&2
     echo "Set them in ./.env, or use \`cargo build --release\` for an unsigned local build." >&2
     exit 1
 fi
@@ -453,3 +458,289 @@ if [ -z "$APPLE_USERNAME" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$TEAM_ID" ]; th
 fi
 xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
 '''
+
+# ------------------------------------------------------------------------------
+# macOS FUSE builds
+#
+# The same `journal` binary built with `--features fuse` (mounts an encrypted
+# journal as a decrypted filesystem). Links libfuse3, so it needs macFUSE or
+# fuse-t installed to build and run. Zips are `<platform>-fuse.zip`; builds go to
+# `target/fuse/` so they don't clobber the standard artifacts.
+# ------------------------------------------------------------------------------
+
+[tasks.build-fuse-macos-intel]
+description = "Build Intel macOS with FUSE"
+command = "cargo"
+args = ["build", "--release", "--features", "fuse", "--target", "x86_64-apple-darwin"]
+env = { CARGO_TARGET_DIR = "target/fuse" }
+env_files = ["./.env"]
+
+[tasks.build-fuse-macos-silicon]
+description = "Build Apple Silicon macOS with FUSE"
+command = "cargo"
+args = ["build", "--release", "--features", "fuse", "--target", "aarch64-apple-darwin"]
+env = { CARGO_TARGET_DIR = "target/fuse" }
+env_files = ["./.env"]
+
+[tasks.build-fuse-macos-universal]
+description = "Build universal macOS FUSE binary (Intel + Apple Silicon)"
+dependencies = ["build-fuse-macos-intel", "build-fuse-macos-silicon"]
+script = '''
+mkdir -p target/fuse/universal-apple-darwin/release
+lipo -create \
+    target/fuse/x86_64-apple-darwin/release/journal \
+    target/fuse/aarch64-apple-darwin/release/journal \
+    -output target/fuse/universal-apple-darwin/release/journal
+'''
+
+# macOS only: releases are built on a Mac, and the FUSE feature links libfuse3
+# (C), which doesn't cross-compile to Linux without a sysroot. Build the Linux
+# FUSE binary natively on Linux (see README).
+
+# Signing (macOS FUSE binaries)
+[tasks.sign-fuse-macos-intel]
+description = "Sign Intel macOS FUSE binary if APPLE_DEVELOPER_ID is set"
+dependencies = ["build-fuse-macos-intel"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+BINARY_PATH="target/fuse/x86_64-apple-darwin/release/journal"
+if [ -z "$APPLE_DEVELOPER_ID" ]; then
+    echo "APPLE_DEVELOPER_ID not set, cannot sign Intel macOS FUSE binary." >&2
+    exit 1
+fi
+codesign --sign "$APPLE_DEVELOPER_ID" --timestamp --options runtime "$BINARY_PATH"
+'''
+
+[tasks.sign-fuse-macos-silicon]
+description = "Sign Apple Silicon macOS FUSE binary if APPLE_DEVELOPER_ID is set"
+dependencies = ["build-fuse-macos-silicon"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+BINARY_PATH="target/fuse/aarch64-apple-darwin/release/journal"
+if [ -z "$APPLE_DEVELOPER_ID" ]; then
+    echo "APPLE_DEVELOPER_ID not set, cannot sign Apple Silicon macOS FUSE binary." >&2
+    exit 1
+fi
+codesign --sign "$APPLE_DEVELOPER_ID" --timestamp --options runtime "$BINARY_PATH"
+'''
+
+[tasks.sign-fuse-macos-universal]
+description = "Sign Universal macOS FUSE binary if APPLE_DEVELOPER_ID is set"
+dependencies = ["build-fuse-macos-universal"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+BINARY_PATH="target/fuse/universal-apple-darwin/release/journal"
+if [ -z "$APPLE_DEVELOPER_ID" ]; then
+    echo "APPLE_DEVELOPER_ID not set, cannot sign Universal macOS FUSE binary." >&2
+    exit 1
+fi
+codesign --sign "$APPLE_DEVELOPER_ID" --timestamp --options runtime "$BINARY_PATH"
+'''
+
+# Packaging (FUSE): same `journal` binary, `<platform>-fuse.zip` name.
+[tasks.package-fuse-macos-intel]
+description = "Package Intel macOS FUSE binary"
+dependencies = ["create-release-dir", "sign-fuse-macos-intel"]
+script = '''
+BINARY_NAME="journal"
+PLATFORM="apple-darwin-x86_64-fuse"
+cp "target/fuse/x86_64-apple-darwin/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-fuse-macos-silicon]
+description = "Package Apple Silicon macOS FUSE binary"
+dependencies = ["create-release-dir", "sign-fuse-macos-silicon"]
+script = '''
+BINARY_NAME="journal"
+PLATFORM="apple-darwin-aarch64-fuse"
+cp "target/fuse/aarch64-apple-darwin/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-fuse-macos-universal]
+description = "Package Universal macOS FUSE binary"
+dependencies = ["create-release-dir", "sign-fuse-macos-universal"]
+script = '''
+BINARY_NAME="journal"
+PLATFORM="apple-darwin-universal-fuse"
+cp "target/fuse/universal-apple-darwin/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+# Notarization (macOS FUSE zips)
+[tasks.notarize-fuse-macos-intel]
+description = "Notarize Intel macOS FUSE zip"
+dependencies = ["package-fuse-macos-intel"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+ZIP_PATH="release/apple-darwin-x86_64-fuse.zip"
+TEAM_ID=$(echo "$APPLE_DEVELOPER_ID" | sed -n 's/.*(\(.*\)).*/\1/p')
+if [ -z "$APPLE_USERNAME" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$TEAM_ID" ]; then
+    echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID team id not set, cannot notarize Intel macOS FUSE zip." >&2
+    exit 1
+fi
+xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
+'''
+
+[tasks.notarize-fuse-macos-silicon]
+description = "Notarize Apple Silicon macOS FUSE zip"
+dependencies = ["package-fuse-macos-silicon"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+ZIP_PATH="release/apple-darwin-aarch64-fuse.zip"
+TEAM_ID=$(echo "$APPLE_DEVELOPER_ID" | sed -n 's/.*(\(.*\)).*/\1/p')
+if [ -z "$APPLE_USERNAME" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$TEAM_ID" ]; then
+    echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID team id not set, cannot notarize Apple Silicon macOS FUSE zip." >&2
+    exit 1
+fi
+xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
+'''
+
+[tasks.notarize-fuse-macos-universal]
+description = "Notarize Universal macOS FUSE zip"
+dependencies = ["package-fuse-macos-universal"]
+env_files = ["./.env"]
+condition = { files_exist = ["./.env"] }
+script = '''
+ZIP_PATH="release/apple-darwin-universal-fuse.zip"
+TEAM_ID=$(echo "$APPLE_DEVELOPER_ID" | sed -n 's/.*(\(.*\)).*/\1/p')
+if [ -z "$APPLE_USERNAME" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$TEAM_ID" ]; then
+    echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID team id not set, cannot notarize Universal macOS FUSE zip." >&2
+    exit 1
+fi
+xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
+'''
+
+# Combined FUSE build/package/release
+[tasks.build-fuse-macos-all]
+description = "Build all macOS FUSE targets"
+dependencies = [
+    "build-fuse-macos-intel",
+    "build-fuse-macos-silicon",
+    "build-fuse-macos-universal"
+]
+
+[tasks.package-fuse-macos-all]
+description = "Package all macOS FUSE binaries"
+dependencies = [
+    "package-fuse-macos-intel",
+    "package-fuse-macos-silicon",
+    "package-fuse-macos-universal"
+]
+
+# Build and package the macOS FUSE release: signed + notarized `-fuse` zips.
+[tasks.release-fuse-macos]
+description = "Build, sign, package and notarize the macOS FUSE artifacts"
+dependencies = [
+    "check-apple-credentials",
+    "run-tests",
+    "build-fuse-macos-all",
+    "package-fuse-macos-all",
+    "notarize-fuse-macos-intel",
+    "notarize-fuse-macos-silicon",
+    "notarize-fuse-macos-universal"
+]
+
+# ------------------------------------------------------------------------------
+# Linux FUSE builds — run natively on Linux (needs libfuse3-dev). Not part of the
+# macOS release command: the libfuse3 (C) link doesn't cross-compile from a Mac.
+# ------------------------------------------------------------------------------
+
+[tasks.build-fuse-arm64-musl]
+description = "Build ARM64 musl Linux with FUSE"
+command = "cargo"
+args = ["build", "--release", "--features", "fuse", "--target", "aarch64-unknown-linux-musl"]
+env = { CARGO_TARGET_DIR = "target/fuse" }
+
+[tasks.build-fuse-arm64-gnu]
+description = "Build ARM64 glibc Linux with FUSE"
+command = "cargo"
+args = ["build", "--release", "--features", "fuse", "--target", "aarch64-unknown-linux-gnu"]
+env = { CARGO_TARGET_DIR = "target/fuse" }
+
+[tasks.build-fuse-x86-gnu]
+description = "Build x86_64 glibc Linux with FUSE"
+command = "cargo"
+args = ["build", "--release", "--features", "fuse", "--target", "x86_64-unknown-linux-gnu"]
+env = { CARGO_TARGET_DIR = "target/fuse" }
+
+[tasks.build-fuse-x86-musl]
+description = "Build x86_64 musl Linux with FUSE"
+command = "cargo"
+args = ["build", "--release", "--features", "fuse", "--target", "x86_64-unknown-linux-musl"]
+env = { CARGO_TARGET_DIR = "target/fuse" }
+
+[tasks.package-fuse-arm64-musl]
+description = "Package ARM64 musl Linux FUSE binary"
+dependencies = ["create-release-dir", "build-fuse-arm64-musl"]
+script = '''
+BINARY_NAME="journal"
+PLATFORM="linux-musl-aarch64-fuse"
+cp "target/fuse/aarch64-unknown-linux-musl/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-fuse-arm64-gnu]
+description = "Package ARM64 glibc Linux FUSE binary"
+dependencies = ["create-release-dir", "build-fuse-arm64-gnu"]
+script = '''
+BINARY_NAME="journal"
+PLATFORM="linux-gnu-aarch64-fuse"
+cp "target/fuse/aarch64-unknown-linux-gnu/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-fuse-x86-gnu]
+description = "Package x86_64 glibc Linux FUSE binary"
+dependencies = ["create-release-dir", "build-fuse-x86-gnu"]
+script = '''
+BINARY_NAME="journal"
+PLATFORM="linux-gnu-x86_64-fuse"
+cp "target/fuse/x86_64-unknown-linux-gnu/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-fuse-x86-musl]
+description = "Package x86_64 musl Linux FUSE binary"
+dependencies = ["create-release-dir", "build-fuse-x86-musl"]
+script = '''
+BINARY_NAME="journal"
+PLATFORM="linux-musl-x86_64-fuse"
+cp "target/fuse/x86_64-unknown-linux-musl/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+# One command for Linux hosts: build + package every Linux FUSE artifact.
+[tasks.release-fuse-linux]
+description = "Build and package all Linux FUSE artifacts (Linux host, libfuse3-dev)"
+dependencies = [
+    "run-tests",
+    "build-fuse-arm64-musl",
+    "build-fuse-arm64-gnu",
+    "build-fuse-x86-gnu",
+    "build-fuse-x86-musl",
+    "package-fuse-arm64-musl",
+    "package-fuse-arm64-gnu",
+    "package-fuse-x86-gnu",
+    "package-fuse-x86-musl"
+]

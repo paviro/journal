@@ -470,6 +470,53 @@ fn rotate_identity_replaces_the_key_and_keeps_reading() {
     );
 }
 
+/// The generic `read_file`/`write_file` pair the FUSE mount is built on:
+/// rewriting an entry re-encrypts it verbatim (byte-for-byte round-trip), the
+/// file stays encrypted on disk, and an encrypted asset written alongside it
+/// round-trips as raw bytes too.
+#[test]
+fn write_file_reencrypts_entries_and_assets() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = store_at(dir.path());
+    store.ensure().unwrap();
+    store
+        .initialize_encryption("laptop", Some(&pw("pw")))
+        .unwrap();
+    store.unlock(Some(&pw("pw"))).unwrap();
+    store.create_journal("diary").unwrap();
+    let path = store
+        .create_entry_with_body("diary", "original body", &Metadata::default())
+        .unwrap();
+    assert_eq!(path.extension().and_then(|e| e.to_str()), Some("age"));
+    assert!(store.encrypts_new_files());
+
+    // Rewrite the entry through the byte-level API, as the mount's commit does.
+    let edited = b"+++\ntags = [\"edited\"]\n+++\n\nnew body through the mount\n";
+    store.write_file(&path, edited).unwrap();
+    assert_eq!(store.read_file(&path).unwrap(), edited);
+
+    // Still encrypted on disk: the raw bytes are age ciphertext, not plaintext.
+    let raw = std::fs::read(&path).unwrap();
+    assert!(
+        raw.windows(b"new body".len()).all(|w| w != b"new body"),
+        "plaintext must not appear in the on-disk ciphertext"
+    );
+    assert!(
+        raw.starts_with(b"age-encryption.org/"),
+        "on-disk file should be a binary age file"
+    );
+
+    // An encrypted asset written next to the entry round-trips as raw bytes.
+    let asset = path.with_extension("").with_extension("jpg.age");
+    let bytes: Vec<u8> = (0u8..=255).cycle().take(1024).collect();
+    store.write_file(&asset, &bytes).unwrap();
+    assert_eq!(store.read_file(&asset).unwrap(), bytes);
+    assert!(
+        std::fs::read(&asset).unwrap().starts_with(b"age-encryption.org/"),
+        "asset should be encrypted on disk"
+    );
+}
+
 // --- roster integrity: the whole point of the signed device log ---------------
 //
 // A folder-write attacker can rewrite `.age/devices.toml`. These assert the store

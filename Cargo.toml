@@ -6,7 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [workspace]
-members = ["crates/journal-core", "crates/journal-encryption", "crates/journal-storage", "crates/journal-context-provider", "crates/journal-import", "crates/journal-analytics", "crates/journal-seed", "crates/journal-locate"]
+members = ["crates/journal-core", "crates/journal-encryption", "crates/journal-storage", "crates/journal-context-provider", "crates/journal-import", "crates/journal-analytics", "crates/journal-seed", "crates/journal-locate", "crates/journal-fuse"]
 
 # One version for the whole workspace: the macOS location helper stamps this into
 # its bundle and the runtime checks it, so the crates must not drift apart.
@@ -24,6 +24,11 @@ crossterm = "0.29"
 dirs = "6"
 # Decompress and parse the embedded third-party license report (see build.rs).
 flate2 = "1"
+# FUSE mount of a decrypted journal, behind the `fuse` feature. The crate drives
+# libfuse's own high-level API through a small C bridge (crates/journal-fuse/bridge.c),
+# so a fuse-enabled binary needs the system libfuse3 (macFUSE or fuse-t on macOS)
+# present; the standard build leaves it out entirely. macOS + Linux only.
+journal-fuse = { path = "crates/journal-fuse", optional = true }
 image = { version = "0.25", default-features = false }
 indicatif = "0.17"
 # rascii_art still targets image 0.24; a second, decode-feature-free copy lets us
@@ -50,6 +55,11 @@ shell-words = "1"
 toml = "1.1"
 unicode-width = "0.2"
 zeroize = "1.9.0"
+
+[features]
+# Off by default: the standard build has no FUSE dependency and runs everywhere.
+# Enable for the dedicated macOS/Linux "-fuse" release artifacts (see Makefile.toml).
+fuse = ["dep:journal-fuse"]
 
 [build-dependencies]
 # build.rs shells out to cargo-about and embeds a gzipped JSON license report.

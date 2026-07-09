@@ -50,6 +50,8 @@ struct AboutCrate {
 }
 
 fn main() {
+    emit_macos_fuse_rpath();
+
     // Regenerate only when the dependency set or the allowlist changes.
     println!("cargo:rerun-if-changed=Cargo.lock");
     println!("cargo:rerun-if-changed=about.toml");
@@ -118,6 +120,28 @@ fn main() {
 
     let serialized = serde_json::to_string(&groups).expect("failed to serialize license data");
     write_gzipped(&output_path, serialized.as_bytes());
+}
+
+/// When building the `fuse` feature on macOS, embed an rpath to libfuse3's
+/// directory so the dynamically-linked library (macFUSE or fuse-t, installed
+/// under /usr/local/lib) is found at runtime. `journal-fuse` links the library,
+/// but a dependency build script's link-args do not propagate to the final
+/// binary — so the rpath must be emitted here, by the binary crate.
+fn emit_macos_fuse_rpath() {
+    if env::var_os("CARGO_FEATURE_FUSE").is_none()
+        || env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos")
+    {
+        return;
+    }
+    let libdir = Command::new("pkg-config")
+        .args(["--variable=libdir", "fuse3"])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .filter(|dir| !dir.is_empty())
+        .unwrap_or_else(|| "/usr/local/lib".to_string());
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{libdir}");
 }
 
 fn write_gzipped(path: &Path, data: &[u8]) {

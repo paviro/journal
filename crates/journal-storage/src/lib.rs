@@ -15,6 +15,14 @@ use journal_core::{
 };
 use journal_encryption as crypto;
 
+/// Whether a path's on-disk name ends in the age extension. Broader than
+/// [`is_entry_file`]'s `.md.age`: also matches encrypted assets like
+/// `photo.jpg.age`, so the generic [`JournalStore::read_file`]/`write_file` pair
+/// can treat every store file uniformly.
+fn is_encrypted_file(path: &Path) -> bool {
+    path.extension().and_then(|ext| ext.to_str()) == Some("age")
+}
+
 pub use error::StorageError;
 pub use journal_encryption::{
     DeviceIdentityInfo, EncryptionError, ExposeSecret, PendingRequest, Recipient, SecretString,
@@ -556,6 +564,49 @@ impl JournalStore {
 
     pub fn read_entry_content(&self, path: &Path) -> AppResult<String> {
         storage::read_entry_content(path, self.identity.as_ref())
+    }
+
+    /// Read any store file as raw bytes, decrypting when its on-disk name ends in
+    /// `.age`. Handles both entry files (`.md.age`) and encrypted assets
+    /// (`photo.jpg.age`) uniformly. Errors if the file is encrypted but this store
+    /// is locked. Pairs with [`write_file`](Self::write_file) — together they let
+    /// the FUSE mount treat every path as "a file that may be encrypted".
+    pub fn read_file(&self, path: &Path) -> AppResult<Vec<u8>> {
+        if is_encrypted_file(path) {
+            let identity = self
+                .identity
+                .as_ref()
+                .ok_or(crate::EncryptionError::Locked { context: "file" })?;
+            Ok(crypto::decrypt_file_bytes(identity, path)?)
+        } else {
+            Ok(fs::read(path)?)
+        }
+    }
+
+    /// Write any store file, encrypting to the current recipients (plus this
+    /// device's own key) when its on-disk name ends in `.age`, and writing raw
+    /// bytes otherwise. Atomic (temp + rename). The caller chooses the on-disk
+    /// name — and thus the `.age` suffix — per [`encrypts_new_files`], so what it
+    /// writes round-trips byte-for-byte through [`read_file`].
+    ///
+    /// [`encrypts_new_files`]: Self::encrypts_new_files
+    /// [`read_file`]: Self::read_file
+    pub fn write_file(&self, path: &Path, bytes: &[u8]) -> AppResult<()> {
+        if is_encrypted_file(path) {
+            let ciphertext =
+                crypto::encrypt_new_entry(&self.paths.keys, bytes, self.identity.as_ref())?;
+            crypto::atomic_write(path, &ciphertext)?;
+        } else {
+            crypto::atomic_write(path, bytes)?;
+        }
+        Ok(())
+    }
+
+    /// Whether files created in this store are encrypted on disk (i.e. a
+    /// recipients roster exists). The FUSE mount uses this to decide whether a
+    /// file created through the mount gets the `.age` suffix.
+    pub fn encrypts_new_files(&self) -> bool {
+        self.paths.keys.has_roster()
     }
 
     pub fn create_entry_with_body(
