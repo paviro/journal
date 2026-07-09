@@ -133,7 +133,8 @@ pub(crate) fn write_encrypted_entry_content(
     content: &str,
 ) -> AppResult<()> {
     replace_atomically(path, |temp| {
-        Ok(crypto::encrypt_to_file(paths, content.as_bytes(), temp)?)
+        let plaintext = crypto::PlaintextBytes::copy_from_slice(content.as_bytes());
+        Ok(crypto::encrypt_to_file(paths, &plaintext, temp)?)
     })
 }
 

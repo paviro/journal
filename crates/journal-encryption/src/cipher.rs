@@ -2,9 +2,68 @@ use crate::identity::UnlockedIdentity;
 use crate::recipients::{Recipient, read_recipients};
 use crate::{EncryptionError, KeyPaths, Result};
 use age::x25519;
-use std::{fs, io::Write, path::Path, str::FromStr};
+use std::{fs, io::Write, path::Path, str::FromStr, string::FromUtf8Error};
+use zeroize::Zeroizing;
 
-pub fn encrypt_to_file(paths: &KeyPaths, plaintext: &[u8], output: &Path) -> Result<()> {
+/// Decrypted bytes. The inner buffer is zeroized on drop and intentionally does
+/// not implement `Clone`, `Debug`, `Display`, or serde traits.
+pub struct PlaintextBytes(Zeroizing<Vec<u8>>);
+
+impl PlaintextBytes {
+    pub fn from_vec(bytes: Vec<u8>) -> Self {
+        Self(Zeroizing::new(bytes))
+    }
+
+    pub fn copy_from_slice(bytes: &[u8]) -> Self {
+        Self::from_vec(bytes.to_vec())
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+
+    pub fn copy_to_vec(&self) -> Vec<u8> {
+        self.as_bytes().to_vec()
+    }
+
+    /// Convert decrypted UTF-8 bytes into a `String`. The returned `String` is
+    /// plaintext and is not zeroized by this wrapper.
+    pub fn into_string(self) -> std::result::Result<String, FromUtf8Error> {
+        String::from_utf8(self.copy_to_vec())
+    }
+}
+
+impl AsRef<[u8]> for PlaintextBytes {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+/// Encrypted age payload bytes. Kept distinct from plaintext so callers cannot
+/// accidentally pass decrypted data where ciphertext is expected, or vice versa.
+pub struct CiphertextBytes(Vec<u8>);
+
+impl CiphertextBytes {
+    pub fn from_vec(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn into_vec(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+impl AsRef<[u8]> for CiphertextBytes {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+pub fn encrypt_to_file(paths: &KeyPaths, plaintext: &PlaintextBytes, output: &Path) -> Result<()> {
     EncryptionRecipients::for_store(paths)?.encrypt_to_file(plaintext, output)?;
     Ok(())
 }
@@ -12,13 +71,13 @@ pub fn encrypt_to_file(paths: &KeyPaths, plaintext: &[u8], output: &Path) -> Res
 /// Decrypt an encrypted file into memory. Used both for reading encrypted entry
 /// text and for viewing encrypted binary assets (e.g. images) without ever
 /// writing a plaintext copy to disk.
-pub fn decrypt_file_bytes(identity: &UnlockedIdentity, input: &Path) -> Result<Vec<u8>> {
-    let ciphertext = fs::read(input)?;
+pub fn decrypt_file_bytes(identity: &UnlockedIdentity, input: &Path) -> Result<PlaintextBytes> {
+    let ciphertext = CiphertextBytes::from_vec(fs::read(input)?);
     decrypt_bytes_with_identity(&ciphertext, &identity.identity)
 }
 
 /// Encrypt bytes to every store recipient.
-pub fn encrypt_bytes(paths: &KeyPaths, plaintext: &[u8]) -> Result<Vec<u8>> {
+pub fn encrypt_bytes(paths: &KeyPaths, plaintext: &PlaintextBytes) -> Result<CiphertextBytes> {
     EncryptionRecipients::for_store(paths)?.encrypt(plaintext)
 }
 
@@ -27,9 +86,9 @@ pub fn encrypt_bytes(paths: &KeyPaths, plaintext: &[u8]) -> Result<Vec<u8>> {
 /// wrote, even a joining device whose key isn't yet an approved recipient.
 pub fn encrypt_new_entry(
     paths: &KeyPaths,
-    plaintext: &[u8],
+    plaintext: &PlaintextBytes,
     identity: Option<&UnlockedIdentity>,
-) -> Result<Vec<u8>> {
+) -> Result<CiphertextBytes> {
     EncryptionRecipients::for_new_entry(paths, identity)?.encrypt(plaintext)
 }
 
@@ -57,12 +116,13 @@ impl EncryptionRecipients {
         Ok(Self { recipients })
     }
 
-    pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    pub fn encrypt(&self, plaintext: &PlaintextBytes) -> Result<CiphertextBytes> {
         encrypt_to_recipients(&self.recipients, plaintext)
     }
 
-    pub fn encrypt_to_file(&self, plaintext: &[u8], output: &Path) -> Result<()> {
-        fs::write(output, self.encrypt(plaintext)?)?;
+    pub fn encrypt_to_file(&self, plaintext: &PlaintextBytes, output: &Path) -> Result<()> {
+        let ciphertext = self.encrypt(plaintext)?;
+        fs::write(output, ciphertext.as_bytes())?;
         Ok(())
     }
 }
@@ -85,23 +145,26 @@ fn recipient_keys(recipients: &[Recipient]) -> Result<Vec<x25519::Recipient>> {
 
 pub(crate) fn encrypt_to_recipients(
     recipients: &[x25519::Recipient],
-    plaintext: &[u8],
-) -> Result<Vec<u8>> {
+    plaintext: &PlaintextBytes,
+) -> Result<CiphertextBytes> {
     let refs: Vec<&dyn age::Recipient> = recipients
         .iter()
         .map(|recipient| recipient as &dyn age::Recipient)
         .collect();
     let encryptor = age::Encryptor::with_recipients(refs.into_iter())?;
-    let mut ciphertext = Vec::with_capacity(plaintext.len());
+    let mut ciphertext = Vec::with_capacity(plaintext.as_bytes().len());
     let mut writer = encryptor.wrap_output(&mut ciphertext)?;
-    writer.write_all(plaintext)?;
+    writer.write_all(plaintext.as_bytes())?;
     writer.finish()?;
-    Ok(ciphertext)
+    Ok(CiphertextBytes::from_vec(ciphertext))
 }
 
 pub(crate) fn decrypt_bytes_with_identity(
-    ciphertext: &[u8],
+    ciphertext: &CiphertextBytes,
     identity: &x25519::Identity,
-) -> Result<Vec<u8>> {
-    Ok(age::decrypt(identity, ciphertext)?)
+) -> Result<PlaintextBytes> {
+    Ok(PlaintextBytes::from_vec(age::decrypt(
+        identity,
+        ciphertext.as_bytes(),
+    )?))
 }

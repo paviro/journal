@@ -130,9 +130,11 @@ pub fn unlock_identity(
     // the identity). Unlike checking against the shared roster, this holds even
     // before this device has been approved as a store recipient.
     let recipient = unlocked.recipient();
-    let probe = b"journal identity check";
-    let encrypted = cipher::encrypt_to_recipients(std::slice::from_ref(&recipient), probe)?;
-    if cipher::decrypt_bytes_with_identity(&encrypted, &unlocked.identity)? != probe {
+    let probe = cipher::PlaintextBytes::copy_from_slice(b"journal identity check");
+    let encrypted = cipher::encrypt_to_recipients(std::slice::from_ref(&recipient), &probe)?;
+    if cipher::decrypt_bytes_with_identity(&encrypted, &unlocked.identity)?.as_bytes()
+        != probe.as_bytes()
+    {
         return Err(EncryptionError::IdentityCheckFailed);
     }
 

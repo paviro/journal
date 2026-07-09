@@ -296,7 +296,10 @@ fn write_asset(ctx: &mut IngestContext<'_>, bytes: &[u8], ext: &str) -> AppResul
         };
         let path = ctx.assets_dir.join(&disk_name);
         let bytes = match &ctx.encryption {
-            Some(recipients) => recipients.encrypt(bytes)?,
+            Some(recipients) => {
+                let plaintext = crypto::PlaintextBytes::copy_from_slice(bytes);
+                recipients.encrypt(&plaintext)?.into_vec()
+            }
             None => bytes.to_vec(),
         };
         match write_new_file(&path, &bytes) {
@@ -1029,7 +1032,7 @@ mod tests {
             .path();
         assert!(stored.to_string_lossy().ends_with(".png.age"));
         let decrypted = crypto::decrypt_file_bytes(&identity, &stored).unwrap();
-        assert_eq!(decrypted, original);
+        assert_eq!(decrypted.as_bytes(), original);
 
         // The clean link resolves to the encrypted file on disk.
         let file_name = new_body

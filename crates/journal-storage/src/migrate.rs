@@ -355,14 +355,16 @@ fn convert_asset_file(path: &Path, mode: &MigrationMode<'_>) -> AppResult<()> {
         MigrationMode::Encrypt { recipients } => {
             let target = append_age(path);
             let temp = crypto::sibling_temp_path(&target, "tmp.age");
-            recipients.encrypt_to_file(&fs::read(path)?, &temp)?;
+            let plaintext = crypto::PlaintextBytes::from_vec(fs::read(path)?);
+            recipients.encrypt_to_file(&plaintext, &temp)?;
             fs::rename(&temp, &target)?;
             fs::remove_file(path)?;
         }
         MigrationMode::Decrypt { identity } => {
             let target = strip_age(path)?;
             let temp = crypto::sibling_temp_path(&target, "tmp");
-            fs::write(&temp, crypto::decrypt_file_bytes(identity, path)?)?;
+            let plaintext = crypto::decrypt_file_bytes(identity, path)?;
+            fs::write(&temp, plaintext.as_bytes())?;
             fs::rename(&temp, &target)?;
             fs::remove_file(path)?;
         }
@@ -462,7 +464,8 @@ fn ensure_no_asset_collisions(files: &[PathBuf], mode: &MigrationMode<'_>) -> Ap
 fn encrypt_plain_entry(path: &Path, recipients: &crypto::EncryptionRecipients) -> AppResult<()> {
     let target = path.with_extension("md.age");
     let temp = crypto::sibling_temp_path(&target, "tmp.age");
-    recipients.encrypt_to_file(&fs::read(path)?, &temp)?;
+    let plaintext = crypto::PlaintextBytes::from_vec(fs::read(path)?);
+    recipients.encrypt_to_file(&plaintext, &temp)?;
     fs::rename(&temp, &target)?;
     fs::remove_file(path)?;
     Ok(())
@@ -471,12 +474,11 @@ fn encrypt_plain_entry(path: &Path, recipients: &crypto::EncryptionRecipients) -
 fn decrypt_encrypted_entry(path: &Path, identity: &crypto::UnlockedIdentity) -> AppResult<()> {
     let target = decrypted_entry_path(path)?;
     let temp = crypto::sibling_temp_path(&target, "tmp.md");
-    fs::write(&temp, crypto::decrypt_file_bytes(identity, path)?)?;
-    let decrypted = fs::read_to_string(&temp)?;
-    if decrypted.is_empty() {
-        let _ = fs::remove_file(&temp);
+    let plaintext = crypto::decrypt_file_bytes(identity, path)?;
+    if std::str::from_utf8(plaintext.as_bytes())?.is_empty() {
         bail!("decrypted entry is empty: {}", path.display());
     }
+    fs::write(&temp, plaintext.as_bytes())?;
     fs::rename(&temp, &target)?;
     fs::remove_file(path)?;
     Ok(())

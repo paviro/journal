@@ -657,7 +657,7 @@ impl JournalStore {
                     .identity
                     .as_ref()
                     .ok_or(crate::EncryptionError::Locked { context: "file" })?;
-                Ok(crypto::decrypt_file_bytes(identity, path)?)
+                Ok(crypto::decrypt_file_bytes(identity, path)?.copy_to_vec())
             }
         }
     }
@@ -673,9 +673,13 @@ impl JournalStore {
         match encoding {
             StoreFileEncoding::Plain => crypto::atomic_write(path, bytes)?,
             StoreFileEncoding::Encrypted => {
-                let ciphertext =
-                    crypto::encrypt_new_entry(&self.paths.keys, bytes, self.identity.as_ref())?;
-                crypto::atomic_write(path, &ciphertext)?;
+                let plaintext = crypto::PlaintextBytes::copy_from_slice(bytes);
+                let ciphertext = crypto::encrypt_new_entry(
+                    &self.paths.keys,
+                    &plaintext,
+                    self.identity.as_ref(),
+                )?;
+                crypto::atomic_write(path, ciphertext.as_bytes())?;
             }
         }
         Ok(())
@@ -878,7 +882,9 @@ impl JournalStore {
                 .identity
                 .as_ref()
                 .ok_or(EncryptionError::Locked { context: "asset" })?;
-            Ok(Some(crypto::decrypt_file_bytes(identity, &path)?))
+            Ok(Some(
+                crypto::decrypt_file_bytes(identity, &path)?.copy_to_vec(),
+            ))
         } else {
             Ok(Some(fs::read(path)?))
         }

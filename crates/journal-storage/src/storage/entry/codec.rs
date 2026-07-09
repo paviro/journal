@@ -64,11 +64,8 @@ impl<'a> EntryCodec<'a> {
     /// [`encrypts_new_entries`]: Self::encrypts_new_entries
     pub(crate) fn encode_new(&self, content: &str) -> AppResult<Vec<u8>> {
         if self.encrypts_new_entries() {
-            Ok(crypto::encrypt_new_entry(
-                &self.paths,
-                content.as_bytes(),
-                self.identity,
-            )?)
+            let plaintext = crypto::PlaintextBytes::copy_from_slice(content.as_bytes());
+            Ok(crypto::encrypt_new_entry(&self.paths, &plaintext, self.identity)?.into_vec())
         } else {
             Ok(content.as_bytes().to_vec())
         }

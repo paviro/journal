@@ -15,9 +15,12 @@ fn passphrase_identity_round_trips_a_message() {
     initialize_store_identity(&paths, "laptop", Some(&SecretString::from("secret"))).unwrap();
     let unlocked = unlock_identity(&paths, Some(&SecretString::from("secret"))).unwrap();
 
-    let ciphertext = encrypt_bytes(&paths, b"hello journal").unwrap();
+    let plaintext = PlaintextBytes::copy_from_slice(b"hello journal");
+    let ciphertext = encrypt_bytes(&paths, &plaintext).unwrap();
     assert_eq!(
-        decrypt_file_bytes_from(&unlocked, &ciphertext).unwrap(),
+        decrypt_file_bytes_from(&unlocked, &ciphertext)
+            .unwrap()
+            .as_bytes(),
         b"hello journal"
     );
 }
@@ -43,9 +46,12 @@ fn plaintext_identity_unlocks_without_a_passphrase() {
     assert!(!info.passphrase_protected);
 
     let unlocked = unlock_identity(&paths, None).unwrap();
-    let ciphertext = encrypt_bytes(&paths, b"no passphrase").unwrap();
+    let plaintext = PlaintextBytes::copy_from_slice(b"no passphrase");
+    let ciphertext = encrypt_bytes(&paths, &plaintext).unwrap();
     assert_eq!(
-        decrypt_file_bytes_from(&unlocked, &ciphertext).unwrap(),
+        decrypt_file_bytes_from(&unlocked, &ciphertext)
+            .unwrap()
+            .as_bytes(),
         b"no passphrase"
     );
 }
@@ -67,14 +73,19 @@ fn two_recipients_both_decrypt_the_same_ciphertext() {
     add_recipient(&laptop, &laptop_id, &phone_recipient).unwrap();
     advance_trust_pins(&laptop).unwrap();
 
-    let ciphertext = encrypt_bytes(&laptop, b"shared secret").unwrap();
+    let plaintext = PlaintextBytes::copy_from_slice(b"shared secret");
+    let ciphertext = encrypt_bytes(&laptop, &plaintext).unwrap();
     let phone_id = unlock_identity(&phone, None).unwrap();
     assert_eq!(
-        decrypt_file_bytes_from(&laptop_id, &ciphertext).unwrap(),
+        decrypt_file_bytes_from(&laptop_id, &ciphertext)
+            .unwrap()
+            .as_bytes(),
         b"shared secret"
     );
     assert_eq!(
-        decrypt_file_bytes_from(&phone_id, &ciphertext).unwrap(),
+        decrypt_file_bytes_from(&phone_id, &ciphertext)
+            .unwrap()
+            .as_bytes(),
         b"shared secret"
     );
 }
@@ -200,6 +211,9 @@ fn stored_identity_rejects_unknown_fields() {
 
 /// Decrypt an in-memory ciphertext with an unlocked identity (test helper;
 /// the production path decrypts files, not buffers).
-fn decrypt_file_bytes_from(identity: &UnlockedIdentity, ciphertext: &[u8]) -> Result<Vec<u8>> {
+fn decrypt_file_bytes_from(
+    identity: &UnlockedIdentity,
+    ciphertext: &CiphertextBytes,
+) -> Result<PlaintextBytes> {
     decrypt_bytes_with_identity(ciphertext, &identity.identity)
 }
