@@ -8,13 +8,14 @@
 mod dayone;
 
 use std::collections::HashSet;
-use std::fs;
+use std::fs::File;
+use std::io::BufReader;
 use std::path::Path;
 
 use anyhow::Context;
 use chrono::{DateTime, FixedOffset};
 use journal_core::{AppResult, Celestial, ImportSource, Location, Metadata, Weather};
-use journal_storage::{AssetFailure, JournalStore};
+use journal_storage::{AssetFailure, ImportedEntryDraft, JournalStore};
 
 /// Map Day One's parsed location onto the store's [`Location`], keeping only the
 /// place hierarchy and coordinates (the geofence `region` and `timeZoneName` are
@@ -136,21 +137,17 @@ pub fn import_dayone(
     json_path: &Path,
     download_remote: bool,
 ) -> AppResult<ImportReport> {
-    let raw = fs::read_to_string(json_path)
-        .with_context(|| format!("could not read {}", json_path.display()))?;
+    let file =
+        File::open(json_path).with_context(|| format!("could not read {}", json_path.display()))?;
     let export: DayOneExport =
-        serde_json::from_str(&raw).context("could not parse Day One export")?;
+        serde_json::from_reader(BufReader::new(file)).context("could not parse Day One export")?;
     let media_root = json_path.parent().unwrap_or_else(|| Path::new("."));
 
     if !store.list_journals()?.iter().any(|j| j.name == journal) {
         store.create_journal(journal)?;
     }
 
-    let mut seen: HashSet<ImportSource> = store
-        .scan_entries()?
-        .into_iter()
-        .filter_map(|entry| entry.import)
-        .collect();
+    let mut seen: HashSet<ImportSource> = store.scan_import_sources()?.into_iter().collect();
 
     let mut report = ImportReport::default();
 
@@ -235,19 +232,19 @@ pub fn import_dayone(
         // Day One records fractional seconds; whole seconds are plenty.
         let editing_seconds = entry.editing_time.map(|secs| secs as u64);
 
-        let path = store.create_imported_entry(
+        let path = store.create_imported_entry(ImportedEntryDraft {
             journal,
-            &rewrite.body,
-            &metadata,
+            body: &rewrite.body,
+            metadata: &metadata,
             created_at,
             edited_at,
-            tz,
-            location.as_ref(),
-            weather.as_ref(),
-            celestial.as_ref(),
+            timezone: tz,
+            location: location.as_ref(),
+            weather: weather.as_ref(),
+            celestial: celestial.as_ref(),
             editing_seconds,
-            &import,
-        )?;
+            import: &import,
+        })?;
         // Replace un-fetchable images with a placeholder only when we actually
         // tried to download — otherwise remote links are kept so they can be
         // fetched by a later `--download-images` run.

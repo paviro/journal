@@ -92,12 +92,17 @@ fn assemble_bundle(binary: &Path, plist_src: &Path, out_dir: &Path, version: &st
     app
 }
 
-/// Ad-hoc signing (no `APPLE_DEVELOPER_ID`) still gets CoreLocation on the
-/// building machine, so a plain `cargo build` needs no setup.
+/// Ad-hoc signing still gets CoreLocation on the building machine, so a plain
+/// `cargo build` needs no setup. Developer-ID signing is release-only; otherwise
+/// a globally-set `APPLE_DEVELOPER_ID` would break `cargo check` on machines that
+/// do not have the certificate installed.
 fn sign(app: &Path, entitlements: &Path) {
     let mut cmd = Command::new("codesign");
     cmd.args(["--force", "--entitlements"]).arg(entitlements);
-    match env_nonempty("APPLE_DEVELOPER_ID") {
+    let developer_id = (env::var("PROFILE").as_deref() == Ok("release"))
+        .then(|| env_nonempty("APPLE_DEVELOPER_ID"))
+        .flatten();
+    match developer_id {
         Some(id) => {
             cmd.args(["--options", "runtime", "--timestamp", "--sign", &id]);
         }

@@ -617,4 +617,36 @@ mod tests {
                 .is_some()
         );
     }
+
+    #[test]
+    fn split_front_matter_returns_none_without_opening_fence() {
+        let content = "# Just a body\n\nno front matter here\n";
+        assert_eq!(split_front_matter(content), (None, content));
+    }
+
+    #[test]
+    fn split_front_matter_keeps_content_when_fence_never_closes() {
+        // A body that opens a fence but never closes it must not be mistaken for
+        // front matter — the whole text stays the body.
+        let content = "+++\ntitle = \"A\"\n\nstill body\n";
+        assert_eq!(split_front_matter(content), (None, content));
+    }
+
+    #[test]
+    fn split_front_matter_reads_closing_fence_at_end_of_file() {
+        // Closing `+++` on the final line with no trailing newline and an empty body.
+        let (front_matter, body) = split_front_matter("+++\ntitle = \"A\"\n+++");
+        assert_eq!(front_matter, Some("title = \"A\""));
+        assert_eq!(body, "");
+    }
+
+    #[test]
+    fn front_matter_fields_defaults_on_malformed_toml() {
+        // Unterminated array: parsing fails, so every field falls back to default
+        // rather than surfacing the error.
+        let fields = front_matter_fields("tags = [\"unterminated\n");
+        assert!(fields.metadata.tags.is_empty());
+        assert!(fields.import.is_none());
+        assert!(fields.datetime.created_at.is_none());
+    }
 }

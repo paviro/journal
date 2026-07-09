@@ -433,7 +433,10 @@ fn location_lines(prefix_width: u16, width: u16, value: &str) -> Vec<Line<'stati
         .map(|(index, chunk)| {
             if index == 0 {
                 Line::from(vec![
-                    Span::styled(LOCATION_PREFIX, Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        LOCATION_PREFIX,
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
                     Span::raw(chunk),
                 ])
             } else {
@@ -495,7 +498,11 @@ fn metadata_section_lines(width: u16, metadata: EntryMetadata<'_>) -> Vec<Line<'
         ));
     }
     if let Some(location) = metadata.location.first() {
-        lines.extend(location_lines(LOCATION_PREFIX.len() as u16, width, location));
+        lines.extend(location_lines(
+            LOCATION_PREFIX.len() as u16,
+            width,
+            location,
+        ));
     }
 
     lines

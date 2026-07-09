@@ -586,7 +586,11 @@ pub(crate) fn wrap_text_hanging(text: &str, first_width: usize, rest_width: usiz
     let mut lines = Vec::new();
     let mut rest = text;
     while !rest.is_empty() {
-        let width = if lines.is_empty() { first_width } else { rest_width };
+        let width = if lines.is_empty() {
+            first_width
+        } else {
+            rest_width
+        };
         if width == 0 {
             // No room on this line; if we've made no progress at all the value
             // is unrenderable, so bail rather than loop forever.

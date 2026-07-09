@@ -559,7 +559,12 @@ impl App {
         changed.dedup();
 
         let mut targets: Vec<(String, PathBuf)> = Vec::new();
+        let mut asset_changed = false;
         for path in &changed {
+            if is_asset_path(path) {
+                asset_changed = true;
+                continue;
+            }
             let Some(journal) = journal_for_path(&root, path) else {
                 return self.refresh();
             };
@@ -569,14 +574,15 @@ impl App {
             targets.push((journal, path.clone()));
         }
         if targets.is_empty() {
+            if asset_changed {
+                self.clear_image_caches();
+            }
             return Ok(());
         }
 
         // The viewed entry's body/images may have changed: drop the image caches
         // (the version-keyed row/body/analytics caches self-invalidate on the bump).
-        self.image.runtime.clear();
-        self.image.warm = None;
-        self.image.selected_cache.borrow_mut().take();
+        self.clear_image_caches();
 
         for (journal, path) in targets {
             if path.exists() {
@@ -588,6 +594,12 @@ impl App {
         }
         self.after_entries_changed();
         Ok(())
+    }
+
+    fn clear_image_caches(&mut self) {
+        self.image.runtime.clear();
+        self.image.warm = None;
+        self.image.selected_cache.borrow_mut().take();
     }
 
     /// Insert or replace `entry` in the path-sorted (descending) `entries` Vec,
@@ -815,6 +827,15 @@ fn journal_for_path(root: &Path, path: &Path) -> Option<String> {
         std::path::Component::Normal(name) => name.to_str().map(str::to_string),
         _ => None,
     }
+}
+
+fn is_asset_path(path: &Path) -> bool {
+    path.components().any(|component| {
+        component
+            .as_os_str()
+            .to_str()
+            .is_some_and(|name| name.ends_with(".assets"))
+    })
 }
 
 fn metadata_values(entry: &Entry, kind: MetadataKind) -> &[String] {

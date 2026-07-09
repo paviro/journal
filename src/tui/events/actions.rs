@@ -94,8 +94,8 @@ fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<Option<PathBuf>> {
         app.set_status(save_status("Entry saved", &report));
         // A new entry always counts as written.
         app.store.add_writing_seconds(path, elapsed.as_secs())?;
+        refresh_entry_path(app, path)?;
     }
-    app.refresh()?;
     Ok(created)
 }
 
@@ -156,7 +156,7 @@ pub(super) fn edit_selected(terminal: &mut Term, app: &mut App) -> AppResult<()>
     } else {
         app.set_status("Empty entry deleted");
     }
-    app.refresh()?;
+    refresh_entry_path(app, &target.path)?;
 
     // After a real edit, back-fill weather for an entry that has coordinates but
     // no weather yet — never clobbering weather already captured (e.g. imported).
@@ -278,7 +278,7 @@ pub(super) fn set_metadata_on_entry(
     app.store.set_entry_metadata_field(&target.path, field)?;
 
     app.set_status(format!("{} saved", kind.title()));
-    app.refresh()?;
+    refresh_entry_path(app, &target.path)?;
     Ok(())
 }
 
@@ -295,7 +295,7 @@ pub(super) fn set_feelings_on_entry(app: &mut App, feelings: &[String]) -> AppRe
         .set_entry_metadata_field(&target.path, MetadataField::Feelings(feelings.to_vec()))?;
 
     app.set_status("Feelings saved");
-    app.refresh()?;
+    refresh_entry_path(app, &target.path)?;
     Ok(())
 }
 
@@ -312,7 +312,7 @@ pub(super) fn set_mood_on_entry(app: &mut App, mood: Option<i8>) -> AppResult<()
         .set_entry_metadata_field(&target.path, MetadataField::Mood(mood))?;
 
     app.set_status("Mood saved");
-    app.refresh()?;
+    refresh_entry_path(app, &target.path)?;
     Ok(())
 }
 
@@ -351,7 +351,7 @@ pub(super) fn set_location_on_entry(app: &mut App, location: Option<Location>) -
     } else {
         "Location cleared"
     });
-    app.refresh()?;
+    refresh_entry_path(app, &target.path)?;
     Ok(())
 }
 
@@ -369,8 +369,12 @@ pub(super) fn toggle_starred_on_entry(app: &mut App) -> AppResult<()> {
         .set_entry_metadata_field(&target.path, MetadataField::Starred(starred))?;
 
     app.set_status(if starred { "Starred" } else { "Unstarred" });
-    app.refresh()?;
+    refresh_entry_path(app, &target.path)?;
     Ok(())
+}
+
+fn refresh_entry_path(app: &mut App, path: &Path) -> AppResult<()> {
+    app.refresh_paths(&[path.to_path_buf()])
 }
 
 #[cfg(test)]

@@ -9,10 +9,7 @@ pub(crate) mod markdown;
 mod migrate;
 mod storage;
 
-use journal_core::{
-    AppResult, Celestial, Entry, EntryPath, ImportSource, Location, Metadata, MetadataField,
-    Weather,
-};
+use journal_core::{AppResult, Entry, EntryPath, ImportSource, Metadata, MetadataField};
 use journal_encryption as crypto;
 
 pub use error::StorageError;
@@ -21,7 +18,7 @@ pub use journal_encryption::{
 };
 pub use migrate::{DecryptSummary, MigrationSummary};
 pub use storage::{
-    ARCHIVED_SUFFIX, AssetFailure, AssetReport, EditOutcome, Journal, entry_id,
+    ARCHIVED_SUFFIX, AssetFailure, AssetReport, EditOutcome, ImportedEntryDraft, Journal, entry_id,
     entry_timestamp_label, is_archived_name, is_entry_file, journal_display_name,
     parse_entry_timestamp, sole_stored_image, stored_image_reference,
 };
@@ -556,6 +553,10 @@ impl JournalStore {
         storage::scan_entries(&self.paths.journal_root, self.identity.as_ref())
     }
 
+    pub fn scan_import_sources(&self) -> AppResult<Vec<ImportSource>> {
+        storage::scan_import_sources(&self.paths.journal_root, self.identity.as_ref())
+    }
+
     pub fn read_entry(&self, journal: &str, path: &Path) -> AppResult<Entry> {
         storage::read_entry(journal, path, self.identity.as_ref())
     }
@@ -624,36 +625,8 @@ impl JournalStore {
     /// creation/modification dates and recording an `[import]` provenance
     /// marker in the front matter. Encryption follows the store's setting, like
     /// [`create_entry_with_body`].
-    #[allow(clippy::too_many_arguments)]
-    pub fn create_imported_entry(
-        &self,
-        journal: &str,
-        body: &str,
-        metadata: &Metadata,
-        created_at: chrono::DateTime<chrono::FixedOffset>,
-        edited_at: chrono::DateTime<chrono::FixedOffset>,
-        timezone: Option<&str>,
-        location: Option<&Location>,
-        weather: Option<&Weather>,
-        celestial: Option<&Celestial>,
-        editing_seconds: Option<u64>,
-        import: &ImportSource,
-    ) -> AppResult<PathBuf> {
-        storage::create_imported_entry(
-            &self.entry_codec(),
-            &self.paths.journal_root,
-            journal,
-            body,
-            metadata,
-            created_at,
-            edited_at,
-            timezone,
-            location,
-            weather,
-            celestial,
-            editing_seconds,
-            import,
-        )
+    pub fn create_imported_entry(&self, draft: ImportedEntryDraft<'_>) -> AppResult<PathBuf> {
+        storage::create_imported_entry(&self.entry_codec(), &self.paths.journal_root, draft)
     }
 
     /// Add `secs` to an entry's accumulated `[datetime].writing_seconds` without

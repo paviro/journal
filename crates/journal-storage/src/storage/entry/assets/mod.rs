@@ -20,7 +20,8 @@ use nanoid::nanoid;
 use net::{FetchError, fetch_source};
 use std::{
     collections::{HashMap, HashSet},
-    fs,
+    fs::{self, OpenOptions},
+    io::Write,
     path::{Component, Path, PathBuf},
 };
 
@@ -95,12 +96,16 @@ pub(crate) fn ingest_and_cleanup_opts(
         return Ok((None, AssetReport::default()));
     };
 
+    let encryption = encryption
+        .map(crypto::EncryptionRecipients::for_store)
+        .transpose()?;
     let mut ctx = IngestContext {
         assets_dir: &assets_dir,
         dir_name: &dir_name,
         encryption,
         download_remote,
         replace_offline,
+        asset_ids: existing_asset_ids(&assets_dir)?,
         stored_sources: HashMap::new(),
         report: AssetReport::default(),
     };
@@ -117,9 +122,10 @@ pub(crate) fn ingest_and_cleanup_opts(
 struct IngestContext<'a> {
     assets_dir: &'a Path,
     dir_name: &'a str,
-    encryption: Option<&'a KeyPaths>,
+    encryption: Option<crypto::EncryptionRecipients>,
     download_remote: bool,
     replace_offline: bool,
+    asset_ids: HashSet<String>,
     stored_sources: HashMap<String, String>,
     report: AssetReport,
 }
@@ -249,7 +255,7 @@ fn store_source(source: &str, alt: &str, ctx: &mut IngestContext<'_>) -> Option<
         }
     };
 
-    match write_asset(ctx.assets_dir, ctx.encryption, &bytes, &ext) {
+    match write_asset(ctx, &bytes, &ext) {
         Ok(file_name) => {
             ctx.report.stored += 1;
             ctx.stored_sources
@@ -275,52 +281,53 @@ fn markdown_image(alt: &str, dir_name: &str, file_name: &str) -> String {
 /// file on disk gets the `.age` suffix, but the body link stays clean — the app
 /// appends/strips `.age` when resolving, so toggling encryption never rewrites
 /// entry bodies.
-fn write_asset(
-    assets_dir: &Path,
-    encryption: Option<&KeyPaths>,
-    bytes: &[u8],
-    ext: &str,
-) -> AppResult<String> {
-    fs::create_dir_all(assets_dir)?;
+fn write_asset(ctx: &mut IngestContext<'_>, bytes: &[u8], ext: &str) -> AppResult<String> {
+    fs::create_dir_all(ctx.assets_dir)?;
 
     for _ in 0..ASSET_ID_ATTEMPTS {
         let id = nanoid!(ASSET_ID_LEN);
-        if id_taken(assets_dir, &id)? {
+        if !ctx.asset_ids.insert(id.clone()) {
             continue;
         }
         let link_name = format!("{id}.{ext}");
-        let disk_name = match encryption {
+        let disk_name = match ctx.encryption {
             Some(_) => format!("{link_name}.age"),
             None => link_name.clone(),
         };
-        let path = assets_dir.join(&disk_name);
-        match encryption {
-            Some(paths) => crypto::encrypt_to_file(paths, bytes, &path)?,
-            None => fs::write(&path, bytes)?,
+        let path = ctx.assets_dir.join(&disk_name);
+        let bytes = match &ctx.encryption {
+            Some(recipients) => recipients.encrypt(bytes)?,
+            None => bytes.to_vec(),
+        };
+        match write_new_file(&path, &bytes) {
+            Ok(()) => return Ok(link_name),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
         }
-        return Ok(link_name);
     }
 
     bail!("could not allocate a unique asset id")
 }
 
-/// True when a file named `<id>.*` already exists in the folder.
-fn id_taken(assets_dir: &Path, id: &str) -> AppResult<bool> {
-    let prefix = format!("{id}.");
+fn write_new_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(bytes)
+}
+
+fn existing_asset_ids(assets_dir: &Path) -> AppResult<HashSet<String>> {
+    let mut ids = HashSet::new();
     if !assets_dir.exists() {
-        return Ok(false);
+        return Ok(ids);
     }
     for item in fs::read_dir(assets_dir)? {
         let item = item?;
-        if item
-            .file_name()
-            .to_str()
-            .is_some_and(|name| name.starts_with(&prefix))
+        if let Some(name) = item.file_name().to_str()
+            && let Some((id, _)) = name.split_once('.')
         {
-            return Ok(true);
+            ids.insert(id.to_string());
         }
     }
-    Ok(false)
+    Ok(ids)
 }
 
 /// Delete assets in the folder not referenced by any in-folder link in `body`.

@@ -222,6 +222,17 @@ fn search_from_entries_focus_is_scoped_to_selected_journal() {
 }
 
 #[test]
+fn empty_search_has_no_selected_entry() {
+    let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+    let mut app = new_app(config);
+
+    app.begin_search();
+
+    assert_eq!(app.nav.selected_entry_index, None);
+    assert!(app.selected_entry_target().is_none());
+}
+
+#[test]
 fn feelings_search_matches_exact_known_label() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");

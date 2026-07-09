@@ -1,5 +1,5 @@
 use super::paths::{entry_id, is_assets_dir, is_encrypted_entry_file, is_entry_file};
-use super::{Entry, EntryEncryptionState, EntryPath, Metadata, Timestamp};
+use super::{Entry, EntryEncryptionState, EntryPath, ImportSource, Metadata, Timestamp};
 use crate::storage::{journals::is_hidden_name, list_journals};
 use crate::{
     AppResult,
@@ -17,6 +17,21 @@ pub fn scan_entries(
     identity: Option<&crypto::UnlockedIdentity>,
 ) -> AppResult<Vec<Entry>> {
     read_entries(collect_entry_paths(root)?, identity)
+}
+
+pub fn scan_import_sources(
+    root: &Path,
+    identity: Option<&crypto::UnlockedIdentity>,
+) -> AppResult<Vec<ImportSource>> {
+    collect_entry_paths(root)?
+        .par_iter()
+        .filter_map(
+            |entry| match read_entry_import_source(&entry.path, identity) {
+                Ok(source) => source.map(Ok),
+                Err(error) => Some(Err(error)),
+            },
+        )
+        .collect()
 }
 
 /// Walk the journal tree once and collect every entry file path without reading
@@ -131,6 +146,19 @@ pub fn read_entry(
         word_count,
         search_haystack,
     })
+}
+
+fn read_entry_import_source(
+    path: &Path,
+    identity: Option<&crypto::UnlockedIdentity>,
+) -> AppResult<Option<ImportSource>> {
+    let content = match read_entry_content(path, identity) {
+        Ok(content) => content,
+        Err(_) if is_encrypted_entry_file(path) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let (front_matter, _) = split_front_matter(&content);
+    Ok(front_matter.and_then(|front_matter| front_matter_fields(front_matter).import))
 }
 
 fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {

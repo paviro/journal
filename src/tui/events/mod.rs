@@ -138,19 +138,11 @@ pub(crate) fn dispatch_action(
         }
         Action::JournalInputSubmit => submit_new_journal(app)?,
 
-        Action::MetadataMoveUp => {
-            let list_height = metadata_dialog_list_height(terminal, app)?;
-            if let Some(state) = app.edit_metadata_state_mut() {
-                state.move_up();
-                state.ensure_selected_visible(list_height);
-            }
+        Action::MetadataMoveUp | Action::FeelingsMoveUp | Action::LocationMoveUp => {
+            navigate_open_dialog(terminal, app, |list| list.move_up())?;
         }
-        Action::MetadataMoveDown => {
-            let list_height = metadata_dialog_list_height(terminal, app)?;
-            if let Some(state) = app.edit_metadata_state_mut() {
-                state.move_down();
-                state.ensure_selected_visible(list_height);
-            }
+        Action::MetadataMoveDown | Action::FeelingsMoveDown | Action::LocationMoveDown => {
+            navigate_open_dialog(terminal, app, |list| list.move_down())?;
         }
         Action::MetadataToggle => {
             if let Some(state) = app.edit_metadata_state_mut() {
@@ -192,36 +184,22 @@ pub(crate) fn dispatch_action(
             commit_entry_edit(app, |app| set_metadata_on_entry(app, kind, &tags))?;
         }
 
-        Action::FeelingsMoveUp => {
-            let list_height = feelings_dialog_list_height(terminal, app)?;
-            if let Some(state) = app.edit_feeling_state_mut() {
-                state.move_up();
-                state.ensure_selected_visible(list_height);
-            }
-        }
-        Action::FeelingsMoveDown => {
-            let list_height = feelings_dialog_list_height(terminal, app)?;
-            if let Some(state) = app.edit_feeling_state_mut() {
-                state.move_down();
-                state.ensure_selected_visible(list_height);
-            }
-        }
         Action::FeelingsToggle => {
-            let list_height = feelings_dialog_list_height(terminal, app)?;
+            let list_height = open_dialog_list_height(terminal, app)?;
             if let Some(state) = app.edit_feeling_state_mut() {
                 state.toggle_selected();
                 state.ensure_selected_visible(list_height);
             }
         }
         Action::FeelingsExpand => {
-            let list_height = feelings_dialog_list_height(terminal, app)?;
+            let list_height = open_dialog_list_height(terminal, app)?;
             if let Some(state) = app.edit_feeling_state_mut() {
                 state.expand_selected();
                 state.ensure_selected_visible(list_height);
             }
         }
         Action::FeelingsCollapse => {
-            let list_height = feelings_dialog_list_height(terminal, app)?;
+            let list_height = open_dialog_list_height(terminal, app)?;
             if let Some(state) = app.edit_feeling_state_mut() {
                 state.collapse_selected();
                 state.ensure_selected_visible(list_height);
@@ -295,20 +273,6 @@ pub(crate) fn dispatch_action(
         Action::LocationBackspace => {
             if let Some(state) = app.edit_location_state_mut() {
                 state.backspace();
-            }
-        }
-        Action::LocationMoveUp => {
-            let list_height = location_dialog_list_height(terminal, app)?;
-            if let Some(state) = app.edit_location_state_mut() {
-                state.move_up();
-                state.ensure_selected_visible(list_height);
-            }
-        }
-        Action::LocationMoveDown => {
-            let list_height = location_dialog_list_height(terminal, app)?;
-            if let Some(state) = app.edit_location_state_mut() {
-                state.move_down();
-                state.ensure_selected_visible(list_height);
             }
         }
         Action::LocationResolve => app.resolve_location_query(),
@@ -439,49 +403,62 @@ pub(crate) fn terminal_area(
     Ok(Rect::new(0, 0, size.width, size.height))
 }
 
-fn metadata_dialog_list_height(
+/// The list viewport height of whichever edit dialog is open, needed to keep the
+/// selection visible after a navigation. Only one edit dialog is open at a time,
+/// so the first matching state wins.
+fn open_dialog_list_height(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &App,
 ) -> AppResult<u16> {
-    let filtered_len = app
-        .edit_metadata_state()
-        .map_or(0, |state| state.filtered.len());
-    Ok(
-        render::metadata_dialog_layout(terminal_area(terminal)?, filtered_len)
+    let area = terminal_area(terminal)?;
+    let height = if let Some(state) = app.edit_metadata_state() {
+        render::metadata_dialog_layout(area, state.filtered.len())
             .list
-            .height,
-    )
-}
-
-fn location_dialog_list_height(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    app: &App,
-) -> AppResult<u16> {
-    let rows = app
-        .edit_location_state()
-        .map_or(0, |state| render::location_list_rows(&state.list_labels()));
-    Ok(
-        render::location_dialog_layout(terminal_area(terminal)?, rows)
-            .list
-            .height,
-    )
-}
-
-fn feelings_dialog_list_height(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    app: &App,
-) -> AppResult<u16> {
-    let (all_len, selected_lines) = app.edit_feeling_state().map_or((0, 1), |state| {
-        (
+            .height
+    } else if let Some(state) = app.edit_feeling_state() {
+        render::feelings_dialog_layout(
+            area,
             state.item_count(),
             render::feelings_selected_line_count(&state.selected),
         )
-    });
-    Ok(
-        render::feelings_dialog_layout(terminal_area(terminal)?, all_len, selected_lines)
+        .list
+        .height
+    } else if let Some(state) = app.edit_location_state() {
+        render::location_dialog_layout(area, render::location_list_rows(&state.list_labels()))
             .list
-            .height,
-    )
+            .height
+    } else {
+        0
+    };
+    Ok(height)
+}
+
+/// The open edit dialog's list, as a shared navigation handle.
+fn open_dialog_list_mut(app: &mut App) -> Option<&mut dyn ListNav> {
+    if app.edit_metadata_state().is_some() {
+        return app.edit_metadata_state_mut().map(|s| s as &mut dyn ListNav);
+    }
+    if app.edit_feeling_state().is_some() {
+        return app.edit_feeling_state_mut().map(|s| s as &mut dyn ListNav);
+    }
+    if app.edit_location_state().is_some() {
+        return app.edit_location_state_mut().map(|s| s as &mut dyn ListNav);
+    }
+    None
+}
+
+/// Move within the open dialog's list, then scroll so the selection stays visible.
+fn navigate_open_dialog(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    nav: impl FnOnce(&mut dyn ListNav),
+) -> AppResult<()> {
+    let list_height = open_dialog_list_height(terminal, app)?;
+    if let Some(list) = open_dialog_list_mut(app) {
+        nav(list);
+        list.ensure_selected_visible(list_height);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

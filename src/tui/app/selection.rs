@@ -268,6 +268,43 @@ impl App {
         }
     }
 
+    pub(crate) fn clear_entry_selection(&mut self) {
+        if self.nav.selected_entry_index.is_some() {
+            self.nav.selected_entry_index = None;
+            self.reset_entry_scroll();
+        }
+    }
+
+    pub(crate) fn focus_journals_from_click(&mut self, single_panel: bool) {
+        self.nav.focus = if single_panel {
+            Focus::Entries
+        } else {
+            Focus::Journals
+        };
+    }
+
+    pub(crate) fn focus_entries(&mut self) {
+        self.nav.focus = Focus::Entries;
+    }
+
+    pub(crate) fn focus_entry_view_from_click(&mut self) {
+        if self.nav.focus != Focus::EntryView {
+            self.nav.entry_view_fullscreen = false;
+        }
+        self.nav.focus = Focus::EntryView;
+    }
+
+    pub(crate) fn focus_insights(&mut self) {
+        self.nav.focus = Focus::Insights;
+    }
+
+    pub(crate) fn select_insights_tab(&mut self, tab: InsightsTab) {
+        if self.nav.insights_tab != tab {
+            self.nav.insights_tab = tab;
+            self.nav.scroll.reset_insights();
+        }
+    }
+
     pub(crate) fn select_entry_by_id(&mut self, id: &str, reset_entry_scroll: bool) -> bool {
         let index = match self.nav.mode {
             Mode::Search => self.search.hits.iter().position(|hit| hit.id == id),

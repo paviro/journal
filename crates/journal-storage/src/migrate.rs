@@ -33,7 +33,7 @@ pub struct DisabledElsewhereCleanup {
 
 enum MigrationMode<'a> {
     Encrypt {
-        paths: &'a KeyPaths,
+        recipients: &'a crypto::EncryptionRecipients,
     },
     Decrypt {
         identity: &'a crypto::UnlockedIdentity,
@@ -49,9 +49,12 @@ pub fn encrypt_store(
     progress: ProgressFn<'_>,
 ) -> AppResult<MigrationSummary> {
     let paths = store.paths();
+    let recipients = crypto::EncryptionRecipients::for_store(&paths.keys)?;
     let migrated_files = migrate_store(
         paths.journal_root.as_path(),
-        MigrationMode::Encrypt { paths: &paths.keys },
+        MigrationMode::Encrypt {
+            recipients: &recipients,
+        },
         progress,
     )?
     .migrated_files;
@@ -186,10 +189,11 @@ pub fn reencrypt_store(
         Ok(())
     })?;
     files.sort();
+    let recipients = crypto::EncryptionRecipients::for_store(&paths.keys)?;
 
     progress(0, files.len());
     for (done, path) in files.iter().enumerate() {
-        reencrypt_file(path, &paths.keys, identity)?;
+        reencrypt_file(path, &recipients, identity)?;
         progress(done + 1, files.len());
     }
     Ok(MigrationSummary {
@@ -199,12 +203,12 @@ pub fn reencrypt_store(
 
 fn reencrypt_file(
     path: &Path,
-    paths: &KeyPaths,
+    recipients: &crypto::EncryptionRecipients,
     identity: &crypto::UnlockedIdentity,
 ) -> AppResult<()> {
     let plaintext = crypto::decrypt_file_bytes(identity, path)?;
     let temp = crypto::sibling_temp_path(path, "tmp.age");
-    crypto::encrypt_to_file(paths, &plaintext, &temp)?;
+    recipients.encrypt_to_file(&plaintext, &temp)?;
     fs::rename(&temp, path)?;
     Ok(())
 }
@@ -248,7 +252,7 @@ fn migrate_store(
     let result = (|| -> AppResult<()> {
         for source in &entry_files {
             match mode {
-                MigrationMode::Encrypt { paths } => encrypt_plain_entry(source, paths)?,
+                MigrationMode::Encrypt { recipients } => encrypt_plain_entry(source, recipients)?,
                 MigrationMode::Decrypt { identity } => decrypt_encrypted_entry(source, identity)?,
             }
             done += 1;
@@ -317,10 +321,10 @@ fn asset_matches_mode(path: &Path, mode: &MigrationMode<'_>) -> bool {
 /// asset file in place, atomically via temp + rename.
 fn convert_asset_file(path: &Path, mode: &MigrationMode<'_>) -> AppResult<()> {
     match mode {
-        MigrationMode::Encrypt { paths } => {
+        MigrationMode::Encrypt { recipients } => {
             let target = append_age(path);
             let temp = crypto::sibling_temp_path(&target, "tmp.age");
-            crypto::encrypt_to_file(paths, &fs::read(path)?, &temp)?;
+            recipients.encrypt_to_file(&fs::read(path)?, &temp)?;
             fs::rename(&temp, &target)?;
             fs::remove_file(path)?;
         }
@@ -424,10 +428,10 @@ fn ensure_no_asset_collisions(files: &[PathBuf], mode: &MigrationMode<'_>) -> Ap
     Ok(())
 }
 
-fn encrypt_plain_entry(path: &Path, paths: &KeyPaths) -> AppResult<()> {
+fn encrypt_plain_entry(path: &Path, recipients: &crypto::EncryptionRecipients) -> AppResult<()> {
     let target = path.with_extension("md.age");
     let temp = crypto::sibling_temp_path(&target, "tmp.age");
-    crypto::encrypt_to_file(paths, &fs::read(path)?, &temp)?;
+    recipients.encrypt_to_file(&fs::read(path)?, &temp)?;
     fs::rename(&temp, &target)?;
     fs::remove_file(path)?;
     Ok(())

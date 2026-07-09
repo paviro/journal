@@ -14,6 +14,20 @@ use std::{
 
 const ENTRY_CREATE_ATTEMPTS: usize = 32;
 
+pub struct ImportedEntryDraft<'a> {
+    pub journal: &'a str,
+    pub body: &'a str,
+    pub metadata: &'a Metadata,
+    pub created_at: DateTime<FixedOffset>,
+    pub edited_at: DateTime<FixedOffset>,
+    pub timezone: Option<&'a str>,
+    pub location: Option<&'a Location>,
+    pub weather: Option<&'a Weather>,
+    pub celestial: Option<&'a Celestial>,
+    pub editing_seconds: Option<u64>,
+    pub import: &'a ImportSource,
+}
+
 /// Create a new entry dated now. Whether it is encrypted follows the `codec`.
 pub fn create_entry(
     codec: &EntryCodec<'_>,
@@ -46,37 +60,31 @@ pub fn create_entry(
 /// `[import]` provenance marker (used by importers). The on-disk path and
 /// filename are derived from `created_at`, so imported entries land in their
 /// original date folder rather than today's. Encryption follows the `codec`.
-#[allow(clippy::too_many_arguments)]
 pub fn create_imported_entry(
     codec: &EntryCodec<'_>,
     root: &Path,
-    journal: &str,
-    body: &str,
-    metadata: &Metadata,
-    created_at: DateTime<FixedOffset>,
-    edited_at: DateTime<FixedOffset>,
-    timezone: Option<&str>,
-    location: Option<&Location>,
-    weather: Option<&Weather>,
-    celestial: Option<&Celestial>,
-    editing_seconds: Option<u64>,
-    import: &ImportSource,
+    draft: ImportedEntryDraft<'_>,
 ) -> AppResult<PathBuf> {
     let content = entry_content(
-        created_at,
-        edited_at,
-        body,
-        metadata,
-        timezone,
-        location,
-        weather,
-        celestial,
-        editing_seconds,
-        Some(import),
+        draft.created_at,
+        draft.edited_at,
+        draft.body,
+        draft.metadata,
+        draft.timezone,
+        draft.location,
+        draft.weather,
+        draft.celestial,
+        draft.editing_seconds,
+        Some(draft.import),
     );
-    create_entry_file(codec, root, journal, created_at, &content, || {
-        nanoid!(ENTRY_ID_LEN)
-    })
+    create_entry_file(
+        codec,
+        root,
+        draft.journal,
+        draft.created_at,
+        &content,
+        || nanoid!(ENTRY_ID_LEN),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

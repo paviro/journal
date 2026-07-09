@@ -5,12 +5,12 @@ use std::io;
 
 use crate::tui::{
     app::{App, Focus, Mode, ScrollbarDrag, inline_entry_view_is_visible},
-    events::actions::view_selected,
     render,
     state::ListNav,
 };
 
 use super::action::Action;
+use super::actions::view_selected;
 
 pub(crate) fn handle_mouse(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -239,19 +239,19 @@ fn set_pane_scroll(app: &mut App, which: ScrollbarDrag, offset: usize) {
     match which {
         ScrollbarDrag::Journals => {
             *app.nav.journal_list.offset_mut() = offset;
-            app.nav.focus = Focus::Journals;
+            app.focus_journals_from_click(false);
         }
         ScrollbarDrag::EntryList => {
             *app.nav.entry_list.offset_mut() = offset;
-            app.nav.focus = Focus::Entries;
+            app.focus_entries();
         }
         ScrollbarDrag::EntryView => {
             app.nav.scroll.entry_view = offset.min(u16::MAX as usize) as u16;
-            app.nav.focus = Focus::EntryView;
+            app.focus_entry_view_from_click();
         }
         ScrollbarDrag::Insights => {
             app.nav.scroll.insights = offset.min(u16::MAX as usize) as u16;
-            app.nav.focus = Focus::Insights;
+            app.focus_insights();
         }
     }
 }
@@ -261,19 +261,19 @@ fn step_pane_scroll(app: &mut App, target: &ScrollbarTarget, delta: i16) {
     match target.which {
         ScrollbarDrag::Journals => {
             app.scroll_journal_list(delta, target.content_length, target.viewport);
-            app.nav.focus = Focus::Journals;
+            app.focus_journals_from_click(false);
         }
         ScrollbarDrag::EntryList => {
             app.scroll_entry_list(delta, target.content_length, target.viewport);
-            app.nav.focus = Focus::Entries;
+            app.focus_entries();
         }
         ScrollbarDrag::EntryView => {
             app.scroll_entry_view(delta);
-            app.nav.focus = Focus::EntryView;
+            app.focus_entry_view_from_click();
         }
         ScrollbarDrag::Insights => {
             app.scroll_insights(delta);
-            app.nav.focus = Focus::Insights;
+            app.focus_insights();
         }
     }
 }
@@ -344,11 +344,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
         && let Some(area) = layout.journals
         && render::point_in_rect(area.area, mouse.column, mouse.row)
     {
-        app.nav.focus = if layout.single_panel {
-            Focus::Entries
-        } else {
-            Focus::Journals
-        };
+        app.focus_journals_from_click(layout.single_panel);
         let (_, meta, _) = app.journal_rows(area.content);
         if let Some(index) = render::journal_index_at(
             area.content,
@@ -365,7 +361,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
     if let Some(area) = layout.entries
         && render::point_in_rect(area.panel.area, mouse.column, mouse.row)
     {
-        app.nav.focus = Focus::Entries;
+        app.focus_entries();
         let cache = app.entry_rows(area.text_width);
         if let Some(index) = render::entry_index_at(
             area,
@@ -380,7 +376,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             }
         } else if app.nav.mode == Mode::Browse {
             // Clicking empty space in the list deselects, revealing journal insights.
-            app.nav.selected_entry_index = None;
+            app.clear_entry_selection();
         }
         return Ok(());
     }
@@ -389,10 +385,10 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
         && render::point_in_rect(area.area, mouse.column, mouse.row)
         && app.nav.mode == Mode::Browse
     {
-        app.nav.focus = Focus::Insights;
+        app.focus_insights();
         // Clicking a tab in the border selects it; clicking elsewhere just focuses.
         if let Some(tab) = render::insights_tab_at(area.area, mouse.column, mouse.row) {
-            app.nav.insights_tab = tab;
+            app.select_insights_tab(tab);
         }
         return Ok(());
     }
@@ -426,13 +422,10 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             }
             return Ok(());
         }
-        // Clicking the preview pane focuses the viewer on the pane; a click that is
-        // already inside a full-screen viewer must not collapse it, so only reset
-        // when entering from another column.
-        if app.nav.focus != Focus::EntryView {
-            app.nav.entry_view_fullscreen = false;
-        }
-        app.nav.focus = Focus::EntryView;
+        // Focus the viewer on the pane. A click already inside a full-screen viewer
+        // must not collapse it, so `focus_entry_view_from_click` only resets fullscreen
+        // when focus enters from another column.
+        app.focus_entry_view_from_click();
     }
 
     Ok(())
@@ -547,6 +540,28 @@ fn handle_overlay_mouse(
     Ok(())
 }
 
+/// Route a click landing on a dialog's hint bar to its action, if any.
+fn dialog_hint_action(
+    app: &App,
+    hints_area: Rect,
+    hints: &[render::Hint],
+    col: u16,
+    row: u16,
+) -> Option<Action> {
+    if !render::point_in_rect(hints_area, col, row) {
+        return None;
+    }
+    let id = render::hint_id_at_wrapped(
+        hints,
+        hints_area.x + 1,
+        hints_area.y,
+        hints_area.width.saturating_sub(1),
+        col,
+        row,
+    )?;
+    hint_id_to_action(app, id)
+}
+
 fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Action> {
     let col = mouse.column;
     let row = mouse.row;
@@ -557,17 +572,14 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
     {
         let filtered_len = app.edit_metadata_state().map_or(0, |s| s.filtered.len());
         let layout = render::metadata_dialog_layout(area, filtered_len);
-        if render::point_in_rect(layout.hints, col, row)
-            && let Some(id) = render::hint_id_at_wrapped(
-                render::metadata_dialog_hints(focus, input_is_empty),
-                layout.hints.x + 1,
-                layout.hints.y,
-                layout.hints.width.saturating_sub(1),
-                col,
-                row,
-            )
-        {
-            return hint_id_to_action(app, id);
+        if let Some(action) = dialog_hint_action(
+            app,
+            layout.hints,
+            render::metadata_dialog_hints(focus, input_is_empty),
+            col,
+            row,
+        ) {
+            return Some(action);
         }
         if render::point_in_rect(layout.list, col, row) {
             if let Some(state) = app.edit_metadata_state_mut() {
@@ -598,17 +610,14 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
             )
         });
         let layout = render::feelings_dialog_layout(area, all_len, selected_lines);
-        if render::point_in_rect(layout.hints, col, row)
-            && let Some(id) = render::hint_id_at_wrapped(
-                render::feelings_dialog_hints(focus),
-                layout.hints.x + 1,
-                layout.hints.y,
-                layout.hints.width.saturating_sub(1),
-                col,
-                row,
-            )
-        {
-            return hint_id_to_action(app, id);
+        if let Some(action) = dialog_hint_action(
+            app,
+            layout.hints,
+            render::feelings_dialog_hints(focus),
+            col,
+            row,
+        ) {
+            return Some(action);
         }
         if render::point_in_rect(layout.list, col, row) {
             if let Some(state) = app.edit_feeling_state_mut() {
@@ -634,17 +643,10 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
 
     if app.edit_mood_state().is_some() {
         let layout = render::mood_dialog_layout(area);
-        if render::point_in_rect(layout.hints, col, row)
-            && let Some(id) = render::hint_id_at_wrapped(
-                render::mood_dialog_hints(),
-                layout.hints.x + 1,
-                layout.hints.y,
-                layout.hints.width.saturating_sub(1),
-                col,
-                row,
-            )
+        if let Some(action) =
+            dialog_hint_action(app, layout.hints, render::mood_dialog_hints(), col, row)
         {
-            return hint_id_to_action(app, id);
+            return Some(action);
         }
         if render::point_in_rect(layout.bar, col, row)
             && let Some(state) = app.edit_mood_state_mut()

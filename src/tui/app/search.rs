@@ -50,7 +50,7 @@ impl App {
         self.search.dirty = false;
         self.search.last_edit = None;
         self.caches.bump_rows();
-        self.nav.selected_entry_index = Some(0);
+        self.nav.selected_entry_index = (!self.search.hits.is_empty()).then_some(0);
         self.reset_entry_scroll();
     }
 

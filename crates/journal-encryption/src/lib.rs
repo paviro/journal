@@ -26,7 +26,9 @@ mod tests;
 
 pub use age::secrecy::{ExposeSecret, SecretString};
 
-pub use cipher::{decrypt_file_bytes, encrypt_bytes, encrypt_new_entry, encrypt_to_file};
+pub use cipher::{
+    EncryptionRecipients, decrypt_file_bytes, encrypt_bytes, encrypt_new_entry, encrypt_to_file,
+};
 pub use error::{EncryptionError, Result};
 pub use files::{atomic_write, sibling_temp_path};
 pub use identity::{
