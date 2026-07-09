@@ -2096,6 +2096,7 @@ dependencies = [
  "libc",
  "pkg-config",
  "tempfile",
+ "zeroize",
 ]
 
 [[package]]

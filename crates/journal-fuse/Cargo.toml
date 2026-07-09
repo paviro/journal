@@ -10,6 +10,7 @@ anyhow = "1"
 journal-core = { path = "../journal-core" }
 journal-storage = { path = "../journal-storage" }
 libc = "0.2"
+zeroize = "1"
 
 [build-dependencies]
 # Compile the C bridge (bridge.c) and link the system libfuse3. Using libfuse's

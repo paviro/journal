@@ -7,6 +7,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::UNIX_EPOCH;
+use zeroize::Zeroizing;
 
 use crate::path_policy::{
     BackingFile, backing_for_new_file, existing_file, is_directory, is_protected_path,
@@ -18,7 +19,7 @@ use crate::path_policy::{
 struct Handle {
     on_disk: PathBuf,
     encoding: StoreFileEncoding,
-    buf: Vec<u8>,
+    buf: Zeroizing<Vec<u8>>,
     deleted: bool,
     dirty: bool,
     writable: bool,
@@ -295,10 +296,10 @@ fn open(ctx: *mut c_void, path: *const c_char, flags: c_int, fh_out: *mut u64) -
     let writable = access == libc::O_WRONLY || access == libc::O_RDWR;
     let truncate = flags & libc::O_TRUNC != 0;
     let buf = if truncate {
-        Vec::new()
+        Zeroizing::new(Vec::new())
     } else {
         match ctx.store.read_store_file(&file.path, file.encoding) {
-            Ok(bytes) => bytes,
+            Ok(bytes) => Zeroizing::new(bytes),
             Err(e) => return app_errno(&e),
         }
     };
@@ -360,7 +361,7 @@ fn create(
         Handle {
             on_disk: file.path,
             encoding: file.encoding,
-            buf: Vec::new(),
+            buf: Zeroizing::new(Vec::new()),
             deleted: false,
             dirty: false,
             writable,
