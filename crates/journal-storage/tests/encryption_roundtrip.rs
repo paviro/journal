@@ -470,12 +470,12 @@ fn rotate_identity_replaces_the_key_and_keeps_reading() {
     );
 }
 
-/// The generic `read_file`/`write_file` pair the FUSE mount is built on:
+/// The byte-level encrypted store-file API the FUSE mount is built on:
 /// rewriting an entry re-encrypts it verbatim (byte-for-byte round-trip), the
 /// file stays encrypted on disk, and an encrypted asset written alongside it
 /// round-trips as raw bytes too.
 #[test]
-fn write_file_reencrypts_entries_and_assets() {
+fn write_store_file_reencrypts_entries_and_assets() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = store_at(dir.path());
     store.ensure().unwrap();
@@ -492,8 +492,15 @@ fn write_file_reencrypts_entries_and_assets() {
 
     // Rewrite the entry through the byte-level API, as the mount's commit does.
     let edited = b"+++\ntags = [\"edited\"]\n+++\n\nnew body through the mount\n";
-    store.write_file(&path, edited).unwrap();
-    assert_eq!(store.read_file(&path).unwrap(), edited);
+    store
+        .write_store_file(&path, journal_storage::StoreFileEncoding::Encrypted, edited)
+        .unwrap();
+    assert_eq!(
+        store
+            .read_store_file(&path, journal_storage::StoreFileEncoding::Encrypted)
+            .unwrap(),
+        edited
+    );
 
     // Still encrypted on disk: the raw bytes are age ciphertext, not plaintext.
     let raw = std::fs::read(&path).unwrap();
@@ -509,10 +516,23 @@ fn write_file_reencrypts_entries_and_assets() {
     // An encrypted asset written next to the entry round-trips as raw bytes.
     let asset = path.with_extension("").with_extension("jpg.age");
     let bytes: Vec<u8> = (0u8..=255).cycle().take(1024).collect();
-    store.write_file(&asset, &bytes).unwrap();
-    assert_eq!(store.read_file(&asset).unwrap(), bytes);
+    store
+        .write_store_file(
+            &asset,
+            journal_storage::StoreFileEncoding::Encrypted,
+            &bytes,
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .read_store_file(&asset, journal_storage::StoreFileEncoding::Encrypted)
+            .unwrap(),
+        bytes
+    );
     assert!(
-        std::fs::read(&asset).unwrap().starts_with(b"age-encryption.org/"),
+        std::fs::read(&asset)
+            .unwrap()
+            .starts_with(b"age-encryption.org/"),
         "asset should be encrypted on disk"
     );
 }

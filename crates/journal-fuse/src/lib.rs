@@ -25,7 +25,7 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use journal_core::AppResult;
-use journal_storage::JournalStore;
+use journal_storage::{JournalStore, StoreFileEncoding};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::os::raw::{c_char, c_int, c_void};
@@ -47,6 +47,7 @@ unsafe extern "C" {
 /// (with `.age` when encrypted), and whether it was opened writable / is dirty.
 struct Handle {
     on_disk: PathBuf,
+    encoding: StoreFileEncoding,
     buf: Vec<u8>,
     dirty: bool,
     writable: bool,
@@ -135,6 +136,12 @@ const RENAME_EXCHANGE: u32 = 2;
 
 // --- path helpers -----------------------------------------------------------
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BackingFile {
+    path: PathBuf,
+    encoding: StoreFileEncoding,
+}
+
 fn ctx_ref<'a>(ptr: *mut c_void) -> &'a Ctx {
     unsafe { &*(ptr as *const Ctx) }
 }
@@ -159,39 +166,118 @@ fn with_age(path: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// Resolve a mounted file's actual on-disk path: the encrypted `<base>.age` if it
-/// exists, else the plain `<base>`, else `None` when neither exists.
-fn existing_file(base: &Path) -> Option<PathBuf> {
+fn is_regular_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|meta| {
+            let ty = meta.file_type();
+            ty.is_file() && !ty.is_symlink()
+        })
+        .unwrap_or(false)
+}
+
+fn is_directory(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|meta| {
+            let ty = meta.file_type();
+            ty.is_dir() && !ty.is_symlink()
+        })
+        .unwrap_or(false)
+}
+
+/// Resolve a mounted file's actual on-disk path: the encrypted `<base>.age` if
+/// it exists, else the plain `<base>`, else `None` when neither exists.
+fn existing_file(base: &Path) -> Option<BackingFile> {
     let encrypted = with_age(base);
-    if encrypted.is_file() {
-        Some(encrypted)
-    } else if base.is_file() {
-        Some(base.to_path_buf())
+    if is_regular_file(&encrypted) {
+        Some(BackingFile {
+            path: encrypted,
+            encoding: StoreFileEncoding::Encrypted,
+        })
+    } else if is_regular_file(base) {
+        Some(BackingFile {
+            path: base.to_path_buf(),
+            encoding: StoreFileEncoding::Plain,
+        })
     } else {
         None
     }
 }
 
-/// macOS filesystem clutter we refuse to create so it never lands (encrypted) in
-/// the store: AppleDouble sidecars (`._name`), Finder's `.DS_Store`, and the
-/// volume-level metadata directories. Deliberately narrow — editors write their
-/// own dot-prefixed temp/swap files (vim `.x.swp`, emacs `.#x`) for atomic saves,
-/// so we must not reject dotfiles wholesale.
-fn is_os_junk(name: &OsStr) -> bool {
-    let bytes = name.as_bytes();
-    bytes.starts_with(b"._")
+fn strip_age_path(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name()?.to_str()?;
+    let mounted_name = name.strip_suffix(".age")?;
+    Some(path.with_file_name(mounted_name))
+}
+
+fn mounted_name_for_backing(path: &Path, name: &OsStr) -> OsString {
+    if let Some(base) = strip_age_path(path)
+        && should_encrypt_new_file(&base)
+    {
+        return mounted_name(name);
+    }
+    name.to_os_string()
+}
+
+fn should_encrypt_new_file(base: &Path) -> bool {
+    let Some(name) = base.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    if name.ends_with(".md") || name.contains(".md.") {
+        return true;
+    }
+    base.components().any(|component| {
+        component
+            .as_os_str()
+            .to_str()
+            .is_some_and(|name| name.ends_with(".assets"))
+    })
+}
+
+fn backing_for_new_file(base: PathBuf) -> BackingFile {
+    if should_encrypt_new_file(&base) {
+        BackingFile {
+            path: with_age(&base),
+            encoding: StoreFileEncoding::Encrypted,
+        }
+    } else {
+        BackingFile {
+            path: base,
+            encoding: StoreFileEncoding::Plain,
+        }
+    }
+}
+
+fn is_safe_mounted_path(path: *const c_char) -> bool {
+    let bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
+    let rel = bytes.strip_prefix(b"/").unwrap_or(bytes);
+    rel.split(|&b| b == b'/')
+        .all(|component| component.is_empty() || (component != b"." && component != b".."))
+}
+
+fn component_is_rejected_system_state(component: &[u8]) -> bool {
+    component.starts_with(b"._")
         || matches!(
-            name.to_str(),
+            std::str::from_utf8(component).ok(),
             Some(
-                ".DS_Store"
-                    | ".Trashes"
-                    | ".Spotlight-V100"
+                ".Spotlight-V100"
                     | ".fseventsd"
+                    | ".Trashes"
                     | ".TemporaryItems"
+                    | ".DocumentRevisions-V100"
                     | ".apdisk"
-                    | ".VolumeIcon.icns"
             )
         )
+}
+
+fn is_rejected_system_path(path: *const c_char) -> bool {
+    let bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
+    let rel = bytes.strip_prefix(b"/").unwrap_or(bytes);
+    rel.split(|&b| b == b'/')
+        .any(component_is_rejected_system_state)
+}
+
+fn is_rejected_system_name(name: &OsStr) -> bool {
+    component_is_rejected_system_state(name.as_bytes())
 }
 
 /// Whether a mounted path lies inside the `.age` encryption metadata directory
@@ -205,9 +291,14 @@ fn is_encryption_metadata(path: *const c_char) -> bool {
     rel.split(|&b| b == b'/').next() == Some(b".age")
 }
 
-/// Names to show for a mounted directory: the `.age` encryption folder and other
-/// dotfiles (editor junk) are hidden, `.trash` is kept so deleted entries can be
-/// recovered, and the `.age` suffix is stripped from everything else.
+fn is_protected_path(path: *const c_char) -> bool {
+    !is_safe_mounted_path(path) || is_encryption_metadata(path) || is_rejected_system_path(path)
+}
+
+/// Names to show for a mounted directory: the `.age` encryption folder and
+/// rejected system state are hidden, `.trash` is kept so deleted entries can be
+/// recovered, and the `.age` suffix is stripped only from encrypted backing
+/// files.
 fn visible_entries(base: &Path) -> Vec<OsString> {
     let Ok(entries) = std::fs::read_dir(base) else {
         return Vec::new();
@@ -216,19 +307,23 @@ fn visible_entries(base: &Path) -> Vec<OsString> {
     for entry in entries.flatten() {
         let disk_name = entry.file_name();
         let bytes = disk_name.as_bytes();
-        if bytes.first() == Some(&b'.') && bytes != b".trash" {
+        if bytes == b".age" || is_rejected_system_name(&disk_name) {
             continue;
         }
-        names.push(mounted_name(&disk_name));
+        if disk_name
+            .to_str()
+            .is_some_and(|name| name.ends_with(".age"))
+        {
+            names.push(mounted_name_for_backing(&entry.path(), &disk_name));
+        } else if existing_file(&entry.path())
+            .is_some_and(|file| file.encoding == StoreFileEncoding::Plain)
+        {
+            names.push(disk_name);
+        } else if is_directory(&entry.path()) {
+            names.push(disk_name);
+        }
     }
     names
-}
-
-/// The mounted path's final component (what a create/mkdir would name on disk).
-fn basename(path: *const c_char) -> OsString {
-    let bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
-    let name = bytes.rsplit(|&b| b == b'/').next().unwrap_or(bytes);
-    OsStr::from_bytes(name).to_os_string()
 }
 
 /// Map an on-disk basename to how it appears in the mount: `x.md.age` → `x.md`.
@@ -253,21 +348,21 @@ impl Ctx {
     /// once and caching. Propagates a read/decrypt failure rather than reporting a
     /// non-empty file as zero-length: the store is unlocked at mount time, so a
     /// failure here is real corruption, not an empty file.
-    fn file_size(&self, disk: &Path) -> AppResult<u64> {
+    fn file_size(&self, file: &BackingFile) -> AppResult<u64> {
         let inner = self.lock();
-        if let Some(handle) = inner.handles.values().find(|h| h.on_disk == disk) {
+        if let Some(handle) = inner.handles.values().find(|h| h.on_disk == file.path) {
             return Ok(handle.buf.len() as u64);
         }
-        if let Some(&size) = inner.sizes.get(disk) {
+        if let Some(&size) = inner.sizes.get(&file.path) {
             return Ok(size);
         }
         drop(inner);
-        let size = self.store.read_file(disk)?.len() as u64;
+        let size = self.store.read_store_file(&file.path, file.encoding)?.len() as u64;
         self.inner
             .lock()
             .unwrap()
             .sizes
-            .insert(disk.to_path_buf(), size);
+            .insert(file.path.clone(), size);
         Ok(size)
     }
 
@@ -281,17 +376,20 @@ impl Ctx {
         if !handle.dirty || !handle.writable {
             return Ok(());
         }
-        let on_disk = handle.on_disk.clone();
+        let file = BackingFile {
+            path: handle.on_disk.clone(),
+            encoding: handle.encoding,
+        };
         let bytes = handle.buf.clone();
         drop(inner);
         self.store
-            .write_file(&on_disk, &bytes)
+            .write_store_file(&file.path, file.encoding, &bytes)
             .map_err(|e| app_errno(&e))?;
         let mut inner = self.lock();
         if let Some(handle) = inner.handles.get_mut(&fh) {
             handle.dirty = false;
         }
-        inner.sizes.remove(&on_disk);
+        inner.sizes.remove(&file.path);
         Ok(())
     }
 }
@@ -378,17 +476,17 @@ pub extern "C" fn jf_getattr(ctx: *mut c_void, path: *const c_char, st: *mut lib
 fn getattr(ctx: *mut c_void, path: *const c_char, st: *mut libc::stat) -> c_int {
     let ctx = ctx_ref(ctx);
     unsafe { std::ptr::write_bytes(st, 0, 1) };
-    if is_encryption_metadata(path) {
+    if is_protected_path(path) {
         return -libc::ENOENT;
     }
     let base = base_of(ctx, path);
-    if base.is_dir() {
+    if is_directory(&base) {
         fill_dir_stat(ctx, st, &base);
         0
-    } else if let Some(disk) = existing_file(&base) {
-        match ctx.file_size(&disk) {
+    } else if let Some(file) = existing_file(&base) {
+        match ctx.file_size(&file) {
             Ok(size) => {
-                fill_file_stat(ctx, st, size, &disk);
+                fill_file_stat(ctx, st, size, &file.path);
                 0
             }
             Err(e) => app_errno(&e),
@@ -410,6 +508,9 @@ pub extern "C" fn jf_readdir(
 
 fn readdir(ctx: *mut c_void, path: *const c_char, buf: *mut c_void, filler: *mut c_void) -> c_int {
     let ctx = ctx_ref(ctx);
+    if is_protected_path(path) {
+        return -libc::ENOENT;
+    }
     for name in [c".", c".."] {
         unsafe { bridge_fill(filler, buf, name.as_ptr()) };
     }
@@ -434,11 +535,11 @@ pub extern "C" fn jf_open(
 
 fn open(ctx: *mut c_void, path: *const c_char, flags: c_int, fh_out: *mut u64) -> c_int {
     let ctx = ctx_ref(ctx);
-    if is_encryption_metadata(path) {
+    if is_protected_path(path) {
         return -libc::ENOENT;
     }
     let base = base_of(ctx, path);
-    let Some(disk) = existing_file(&base) else {
+    let Some(file) = existing_file(&base) else {
         return -libc::ENOENT;
     };
     let access = flags & libc::O_ACCMODE;
@@ -447,7 +548,7 @@ fn open(ctx: *mut c_void, path: *const c_char, flags: c_int, fh_out: *mut u64) -
     let buf = if truncate {
         Vec::new()
     } else {
-        match ctx.store.read_file(&disk) {
+        match ctx.store.read_store_file(&file.path, file.encoding) {
             Ok(bytes) => bytes,
             Err(e) => return app_errno(&e),
         }
@@ -458,7 +559,8 @@ fn open(ctx: *mut c_void, path: *const c_char, flags: c_int, fh_out: *mut u64) -
     inner.handles.insert(
         fh,
         Handle {
-            on_disk: disk,
+            on_disk: file.path,
+            encoding: file.encoding,
             buf,
             dirty: truncate && writable,
             writable,
@@ -487,23 +589,15 @@ fn create(
     fh_out: *mut u64,
 ) -> c_int {
     let ctx = ctx_ref(ctx);
-    if is_encryption_metadata(path) {
+    if is_protected_path(path) {
         return -libc::ENOENT;
-    }
-    if is_os_junk(&basename(path)) {
-        return -libc::EPERM;
     }
     let base = base_of(ctx, path);
     if existing_file(&base).is_some() {
         return -libc::EEXIST;
     }
-    // New files get the `.age` suffix when the store encrypts.
-    let disk = if ctx.store.encrypts_new_files() {
-        with_age(&base)
-    } else {
-        base
-    };
-    if let Err(e) = ctx.store.write_file(&disk, &[]) {
+    let file = backing_for_new_file(base);
+    if let Err(e) = ctx.store.write_store_file(&file.path, file.encoding, &[]) {
         return app_errno(&e);
     }
     let access = flags & libc::O_ACCMODE;
@@ -514,7 +608,8 @@ fn create(
     inner.handles.insert(
         fh,
         Handle {
-            on_disk: disk,
+            on_disk: file.path,
+            encoding: file.encoding,
             buf: Vec::new(),
             dirty: false,
             writable,
@@ -610,12 +705,12 @@ pub extern "C" fn jf_truncate(
 
 fn truncate(ctx: *mut c_void, path: *const c_char, size: i64, _fh: u64, _has_fh: c_int) -> c_int {
     let ctx = ctx_ref(ctx);
-    if is_encryption_metadata(path) {
+    if is_protected_path(path) {
         return -libc::ENOENT;
     }
     let size = size.max(0) as usize;
     let base = base_of(ctx, path);
-    let disk = existing_file(&base);
+    let file = existing_file(&base);
 
     // Resize every open handle for this file so a later `release` commits the
     // truncated length. This matters because backends like fuse-t (NFS) deliver
@@ -623,8 +718,12 @@ fn truncate(ctx: *mut c_void, path: *const c_char, size: i64, _fh: u64, _has_fh:
     // open handle — without this, a shorter rewrite would leave the old tail.
     let mut inner = ctx.lock();
     let mut touched = false;
-    if let Some(disk) = &disk {
-        for handle in inner.handles.values_mut().filter(|h| &h.on_disk == disk) {
+    if let Some(file) = &file {
+        for handle in inner
+            .handles
+            .values_mut()
+            .filter(|handle| handle.on_disk == file.path)
+        {
             handle.buf.resize(size, 0);
             handle.dirty = true;
             touched = true;
@@ -636,18 +735,21 @@ fn truncate(ctx: *mut c_void, path: *const c_char, size: i64, _fh: u64, _has_fh:
     drop(inner);
 
     // No open handle: rewrite the file on disk directly.
-    let Some(disk) = disk else {
+    let Some(file) = file else {
         return -libc::ENOENT;
     };
-    let mut bytes = match ctx.store.read_file(&disk) {
+    let mut bytes = match ctx.store.read_store_file(&file.path, file.encoding) {
         Ok(bytes) => bytes,
         Err(e) => return app_errno(&e),
     };
     bytes.resize(size, 0);
-    if let Err(e) = ctx.store.write_file(&disk, &bytes) {
+    if let Err(e) = ctx
+        .store
+        .write_store_file(&file.path, file.encoding, &bytes)
+    {
         return app_errno(&e);
     }
-    ctx.lock().sizes.remove(&disk);
+    ctx.lock().sizes.remove(&file.path);
     0
 }
 
@@ -658,16 +760,16 @@ pub extern "C" fn jf_unlink(ctx: *mut c_void, path: *const c_char) -> c_int {
 
 fn unlink(ctx: *mut c_void, path: *const c_char) -> c_int {
     let ctx = ctx_ref(ctx);
-    if is_encryption_metadata(path) {
+    if is_protected_path(path) {
         return -libc::ENOENT;
     }
     let base = base_of(ctx, path);
-    let Some(disk) = existing_file(&base) else {
+    let Some(file) = existing_file(&base) else {
         return -libc::ENOENT;
     };
-    match std::fs::remove_file(&disk) {
+    match std::fs::remove_file(&file.path) {
         Ok(()) => {
-            ctx.lock().sizes.remove(&disk);
+            ctx.lock().sizes.remove(&file.path);
             0
         }
         Err(err) => errno(&err),
@@ -681,11 +783,8 @@ pub extern "C" fn jf_mkdir(ctx: *mut c_void, path: *const c_char, mode: u32) -> 
 
 fn mkdir(ctx: *mut c_void, path: *const c_char, _mode: u32) -> c_int {
     let ctx = ctx_ref(ctx);
-    if is_encryption_metadata(path) {
+    if is_protected_path(path) {
         return -libc::ENOENT;
-    }
-    if is_os_junk(&basename(path)) {
-        return -libc::EPERM;
     }
     match std::fs::create_dir(base_of(ctx, path)) {
         Ok(()) => 0,
@@ -700,7 +799,7 @@ pub extern "C" fn jf_rmdir(ctx: *mut c_void, path: *const c_char) -> c_int {
 
 fn rmdir(ctx: *mut c_void, path: *const c_char) -> c_int {
     let ctx = ctx_ref(ctx);
-    if is_encryption_metadata(path) {
+    if is_protected_path(path) {
         return -libc::ENOENT;
     }
     let dir = base_of(ctx, path);
@@ -709,7 +808,7 @@ fn rmdir(ctx: *mut c_void, path: *const c_char) -> c_int {
         // (a stray .DS_Store, AppleDouble `._*`) that the user can't see to
         // delete. Clear it and retry so the delete they asked for goes through.
         if err.raw_os_error() == Some(libc::ENOTEMPTY) && visible_entries(&dir).is_empty() {
-            remove_os_junk_in(&dir);
+            remove_rejected_system_state_in(&dir);
             return match std::fs::remove_dir(&dir) {
                 Ok(()) => 0,
                 Err(err) => errno(&err),
@@ -720,14 +819,14 @@ fn rmdir(ctx: *mut c_void, path: *const c_char) -> c_int {
     0
 }
 
-/// Delete the OS-junk files (`is_os_junk`) directly inside `dir`. Used only when
-/// the mount already treats `dir` as empty, so nothing the user can see is lost.
-fn remove_os_junk_in(dir: &Path) {
+/// Delete rejected system state directly inside `dir`. Used only when the mount
+/// already treats `dir` as empty, so nothing the user can see is lost.
+fn remove_rejected_system_state_in(dir: &Path) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
-        if is_os_junk(&entry.file_name()) {
+        if is_rejected_system_name(&entry.file_name()) {
             let path = entry.path();
             let _ = std::fs::remove_file(&path).or_else(|_| std::fs::remove_dir_all(&path));
         }
@@ -746,7 +845,7 @@ pub extern "C" fn jf_rename(
 
 fn rename(ctx: *mut c_void, from: *const c_char, to: *const c_char, flags: u32) -> c_int {
     let ctx = ctx_ref(ctx);
-    if is_encryption_metadata(from) || is_encryption_metadata(to) {
+    if is_protected_path(from) || is_protected_path(to) {
         return -libc::ENOENT;
     }
     // Atomic swap isn't supported (the two sides may differ in encryption).
@@ -757,20 +856,21 @@ fn rename(ctx: *mut c_void, from: *const c_char, to: *const c_char, flags: u32) 
     let to_base = base_of(ctx, to);
     // Honor RENAME_NOREPLACE: never clobber an existing destination when the
     // caller asked us not to. std::fs::rename overwrites unconditionally.
-    if flags & RENAME_NOREPLACE != 0 && (to_base.is_dir() || existing_file(&to_base).is_some()) {
+    if flags & RENAME_NOREPLACE != 0
+        && (is_directory(&to_base) || existing_file(&to_base).is_some())
+    {
         return -libc::EEXIST;
     }
-    // Resolve the source: a directory keeps its plain name; an encrypted file
-    // keeps its `.age` suffix across the move.
-    let (from_disk, to_disk) = if from_base.is_dir() {
+    // Resolve the source: a directory keeps its plain name; a file keeps its
+    // backing encoding across the move.
+    let (from_disk, to_disk) = if is_directory(&from_base) {
         (from_base, to_base)
     } else if let Some(src) = existing_file(&from_base) {
-        let dst = if src.extension().and_then(|e| e.to_str()) == Some("age") {
-            with_age(&to_base)
-        } else {
-            to_base
+        let dst = match src.encoding {
+            StoreFileEncoding::Encrypted => with_age(&to_base),
+            StoreFileEncoding::Plain => to_base,
         };
-        (src, dst)
+        (src.path, dst)
     } else {
         return -libc::ENOENT;
     };
@@ -857,12 +957,36 @@ mod tests {
     }
 
     #[test]
-    fn os_junk_is_rejected_but_editor_tempfiles_are_not() {
-        for junk in ["._entry.md", ".DS_Store", ".Trashes", ".Spotlight-V100"] {
-            assert!(is_os_junk(OsStr::new(junk)), "{junk} should be junk");
+    fn rejected_system_state_excludes_benign_metadata_and_editor_tempfiles() {
+        for rejected in [
+            "._entry.md",
+            ".Trashes",
+            ".Spotlight-V100",
+            ".fseventsd",
+            ".TemporaryItems",
+            ".DocumentRevisions-V100",
+            ".apdisk",
+        ] {
+            assert!(
+                is_rejected_system_name(OsStr::new(rejected)),
+                "{rejected} should be rejected"
+            );
         }
-        for ok in [".entry.md.swp", ".#entry.md", "entry.md", "photo.jpg"] {
-            assert!(!is_os_junk(OsStr::new(ok)), "{ok} should be allowed");
+        for ok in [
+            ".DS_Store",
+            ".metadata_never_index",
+            ".VolumeIcon.icns",
+            "desktop.ini",
+            "Thumbs.db",
+            ".entry.md.swp",
+            ".#entry.md",
+            "entry.md",
+            "photo.jpg",
+        ] {
+            assert!(
+                !is_rejected_system_name(OsStr::new(ok)),
+                "{ok} should be allowed"
+            );
         }
     }
 
@@ -872,7 +996,13 @@ mod tests {
         let base = dir.path().join("entry.md");
         assert_eq!(existing_file(&base), None);
         std::fs::write(with_age(&base), b"ct").unwrap();
-        assert_eq!(existing_file(&base), Some(with_age(&base)));
+        assert_eq!(
+            existing_file(&base),
+            Some(BackingFile {
+                path: with_age(&base),
+                encoding: StoreFileEncoding::Encrypted,
+            })
+        );
     }
 
     // --- callback-level virtual filesystem tests ----------------------------
@@ -920,7 +1050,10 @@ mod tests {
 
         /// Decrypt an on-disk store file back to plaintext.
         fn read_disk(&self, disk: &Path) -> Vec<u8> {
-            ctx_ref(self.ctx).store.read_file(disk).unwrap()
+            ctx_ref(self.ctx)
+                .store
+                .read_store_file(disk, StoreFileEncoding::Encrypted)
+                .unwrap()
         }
 
         fn mkdir_p(&self, rel: &str) {
@@ -1154,11 +1287,10 @@ mod tests {
     }
 
     #[test]
-    fn rmdir_clears_hidden_os_junk_from_a_visually_empty_folder() {
+    fn rmdir_clears_rejected_system_state_from_a_visually_empty_folder() {
         let fx = Fixture::new();
         fx.mkdir_p("diary");
-        // Junk that predates the mount and stays hidden from listings.
-        std::fs::write(fx.root().join("diary/.DS_Store"), b"x").unwrap();
+        std::fs::create_dir(fx.root().join("diary/.Spotlight-V100")).unwrap();
 
         assert!(visible_entries(&fx.root().join("diary")).is_empty());
         assert_eq!(jf_rmdir(fx.ctx, cpath("/diary").as_ptr()), 0);
@@ -1176,41 +1308,64 @@ mod tests {
     }
 
     #[test]
-    fn create_rejects_os_junk() {
+    fn create_rejects_system_state() {
         let fx = Fixture::new();
         fx.mkdir_p("diary");
         let mut fh = 0u64;
         assert_eq!(
             jf_create(
                 fx.ctx,
-                cpath("/diary/.DS_Store").as_ptr(),
+                cpath("/diary/.Spotlight-V100").as_ptr(),
                 0o644,
                 libc::O_WRONLY,
                 &mut fh,
             ),
-            -libc::EPERM
+            -libc::ENOENT
+        );
+        assert_eq!(
+            jf_create(
+                fx.ctx,
+                cpath("/diary/._note.md").as_ptr(),
+                0o644,
+                libc::O_WRONLY,
+                &mut fh,
+            ),
+            -libc::ENOENT
         );
     }
 
     #[test]
-    fn visible_entries_hides_age_keeps_trash_strips_suffix() {
+    fn benign_metadata_files_pass_through_plaintext() {
+        let fx = Fixture::new();
+        fx.mkdir_p("diary");
+        write_new(&fx, "/diary/.DS_Store", b"finder state");
+
+        let disk = fx.root().join("diary/.DS_Store");
+        assert!(disk.is_file());
+        assert_eq!(std::fs::read(disk).unwrap(), b"finder state");
+    }
+
+    #[test]
+    fn visible_entries_hides_age_and_rejected_state_keeps_trash_strips_content_suffix() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         std::fs::create_dir(root.join(".age")).unwrap();
         std::fs::create_dir(root.join(".trash")).unwrap();
         std::fs::create_dir(root.join("diary")).unwrap();
         std::fs::write(root.join(".DS_Store"), b"").unwrap();
+        std::fs::create_dir(root.join(".Spotlight-V100")).unwrap();
         std::fs::write(root.join("diary/x.md.age"), b"").unwrap();
+        std::fs::write(root.join("diary/notes.age"), b"").unwrap();
 
         let top = visible_entries(root);
         assert!(top.contains(&OsString::from(".trash")));
         assert!(top.contains(&OsString::from("diary")));
+        assert!(top.contains(&OsString::from(".DS_Store")));
         assert!(!top.contains(&OsString::from(".age")));
-        assert!(!top.contains(&OsString::from(".DS_Store")));
+        assert!(!top.contains(&OsString::from(".Spotlight-V100")));
 
-        assert_eq!(
-            visible_entries(&root.join("diary")),
-            vec![OsString::from("x.md")]
-        );
+        let diary = visible_entries(&root.join("diary"));
+        assert!(diary.contains(&OsString::from("x.md")));
+        assert!(diary.contains(&OsString::from("notes.age")));
     }
 }

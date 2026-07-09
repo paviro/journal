@@ -15,14 +15,6 @@ use journal_core::{
 };
 use journal_encryption as crypto;
 
-/// Whether a path's on-disk name ends in the age extension. Broader than
-/// [`is_entry_file`]'s `.md.age`: also matches encrypted assets like
-/// `photo.jpg.age`, so the generic [`JournalStore::read_file`]/`write_file` pair
-/// can treat every store file uniformly.
-fn is_encrypted_file(path: &Path) -> bool {
-    path.extension().and_then(|ext| ext.to_str()) == Some("age")
-}
-
 pub use error::StorageError;
 pub use journal_encryption::{
     DeviceIdentityInfo, EncryptionError, ExposeSecret, PendingRequest, Recipient, SecretString,
@@ -33,6 +25,12 @@ pub use storage::{
     entry_timestamp_label, is_archived_name, is_entry_file, journal_display_name,
     parse_entry_timestamp, sole_stored_image, stored_image_reference,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreFileEncoding {
+    Plain,
+    Encrypted,
+}
 
 /// Decode image bytes to a displayable sRGB image with EXIF orientation baked
 /// into the pixels. Both normalizations matter for terminal rendering:
@@ -566,38 +564,36 @@ impl JournalStore {
         storage::read_entry_content(path, self.identity.as_ref())
     }
 
-    /// Read any store file as raw bytes, decrypting when its on-disk name ends in
-    /// `.age`. Handles both entry files (`.md.age`) and encrypted assets
-    /// (`photo.jpg.age`) uniformly. Errors if the file is encrypted but this store
-    /// is locked. Pairs with [`write_file`](Self::write_file) — together they let
-    /// the FUSE mount treat every path as "a file that may be encrypted".
-    pub fn read_file(&self, path: &Path) -> AppResult<Vec<u8>> {
-        if is_encrypted_file(path) {
-            let identity = self
-                .identity
-                .as_ref()
-                .ok_or(crate::EncryptionError::Locked { context: "file" })?;
-            Ok(crypto::decrypt_file_bytes(identity, path)?)
-        } else {
-            Ok(fs::read(path)?)
+    /// Read any store file as raw bytes, decrypting only when the caller says the
+    /// backing file is encrypted.
+    pub fn read_store_file(&self, path: &Path, encoding: StoreFileEncoding) -> AppResult<Vec<u8>> {
+        match encoding {
+            StoreFileEncoding::Plain => Ok(fs::read(path)?),
+            StoreFileEncoding::Encrypted => {
+                let identity = self
+                    .identity
+                    .as_ref()
+                    .ok_or(crate::EncryptionError::Locked { context: "file" })?;
+                Ok(crypto::decrypt_file_bytes(identity, path)?)
+            }
         }
     }
 
-    /// Write any store file, encrypting to the current recipients (plus this
-    /// device's own key) when its on-disk name ends in `.age`, and writing raw
-    /// bytes otherwise. Atomic (temp + rename). The caller chooses the on-disk
-    /// name — and thus the `.age` suffix — per [`encrypts_new_files`], so what it
-    /// writes round-trips byte-for-byte through [`read_file`].
-    ///
-    /// [`encrypts_new_files`]: Self::encrypts_new_files
-    /// [`read_file`]: Self::read_file
-    pub fn write_file(&self, path: &Path, bytes: &[u8]) -> AppResult<()> {
-        if is_encrypted_file(path) {
-            let ciphertext =
-                crypto::encrypt_new_entry(&self.paths.keys, bytes, self.identity.as_ref())?;
-            crypto::atomic_write(path, &ciphertext)?;
-        } else {
-            crypto::atomic_write(path, bytes)?;
+    /// Write any store file atomically, encrypting only when the caller says the
+    /// backing file is encrypted.
+    pub fn write_store_file(
+        &self,
+        path: &Path,
+        encoding: StoreFileEncoding,
+        bytes: &[u8],
+    ) -> AppResult<()> {
+        match encoding {
+            StoreFileEncoding::Plain => crypto::atomic_write(path, bytes)?,
+            StoreFileEncoding::Encrypted => {
+                let ciphertext =
+                    crypto::encrypt_new_entry(&self.paths.keys, bytes, self.identity.as_ref())?;
+                crypto::atomic_write(path, &ciphertext)?;
+            }
         }
         Ok(())
     }
