@@ -1127,12 +1127,7 @@ mod tests {
         let p = cpath("/diary/a.md");
         let mut fh = 0u64;
         assert_eq!(
-            jf_open(
-                fx.ctx,
-                p.as_ptr(),
-                libc::O_RDWR | libc::O_TRUNC,
-                &mut fh,
-            ),
+            jf_open(fx.ctx, p.as_ptr(), libc::O_RDWR | libc::O_TRUNC, &mut fh,),
             0
         );
         assert_eq!(
@@ -1288,7 +1283,11 @@ mod tests {
 
         let mut st: libc::stat = unsafe { std::mem::zeroed() };
         assert_eq!(
-            jf_getattr(fx.ctx, cpath("/diary/../.age/devices.toml").as_ptr(), &mut st),
+            jf_getattr(
+                fx.ctx,
+                cpath("/diary/../.age/devices.toml").as_ptr(),
+                &mut st
+            ),
             -libc::ENOENT
         );
         #[cfg(unix)]
@@ -1313,7 +1312,11 @@ mod tests {
         fx.mkdir_p("diary");
         std::fs::create_dir(fx.root().join("diary/.Spotlight-V100")).unwrap();
 
-        assert!(visible_entries(&fx.root().join("diary")).unwrap().is_empty());
+        assert!(
+            visible_entries(&fx.root().join("diary"))
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(jf_rmdir(fx.ctx, cpath("/diary").as_ptr()), 0);
         assert!(!fx.root().join("diary").exists());
     }

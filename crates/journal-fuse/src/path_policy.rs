@@ -145,7 +145,10 @@ pub(super) fn visible_entries(base: &Path) -> std::io::Result<Vec<OsString>> {
             continue;
         }
         let path = entry.path();
-        if disk_name.to_str().is_some_and(|name| name.ends_with(".age")) {
+        if disk_name
+            .to_str()
+            .is_some_and(|name| name.ends_with(".age"))
+        {
             names.push(mounted_name_for_backing(&path, &disk_name));
         } else if existing_file(&path).is_some_and(|file| file.encoding == StoreFileEncoding::Plain)
             || is_directory(&path)
