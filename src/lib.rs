@@ -3,6 +3,7 @@ pub mod config;
 pub mod device;
 pub mod editor;
 pub mod encryption_cli;
+pub mod licenses;
 pub mod prompts;
 pub mod tui;
 

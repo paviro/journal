@@ -19,7 +19,8 @@ on light, dark, and monochrome/e-ink terminals.
 - **Rich metadata** per entry — tags, people, activities, feelings (from a
   fixed vocabulary), a mood score (-5…+5), and a location (name an address,
   enter coordinates, or grab the device's current GPS — geocoded via
-  OpenStreetMap Nominatim). See [Location](#location).
+  OpenStreetMap Nominatim). Located entries also capture weather and air quality
+  from Open-Meteo. See [Location](#location).
 - **Editor integration** — write and edit entries in `$EDITOR`.
 - **Day One import** — import a Day One JSON export, photos included.
 - **End-to-end encryption** — per-device [age](https://age-encryption.org) keys,
@@ -77,7 +78,8 @@ journal log "Shipped the release" \
 
 Open the location dialog on an entry (`l`) to set where it was written: type a
 place name, an address, or `lat, lon`; addresses and coordinates are geocoded
-through OpenStreetMap Nominatim.
+through OpenStreetMap Nominatim. Once an entry has coordinates, `journal` also
+fetches the weather and air quality for that place and time from Open-Meteo.
 
 Press `Ctrl+L` to grab the device's **current** location. It fills in the
 coordinates and reverse-geocodes them to an address. The provider is
@@ -317,3 +319,14 @@ directory, not a file).
 ## License
 
 See [`LICENCE`](LICENCE) (EUPL v1.2).
+
+## Attribution
+
+- **Weather and air quality data** from [Open-Meteo](https://open-meteo.com),
+  under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- **Location geocoding** — © [OpenStreetMap](https://www.openstreetmap.org/copyright)
+  contributors, via [Nominatim](https://nominatim.org), under the
+  [ODbL](https://opendatacommons.org/licenses/odbl/).
+
+Run `journal licenses` to print these credits together with the full license
+texts of every third-party Rust dependency.

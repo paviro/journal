@@ -64,6 +64,13 @@ enum CliCommand {
         #[command(subcommand)]
         command: EncryptionCommand,
     },
+    /// Show data-source attributions and third-party dependency licenses.
+    /// Pass a dependency name to print its full license text.
+    Licenses {
+        /// Show the full license text for a specific dependency
+        #[arg(value_name = "DEPENDENCY")]
+        dependency: Option<String>,
+    },
     /// Fill a journal with backdated fake entries [debug builds only]
     #[cfg(debug_assertions)]
     Sample(SampleArgs),
@@ -255,6 +262,7 @@ fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppRe
             ImportSource::Dayone(args) => import_dayone_command(cli, args),
         },
         CliCommand::Encryption { command } => handle_encryption_command(cli, command),
+        CliCommand::Licenses { dependency } => crate::licenses::run(dependency.clone()),
         #[cfg(debug_assertions)]
         CliCommand::Sample(args) => generate_sample_data(cli, args),
     }

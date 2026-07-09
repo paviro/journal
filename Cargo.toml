@@ -2,6 +2,8 @@
 name = "journal"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [workspace]
 members = ["crates/journal-core", "crates/journal-encryption", "crates/journal-storage", "crates/journal-import", "crates/journal-analytics", "crates/journal-seed", "crates/journal-locate"]
@@ -11,6 +13,8 @@ members = ["crates/journal-core", "crates/journal-encryption", "crates/journal-s
 [workspace.package]
 version = "2026.7.1"
 edition = "2024"
+license = "EUPL-1.2"
+authors = ["Paul-Vincent Roll <journal@paviro.de>"]
 
 [dependencies]
 anyhow = "1"
@@ -18,6 +22,8 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.29"
 dirs = "6"
+# Decompress and parse the embedded third-party license report (see build.rs).
+flate2 = "1"
 image = { version = "0.25", default-features = false }
 indicatif = "0.17"
 # rascii_art still targets image 0.24; a second, decode-feature-free copy lets us
@@ -38,10 +44,17 @@ rascii_art = "0.4.5"
 rayon = "1"
 rpassword = "7"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 shell-words = "1"
 toml = "1.1"
 unicode-width = "0.2"
 zeroize = "1.9.0"
+
+[build-dependencies]
+# build.rs shells out to cargo-about and embeds a gzipped JSON license report.
+flate2 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [dev-dependencies]
 tempfile = "3"
