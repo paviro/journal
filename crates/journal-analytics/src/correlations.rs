@@ -39,13 +39,16 @@ pub struct Correlations {
     pub feelings: Vec<Correlate>,
 }
 
-/// Per-value accumulator for the correlation pass.
+/// Per-value accumulator for the correlation pass. Values are keyed
+/// case-insensitively (lowercased); `forms` tallies the original casings so the
+/// most frequent one becomes the display name.
 #[derive(Default)]
 struct Acc {
     count: usize,
     mood_sum: i64,
     mood_count: usize,
     feelings: HashMap<String, usize>,
+    forms: HashMap<String, usize>,
 }
 
 /// Build correlations over an arbitrary slice of entries. `mood_delta` is always
@@ -88,8 +91,11 @@ fn accumulate(
     exclude_self: bool,
 ) {
     for value in values {
-        let acc = map.entry(value.clone()).or_default();
+        // Fold casing variants together so "iPhone" and "iphone" count as one,
+        // while remembering the exact forms to pick a display name later.
+        let acc = map.entry(value.to_lowercase()).or_default();
         acc.count += 1;
+        *acc.forms.entry(value.clone()).or_default() += 1;
         if let Some(mood) = entry.metadata.mood {
             acc.mood_sum += i64::from(mood);
             acc.mood_count += 1;
@@ -105,12 +111,12 @@ fn accumulate(
 
 fn finish(map: HashMap<String, Acc>, overall_mean: Option<f32>) -> Vec<Correlate> {
     let mut correlates: Vec<Correlate> = map
-        .into_iter()
-        .map(|(name, acc)| {
+        .into_values()
+        .map(|acc| {
             let avg_mood =
                 (acc.mood_count > 0).then(|| acc.mood_sum as f32 / acc.mood_count as f32);
             Correlate {
-                name,
+                name: pick_display_form(acc.forms),
                 count: acc.count,
                 avg_mood,
                 mood_delta: match (avg_mood, overall_mean) {
@@ -123,6 +129,16 @@ fn finish(map: HashMap<String, Acc>, overall_mean: Option<f32>) -> Vec<Correlate
         .collect();
     sort_by_count_desc(&mut correlates, |c| (c.count, c.name.as_str()));
     correlates
+}
+
+/// The display name for a folded value: the most frequently used casing, breaking
+/// ties by first alphabetically (matching the TUI picker's `sort_casing`).
+fn pick_display_form(forms: HashMap<String, usize>) -> String {
+    forms
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+        .map(|(form, _)| form)
+        .unwrap_or_default()
 }
 
 /// The feelings that co-occur with a value as `(feeling, count)`, most common
@@ -253,6 +269,22 @@ mod tests {
         assert_eq!(lifts[0].mood_delta, Some(2.0));
         assert_eq!(lifts.last().unwrap().name, "anxious");
         assert_eq!(lifts.last().unwrap().mood_delta, Some(-2.0));
+    }
+
+    #[test]
+    fn casing_variants_fold_into_one_correlate() {
+        let entries = [
+            entry("2024-01-01T00:00:00Z", Some(3), &["iphone", "iphone"], &[]),
+            entry("2024-01-02T00:00:00Z", Some(3), &["iPhone"], &[]),
+        ];
+        // Two entries, one tagged "iphone" twice-over-two-entries and one "iPhone".
+        let people = analyze(&refs(&entries), date(2024, 1, 2))
+            .correlations
+            .people;
+        assert_eq!(people.len(), 1);
+        // Most-frequent casing ("iphone", 2×) wins the display name; count sums all.
+        assert_eq!(people[0].name, "iphone");
+        assert_eq!(people[0].count, 3);
     }
 
     #[test]

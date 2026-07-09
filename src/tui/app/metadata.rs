@@ -57,11 +57,7 @@ impl App {
         let all_values: Vec<(String, usize)> =
             active_values.into_iter().chain(archived_only).collect();
         let filtered: Vec<usize> = (0..active_len).collect();
-        let entry_tags: Vec<String> = self
-            .selected_entry_metadata(kind)
-            .into_iter()
-            .map(|t| t.to_lowercase())
-            .collect();
+        let entry_tags: Vec<String> = self.selected_entry_metadata(kind).into_iter().collect();
         self.overlay = Overlay::EditMetadata(EditMetadataState::new(
             kind, all_values, filtered, entry_tags, active_len,
         ));

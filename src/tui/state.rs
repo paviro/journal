@@ -259,7 +259,8 @@ pub(crate) struct EditMetadataState {
     pub(crate) active_len: usize,
     /// Indices into `all_values` that match the current filter input.
     pub(crate) filtered: Vec<usize>,
-    /// Values currently selected for the entry (lowercased for look-up).
+    /// Values currently selected for the entry. Original casing is preserved;
+    /// membership and dedup are compared case-insensitively.
     pub(crate) selected: Vec<String>,
     /// Stateful list selection and scroll offset.
     pub(crate) list: SelectableList,
@@ -315,8 +316,12 @@ impl EditMetadataState {
 
     pub(crate) fn toggle_selected(&mut self) {
         if let Some(tag_idx) = self.selected_value_index() {
-            let tag = self.all_values[tag_idx].0.to_lowercase();
-            if let Some(pos) = self.selected.iter().position(|t| t == &tag) {
+            let tag = self.all_values[tag_idx].0.clone();
+            if let Some(pos) = self
+                .selected
+                .iter()
+                .position(|t| t.eq_ignore_ascii_case(&tag))
+            {
                 self.selected.remove(pos);
             } else {
                 self.selected.push(tag);
@@ -330,16 +335,25 @@ impl EditMetadataState {
     /// so it stays in the range `rebuild_filter` searches with an empty query —
     /// otherwise the newly added value wouldn't show until save + reopen.
     pub(crate) fn add_from_input(&mut self) {
-        let tag = self.input.trim().to_lowercase();
-        if !tag.is_empty() && !self.selected.contains(&tag) {
-            self.selected.push(tag.clone());
-            if !self
+        let input = self.input.trim();
+        if !input.is_empty() {
+            // Reuse an existing value's casing on a case-insensitive match so typing
+            // "iphone" doesn't fork an existing "iPhone"; otherwise keep it as typed.
+            let tag = self
                 .all_values
                 .iter()
-                .any(|(t, _)| t.eq_ignore_ascii_case(&tag))
-            {
-                self.all_values.insert(self.active_len, (tag, 0));
-                self.active_len += 1;
+                .find(|(t, _)| t.eq_ignore_ascii_case(input))
+                .map_or_else(|| input.to_string(), |(t, _)| t.clone());
+            if !self.selected.iter().any(|t| t.eq_ignore_ascii_case(&tag)) {
+                self.selected.push(tag.clone());
+                if !self
+                    .all_values
+                    .iter()
+                    .any(|(t, _)| t.eq_ignore_ascii_case(&tag))
+                {
+                    self.all_values.insert(self.active_len, (tag, 0));
+                    self.active_len += 1;
+                }
             }
         }
         self.input.clear();
@@ -1496,9 +1510,36 @@ mod tests {
         state.input = "TAG-01".to_string();
         state.add_from_input();
 
-        // Case-insensitive match to an existing value: selected, but not duplicated.
+        // Case-insensitive match to an existing value: selected using the existing
+        // casing, and not duplicated.
         assert_eq!(state.all_values.len(), before);
         assert_eq!(state.active_len, 3);
         assert!(state.selected.contains(&"tag-01".to_string()));
+    }
+
+    #[test]
+    fn add_from_input_keeps_casing_for_a_new_value() {
+        let mut state = tag_state(3);
+        let before = state.all_values.len();
+
+        state.input = "iPhone".to_string();
+        state.add_from_input();
+
+        // No existing match: the typed casing is preserved and offered.
+        assert_eq!(state.all_values.len(), before + 1);
+        assert_eq!(state.active_len, 4);
+        assert!(state.selected.contains(&"iPhone".to_string()));
+        assert!(state.all_values.iter().any(|(t, _)| t == "iPhone"));
+    }
+
+    #[test]
+    fn toggle_selected_preserves_display_casing() {
+        let all_values = vec![("iPhone".to_string(), 5)];
+        let mut state =
+            EditMetadataState::new(MetadataKind::Tags, all_values, vec![0], Vec::new(), 1);
+
+        state.toggle_selected();
+
+        assert_eq!(state.selected, vec!["iPhone".to_string()]);
     }
 }
