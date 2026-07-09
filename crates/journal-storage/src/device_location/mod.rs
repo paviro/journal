@@ -9,6 +9,7 @@
 
 use crate::AppResult;
 use serde::Deserialize;
+use std::{sync::mpsc, thread, time::Duration};
 
 #[cfg(target_os = "android")]
 mod termux;
@@ -59,6 +60,24 @@ pub fn device_location() -> AppResult<DeviceFix> {
     {
         anyhow::bail!("grabbing the device location isn't supported on this platform")
     }
+}
+
+/// Run `f` on a helper thread and give up after `timeout` (`None` = timed out).
+/// The thread is detached on timeout, so a caller that spawned a child process is
+/// responsible for killing it.
+#[cfg_attr(
+    not(any(target_os = "android", target_os = "linux", target_os = "macos")),
+    allow(dead_code)
+)]
+fn run_with_timeout<T: Send + 'static>(
+    timeout: Duration,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(timeout).ok()
 }
 
 /// Parse a `{"latitude":..,"longitude":..,"accuracy":..}` fix (as printed by

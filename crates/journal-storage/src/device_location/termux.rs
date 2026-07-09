@@ -6,8 +6,6 @@ use crate::AppResult;
 use std::{
     io::Read,
     process::{Command, Stdio},
-    sync::mpsc,
-    thread,
     time::Duration,
 };
 
@@ -33,25 +31,23 @@ pub(super) fn locate() -> AppResult<DeviceFix> {
         Err(error) => return Err(error.into()),
     };
 
-    // Read stdout on a helper thread so a hung command can't block us forever.
+    // Read stdout under a timeout so a hung command can't block us forever.
     let mut stdout = child.stdout.take().expect("stdout piped above");
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
+    let read = super::run_with_timeout(TIMEOUT, move || {
         let mut buffer = String::new();
-        let read = stdout.read_to_string(&mut buffer);
-        let _ = tx.send(read.map(|_| buffer));
+        stdout.read_to_string(&mut buffer).map(|_| buffer)
     });
 
-    match rx.recv_timeout(TIMEOUT) {
-        Ok(Ok(output)) => {
+    match read {
+        Some(Ok(output)) => {
             let _ = child.wait();
             parse_fix_json(&output, DeviceLocationSource::Termux)
         }
-        Ok(Err(error)) => {
+        Some(Err(error)) => {
             let _ = child.kill();
             Err(error.into())
         }
-        Err(_) => {
+        None => {
             let _ = child.kill();
             anyhow::bail!("timed out waiting for a location fix from termux-location")
         }

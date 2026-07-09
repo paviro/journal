@@ -5,7 +5,7 @@
 
 use super::{DeviceFix, DeviceLocationSource};
 use crate::AppResult;
-use std::{sync::mpsc, thread, time::Duration};
+use std::time::Duration;
 use zbus::{blocking::Connection, proxy, zvariant::OwnedObjectPath};
 
 /// How long to wait for GeoClue to produce a fix before giving up.
@@ -55,16 +55,10 @@ trait Location {
 }
 
 pub(super) fn locate() -> AppResult<DeviceFix> {
-    // Run the (blocking, signal-driven) D-Bus exchange on a helper thread so we
-    // can enforce a hard timeout — GeoClue may never answer if no backend can.
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let _ = tx.send(query_geoclue());
-    });
-    match rx.recv_timeout(TIMEOUT) {
-        Ok(result) => result,
-        Err(_) => anyhow::bail!("timed out waiting for a location fix from GeoClue"),
-    }
+    // The D-Bus exchange is blocking and may never answer if no backend can, so
+    // bound it — nothing to clean up when it overruns.
+    super::run_with_timeout(TIMEOUT, query_geoclue)
+        .unwrap_or_else(|| Err(anyhow::anyhow!("timed out waiting for a location fix from GeoClue")))
 }
 
 fn query_geoclue() -> AppResult<DeviceFix> {

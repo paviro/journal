@@ -14,8 +14,6 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::mpsc,
-    thread,
     time::Duration,
 };
 
@@ -43,17 +41,16 @@ pub(super) fn locate() -> AppResult<DeviceFix> {
 
     let mut stdout = child.stdout.take().expect("stdout piped above");
     let mut stderr = child.stderr.take().expect("stderr piped above");
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
+    let output = super::run_with_timeout(TIMEOUT, move || {
         let mut out = String::new();
         let mut err = String::new();
         let _ = stdout.read_to_string(&mut out);
         let _ = stderr.read_to_string(&mut err);
-        let _ = tx.send((out, err));
+        (out, err)
     });
 
-    match rx.recv_timeout(TIMEOUT) {
-        Ok((out, err)) => {
+    match output {
+        Some((out, err)) => {
             let status = child.wait().ok();
             if status.is_some_and(|s| s.success()) {
                 parse_fix_json(&out, DeviceLocationSource::CoreLocation)
@@ -67,7 +64,7 @@ pub(super) fn locate() -> AppResult<DeviceFix> {
                 }
             }
         }
-        Err(_) => {
+        None => {
             let _ = child.kill();
             anyhow::bail!("timed out waiting for the location helper")
         }
