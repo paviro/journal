@@ -110,6 +110,12 @@ pub enum StoreAccess {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnableEncryptionSummary {
+    pub recipient: String,
+    pub migrated_files: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JournalStorePaths {
     pub journal_root: PathBuf,
     /// This store's key-material locations (roster, identity, trust pins). Owned
@@ -233,6 +239,67 @@ impl JournalStore {
         passphrase: Option<&SecretString>,
     ) -> AppResult<String> {
         Ok(crypto::initialize_store_identity(&self.paths.keys, device_name, passphrase)?.enc_key)
+    }
+
+    /// Create this device's identity, write the initial roster, and encrypt the
+    /// store as one recoverable operation. On any failure the journal root and
+    /// local key/trust files are restored to their pre-enable state.
+    pub fn enable_encryption(
+        &self,
+        device_name: &str,
+        passphrase: Option<&SecretString>,
+        mut progress: impl FnMut(usize, usize),
+    ) -> AppResult<EnableEncryptionSummary> {
+        if self.encryption_enabled() {
+            return Err(crypto::EncryptionError::RosterExists.into());
+        }
+        if migrate::store_has_encrypted_entry_files(self)? {
+            return Err(EncryptionError::RecipientsMissing {
+                path: self.paths.keys.devices_file.clone(),
+            }
+            .into());
+        }
+
+        let root_backup = migrate::backup_store(&self.paths.journal_root)?;
+        let identity_backup = read_optional_file(&self.paths.keys.identity_file)?;
+        let trust_backup = read_optional_file(&self.paths.keys.trust_file)?;
+
+        let result = (|| -> AppResult<EnableEncryptionSummary> {
+            let recipient = self.initialize_encryption(device_name, passphrase)?;
+            let summary = migrate::encrypt_store_without_backup(self, &mut progress)?;
+            Ok(EnableEncryptionSummary {
+                recipient,
+                migrated_files: summary.migrated_files,
+            })
+        })();
+
+        match result {
+            Ok(summary) => {
+                fs::remove_dir_all(&root_backup)?;
+                Ok(summary)
+            }
+            Err(error) => {
+                if let Err(restore_error) =
+                    migrate::restore_store(&self.paths.journal_root, &root_backup)
+                {
+                    bail!(
+                        "{error}; ALSO failed to roll back the journal root: {restore_error}. \
+                         A backup of the pre-encryption store remains at {}",
+                        root_backup.display()
+                    );
+                }
+                if let Err(restore_error) = self
+                    .restore_enable_local_state(identity_backup.as_deref(), trust_backup.as_deref())
+                {
+                    bail!(
+                        "{error}; the journal root was restored, but local encryption state could not be restored: {restore_error}"
+                    );
+                }
+                Err(anyhow::anyhow!(
+                    "{error}; encryption failed and the store was restored unchanged"
+                ))
+            }
+        }
     }
 
     /// Generate this device's identity for a store that already exists elsewhere
@@ -450,6 +517,21 @@ impl JournalStore {
                 Ok(())
             }
         }
+    }
+
+    fn restore_enable_local_state(
+        &self,
+        identity_bytes: Option<&[u8]>,
+        trust_bytes: Option<&[u8]>,
+    ) -> AppResult<()> {
+        match identity_bytes {
+            Some(bytes) => crypto::restore_identity_file(&self.paths.keys, bytes)?,
+            None if self.paths.keys.identity_file.exists() => {
+                fs::remove_file(&self.paths.keys.identity_file)?;
+            }
+            None => {}
+        }
+        self.restore_trust_file(trust_bytes)
     }
 
     /// Approve a pending join request: add its recipient, re-encrypt, and delete
@@ -824,5 +906,13 @@ impl JournalStore {
             .into());
         }
         migrate::encrypt_store(self, &mut progress)
+    }
+}
+
+fn read_optional_file(path: &Path) -> AppResult<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
     }
 }

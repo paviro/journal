@@ -35,7 +35,6 @@ pub fn encrypt_store(
     no_passphrase: bool,
 ) -> AppResult<()> {
     let store = JournalStore::for_config(config_path, &config.journal.path)?;
-    let mut bootstrapped_without_passphrase = false;
     let recipient = if store.encryption_enabled() {
         if !store.unlock_available() {
             bail!(
@@ -56,8 +55,20 @@ pub fn encrypt_store(
     } else {
         println!("No journal encryption identity configured; generating an age identity.");
         let (name, passphrase) = prompts::resolve_new_identity_options(device_name, no_passphrase)?;
-        bootstrapped_without_passphrase = passphrase.is_none();
-        store.initialize_encryption(&name, passphrase.as_ref())?
+        let summary = store.enable_encryption(&name, passphrase.as_ref(), cli_progress())?;
+        let recipient = summary.recipient;
+        println!(
+            "Encrypted journal store at {}",
+            config.journal.path.display()
+        );
+        println!(
+            "Encryption recipient: {recipient}. Identity file: {}. Back it up; without it encrypted journal files cannot be decrypted.",
+            store.paths().keys.identity_file.display()
+        );
+        if passphrase.is_none() {
+            println!("This key has no passphrase — keep this device and its backups secure.");
+        }
+        return Ok(());
     };
 
     store.encrypt_store(cli_progress())?;
@@ -69,9 +80,6 @@ pub fn encrypt_store(
         "Encryption recipient: {recipient}. Identity file: {}. Back it up; without it encrypted journal files cannot be decrypted.",
         store.paths().keys.identity_file.display()
     );
-    if bootstrapped_without_passphrase {
-        println!("This key has no passphrase — keep this device and its backups secure.");
-    }
     Ok(())
 }
 

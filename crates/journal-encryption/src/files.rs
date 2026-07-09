@@ -23,26 +23,53 @@ pub fn sibling_temp_path(target: &Path, suffix: &str) -> PathBuf {
 /// mid-write can't truncate an existing file (which would strand every device)
 /// or leave a half-written join request behind.
 pub fn atomic_write(path: &Path, content: &[u8]) -> Result<()> {
-    let temp = sibling_temp_path(path, "tmp");
-    fs::write(&temp, content)?;
-    fs::rename(&temp, path)?;
-    Ok(())
+    write_atomic(path, content, false)
 }
 
 /// Write a file readable only by its owner (mode 0600 on Unix), creating parent
 /// directories as needed. Used for this device's private identity file.
 pub(crate) fn write_private_file(path: &Path, content: &[u8]) -> Result<()> {
+    write_atomic(path, content, true)
+}
+
+fn write_atomic(path: &Path, content: &[u8], private: bool) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    let temp = sibling_temp_path(path, "tmp");
+    let result = write_temp_then_rename(&temp, path, content, private);
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+fn write_temp_then_rename(temp: &Path, path: &Path, content: &[u8], private: bool) -> Result<()> {
     let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+        if private {
+            options.mode(0o600);
+        }
     }
-    let mut file = options.open(path)?;
+    let mut file = options.open(temp)?;
     file.write_all(content)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(temp, path)?;
+    sync_parent_dir(path);
     Ok(())
+}
+
+fn sync_parent_dir(path: &Path) {
+    #[cfg(unix)]
+    if let Some(parent) = path.parent()
+        && let Ok(dir) = fs::File::open(parent)
+    {
+        let _ = dir.sync_all();
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }

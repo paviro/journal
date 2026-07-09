@@ -48,16 +48,40 @@ pub fn encrypt_store(
     store: &JournalStore,
     progress: ProgressFn<'_>,
 ) -> AppResult<MigrationSummary> {
+    let backup = backup_store(&store.paths().journal_root)?;
+    match encrypt_store_without_backup(store, progress) {
+        Ok(summary) => {
+            fs::remove_dir_all(&backup)?;
+            Ok(summary)
+        }
+        Err(error) => {
+            if let Err(restore_error) = restore_store(&store.paths().journal_root, &backup) {
+                bail!(
+                    "{error}; ALSO failed to roll back the store: {restore_error}. \
+                     A backup of the pre-encryption store remains at {}",
+                    backup.display()
+                );
+            }
+            Err(anyhow::anyhow!(
+                "{error}; encryption failed and the store was restored unchanged"
+            ))
+        }
+    }
+}
+
+pub(crate) fn encrypt_store_without_backup(
+    store: &JournalStore,
+    progress: ProgressFn<'_>,
+) -> AppResult<MigrationSummary> {
     let paths = store.paths();
     let recipients = crypto::EncryptionRecipients::for_store(&paths.keys)?;
-    let migrated_files = migrate_store(
+    let migrated_files = migrate_store_files(
         paths.journal_root.as_path(),
         MigrationMode::Encrypt {
             recipients: &recipients,
         },
         progress,
-    )?
-    .migrated_files;
+    )?;
     Ok(MigrationSummary { migrated_files })
 }
 
@@ -234,48 +258,21 @@ fn migrate_store(
     mode: MigrationMode<'_>,
     progress: ProgressFn<'_>,
 ) -> AppResult<MigrationResult> {
-    let entry_files = migration_files(root, &mode)?;
-    let asset_files = migration_asset_files(root, &mode)?;
-    let total = entry_files.len() + asset_files.len();
-    if total == 0 {
-        return Ok(MigrationResult {
-            migrated_files: 0,
-            backup_path: None,
-        });
-    }
-    ensure_no_migration_collisions(&entry_files, &mode)?;
-    ensure_no_asset_collisions(&asset_files, &mode)?;
+    let encrypting = matches!(mode, MigrationMode::Encrypt { .. });
     let backup = backup_store(root)?;
+    let result = migrate_store_files(root, mode, progress);
 
-    progress(0, total);
-    let mut done = 0usize;
-    let result = (|| -> AppResult<()> {
-        for source in &entry_files {
-            match mode {
-                MigrationMode::Encrypt { recipients } => encrypt_plain_entry(source, recipients)?,
-                MigrationMode::Decrypt { identity } => decrypt_encrypted_entry(source, identity)?,
-            }
-            done += 1;
-            progress(done, total);
+    let migrated_files = match result {
+        Ok(migrated_files) => migrated_files,
+        Err(error) => {
+            bail!(
+                "migration failed; plaintext backup remains at {}: {error}",
+                backup.display()
+            );
         }
-        // Assets carry the same `.age` suffix as entries but keep clean body
-        // links, so converting them only renames files — no entry is rewritten.
-        for source in &asset_files {
-            convert_asset_file(source, &mode)?;
-            done += 1;
-            progress(done, total);
-        }
-        Ok(())
-    })();
+    };
 
-    if let Err(error) = result {
-        bail!(
-            "migration failed; plaintext backup remains at {}: {error}",
-            backup.display()
-        );
-    }
-
-    let backup_path = if matches!(mode, MigrationMode::Encrypt { .. }) {
+    let backup_path = if encrypting {
         fs::remove_dir_all(&backup)?;
         None
     } else {
@@ -283,9 +280,43 @@ fn migrate_store(
     };
 
     Ok(MigrationResult {
-        migrated_files: total,
+        migrated_files,
         backup_path,
     })
+}
+
+fn migrate_store_files(
+    root: &Path,
+    mode: MigrationMode<'_>,
+    progress: ProgressFn<'_>,
+) -> AppResult<usize> {
+    let entry_files = migration_files(root, &mode)?;
+    let asset_files = migration_asset_files(root, &mode)?;
+    let total = entry_files.len() + asset_files.len();
+    if total == 0 {
+        return Ok(0);
+    }
+    ensure_no_migration_collisions(&entry_files, &mode)?;
+    ensure_no_asset_collisions(&asset_files, &mode)?;
+
+    progress(0, total);
+    let mut done = 0usize;
+    for source in &entry_files {
+        match &mode {
+            MigrationMode::Encrypt { recipients } => encrypt_plain_entry(source, recipients)?,
+            MigrationMode::Decrypt { identity } => decrypt_encrypted_entry(source, identity)?,
+        }
+        done += 1;
+        progress(done, total);
+    }
+    // Assets carry the same `.age` suffix as entries but keep clean body
+    // links, so converting them only renames files — no entry is rewritten.
+    for source in &asset_files {
+        convert_asset_file(source, &mode)?;
+        done += 1;
+        progress(done, total);
+    }
+    Ok(total)
 }
 
 /// Collect asset files (inside any `*.assets/` folder) that need converting:

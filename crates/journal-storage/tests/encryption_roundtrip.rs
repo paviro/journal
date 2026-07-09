@@ -72,6 +72,57 @@ fn decrypt_store_requires_an_unlocked_identity() {
 }
 
 #[test]
+fn enable_encryption_rolls_back_root_and_local_key_state_on_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_at(dir.path());
+    store.ensure().unwrap();
+    store.create_journal("diary").unwrap();
+    let path = store
+        .create_entry_with_body("diary", "body before enable", &Metadata::default())
+        .unwrap();
+    let stem = journal_storage::entry_id(&path).unwrap();
+    let assets = path.parent().unwrap().join(format!("{stem}.assets"));
+    std::fs::create_dir_all(&assets).unwrap();
+    let asset = assets.join("photo.png");
+    let colliding_encrypted_asset = assets.join("photo.png.age");
+    std::fs::write(&asset, "image").unwrap();
+    std::fs::write(&colliding_encrypted_asset, "collision").unwrap();
+
+    let error = store
+        .enable_encryption("laptop", Some(&pw("pw")), |_, _| {})
+        .unwrap_err();
+
+    assert!(error.to_string().contains("restored unchanged"), "{error}");
+    assert!(path.exists(), "plaintext entry should be restored");
+    assert!(asset.exists(), "plaintext asset should be restored");
+    assert!(
+        colliding_encrypted_asset.exists(),
+        "pre-existing collision should remain"
+    );
+    assert!(
+        !dir.path()
+            .join("journals")
+            .join(".age")
+            .join("devices.toml")
+            .exists(),
+        "new roster should be rolled back"
+    );
+    assert!(
+        !dir.path().join("identity.toml").exists(),
+        "new identity should be removed"
+    );
+    assert!(
+        !dir.path().join("devices-trust.toml").exists(),
+        "new trust pins should be removed"
+    );
+    let leftover_backup = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .any(|entry| entry.file_name().to_string_lossy().contains(".backup-"));
+    assert!(!leftover_backup, "rollback should consume the backup");
+}
+
+#[test]
 fn add_recipient_rolls_back_when_reencrypt_fails() {
     let dir = tempfile::tempdir().unwrap();
     let mut laptop = store_at(dir.path());
