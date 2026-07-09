@@ -824,6 +824,7 @@ fn stdin_has_command_input() -> bool {
 
 #[cfg(not(unix))]
 fn stdin_has_command_input() -> bool {
+    use std::io::IsTerminal;
     !io::stdin().is_terminal()
 }
 
