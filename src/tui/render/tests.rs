@@ -12,7 +12,6 @@ use ratatui::{Frame, Terminal, backend::TestBackend, layout::Rect, style::Modifi
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
-use unicode_width::UnicodeWidthStr;
 
 /// Draw `draw` onto a fresh `width`×`height` test terminal and return the
 /// backend, the shared plumbing behind the typed render helpers below.
@@ -91,12 +90,13 @@ fn layout_places_hit_targets_in_three_columns() {
     assert!(!layout.single_panel);
     assert!(layout.entry_view.is_some());
     assert!(layout.insights.is_none());
-    // The browse action footer wraps to two rows at this width, so the three
-    // columns share the remaining 18 rows.
-    assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 27, 18));
-    assert_eq!(layout.entries.unwrap().panel.area, Rect::new(27, 0, 47, 18));
-    assert_eq!(layout.entry_view.unwrap().area, Rect::new(74, 0, 66, 18));
-    assert_eq!(layout.footer, Rect::new(0, 18, 140, 2));
+    // The three columns share the rows the footer doesn't take.
+    let footer_h = footer_height(&app, 140);
+    let content_h = 20 - footer_h;
+    assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 27, content_h));
+    assert_eq!(layout.entries.unwrap().panel.area, Rect::new(27, 0, 47, content_h));
+    assert_eq!(layout.entry_view.unwrap().area, Rect::new(74, 0, 66, content_h));
+    assert_eq!(layout.footer, Rect::new(0, content_h, 140, footer_h));
 }
 
 #[test]
@@ -825,10 +825,10 @@ fn edit_tags_dialog_keeps_help_visible_below_spacer() {
     );
 
     assert!(rendered.contains(">[ ] tag-00 (0)"));
-    assert!(rendered.contains("toggle (space)"));
-    assert!(rendered.contains("input (tab)"));
-    assert!(rendered.contains("save (enter)"));
-    assert!(rendered.contains("cancel (esc)"));
+    assert!(rendered.contains("space  toggle"));
+    assert!(rendered.contains("tab  input"));
+    assert!(rendered.contains("enter  save"));
+    assert!(rendered.contains("esc  cancel"));
 }
 
 #[test]
@@ -866,7 +866,9 @@ fn edit_tags_dialog_counts_no_matches_row_when_sizing() {
     let rendered = render_edit_tags_dialog_text(state, 200, 12);
 
     assert!(rendered.contains(" (no matches)"));
-    assert!(rendered.contains(" add (enter) | list (tab) | cancel (esc)"));
+    assert!(rendered.contains("enter  add"));
+    assert!(rendered.contains("tab  list"));
+    assert!(rendered.contains("esc  cancel"));
 }
 
 #[test]
@@ -875,14 +877,18 @@ fn edit_metadata_input_hint_saves_when_empty_and_adds_when_not_empty() {
         EditMetadataState::new(MetadataKind::People, Vec::new(), Vec::new(), Vec::new(), 0);
     empty.focus = EditMetadataFocus::Input;
     let rendered_empty = render_edit_tags_dialog_text(empty, 200, 12);
-    assert!(rendered_empty.contains(" save (enter) | list (tab) | cancel (esc)"));
+    assert!(rendered_empty.contains("enter  save"));
+    assert!(rendered_empty.contains("tab  list"));
+    assert!(rendered_empty.contains("esc  cancel"));
 
     let mut with_value =
         EditMetadataState::new(MetadataKind::People, Vec::new(), Vec::new(), Vec::new(), 0);
     with_value.focus = EditMetadataFocus::Input;
     with_value.input = "alex".to_string();
     let rendered_value = render_edit_tags_dialog_text(with_value, 200, 12);
-    assert!(rendered_value.contains(" add (enter) | list (tab) | cancel (esc)"));
+    assert!(rendered_value.contains("enter  add"));
+    assert!(rendered_value.contains("tab  list"));
+    assert!(rendered_value.contains("esc  cancel"));
 }
 
 #[test]
@@ -1512,11 +1518,11 @@ fn journal_footer_omits_entry_actions() {
     let mut app = app_with_entry();
     app.nav.focus = Focus::Journals;
 
-    let text = footer_text(&app);
+    let text = footer_text(&app, 200);
 
-    assert!(!text.contains("view (enter)"));
-    assert!(!text.contains("edit (e)"));
-    assert!(!text.contains("del (d)"));
+    assert!(!text.contains("enter  view"));
+    assert!(!text.contains("e  edit"));
+    assert!(!text.contains("d  del"));
 }
 
 #[test]
@@ -1524,11 +1530,11 @@ fn entries_footer_includes_entry_actions_when_an_entry_is_selected() {
     let mut app = app_with_entry();
     app.nav.focus = Focus::Entries;
 
-    let text = footer_text(&app);
+    let text = footer_text(&app, 200);
 
-    assert!(text.contains("view (enter)"));
-    assert!(text.contains("edit (e)"));
-    assert!(text.contains("del (d)"));
+    assert!(text.contains("enter  view"));
+    assert!(text.contains("e  edit"));
+    assert!(text.contains("d  del"));
 }
 
 #[test]
@@ -1536,35 +1542,34 @@ fn expanded_entry_footer_includes_inline_entry_actions() {
     let mut app = app_with_entry();
     app.nav.focus = Focus::EntryView;
 
-    let inline_text = footer_text(&app);
-    let expanded_text = expanded_footer_text(&app);
+    let inline_text = footer_text(&app, 200);
+    let expanded_text = expanded_footer_text(&app, 200);
 
     for label in [
-        "new entry (n)",
-        "edit (e)",
-        "del (d)",
-        "tags (t)",
-        "feel (f)",
-        "mood (m)",
-        "search (/)",
-        "quit (q)",
+        "n  new entry",
+        "e  edit",
+        "d  del",
+        "t  tags",
+        "f  feel",
+        "m  mood",
+        "/  search",
+        "q  quit",
     ] {
         assert!(inline_text.contains(label));
         assert!(expanded_text.contains(label));
     }
-    for label in ["ppl (p)", "act (a)"] {
+    for label in ["p  ppl", "a  act"] {
         assert!(!inline_text.contains(label));
         assert!(expanded_text.contains(label));
     }
     // Single-column full screen (the flag is unset): Left also exits, so it is
     // listed alongside Enter/Esc.
-    assert!(expanded_text.contains("close (enter/esc/←)"));
-    assert!(expanded_text.contains("edit (e) | close (enter/esc/←) | del (d)"));
+    assert!(expanded_text.contains("enter/esc/←  close"));
 
     // Multi-column full screen: Left is inert (Esc collapses), so it drops from the
     // close hint.
     app.nav.entry_view_fullscreen = true;
-    assert!(expanded_footer_text(&app).contains("close (enter/esc)"));
+    assert!(expanded_footer_text(&app, 200).contains("enter/esc  close"));
 }
 
 #[test]
@@ -1588,11 +1593,11 @@ fn entries_footer_omits_entry_actions_without_a_selection() {
     app.select_journal_by_name("work");
     app.nav.focus = Focus::Entries;
 
-    let text = footer_text(&app);
+    let text = footer_text(&app, 200);
 
-    assert!(!text.contains("view (enter)"));
-    assert!(!text.contains("edit (e)"));
-    assert!(!text.contains("del (d)"));
+    assert!(!text.contains("enter  view"));
+    assert!(!text.contains("e  edit"));
+    assert!(!text.contains("d  del"));
 }
 
 #[test]
@@ -1610,16 +1615,16 @@ fn search_results_footer_shows_escape_and_entry_actions() {
         starred: false,
     }];
 
-    let text = footer_text(&app);
+    let text = footer_text(&app, 200);
 
     // The query now lives on the entry panel's top-right border, not the footer.
     assert!(!text.contains("Search all: body"));
-    assert!(text.contains("view (enter)"));
-    assert!(text.contains("exit search (esc)"));
+    assert!(text.contains("enter  view"));
+    assert!(text.contains("esc  exit search"));
     assert!(!text.contains("type query"));
     assert!(!text.contains("backspace"));
-    assert!(!text.contains("edit (e)"));
-    assert!(!text.contains("del (d)"));
+    assert!(!text.contains("e  edit"));
+    assert!(!text.contains("d  del"));
 }
 
 #[test]
@@ -1639,8 +1644,18 @@ fn wrapped_footer_hint_routing_uses_visible_row() {
     let mut app = app_with_entry();
     app.nav.focus = Focus::Entries;
 
+    let width = 60;
+    let origin_y = 18;
+    let text = footer_text(&app, width);
+    let (row_index, line) = text
+        .split('\n')
+        .enumerate()
+        .find(|(_, line)| line.contains("f  feel"))
+        .expect("feelings hint present");
+    let col = line.find("f  feel").unwrap() as u16;
+
     assert_eq!(
-        footer_hint_id_at_point(&app, 0, 18, 60, 0, 19),
+        footer_hint_id_at_point(&app, 0, origin_y, width, col, origin_y + row_index as u16),
         Some(HintId::BeginEditFeelings)
     );
 }
@@ -1649,14 +1664,14 @@ fn wrapped_footer_hint_routing_uses_visible_row() {
 fn footer_hint_routing_uses_typed_ids() {
     let mut app = app_with_entry();
     app.nav.focus = Focus::Entries;
-    let text = footer_text(&app);
+    let text = footer_text(&app, 200);
 
     assert_eq!(
-        footer_hint_id_at(&app, 0, text.find("tags (t)").unwrap() as u16),
+        footer_hint_id_at(&app, 0, 200, text.find("t  tags").unwrap() as u16),
         Some(HintId::BeginEditTags)
     );
     assert_eq!(
-        footer_hint_id_at(&app, 0, text.find("edit (e)").unwrap() as u16),
+        footer_hint_id_at(&app, 0, 200, text.find("e  edit").unwrap() as u16),
         Some(HintId::EditSelected)
     );
 }
@@ -1665,66 +1680,65 @@ fn footer_hint_routing_uses_typed_ids() {
 fn expanded_footer_hint_routing_uses_typed_ids() {
     let mut app = app_with_entry();
     app.nav.focus = Focus::EntryView;
-    let text = expanded_footer_text(&app);
+    let width = 120;
+    let origin_y = 19;
+    let text = expanded_footer_text(&app, width);
+    let (row_index, line) = text
+        .split('\n')
+        .enumerate()
+        .find(|(_, line)| line.contains("t  tags"))
+        .expect("tags hint present");
+    let col = line.find("t  tags").unwrap() as u16;
 
     assert_eq!(
         expanded_footer_hint_id_at_point(
             &app,
             0,
-            19,
-            120,
-            1 + text.find("tags (t)").unwrap() as u16,
-            19
+            origin_y,
+            width,
+            1 + col,
+            origin_y + row_index as u16
         ),
         Some(HintId::BeginEditTags)
     );
+}
+
+/// Every hint is clickable at its own rendered position, whatever row the grid
+/// places it on.
+fn assert_hints_routable(hints: &[Hint], width: u16) {
+    let text = hint_grid_text(hints, width);
+    for (row_index, line) in text.split('\n').enumerate() {
+        for hint in hints {
+            // The `key  label` pair is unambiguous within a row (a bare label can
+            // be a substring of another hint's text).
+            let needle = format!("{}  {}", hint.key_hint, hint.label);
+            if let Some(col) = line.find(&needle) {
+                assert_eq!(
+                    hint_id_at_wrapped(hints, 0, 0, width, col as u16, row_index as u16),
+                    Some(hint.id),
+                    "hint {:?} on row {row_index}",
+                    hint.label
+                );
+            }
+        }
+    }
 }
 
 #[test]
 fn dialog_hints_wrap_and_remain_clickable_by_row() {
     let hints = metadata_dialog_hints(EditMetadataFocus::List, true);
 
-    assert_eq!(hint_height(hints, 29), 2);
-    assert_eq!(
-        hint_id_at_wrapped(hints, 10, 5, 29, 10, 6),
-        Some(HintId::MetadataSave)
-    );
+    assert!(hint_height(hints, 29) >= 2, "expected the hints to wrap");
+    assert_hints_routable(hints, 29);
 }
 
 #[test]
 fn dialog_hint_routing_uses_typed_ids() {
-    let tags = metadata_dialog_hints(EditMetadataFocus::List, true);
-    assert_eq!(hint_id_at(tags, 10, 11), Some(HintId::MetadataToggle));
-
-    let empty_input = metadata_dialog_hints(EditMetadataFocus::Input, true);
-    assert_eq!(hint_id_at(empty_input, 10, 11), Some(HintId::MetadataSave));
-
-    let value_input = metadata_dialog_hints(EditMetadataFocus::Input, false);
-    assert_eq!(
-        hint_id_at(value_input, 10, 11),
-        Some(HintId::MetadataAddFromInput)
-    );
-
-    let feelings = feelings_dialog_hints(EditMetadataFocus::List);
-    assert_eq!(
-        hint_id_at(
-            feelings,
-            20,
-            20 + UnicodeWidthStr::width("open (→) | close (←) | toggle (space) | search (tab) | ")
-                as u16
-        ),
-        Some(HintId::FeelingsSave)
-    );
-
-    let mood = mood_dialog_hints();
-    assert_eq!(
-        hint_id_at(
-            mood,
-            30,
-            30 + UnicodeWidthStr::width("decrease (←) | ") as u16
-        ),
-        Some(HintId::MoodIncrease)
-    );
+    assert_hints_routable(metadata_dialog_hints(EditMetadataFocus::List, true), 200);
+    assert_hints_routable(metadata_dialog_hints(EditMetadataFocus::Input, true), 200);
+    assert_hints_routable(metadata_dialog_hints(EditMetadataFocus::Input, false), 200);
+    assert_hints_routable(feelings_dialog_hints(EditMetadataFocus::List), 200);
+    assert_hints_routable(mood_dialog_hints(), 200);
 }
 
 #[test]

@@ -42,7 +42,8 @@ pub(crate) use chrome::{
 };
 #[cfg(test)]
 pub(crate) use chrome::{
-    expanded_footer_text, footer_height, footer_hint_id_at, footer_text, hint_height, hint_id_at,
+    expanded_footer_text, footer_height, footer_hint_id_at, footer_text, hint_grid_text,
+    hint_height,
 };
 use dialogs::{
     draw_confirm_delete, draw_edit_feelings_dialog, draw_edit_location_dialog,

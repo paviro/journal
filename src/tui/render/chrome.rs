@@ -78,55 +78,153 @@ impl Hint {
     }
 
     fn text(self) -> String {
-        format!("{} ({})", self.label, self.key_hint)
+        format!("{} {}", key_chip_text(self.key_hint), self.label)
     }
+}
+
+/// Minimum blank columns kept around and between hints when a row is justified.
+const HINT_MIN_GAP: usize = 2;
+
+/// Saturating `usize`→`u16`, for column math that can never realistically overflow
+/// a terminal but must stay in bounds.
+fn clamp_u16(n: usize) -> u16 {
+    u16::try_from(n).unwrap_or(u16::MAX)
+}
+
+/// Space-around gap distribution: with `content_total` columns of content and
+/// `gap_count` gaps (each already reserving [`HINT_MIN_GAP`]), spread the leftover
+/// width evenly. Returns `(base, remainder)` — every gap grows by `base`, and the
+/// first `remainder` gaps grow by one more.
+fn spread_gaps(area: usize, content_total: usize, gap_count: usize) -> (usize, usize) {
+    let extra = area.saturating_sub(content_total + gap_count * HINT_MIN_GAP);
+    (extra / gap_count, extra % gap_count)
+}
+
+/// The key portion of a hint as plain text: a space on each side so the reversed
+/// chip reads as a padded button. Kept in one place so the styled rendering and
+/// the width/hit-test math stay in lockstep.
+fn key_chip_text(key: &str) -> String {
+    format!(" {key} ")
+}
+
+/// The reversed + bold style for a hint's key chip.
+fn key_chip_style() -> Style {
+    Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
 }
 
 #[derive(Debug, Clone)]
 struct RenderedHintLine {
+    /// The row's full visual text (prefix + justified hints), identical to what is
+    /// drawn — so `find`-based column lookups line up with hit-testing.
     text: String,
-    hint_origin: u16,
-    hints: Vec<Hint>,
+    /// A left-hand prefix (status label), drawn plain before the hints. Usually empty.
+    prefix: String,
+    /// `(start column, hint)` for each hint, columns absolute within the row.
+    placements: Vec<(u16, Hint)>,
 }
 
-pub(crate) fn hints_text(hints: &[Hint]) -> String {
-    hints
-        .iter()
-        .copied()
-        .map(Hint::text)
-        .collect::<Vec<_>>()
-        .join(" | ")
+fn hint_width(hint: &Hint) -> usize {
+    UnicodeWidthStr::width(hint.text().as_str())
 }
 
-pub(crate) fn hint_id_at(hints: &[Hint], origin_x: u16, col: u16) -> Option<HintId> {
-    if col < origin_x {
-        return None;
+/// The id of the hint whose justified span contains `col` (relative to `origin_x`).
+fn placement_at(placements: &[(u16, Hint)], origin_x: u16, col: u16) -> Option<HintId> {
+    let rel = col.checked_sub(origin_x)?;
+    placements.iter().find_map(|(start, hint)| {
+        let width = hint_width(hint) as u16;
+        (rel >= *start && rel < start.saturating_add(width)).then_some(hint.id)
+    })
+}
+
+/// Lay out one already-packed row: `prefix` at the far left, then the hints spaced
+/// evenly across the rest of `width` (space-around — roughly equal padding at both
+/// ends and between hints). Returns the drawn text and each hint's start column.
+fn layout_hint_row(prefix: &str, hints: &[Hint], width: u16) -> RenderedHintLine {
+    let prefix_width = UnicodeWidthStr::width(prefix);
+    let mut text = String::from(prefix);
+    if hints.is_empty() {
+        return RenderedHintLine {
+            text,
+            prefix: prefix.to_string(),
+            placements: Vec::new(),
+        };
     }
-    let rel = col.saturating_sub(origin_x) as usize;
-    let mut x = 0usize;
-    for hint in hints.iter().copied() {
-        let text = hint.text();
-        let width = UnicodeWidthStr::width(text.as_str());
-        if rel >= x && rel < x + width {
-            return Some(hint.id);
+
+    let widths: Vec<usize> = hints.iter().map(hint_width).collect();
+    let hint_total: usize = widths.iter().sum();
+    let area = (width as usize).saturating_sub(prefix_width);
+    // n hints → n+1 gaps (both ends + between); only the leading n are drawn, the
+    // trailing one is implicit right padding. Spread the slack beyond the minimum
+    // gaps evenly across all n+1.
+    let gap_count = hints.len() + 1;
+    let (base, remainder) = spread_gaps(area, hint_total, gap_count);
+
+    let mut col = prefix_width;
+    let mut placements = Vec::with_capacity(hints.len());
+    for (index, hint) in hints.iter().enumerate() {
+        let gap = HINT_MIN_GAP + base + usize::from(index < remainder);
+        for _ in 0..gap {
+            text.push(' ');
         }
-        x += width + 3;
+        col += gap;
+        placements.push((clamp_u16(col), *hint));
+        text.push_str(&hint.text());
+        col += widths[index];
     }
-    None
+    RenderedHintLine {
+        text,
+        prefix: prefix.to_string(),
+        placements,
+    }
+}
+
+/// Render a laid-out hint row as styled spans: the prefix and gaps stay plain and
+/// each key chip is drawn reversed + bold. Columns match [`RenderedHintLine::text`]
+/// exactly, so the visual output lines up with hit-testing.
+fn styled_hint_line(rendered: &RenderedHintLine) -> Line<'static> {
+    if rendered.placements.is_empty() {
+        return Line::from(rendered.text.clone());
+    }
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut col = 0u16;
+    if !rendered.prefix.is_empty() {
+        col = clamp_u16(UnicodeWidthStr::width(rendered.prefix.as_str()));
+        spans.push(Span::raw(rendered.prefix.clone()));
+    }
+    for (start, hint) in &rendered.placements {
+        if *start > col {
+            spans.push(Span::raw(" ".repeat((*start - col) as usize)));
+            col = *start;
+        }
+        let chip = key_chip_text(hint.key_hint);
+        col += clamp_u16(UnicodeWidthStr::width(chip.as_str()));
+        spans.push(Span::styled(chip, key_chip_style()));
+        let label = format!(" {}", hint.label);
+        col += clamp_u16(UnicodeWidthStr::width(label.as_str()));
+        spans.push(Span::raw(label));
+    }
+    Line::from(spans)
 }
 
 pub(crate) fn hint_lines(hints: &[Hint], width: u16) -> Vec<Line<'static>> {
     rendered_hint_lines(hints, width)
-        .into_iter()
-        .map(|line| Line::from(line.text))
+        .iter()
+        .map(styled_hint_line)
         .collect()
 }
 
 pub(crate) fn hint_height(hints: &[Hint], width: u16) -> u16 {
+    clamp_u16(rendered_hint_lines(hints, width).len().max(1))
+}
+
+/// The hint grid's rows joined by newlines, for tests to locate hints by text.
+#[cfg(test)]
+pub(crate) fn hint_grid_text(hints: &[Hint], width: u16) -> String {
     rendered_hint_lines(hints, width)
-        .len()
-        .max(1)
-        .min(u16::MAX as usize) as u16
+        .iter()
+        .map(|row| row.text.clone())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub(crate) fn hint_id_at_wrapped(
@@ -140,37 +238,98 @@ pub(crate) fn hint_id_at_wrapped(
     let relative_row = row.checked_sub(origin_y)? as usize;
     let lines = rendered_hint_lines(hints, width);
     let line = lines.get(relative_row)?;
-    hint_id_at(&line.hints, origin_x.saturating_add(line.hint_origin), col)
+    placement_at(&line.placements, origin_x, col)
 }
 
+/// Lay the hints out as a column grid: pick a column count that fits, then align
+/// every row to the same column x-positions (each hint left-aligned in its column)
+/// so wrapped rows line up vertically. Leftover width is spread across the gaps so
+/// the grid still fills the row.
 fn rendered_hint_lines(hints: &[Hint], width: u16) -> Vec<RenderedHintLine> {
-    wrapped_hint_rows(hints, width)
-        .into_iter()
-        .map(|hints| RenderedHintLine {
-            text: hints_text(&hints),
-            hint_origin: 0,
-            hints,
-        })
-        .collect()
+    if hints.is_empty() {
+        return Vec::new();
+    }
+    let mut columns = columns_that_fit(hints, width);
+    let (col_x, rows) = loop {
+        let rows: Vec<&[Hint]> = hints.chunks(columns).collect();
+        let mut col_widths = vec![0usize; columns];
+        for row in &rows {
+            for (index, hint) in row.iter().enumerate() {
+                col_widths[index] = col_widths[index].max(hint_width(hint));
+            }
+        }
+        let total: usize = col_widths.iter().sum();
+        let gap_count = columns + 1;
+        if columns == 1 || total + gap_count * HINT_MIN_GAP <= width as usize {
+            let (base, remainder) = spread_gaps(width as usize, total, gap_count);
+            let mut col_x = Vec::with_capacity(columns);
+            let mut x = 0usize;
+            for (index, col_width) in col_widths.iter().enumerate() {
+                x += HINT_MIN_GAP + base + usize::from(index < remainder);
+                col_x.push(clamp_u16(x));
+                x += col_width;
+            }
+            break (col_x, rows);
+        }
+        columns -= 1;
+    };
+    rows.iter().map(|row| build_grid_row(&col_x, row)).collect()
+}
+
+/// How many equal grid columns the hints can use: greedily fit as many as possible
+/// on the first row (with minimum gaps), at least one.
+fn columns_that_fit(hints: &[Hint], width: u16) -> usize {
+    let width = width as usize;
+    let mut used = HINT_MIN_GAP; // trailing edge gap
+    let mut columns = 0;
+    for hint in hints {
+        let need = HINT_MIN_GAP + hint_width(hint);
+        if columns > 0 && used + need > width {
+            break;
+        }
+        used += need;
+        columns += 1;
+    }
+    columns.max(1)
+}
+
+/// Place a row's hints at the shared column x-positions, left-aligned in each column.
+fn build_grid_row(col_x: &[u16], hints: &[Hint]) -> RenderedHintLine {
+    let mut text = String::new();
+    let mut col = 0u16;
+    let mut placements = Vec::with_capacity(hints.len());
+    for (index, hint) in hints.iter().enumerate() {
+        let start = col_x[index];
+        while col < start {
+            text.push(' ');
+            col += 1;
+        }
+        placements.push((start, *hint));
+        text.push_str(&hint.text());
+        col += hint_width(hint) as u16;
+    }
+    RenderedHintLine {
+        text,
+        prefix: String::new(),
+        placements,
+    }
 }
 
 fn wrapped_hint_rows(hints: &[Hint], width: u16) -> Vec<Vec<Hint>> {
     let available = width as usize;
     let mut rows: Vec<Vec<Hint>> = Vec::new();
     let mut row: Vec<Hint> = Vec::new();
-    let mut row_width = 0usize;
+    // Reserve a trailing edge gap; each hint reserves a leading gap plus its width
+    // (matching the space-around layout), so a packed row is always justifiable.
+    let mut used = HINT_MIN_GAP;
 
     for hint in hints.iter().copied() {
-        let hint_width = UnicodeWidthStr::width(hint.text().as_str());
-        let separator_width = if row.is_empty() { 0 } else { 3 };
-        if !row.is_empty() && row_width + separator_width + hint_width > available {
+        let need = HINT_MIN_GAP + hint_width(&hint);
+        if !row.is_empty() && used + need > available {
             rows.push(std::mem::take(&mut row));
-            row_width = 0;
+            used = HINT_MIN_GAP;
         }
-        if !row.is_empty() {
-            row_width += 3;
-        }
-        row_width += hint_width;
+        used += need;
         row.push(hint);
     }
 
@@ -181,16 +340,21 @@ fn wrapped_hint_rows(hints: &[Hint], width: u16) -> Vec<Vec<Hint>> {
     rows
 }
 
+/// The footer's justified rows joined by newlines, for tests to inspect.
 #[cfg(test)]
-pub(crate) fn footer_text(app: &App) -> String {
+pub(crate) fn footer_text(app: &App, width: u16) -> String {
     if !app.status().is_empty() {
         return app.status().to_string();
     }
-
-    match app.nav.mode {
-        Mode::Search => search_footer_line(app).text(),
-        Mode::Browse => browse_footer_line(app).text(),
-    }
+    let line = match app.nav.mode {
+        Mode::Search => search_footer_line(app),
+        Mode::Browse => browse_footer_line(app),
+    };
+    line.rendered_lines(width)
+        .iter()
+        .map(|row| row.text.clone())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub(crate) fn footer_lines(app: &App, width: u16) -> Text<'static> {
@@ -223,15 +387,17 @@ pub(crate) fn footer_height(app: &App, width: u16) -> u16 {
 }
 
 #[cfg(test)]
-pub(crate) fn footer_hint_id_at(app: &App, origin_x: u16, col: u16) -> Option<HintId> {
+pub(crate) fn footer_hint_id_at(app: &App, origin_x: u16, width: u16, col: u16) -> Option<HintId> {
     if !app.status().is_empty() {
         return None;
     }
-
-    match app.nav.mode {
-        Mode::Search => search_footer_line(app).hint_id_at(origin_x, col),
-        Mode::Browse => browse_footer_line(app).hint_id_at(origin_x, col),
-    }
+    let line = match app.nav.mode {
+        Mode::Search => search_footer_line(app),
+        Mode::Browse => browse_footer_line(app),
+    };
+    line.rendered_lines(width)
+        .first()
+        .and_then(|row| placement_at(&row.placements, origin_x, col))
 }
 
 pub(crate) fn footer_hint_id_at_point(
@@ -256,9 +422,14 @@ pub(crate) fn footer_hint_id_at_point(
     }
 }
 
+/// The expanded footer's justified rows joined by newlines, for tests.
 #[cfg(test)]
-pub(crate) fn expanded_footer_text(app: &App) -> String {
-    hints_text(&expanded_footer_hints(app))
+pub(crate) fn expanded_footer_text(app: &App, width: u16) -> String {
+    rendered_hint_lines(&expanded_footer_hints(app), width.saturating_sub(1))
+        .iter()
+        .map(|row| row.text.clone())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub(crate) fn expanded_footer_lines(app: &App, width: u16) -> Text<'static> {
@@ -307,97 +478,48 @@ struct HintLine {
 
 impl HintLine {
     fn rendered_lines(&self, width: u16) -> Vec<RenderedHintLine> {
+        let prefix = self.prefix.as_deref().unwrap_or("");
         if self.hints.is_empty() {
-            return self
-                .prefix
-                .as_ref()
-                .map(|prefix| {
-                    vec![RenderedHintLine {
-                        text: prefix.clone(),
-                        hint_origin: 0,
-                        hints: Vec::new(),
-                    }]
-                })
-                .unwrap_or_default();
+            return if prefix.is_empty() {
+                Vec::new()
+            } else {
+                vec![layout_hint_row(prefix, &[], width)]
+            };
+        }
+        if prefix.is_empty() {
+            return rendered_hint_lines(&self.hints, width);
         }
 
-        let Some(prefix) = &self.prefix else {
-            return rendered_hint_lines(&self.hints, width);
-        };
-
-        let prefix_width = UnicodeWidthStr::width(prefix.as_str()).min(u16::MAX as usize) as u16;
-        let first_hint_width = self
-            .hints
-            .first()
-            .map(|hint| UnicodeWidthStr::width(hint.text().as_str()).min(u16::MAX as usize) as u16)
-            .unwrap_or(0);
-
+        let prefix_width = clamp_u16(UnicodeWidthStr::width(prefix));
+        let first_hint_width = self.hints.first().map(hint_width).unwrap_or(0) as u16;
         let mut lines = Vec::new();
-        let mut remaining_hints = self.hints.as_slice();
+        let mut remaining = self.hints.as_slice();
         if prefix_width
-            .saturating_add(3)
+            .saturating_add(HINT_MIN_GAP as u16)
             .saturating_add(first_hint_width)
             <= width
         {
-            let first_width = width.saturating_sub(prefix_width).saturating_sub(3);
-            let first_rows = wrapped_hint_rows(remaining_hints, first_width);
-            if let Some(first_row) = first_rows.first() {
-                let consumed = first_row.len();
-                lines.push(RenderedHintLine {
-                    text: format!("{prefix} | {}", hints_text(first_row)),
-                    hint_origin: prefix_width.saturating_add(3),
-                    hints: first_row.clone(),
-                });
-                remaining_hints = &remaining_hints[consumed..];
+            let first_area = width.saturating_sub(prefix_width);
+            if let Some(first_row) = wrapped_hint_rows(remaining, first_area).first() {
+                lines.push(layout_hint_row(prefix, first_row, width));
+                remaining = &remaining[first_row.len()..];
             }
         } else {
-            lines.push(RenderedHintLine {
-                text: prefix.clone(),
-                hint_origin: 0,
-                hints: Vec::new(),
-            });
+            lines.push(layout_hint_row(prefix, &[], width));
         }
-
-        lines.extend(rendered_hint_lines(remaining_hints, width));
+        lines.extend(rendered_hint_lines(remaining, width));
         lines
     }
 
     fn lines(&self, width: u16) -> Vec<Line<'static>> {
         self.rendered_lines(width)
-            .into_iter()
-            .map(|line| Line::from(line.text))
+            .iter()
+            .map(styled_hint_line)
             .collect()
     }
 
     fn height(&self, width: u16) -> u16 {
-        self.rendered_lines(width)
-            .len()
-            .max(1)
-            .min(u16::MAX as usize) as u16
-    }
-
-    #[cfg(test)]
-    fn text(&self) -> String {
-        let hints = hints_text(&self.hints);
-        match (&self.prefix, hints.is_empty()) {
-            (Some(prefix), false) => format!("{prefix} | {hints}"),
-            (Some(prefix), true) => prefix.clone(),
-            (None, false) => hints,
-            (None, true) => String::new(),
-        }
-    }
-
-    #[cfg(test)]
-    fn hint_id_at(&self, origin_x: u16, col: u16) -> Option<HintId> {
-        let hint_origin = origin_x.saturating_add(
-            self.prefix
-                .as_ref()
-                .map(|prefix| {
-                    UnicodeWidthStr::width(prefix.as_str()).min(u16::MAX as usize) as u16 + 3
-                })
-                .unwrap_or(0),
-        );
-        hint_id_at(&self.hints, hint_origin, col)
+        clamp_u16(self.rendered_lines(width).len().max(1))
     }
 
     fn hint_id_at_point(
@@ -411,7 +533,7 @@ impl HintLine {
         let relative_row = row.checked_sub(origin_y)? as usize;
         let lines = self.rendered_lines(width);
         let line = lines.get(relative_row)?;
-        hint_id_at(&line.hints, origin_x.saturating_add(line.hint_origin), col)
+        placement_at(&line.placements, origin_x, col)
     }
 }
 
