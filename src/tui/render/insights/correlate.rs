@@ -374,12 +374,13 @@ fn delta_bar(delta: Option<f32>, max_abs: f32, width: usize) -> Line<'static> {
     Line::from(spans)
 }
 
-/// One bar cell: a filled `▓` in `style`, or the muted `·` groove when empty.
+/// One bar cell: a filled bar glyph in `style` (the sign color — direction
+/// already carries the meaning), or the `·` groove when empty.
 fn cell_span(filled: bool, style: ratatui::style::Style) -> Span<'static> {
     if filled {
-        Span::styled("▓", style)
+        Span::styled(theme().chart_bar().glyph.to_string(), style)
     } else {
-        Span::styled("·", theme().muted())
+        Span::styled("·", theme().chart_track().style)
     }
 }
 

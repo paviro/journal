@@ -143,6 +143,13 @@ pub(crate) fn test_flat_theme() -> Theme {
     builtin(DEFAULT_THEME, Mode::Dark).expect("bundled default theme resolves")
 }
 
+/// The resolved bundled e-ink theme, for tests asserting the monochrome
+/// glyph-differentiation contract end to end.
+#[cfg(test)]
+pub(crate) fn test_eink_theme() -> Theme {
+    builtin("e-ink", Mode::Dark).expect("bundled e-ink theme resolves")
+}
+
 impl Theme {
     /// The look the app has always had on a bare terminal: default colors,
     /// bordered chrome, meaning carried by modifiers. This is byte-for-byte

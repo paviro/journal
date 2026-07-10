@@ -763,25 +763,59 @@ fn mood_bar_cells(width: u16, score: i8) -> Vec<(&'static str, Style)> {
     cells
 }
 
+/// The markdown renderer's colors, fed from the theme's markdown tokens. The
+/// crate couples elements to a handful of slots: `primary` colors headings and
+/// links, `secondary` the lower heading levels, `accent_yellow` inline code,
+/// `muted` the rules/prefixes. Tokens without a color resolve to `Reset`, so a
+/// theme with no `[markdown]` colors renders exactly the plain classic output.
 pub(crate) fn markdown_theme() -> ThemeConfig {
-    let foreground = MarkdownColor::Reset;
+    let theme = theme();
+    let fg = |style: Style| adapt_color(style.fg);
+    let reset = MarkdownColor::Reset;
     ThemeConfig::builder()
-        .with_text_color(foreground)
-        .with_muted_text_color(foreground)
-        .with_primary_color(foreground)
-        .with_popup_selected_background(foreground)
-        .with_border_color(foreground)
-        .with_focused_border_color(foreground)
-        .with_secondary_color(foreground)
-        .with_info_color(foreground)
-        .with_json_key_color(foreground)
-        .with_json_string_color(foreground)
-        .with_json_number_color(foreground)
-        .with_json_bool_color(foreground)
-        .with_json_null_color(foreground)
-        .with_accent_yellow(foreground)
+        .with_text_color(fg(theme.text()))
+        .with_muted_text_color(fg(theme.md_blockquote()))
+        .with_primary_color(fg(theme.md_heading()))
+        .with_popup_selected_background(reset)
+        .with_border_color(reset)
+        .with_focused_border_color(reset)
+        .with_secondary_color(fg(theme.md_heading()))
+        .with_info_color(fg(theme.md_link()))
+        .with_json_key_color(reset)
+        .with_json_string_color(reset)
+        .with_json_number_color(reset)
+        .with_json_bool_color(reset)
+        .with_json_null_color(reset)
+        .with_accent_yellow(fg(theme.md_code()))
         .with_code_colors(reset_code_colors())
         .build()
+}
+
+/// ratatui `Color` → the markdown crate's color enum; the reverse of
+/// [`adapt_markdown_color`]. An unset foreground becomes `Reset`.
+fn adapt_color(color: Option<Color>) -> MarkdownColor {
+    match color {
+        None => MarkdownColor::Reset,
+        Some(Color::Reset) => MarkdownColor::Reset,
+        Some(Color::Black) => MarkdownColor::Black,
+        Some(Color::Red) => MarkdownColor::Red,
+        Some(Color::Green) => MarkdownColor::Green,
+        Some(Color::Yellow) => MarkdownColor::Yellow,
+        Some(Color::Blue) => MarkdownColor::Blue,
+        Some(Color::Magenta) => MarkdownColor::Magenta,
+        Some(Color::Cyan) => MarkdownColor::Cyan,
+        Some(Color::Gray) => MarkdownColor::Gray,
+        Some(Color::DarkGray) => MarkdownColor::DarkGray,
+        Some(Color::LightRed) => MarkdownColor::LightRed,
+        Some(Color::LightGreen) => MarkdownColor::LightGreen,
+        Some(Color::LightYellow) => MarkdownColor::LightYellow,
+        Some(Color::LightBlue) => MarkdownColor::LightBlue,
+        Some(Color::LightMagenta) => MarkdownColor::LightMagenta,
+        Some(Color::LightCyan) => MarkdownColor::LightCyan,
+        Some(Color::White) => MarkdownColor::White,
+        Some(Color::Rgb(r, g, b)) => MarkdownColor::Rgb(r, g, b),
+        Some(Color::Indexed(index)) => MarkdownColor::Indexed(index),
+    }
 }
 
 fn reset_code_colors() -> CodeColors {

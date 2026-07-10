@@ -300,10 +300,21 @@ pub(crate) fn draw_bars(frame: &mut Frame<'_>, area: Rect, bars: &[Bar]) {
                     truncate_ellipsis(&bar.label, label_w)
                 )),
                 Span::raw(" "),
-                // `▓` (dark shade) shares the airy texture of the `░` empty track
-                // rather than reading as a heavy solid slab.
-                Span::styled("▓".repeat(filled), bar.style),
-                Span::styled("░".repeat(bar_w - filled), theme().muted()),
+                // The fill glyph (default `▓`, dark shade) shares the airy
+                // texture of the empty track rather than reading as a slab;
+                // themes may swap either glyph.
+                Span::styled(
+                    theme().chart_bar().glyph.to_string().repeat(filled),
+                    bar.style,
+                ),
+                Span::styled(
+                    theme()
+                        .chart_track()
+                        .glyph
+                        .to_string()
+                        .repeat(bar_w - filled),
+                    theme().chart_track().style,
+                ),
                 Span::raw(" "),
                 Span::raw(format!("{:>value_w$}", bar.value)),
             ])
@@ -471,14 +482,15 @@ pub(crate) fn draw_signed_columns(
     }
 
     // The dim zero baseline: a rule under each bar, a lighter tick across the gaps.
-    let mut base = vec![Span::styled("┈".repeat(edge), theme().muted())];
+    let baseline = theme().chart_baseline();
+    let mut base = vec![Span::styled("┈".repeat(edge), baseline)];
     for i in 0..n {
         if i > 0 {
-            base.push(Span::styled("┈".repeat(gap), theme().muted()));
+            base.push(Span::styled("┈".repeat(gap), baseline));
         }
-        base.push(Span::styled("─".repeat(col_w(i)), theme().muted()));
+        base.push(Span::styled("─".repeat(col_w(i)), baseline));
     }
-    base.push(Span::styled("┈".repeat(edge), theme().muted()));
+    base.push(Span::styled("┈".repeat(edge), baseline));
     frame.render_widget(
         Paragraph::new(Line::from(base)),
         Rect {
@@ -497,7 +509,7 @@ pub(crate) fn draw_signed_columns(
         let label = labels.get(i).copied().unwrap_or("");
         label_spans.push(Span::styled(
             center_truncate(label, col_w(i)),
-            theme().muted(),
+            theme().chart_label(),
         ));
     }
     label_spans.push(Span::raw(" ".repeat(edge)));
@@ -570,7 +582,11 @@ pub(crate) fn sentiment_segments(
 ) -> Line<'static> {
     let total = positive + neutral + negative;
     if total == 0 || width == 0 {
-        return Line::from(Span::styled("░".repeat(width), theme().muted()));
+        let track = theme().chart_track();
+        return Line::from(Span::styled(
+            track.glyph.to_string().repeat(width),
+            track.style,
+        ));
     }
     let cells = |count: usize| ((count as f32 / total as f32) * width as f32).round() as usize;
     let mut pos = cells(positive);
@@ -585,10 +601,15 @@ pub(crate) fn sentiment_segments(
             neg = neg.saturating_sub(pos + neu + neg - width);
         }
     }
+    // Each sentiment renders with its own fill: color themes vary the hue,
+    // e-ink varies the glyph (█▒░) so the series stay apart without color.
+    let segment = |fill: crate::tui::theme::Fill, cells: usize| {
+        Span::styled(fill.glyph.to_string().repeat(cells), fill.style)
+    };
     Line::from(vec![
-        Span::styled("▓".repeat(pos), theme().positive()),
-        Span::styled("▓".repeat(neu), theme().muted()),
-        Span::styled("▓".repeat(neg), theme().negative()),
+        segment(theme().chart_positive(), pos),
+        segment(theme().chart_neutral(), neu),
+        segment(theme().chart_negative(), neg),
     ])
 }
 
@@ -717,5 +738,23 @@ mod tests {
         // 3:0:1 over 8 cells → 6 positive, 0 neutral, 2 negative.
         assert_eq!(line.spans[0].content.chars().count(), 6);
         assert_eq!(line.spans[2].content.chars().count(), 2);
+    }
+
+    #[test]
+    fn sentiment_segments_stay_distinguishable_without_color_on_eink() {
+        // The e-ink theme separates the three series by glyph, not hue: each
+        // rendered segment must use a different fill character.
+        crate::tui::theme::set_test_theme(crate::tui::theme::test_eink_theme());
+        let line = sentiment_segments(2, 2, 2, 9);
+        let glyphs: Vec<char> = line
+            .spans
+            .iter()
+            .filter_map(|span| span.content.chars().next())
+            .collect();
+        assert_eq!(glyphs.len(), 3);
+        assert!(
+            glyphs[0] != glyphs[1] && glyphs[1] != glyphs[2] && glyphs[0] != glyphs[2],
+            "e-ink sentiment glyphs not pairwise distinct: {glyphs:?}"
+        );
     }
 }
