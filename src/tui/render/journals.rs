@@ -92,6 +92,7 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
         list_state_for_render(selected_visible, 0, viewport_height, highlight_active);
 
     frame.render_widget(block, geometry.area);
+    super::panel_focus_stripe(frame, geometry.area, focused);
     frame.render_stateful_widget(list, list_area, &mut render_state);
     render_scrollbar_if_needed(
         frame,

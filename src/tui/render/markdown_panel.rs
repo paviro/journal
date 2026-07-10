@@ -72,6 +72,7 @@ pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &
         let block = panel_block("Entry", app.nav.focus == Focus::EntryView, None);
         let content = PanelGeometry::new(area).content;
         frame.render_widget(block, area);
+        super::panel_focus_stripe(frame, area, app.nav.focus == Focus::EntryView);
         render_centered_notice(frame, content, "No entry selected");
     }
 }
@@ -89,6 +90,7 @@ pub(crate) fn draw_entry_editor(
 ) {
     let block = panel_block(editor.title(), true, None);
     frame.render_widget(block, area);
+    super::panel_focus_stripe(frame, area, true);
 
     // Same builder the viewer uses, from the buffered metadata — so location and
     // every other front-matter field show in edit mode too.
@@ -253,6 +255,7 @@ fn draw_markdown_panel(
     };
 
     frame.render_widget(block, area);
+    super::panel_focus_stripe(frame, area, focused);
     frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), body_rect);
 
     if !metadata_scrolls && layout.metadata.is_some() {

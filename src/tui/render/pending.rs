@@ -2,7 +2,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout},
     text::{Line, Span},
-    widgets::{Block, Borders, Gauge, Padding, Paragraph, Wrap},
+    widgets::{Gauge, Paragraph, Wrap},
 };
 
 use journal_storage::PendingRequest;
@@ -63,10 +63,7 @@ pub(crate) fn draw_pending_request(
         .flex(Flex::Center)
         .areas(group);
 
-    let container = Block::default()
-        .borders(Borders::ALL)
-        .title_top(Line::from(" Grant access "))
-        .padding(Padding::new(2, 2, 1, 1));
+    let container = super::container_block("Grant access");
     let container_inner = container.inner(container_box);
     frame.render_widget(container, container_box);
 
@@ -173,10 +170,7 @@ pub(crate) fn draw_pending_notice(frame: &mut Frame<'_>, device_name: &str, noti
     lines.extend(wrapped(&instruction));
     lines.push(Line::from(Span::styled(format!("  {command}"), dim)));
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title_top(Line::from(title))
-        .padding(Padding::new(2, 2, 1, 1));
+    let block = super::container_block(title.trim());
     let container_height = (lines.len() as u16 + 4).min(area.height);
     let [group] = Layout::vertical([Constraint::Length(container_height)])
         .flex(Flex::Center)
@@ -232,10 +226,7 @@ pub(crate) fn draw_disable_notice(frame: &mut Frame<'_>) {
         Span::raw("."),
     ]));
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title_top(Line::from(" Encryption disabled "))
-        .padding(Padding::new(2, 2, 1, 1));
+    let block = super::container_block("Encryption disabled");
     let container_height = (lines.len() as u16 + 4).min(area.height);
     let [group] = Layout::vertical([Constraint::Length(container_height)])
         .flex(Flex::Center)

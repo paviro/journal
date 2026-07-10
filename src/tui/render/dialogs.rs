@@ -1,8 +1,9 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::Style,
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, Paragraph},
+    widgets::{HighlightSpacing, List, ListItem, Paragraph},
 };
 
 use unicode_width::UnicodeWidthStr;
@@ -19,8 +20,9 @@ use crate::tui::theme::theme;
 
 use super::{
     chrome::{
-        Hint, HintId, centered_rect_fixed_size, hint_height, hint_lines, render_confirm_buttons,
-        render_scrollbar_if_needed,
+        Hint, HintId, centered_rect_fixed_size, dialog_inner, draw_dialog_frame, flat_chrome,
+        hint_height, hint_lines, list_highlight_symbol, render_confirm_buttons,
+        render_scrollbar_if_needed, separator_style,
     },
     list_state_for_render,
     markdown_panel::MoodBar,
@@ -262,7 +264,7 @@ pub(crate) fn mood_dialog_area(frame_area: Rect) -> Rect {
 
 fn dialog_hint_width(frame_area: Rect, width: u16) -> u16 {
     let area = super::centered_rect_fixed_size(width, 1, frame_area);
-    let inner = super::panel_inner(area);
+    let inner = dialog_inner(area);
     inner.width.saturating_sub(1)
 }
 
@@ -327,7 +329,7 @@ pub(crate) struct LocationDialogLayout {
 
 pub(crate) fn location_dialog_layout(frame_area: Rect, list_rows: usize) -> LocationDialogLayout {
     let area = location_dialog_area(frame_area, list_rows);
-    let inner = super::panel_inner(area);
+    let inner = dialog_inner(area);
     let hint_height = location_dialog_hint_height(frame_area);
     let row = |offset: u16| Rect {
         x: inner.x,
@@ -384,7 +386,7 @@ pub(crate) fn metadata_dialog_layout(
     filtered_len: usize,
 ) -> MetadataDialogLayout {
     let area = metadata_dialog_area(frame_area, filtered_len);
-    let inner = super::panel_inner(area);
+    let inner = dialog_inner(area);
     let hint_height = tag_dialog_hint_height(frame_area);
     let list_height = inner.height.saturating_sub(5 + hint_height);
     let list = Rect {
@@ -447,7 +449,7 @@ pub(crate) fn feelings_dialog_layout(
     selected_lines: usize,
 ) -> FeelingsDialogLayout {
     let area = feelings_dialog_area(frame_area, all_len, selected_lines);
-    let inner = super::panel_inner(area);
+    let inner = dialog_inner(area);
     let hint_height = feelings_dialog_hint_height(frame_area);
     let selected_h = selected_lines as u16;
     let chrome = feelings_dialog_chrome_height(frame_area, selected_lines);
@@ -513,7 +515,7 @@ pub(crate) struct MoodDialogLayout {
 
 pub(crate) fn mood_dialog_layout(frame_area: Rect) -> MoodDialogLayout {
     let area = mood_dialog_area(frame_area);
-    let inner = super::panel_inner(area);
+    let inner = dialog_inner(area);
     let hint_height = mood_dialog_hint_height(frame_area);
     let right_w = " Blissful".len() as u16;
     let bar_row = Rect {
@@ -574,9 +576,25 @@ fn render_search_field(
     value: &mut TextInput,
     focused: bool,
 ) {
-    let prefix = format!("{}{label}", if focused { ">" } else { " " });
-    let prefix_w = UnicodeWidthStr::width(prefix.as_str()) as u16;
-    frame.render_widget(Paragraph::new(prefix), rect);
+    // Flat chrome marks the active field with an accent stripe, bordered with
+    // the classic `>`; both are one column wide so the field math is shared.
+    let (marker, marker_style) = if focused {
+        if flat_chrome() {
+            ("┃", theme().primary())
+        } else {
+            (">", Style::default())
+        }
+    } else {
+        (" ", Style::default())
+    };
+    let prefix_w = UnicodeWidthStr::width(marker) as u16 + UnicodeWidthStr::width(label) as u16;
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(marker.to_string(), marker_style),
+            Span::raw(label.to_string()),
+        ])),
+        rect,
+    );
 
     // Leave one blank column before the dialog border so the underlined field
     // doesn't run flush against it.
@@ -621,7 +639,7 @@ fn render_separator(frame: &mut Frame<'_>, area: Rect) {
     }
 
     frame.render_widget(
-        Paragraph::new("─".repeat(area.width as usize)).style(theme().muted()),
+        Paragraph::new("─".repeat(area.width as usize)).style(separator_style()),
         Rect { height: 1, ..area },
     );
 }
@@ -654,10 +672,7 @@ pub(super) fn draw_fetching_environment(frame: &mut Frame<'_>, started: Instant)
     // Border (2) + a space of padding each side (2) around the fixed-width text.
     let width = message.width() as u16 + 4;
     let area = centered_rect_fixed_size(width, 3, frame.area());
-    frame.render_widget(Clear, area);
-    let block = Block::default().borders(Borders::ALL);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = draw_dialog_frame(frame, area, "", false);
     frame.render_widget(Paragraph::new(message).alignment(Alignment::Center), inner);
 }
 
@@ -695,23 +710,16 @@ fn confirm_delete_area(frame_area: Rect, ctx: &DeleteContext) -> Rect {
     super::centered_rect_fixed_size(width, height, frame_area)
 }
 
-/// The bordered inner rect of the confirm-delete dialog, so the mouse handler can
+/// The content rect of the confirm-delete dialog, so the mouse handler can
 /// hit-test the buttons against the same geometry the draw uses.
 pub(crate) fn confirm_delete_inner(frame_area: Rect, ctx: &DeleteContext) -> Rect {
-    Block::default()
-        .borders(Borders::ALL)
-        .inner(confirm_delete_area(frame_area, ctx))
+    dialog_inner(confirm_delete_area(frame_area, ctx))
 }
 
 pub(super) fn draw_confirm_delete(frame: &mut Frame<'_>, ctx: &DeleteContext) {
     let (_, message) = confirm_delete_content(ctx);
     let area = confirm_delete_area(frame.area(), ctx);
-    frame.render_widget(Clear, area);
-    let block = Block::default()
-        .title("Confirm Delete")
-        .borders(Borders::ALL);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = draw_dialog_frame(frame, area, "Confirm Delete", true);
 
     // Message at the top, the Delete/Cancel buttons on the last inner row.
     for (i, line) in message.lines().enumerate() {
@@ -727,10 +735,7 @@ pub(super) fn draw_confirm_delete(frame: &mut Frame<'_>, ctx: &DeleteContext) {
 
 pub(super) fn draw_new_journal_input(frame: &mut Frame<'_>, input: &mut TextInput) {
     let area = super::centered_rect_fixed_size(NEW_JOURNAL_DIALOG_WIDTH, 5, frame.area());
-    frame.render_widget(Clear, area);
-    let block = Block::default().title("New Journal").borders(Borders::ALL);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = draw_dialog_frame(frame, area, "New Journal", true);
 
     let label = "Name: ";
     frame.render_widget(Paragraph::new(label), inner);
@@ -784,13 +789,7 @@ pub(super) fn draw_edit_metadata_dialog(frame: &mut Frame<'_>, state: &mut EditM
             .collect()
     };
 
-    frame.render_widget(Clear, layout.area);
-    frame.render_widget(
-        Block::default()
-            .title(format!(" Edit {title} "))
-            .borders(Borders::ALL),
-        layout.area,
-    );
+    draw_dialog_frame(frame, layout.area, &format!("Edit {title}"), true);
     render_lines_in_area(
         frame,
         [Line::from(Span::styled(
@@ -802,7 +801,7 @@ pub(super) fn draw_edit_metadata_dialog(frame: &mut Frame<'_>, state: &mut EditM
     render_separator(frame, layout.list_top_separator);
     let list = List::new(items)
         .highlight_style(theme().selection())
-        .highlight_symbol(">")
+        .highlight_symbol(list_highlight_symbol())
         .highlight_spacing(HighlightSpacing::Always);
     let mut render_state = list_state_for_render(
         state.selected_index(),
@@ -830,11 +829,7 @@ pub(super) fn draw_edit_metadata_dialog(frame: &mut Frame<'_>, state: &mut EditM
 pub(super) fn draw_edit_mood_dialog(frame: &mut Frame<'_>, state: &EditMoodState) {
     let layout = mood_dialog_layout(frame.area());
 
-    frame.render_widget(Clear, layout.area);
-    frame.render_widget(
-        Block::default().title(" Edit Mood ").borders(Borders::ALL),
-        layout.area,
-    );
+    draw_dialog_frame(frame, layout.area, "Edit Mood", true);
 
     let right_label = " Blissful";
 
@@ -906,13 +901,7 @@ pub(super) fn draw_edit_location_dialog(frame: &mut Frame<'_>, state: &mut EditL
     let dim = theme().muted();
     let bold = theme().heading();
 
-    frame.render_widget(Clear, layout.area);
-    frame.render_widget(
-        Block::default()
-            .title(" Edit Location ")
-            .borders(Borders::ALL),
-        layout.area,
-    );
+    draw_dialog_frame(frame, layout.area, "Edit Location", true);
 
     render_lines_in_area(
         frame,
@@ -992,7 +981,7 @@ pub(super) fn draw_edit_location_dialog(frame: &mut Frame<'_>, state: &mut EditL
 
     let list = List::new(items)
         .highlight_style(theme().selection())
-        .highlight_symbol(">")
+        .highlight_symbol(list_highlight_symbol())
         .highlight_spacing(HighlightSpacing::Always);
     let mut render_state = list_state_for_render(
         state.selected_index(),
@@ -1063,13 +1052,7 @@ pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditF
             .collect()
     };
 
-    frame.render_widget(Clear, layout.area);
-    frame.render_widget(
-        Block::default()
-            .title(" Edit Feelings ")
-            .borders(Borders::ALL),
-        layout.area,
-    );
+    draw_dialog_frame(frame, layout.area, "Edit Feelings", true);
     render_lines_in_area(
         frame,
         [Line::from(Span::styled(" Feelings ", theme().heading()))],
@@ -1078,7 +1061,7 @@ pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditF
     render_separator(frame, layout.list_top_separator);
     let list = List::new(items)
         .highlight_style(theme().selection())
-        .highlight_symbol(">")
+        .highlight_symbol(list_highlight_symbol())
         .highlight_spacing(HighlightSpacing::Always);
     let mut render_state = list_state_for_render(
         state.selected_index(),

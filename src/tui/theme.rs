@@ -136,6 +136,13 @@ pub(crate) fn set_test_theme(theme: Theme) {
     TEST_THEME.with(|cell| cell.set(Some(theme)));
 }
 
+/// The resolved bundled default (flat-chrome) theme, for render tests that
+/// exercise the bg-layered chrome path via [`set_test_theme`].
+#[cfg(test)]
+pub(crate) fn test_flat_theme() -> Theme {
+    builtin(DEFAULT_THEME, Mode::Dark).expect("bundled default theme resolves")
+}
+
 impl Theme {
     /// The look the app has always had on a bare terminal: default colors,
     /// bordered chrome, meaning carried by modifiers. This is byte-for-byte

@@ -1,6 +1,7 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Padding, Paragraph, Wrap},
 };
@@ -60,12 +61,8 @@ pub(crate) fn draw_unlock(
         .flex(Flex::Center)
         .areas(group);
 
-    // The container: bordered, titled top-left, generous padding around its
-    // contents.
-    let container = Block::default()
-        .borders(Borders::ALL)
-        .title_top(Line::from(" Enter Password "))
-        .padding(Padding::new(2, 2, 1, 1));
+    // The container: titled top-left, generous padding around its contents.
+    let container = super::container_block("Enter Password");
     let container_inner = container.inner(container_box);
     frame.render_widget(container, container_box);
 
@@ -80,11 +77,18 @@ pub(crate) fn draw_unlock(
     .areas(container_inner);
 
     // The input line's own sub-field: a faint (dimmed) border framing just the
-    // masked passphrase, with a padded input row inside.
-    let subfield = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme().muted())
-        .padding(Padding::horizontal(1));
+    // masked passphrase, with a padded input row inside — or, in flat chrome,
+    // an element-colored surface with the same inner geometry.
+    let subfield = if super::flat_chrome() {
+        Block::new()
+            .style(Style::default().bg(theme().element_bg()))
+            .padding(Padding::new(2, 2, 1, 1))
+    } else {
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme().muted())
+            .padding(Padding::horizontal(1))
+    };
     let subfield_inner = subfield.inner(subfield_box);
     frame.render_widget(subfield, subfield_box);
     frame.render_widget(Paragraph::new(masked_field(input)), subfield_inner);

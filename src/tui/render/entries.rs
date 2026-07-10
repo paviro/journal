@@ -64,6 +64,7 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
         list_state_for_render(selected_visible, 0, viewport_height, highlight_active);
 
     frame.render_widget(block, geometry.panel.area);
+    super::panel_focus_stripe(frame, geometry.panel.area, focused);
     // In search mode, the query renders as a fixed-width field on the panel's
     // top-right border — sized from the panel, not the typed text, so it
     // doesn't grow and shrink while typing.

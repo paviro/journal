@@ -200,8 +200,13 @@ impl From<String> for TextInput {
         textarea.set_cursor_line_style(Style::default());
         textarea.set_selection_style(theme().selection());
         textarea.set_cursor_style(Style::default());
-        // Every field shares the form look: underlined, with a dim placeholder.
-        textarea.set_style(Style::default().add_modifier(Modifier::UNDERLINED));
+        // Every field shares the form look: underlined (or, in flat chrome, an
+        // element-colored surface), with a dim placeholder.
+        textarea.set_style(if crate::tui::render::flat_chrome() {
+            Style::default().bg(theme().element_bg())
+        } else {
+            Style::default().add_modifier(Modifier::UNDERLINED)
+        });
         textarea.set_placeholder_style(theme().muted());
         textarea.move_cursor(CursorMove::End);
         Self {

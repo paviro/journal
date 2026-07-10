@@ -2166,3 +2166,116 @@ fn editor_metadata_menu_hit_tests_rows() {
     assert!(found_feelings);
     assert!(found_mood);
 }
+
+// ── Flat chrome (bg-layered themes) ──────────────────────────────────────────
+
+mod flat_chrome_tests {
+    use super::*;
+    use crate::tui::state::MetadataKind;
+    use crate::tui::theme;
+
+    fn pin_flat() {
+        theme::set_test_theme(theme::test_flat_theme());
+    }
+
+    fn tags_state() -> EditMetadataState {
+        EditMetadataState::new(
+            MetadataKind::Tags,
+            vec![("work".to_string(), 3), ("home".to_string(), 1)],
+            vec![0, 1],
+            Vec::new(),
+            2,
+        )
+    }
+
+    #[test]
+    fn dialogs_drop_borders_for_a_title_row_with_esc_hint() {
+        pin_flat();
+        let rendered = render_edit_tags_dialog_text(tags_state(), 80, 24);
+        assert!(!rendered.contains('┌'), "flat dialog still draws corners");
+        assert!(
+            !rendered.contains('│'),
+            "flat dialog still draws side borders"
+        );
+        assert!(rendered.contains("Edit Tags"));
+        assert!(rendered.contains("esc"));
+    }
+
+    #[test]
+    fn dialog_surface_carries_the_panel_background() {
+        pin_flat();
+        let panel_bg = theme::test_flat_theme().panel_bg();
+        let backend = render_backend(80, 24, |frame| {
+            dialogs::draw_edit_metadata_dialog(frame, &mut tags_state())
+        });
+        let area = metadata_dialog_layout(Rect::new(0, 0, 80, 24), 2).area;
+        let cell = &backend.buffer()[(area.x + 1, area.y + 1)];
+        assert_eq!(cell.bg, panel_bg);
+    }
+
+    #[test]
+    fn selection_is_a_bg_fill_with_bullet_not_reversed() {
+        pin_flat();
+        let selection = theme::test_flat_theme().selection();
+        let layout = metadata_dialog_layout(Rect::new(0, 0, 80, 24), 2);
+        let backend = render_backend(80, 24, |frame| {
+            dialogs::draw_edit_metadata_dialog(frame, &mut tags_state())
+        });
+        let rendered: String = backend
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(rendered.contains('●'), "selected row bullet missing");
+        let row = layout.list.y;
+        let cell = &backend.buffer()[(layout.list.x + 3, row)];
+        assert_eq!(cell.bg, selection.bg.unwrap());
+        assert!(!cell.modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn focused_panel_gets_a_stripe_instead_of_a_thick_border() {
+        pin_flat();
+        let app = app_with_journals(&["alpha", "beta"]);
+        let backend = render_app(app, 120, 30);
+        let rendered: String = backend
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(rendered.contains('┃'), "focus stripe missing");
+        // Entry/journal glyph cards keep their ┌─┐ corners in every theme;
+        // only the panel borders (thick when focused) must be gone.
+        assert!(
+            !rendered.contains('┏'),
+            "thick border corner leaked into flat chrome"
+        );
+    }
+
+    #[test]
+    fn footer_key_chips_are_not_reversed() {
+        pin_flat();
+        let app = app_with_journals(&["alpha"]);
+        let backend = render_app(app, 120, 30);
+        let buffer = backend.buffer();
+        for y in 0..30u16 {
+            for x in 0..120u16 {
+                assert!(
+                    !buffer[(x, y)].modifier.contains(Modifier::REVERSED),
+                    "reversed cell at ({x},{y}) in flat chrome"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn dialog_inner_widens_margins_in_flat_chrome() {
+        pin_flat();
+        assert_eq!(
+            chrome::dialog_inner(Rect::new(10, 5, 44, 20)),
+            Rect::new(12, 6, 40, 18)
+        );
+    }
+}

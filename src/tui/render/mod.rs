@@ -32,18 +32,19 @@ pub(crate) use super::scroll::scrollbar_position;
 pub(crate) use super::scroll::{clamp_scroll, scroll_pixels, viewer_scroll};
 #[cfg(test)]
 use super::scroll::{scroll_from_thumb_top, scrollbar_bar_rect, scrollbar_thumb};
+#[cfg(test)]
+pub(crate) use super::surface::panel_inner;
 pub(crate) use super::surface::{
-    EntryListGeometry, EntryMetadataValues, PanelGeometry, entry_metadata_layout, panel_inner,
-    point_in_rect,
+    EntryListGeometry, EntryMetadataValues, PanelGeometry, entry_metadata_layout, point_in_rect,
 };
 pub(crate) use chrome::{
     Hint, HintId, MetadataChoice, MetadataMenuMode, centered_rect_fixed_size, confirm_button_at,
-    count_label, draw_editor_discard_confirm, draw_editor_shortcuts, draw_metadata_menu,
-    draw_modal_frame, editor_discard_choice_at_point, editor_shortcut_close_at_point,
-    editor_shortcut_hint_at_point, expanded_footer_height, expanded_footer_hint_id_at_point,
-    expanded_footer_lines, footer_hint_id_at_point, footer_lines, hint_id_at_wrapped,
-    metadata_menu_choice_at_point, metadata_menu_close_at_point, panel_block,
-    render_centered_notice, render_scrollbar_if_needed,
+    container_block, count_label, draw_editor_discard_confirm, draw_editor_shortcuts,
+    draw_metadata_menu, draw_modal_frame, editor_discard_choice_at_point,
+    editor_shortcut_close_at_point, editor_shortcut_hint_at_point, expanded_footer_height,
+    expanded_footer_hint_id_at_point, expanded_footer_lines, flat_chrome, footer_hint_id_at_point,
+    footer_lines, hint_id_at_wrapped, metadata_menu_choice_at_point, metadata_menu_close_at_point,
+    panel_block, panel_focus_stripe, render_centered_notice, render_scrollbar_if_needed,
 };
 #[cfg(test)]
 pub(crate) use chrome::{
@@ -68,9 +69,9 @@ pub(crate) use insights::insights_tab_at;
 use journals::draw_journals;
 pub(crate) use journals::{JOURNAL_BOX_HEIGHT, journal_list_rect};
 pub(crate) use layout::{TuiLayout, tui_layout};
-use markdown_panel::{draw_entry_editor, draw_selected_entry_view};
 #[cfg(test)]
 use markdown_panel::metadata_scrolls_with_body;
+use markdown_panel::{draw_entry_editor, draw_selected_entry_view};
 pub(crate) use pending::{
     AccessNotice, draw_disable_notice, draw_pending_notice, draw_pending_request,
 };
@@ -96,6 +97,10 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     // it below re-registers the rect.
     app.search.query.forget_area();
     let area = frame.area();
+
+    // Everything renders on the theme's background layer; a no-op for
+    // terminal-default themes.
+    frame.buffer_mut().set_style(area, chrome::base_style());
 
     // Cleared each frame; the entry-view render repopulates it when an entry is
     // shown, so a stale hit-map can't leak onto insights or empty views.

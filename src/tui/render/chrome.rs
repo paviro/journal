@@ -1,10 +1,10 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Flex, Layout, Margin, Rect},
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{
-        Block, BorderType, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation,
+        Block, BorderType, Borders, Clear, Padding, Paragraph, Scrollbar, ScrollbarOrientation,
         ScrollbarState,
     },
 };
@@ -14,7 +14,7 @@ use super::table;
 use crate::tui::app::{App, Focus, Mode};
 use crate::tui::state::MetadataKind;
 use crate::tui::surface::point_in_rect;
-use crate::tui::theme::theme;
+use crate::tui::theme::{ChromeStyle, theme};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HintId {
@@ -208,7 +208,13 @@ fn styled_hint_line(rendered: &RenderedHintLine) -> Line<'static> {
         spans.push(Span::styled(chip, key_chip_style()));
         let label = format!(" {}", hint.label);
         col += clamp_u16(UnicodeWidthStr::width(label.as_str()));
-        spans.push(Span::raw(label));
+        // Flat chrome mutes the labels so the key chips carry the row, like a
+        // status bar; bordered keeps the classic plain labels.
+        spans.push(if flat_chrome() {
+            Span::styled(label, theme().muted())
+        } else {
+            Span::raw(label)
+        });
     }
     Line::from(spans)
 }
@@ -777,11 +783,152 @@ fn expanded_footer_hints(app: &App) -> Vec<Hint> {
     hints
 }
 
+// ── Chrome style: flat (bg-layered) vs bordered ───────────────────────────────
+
+/// True when the active theme separates surfaces by background layers instead
+/// of drawn borders.
+pub(crate) fn flat_chrome() -> bool {
+    theme().chrome() == ChromeStyle::Flat
+}
+
+/// The style painted under a whole frame: the theme background plus its default
+/// text color, so spans without an explicit fg stay readable on it. A no-op
+/// under terminal-default themes (both components are `Reset`/absent).
+pub(crate) fn base_style() -> Style {
+    let mut style = Style::default().bg(theme().bg());
+    if let Some(fg) = theme().text().fg {
+        style = style.fg(fg);
+    }
+    style
+}
+
+/// A dialog's content rect within its outer `area`. Draw functions and mouse
+/// hit-tests both derive geometry from this one place, so they can never
+/// drift apart. Bordered chrome insets by the border; flat chrome trades the
+/// side borders for a wider breathing margin.
+pub(crate) fn dialog_inner(area: Rect) -> Rect {
+    // Saturating per-axis (unlike `Rect::inner`, which zeroes the whole rect):
+    // sizing helpers probe with height-1 rects and still need the real width.
+    let horizontal = if flat_chrome() { 2 } else { 1 };
+    Rect {
+        x: area.x.saturating_add(horizontal),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(horizontal * 2),
+        height: area.height.saturating_sub(2),
+    }
+}
+
+/// Clear and frame a dialog, returning its content rect (always
+/// [`dialog_inner`] of `area`). Bordered chrome draws the classic titled box;
+/// flat chrome paints a panel-colored surface with a bold title row and, when
+/// `esc_hint` is set, a muted `esc` dismiss hint on the right.
+pub(crate) fn draw_dialog_frame(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    title: &str,
+    esc_hint: bool,
+) -> Rect {
+    frame.render_widget(Clear, area);
+    let title = title.trim();
+    if flat_chrome() {
+        frame.render_widget(
+            Block::new().style(Style::default().bg(theme().panel_bg())),
+            area,
+        );
+        let top = Rect {
+            x: area.x + 2,
+            y: area.y,
+            width: area.width.saturating_sub(4),
+            height: 1.min(area.height),
+        };
+        if !title.is_empty() {
+            frame.render_widget(
+                Paragraph::new(Span::styled(title.to_string(), theme().heading())),
+                top,
+            );
+        }
+        if esc_hint {
+            frame.render_widget(
+                Paragraph::new(Span::styled("esc", theme().muted())).alignment(Alignment::Right),
+                top,
+            );
+        }
+    } else {
+        let mut block = Block::default().borders(Borders::ALL);
+        if !title.is_empty() {
+            block = block.title(format!(" {title} "));
+        }
+        frame.render_widget(block, area);
+    }
+    dialog_inner(area)
+}
+
+/// The marker shown before a selected list row: a bullet on flat chrome, the
+/// classic `>` on bordered.
+pub(crate) fn list_highlight_symbol() -> &'static str {
+    if flat_chrome() { "● " } else { ">" }
+}
+
+/// The style for the thin `─` rules that subdivide dialogs.
+pub(crate) fn separator_style() -> Style {
+    if flat_chrome() {
+        theme().faint_rule()
+    } else {
+        theme().muted()
+    }
+}
+
+/// A titled content container inside a full-screen modal (unlock, pending
+/// notices). Bordered chrome keeps the padded box; flat chrome swaps the
+/// border for a panel background with the same inner geometry.
+pub(crate) fn container_block(title: &str) -> Block<'static> {
+    if flat_chrome() {
+        Block::new()
+            .style(Style::default().bg(theme().panel_bg()))
+            .padding(Padding::new(3, 3, 2, 2))
+            .title_top(Line::from(Span::styled(
+                format!(" {title} "),
+                theme().heading(),
+            )))
+    } else {
+        Block::default()
+            .borders(Borders::ALL)
+            .title_top(Line::from(format!(" {title} ")))
+            .padding(Padding::new(2, 2, 1, 1))
+    }
+}
+
+/// In flat chrome the focused panel is marked by a `┃` stripe down its left
+/// padding column — the borders that used to thicken are gone, so focus needs
+/// its own ink. No-op on bordered chrome or unfocused panels.
+pub(crate) fn panel_focus_stripe(frame: &mut Frame<'_>, area: Rect, focused: bool) {
+    if !flat_chrome() || !focused || area.width == 0 {
+        return;
+    }
+    let stripe: Vec<Line<'static>> = (0..area.height)
+        .map(|_| Line::from(Span::styled("┃", theme().focus_border())))
+        .collect();
+    frame.render_widget(Paragraph::new(stripe), Rect { width: 1, ..area });
+}
+
 pub(crate) fn panel_block(
     title: &str,
     focused: bool,
     footer_label: Option<String>,
 ) -> Block<'static> {
+    if flat_chrome() {
+        let mut block = Block::new()
+            .style(Style::default().bg(theme().panel_bg()))
+            .padding(Padding::uniform(1))
+            .title(panel_title(title, focused));
+        if let Some(label) = footer_label {
+            block = block.title_bottom(
+                Line::from(Span::styled(format!(" {label} "), theme().muted())).right_aligned(),
+            );
+        }
+        return block;
+    }
+
     let mut block = Block::default()
         .title(panel_title(title, focused))
         .borders(Borders::ALL);
@@ -854,9 +1001,16 @@ pub(crate) fn render_confirm_buttons(
 ) {
     let (yes, no) = confirm_button_rects(inner);
     for (area, label) in [(yes, yes_label), (no, no_label)] {
+        // Flat chrome draws opencode-style filled chips; bordered keeps the
+        // bracketed reversed buttons. Same rects either way, so the click
+        // targets from `confirm_button_rects` stay valid.
+        let (text, style) = if flat_chrome() {
+            (format!(" {label} "), theme().button())
+        } else {
+            (format!("[ {label} ]"), key_chip_style())
+        };
         frame.render_widget(
-            Paragraph::new(Span::styled(format!("[ {label} ]"), key_chip_style()))
-                .alignment(Alignment::Center),
+            Paragraph::new(Span::styled(text, style)).alignment(Alignment::Center),
             area,
         );
     }
@@ -878,12 +1032,7 @@ pub(crate) fn confirm_button_at(inner: Rect, col: u16, row: u16) -> Option<bool>
 /// modal, matching the confirm-delete dialog's look.
 pub(crate) fn draw_editor_discard_confirm(frame: &mut Frame<'_>) {
     let area = editor_discard_confirm_area(frame.area());
-    frame.render_widget(Clear, area);
-    let block = Block::default()
-        .title("Discard Changes")
-        .borders(Borders::ALL);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = draw_dialog_frame(frame, area, "Discard Changes", true);
     let line = Rect {
         y: inner.y,
         height: 1,
@@ -901,11 +1050,7 @@ pub(crate) fn editor_discard_confirm_area(frame_area: Rect) -> Rect {
 }
 
 pub(crate) fn editor_discard_choice_at_point(frame_area: Rect, col: u16, row: u16) -> Option<bool> {
-    let area = editor_discard_confirm_area(frame_area);
-    let inner = area.inner(Margin {
-        vertical: 1,
-        horizontal: 1,
-    });
+    let inner = dialog_inner(editor_discard_confirm_area(frame_area));
     confirm_button_at(inner, col, row)
 }
 
@@ -1270,10 +1415,7 @@ fn table_dialog_metrics(frame_area: Rect, dialog: &TableDialog, scroll: u16) -> 
         .max(border_label(&footer))
         .min(frame_area.width);
     let area = centered_rect_fixed_size(outer_w, outer_h, frame_area);
-    let inner = area.inner(Margin {
-        vertical: 1,
-        horizontal: 1,
-    });
+    let inner = dialog_inner(area);
     let content_w = content_w.min(inner.width);
     let content = Rect {
         x: inner.x + (inner.width - content_w) / 2,
@@ -1350,12 +1492,27 @@ fn draw_table_dialog(frame: &mut Frame<'_>, dialog: &TableDialog, scroll: &mut u
     let metrics = table_dialog_metrics(frame.area(), dialog, *scroll);
     *scroll = metrics.scroll;
 
-    frame.render_widget(Clear, metrics.area);
-    let block = Block::default()
-        .title(format!(" {} ", dialog.title))
-        .title_bottom(Line::from(format!(" {} ", metrics.footer)).centered())
-        .borders(Borders::ALL);
-    frame.render_widget(block, metrics.area);
+    if flat_chrome() {
+        draw_dialog_frame(frame, metrics.area, dialog.title, false);
+        // The footer moves from the bottom border to the bottom margin row.
+        let bottom = Rect {
+            y: metrics.area.y + metrics.area.height.saturating_sub(1),
+            height: 1,
+            ..metrics.area
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(metrics.footer.clone(), theme().muted()))
+                .alignment(Alignment::Center),
+            bottom,
+        );
+    } else {
+        frame.render_widget(Clear, metrics.area);
+        let block = Block::default()
+            .title(format!(" {} ", dialog.title))
+            .title_bottom(Line::from(format!(" {} ", metrics.footer)).centered())
+            .borders(Borders::ALL);
+        frame.render_widget(block, metrics.area);
+    }
 
     frame.render_widget(
         Paragraph::new(metrics.lines).scroll((metrics.scroll, 0)),
@@ -1379,6 +1536,37 @@ pub(crate) fn draw_modal_frame(frame: &mut Frame<'_>, title: &str, key_hint: &st
     let area = frame.area();
     frame.render_widget(Clear, area);
 
+    if flat_chrome() {
+        // No outer border: the screen name and hints float on the app
+        // background, quiet in the corners like a status bar.
+        frame.buffer_mut().set_style(area, base_style());
+        let top = Rect {
+            x: area.x + 1,
+            y: area.y,
+            width: area.width.saturating_sub(2),
+            height: 1.min(area.height),
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(format!(" {title} "), theme().muted())),
+            top,
+        );
+        if !key_hint.is_empty() && area.height > 1 {
+            let bottom = Rect {
+                y: area.y + area.height - 1,
+                ..top
+            };
+            frame.render_widget(
+                Paragraph::new(Span::styled(format!(" {key_hint} "), theme().muted()))
+                    .alignment(Alignment::Right),
+                bottom,
+            );
+        }
+        return area.inner(Margin {
+            vertical: 1,
+            horizontal: 1,
+        });
+    }
+
     let mut block = Block::default()
         .borders(Borders::ALL)
         .title_top(Line::from(format!(" {title} ")));
@@ -1400,6 +1588,16 @@ pub(crate) fn count_label(count: usize, singular: &str, plural: &str) -> String 
 
 pub(crate) fn panel_title(title: &str, focused: bool) -> Line<'static> {
     let label = format!(" {title} ");
+    if flat_chrome() {
+        // No border to thicken, so the title itself carries focus: accent+bold
+        // when focused, receding to muted otherwise.
+        let style = if focused {
+            theme().primary().add_modifier(Modifier::BOLD)
+        } else {
+            theme().muted()
+        };
+        return Line::from(Span::styled(label, style));
+    }
     if focused {
         Line::from(Span::styled(label, theme().selection()))
     } else {
@@ -1412,8 +1610,14 @@ pub(crate) fn render_vertical_scrollbar(
     area: Rect,
     state: &mut ScrollbarState,
 ) {
+    let mut scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+    if flat_chrome() {
+        scrollbar = scrollbar
+            .thumb_style(theme().focus_border())
+            .track_style(theme().faint_rule());
+    }
     frame.render_stateful_widget(
-        Scrollbar::new(ScrollbarOrientation::VerticalRight),
+        scrollbar,
         area.inner(Margin {
             vertical: 1,
             horizontal: 0,

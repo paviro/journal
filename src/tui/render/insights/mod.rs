@@ -21,8 +21,9 @@ use std::ops::Range;
 use ratatui::{
     Frame,
     layout::Rect,
+    style::Style,
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders},
+    widgets::{Block, BorderType, Borders, Padding},
 };
 
 use journal_storage::journal_display_name;
@@ -42,14 +43,25 @@ pub(crate) fn draw_journal_insights(frame: &mut Frame<'_>, area: Rect, app: &mut
     // The tabs live in the panel's top border. Scope only differentiates the
     // analytic tabs, so Overview leaves the bottom border unlabeled.
     let inner_width = area.width.saturating_sub(2);
-    let mut block = Block::default()
-        .title(tabs_title_line(tab, focused, inner_width))
-        .borders(Borders::ALL);
-    if focused {
-        block = block
-            .border_type(BorderType::Thick)
-            .border_style(theme().focus_border());
-    }
+    let flat = crate::tui::render::flat_chrome();
+    let mut block = if flat {
+        // Flat chrome: the tab strip sits on the top padding row instead of
+        // the border; focus is carried by the tabs and the left stripe.
+        Block::new()
+            .style(Style::default().bg(theme().panel_bg()))
+            .padding(Padding::uniform(1))
+            .title(tabs_title_line(tab, focused, inner_width))
+    } else {
+        let mut block = Block::default()
+            .title(tabs_title_line(tab, focused, inner_width))
+            .borders(Borders::ALL);
+        if focused {
+            block = block
+                .border_type(BorderType::Thick)
+                .border_style(theme().focus_border());
+        }
+        block
+    };
     if tab != InsightsTab::Overview {
         block = block.title_bottom(
             Line::from(format!(" {} ", app.nav.insights_scope.label())).right_aligned(),
@@ -63,6 +75,7 @@ pub(crate) fn draw_journal_insights(frame: &mut Frame<'_>, area: Rect, app: &mut
     }
     let content = block.inner(area);
     frame.render_widget(block, area);
+    crate::tui::render::panel_focus_stripe(frame, area, focused);
     if content.width == 0 || content.height == 0 {
         return;
     }
