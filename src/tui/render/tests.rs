@@ -2322,12 +2322,94 @@ mod flat_chrome_tests {
             .map(|cell| cell.symbol())
             .collect();
         assert!(rendered.contains('┃'), "focus stripe missing");
-        // Entry/journal glyph cards keep their ┌─┐ corners in every theme;
-        // only the panel borders (thick when focused) must be gone.
+        // Only the panel borders (thick when focused) must be gone.
         assert!(
             !rendered.contains('┏'),
             "thick border corner leaked into flat chrome"
         );
+    }
+
+    #[test]
+    fn journal_cards_keep_a_uniform_row_geometry() {
+        pin_flat();
+        let app = app_with_journals(&["work", "zeta", "old.archived"]);
+        let rows = crate::tui::entry_rows::journal_list_rows(&app, 16);
+        let meta = crate::tui::entry_rows::rows_meta(&rows);
+        // Same shape as the bordered column, one separator row taller: uniform
+        // rows (divider included) so scroll and hit-testing stay a multiply.
+        let indices: Vec<Option<usize>> = meta.iter().map(|m| m.item_index).collect();
+        assert_eq!(indices, vec![Some(0), Some(1), None, Some(2)]);
+        assert!(
+            meta.iter()
+                .all(|m| m.height == crate::tui::render::journal_row_height())
+        );
+    }
+
+    #[test]
+    fn journal_cards_carry_selection_and_element_backgrounds() {
+        pin_flat();
+        let theme = theme::test_flat_theme();
+        let app = app_with_journals(&["work", "zeta"]);
+        let layout = tui_layout(Rect::new(0, 0, 120, 30), &app);
+        let journals = layout.journals.unwrap();
+        let list = journal_list_rect(journals.content);
+        let buffer_backend = render_app(app, 120, 30);
+        let buffer = buffer_backend.buffer();
+
+        // Cards fill three rows (padding, name, padding); the fourth is the gap.
+        let selection_bg = theme.selection().bg.unwrap();
+        for y in [list.y, list.y + 1, list.y + 2] {
+            assert_eq!(
+                buffer[(list.x + 2, y)].bg,
+                selection_bg,
+                "selected card row {y} misses the selection background"
+            );
+        }
+        let gap = &buffer[(list.x + 2, list.y + 3)];
+        assert_ne!(gap.bg, selection_bg, "separator row painted like the card");
+        let unselected = &buffer[(list.x + 2, list.y + 5)];
+        assert_eq!(unselected.bg, theme.element_bg());
+
+        // No box-drawing left in the journal column.
+        for y in journals.content.y..journals.content.bottom() {
+            for x in journals.content.x..journals.content.right() {
+                let symbol = buffer[(x, y)].symbol();
+                assert!(
+                    !"┌┐└┘".contains(symbol),
+                    "box corner {symbol:?} at ({x},{y}) in flat journal column"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn all_journals_search_floods_every_card_but_not_the_divider() {
+        pin_flat();
+        let theme = theme::test_flat_theme();
+        let mut app = app_with_journals(&["work", "zeta", "old.archived"]);
+        app.nav.mode = crate::tui::app::Mode::Search;
+        app.search.scope = crate::tui::app::SearchScope::AllJournals;
+
+        // ≥ INLINE_ENTRY_VIEW_MIN_WIDTH so the journal column stays visible in
+        // search mode.
+        let layout = tui_layout(Rect::new(0, 0, 140, 30), &app);
+        let journals = layout.journals.unwrap();
+        let list = journal_list_rect(journals.content);
+        let backend = render_app(app, 140, 30);
+        let buffer = backend.buffer();
+
+        let selection_bg = theme.selection().bg.unwrap();
+        // Card name rows at 1, 5 (active) and 13 (archived, after the divider
+        // block at rows 8..12).
+        for card_y in [list.y + 1, list.y + 5, list.y + 13] {
+            assert_eq!(
+                buffer[(list.x + 2, card_y)].bg,
+                selection_bg,
+                "card at row {card_y} not flooded by the all-journals search"
+            );
+        }
+        let divider = &buffer[(list.x + 2, list.y + 9)];
+        assert_ne!(divider.bg, selection_bg, "divider flooded");
     }
 
     #[test]

@@ -50,13 +50,13 @@ impl App {
     }
 
     /// Pixel offset that puts journal `index`'s box at the top of the list. The
-    /// journal column's rows are a uniform [`JOURNAL_BOX_HEIGHT`] tall — boxes and
-    /// the "Archived" divider alike — so this is a plain multiply without building
-    /// the rows.
+    /// journal column's rows are a uniform `journal_row_height()` tall — boxes
+    /// and the "Archived" divider alike — so this is a plain multiply without
+    /// building the rows.
     pub(super) fn journal_row_top(&self, index: usize) -> usize {
         let divider_before =
             usize::from(self.has_archived_journals() && index >= self.active_journal_count());
-        (index + divider_before) * crate::tui::render::JOURNAL_BOX_HEIGHT as usize
+        (index + divider_before) * crate::tui::render::journal_row_height() as usize
     }
 
     /// Whether an entry is the active preview: one is selected *and* focus sits on

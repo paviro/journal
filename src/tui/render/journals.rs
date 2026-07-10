@@ -8,7 +8,7 @@ use crate::tui::{
     app::{App, Focus, Mode, SearchScope},
     entry_rows::{total_row_height, visible_box_items},
     render::{
-        PanelGeometry, clamp_scroll, count_label, list_state_for_render, panel_block,
+        PanelGeometry, clamp_scroll, count_label, flat_chrome, list_state_for_render, panel_block,
         render_scrollbar_if_needed,
     },
     theme::theme,
@@ -16,6 +16,18 @@ use crate::tui::{
 
 /// Rows occupied by one journal's bordered box (top border, name, bottom border).
 pub(crate) const JOURNAL_BOX_HEIGHT: u16 = 3;
+
+/// Rows per journal row in the current chrome. Flat cards keep the box's three
+/// rows (all background-filled, name centered) and add a blank separator row
+/// so adjacent cards read as distinct blocks. Uniform per chrome, so
+/// `journal_row_top` stays a plain multiply.
+pub(crate) fn journal_row_height() -> u16 {
+    if flat_chrome() {
+        JOURNAL_BOX_HEIGHT + 1
+    } else {
+        JOURNAL_BOX_HEIGHT
+    }
+}
 
 /// A blank row leads the journal boxes so the first one lines up with the first
 /// entry box, which sits one row below the entry list's month divider.
@@ -37,7 +49,10 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
     // rather than implying it's scoped to the selected one. A journal-scoped
     // search keeps the single highlight.
     let select_all = app.nav.mode == Mode::Search && app.search.scope == SearchScope::AllJournals;
-    let highlight_active = !select_all;
+    // Flat chrome bakes selection (and the all-journals flood) into the chip
+    // lines themselves; only bordered mode drives the List highlight.
+    let styles_baked = flat_chrome();
+    let highlight_active = !select_all && !styles_baked;
     // Archived journals are still journals, so the panel count includes them; the
     // "Archived" divider marks the split within the list.
     let block = panel_block(
@@ -68,7 +83,7 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
     // An all-journals search highlights every journal box to signal the wide
     // scope (the single-selection highlight is suppressed via `highlight_active`).
     // The "Archived" divider isn't a journal, so it's left unhighlighted.
-    let items: Vec<_> = if select_all {
+    let items: Vec<_> = if select_all && !styles_baked {
         items
             .into_iter()
             .zip(&item_indices)

@@ -68,7 +68,7 @@ use image_viewer::draw_image_viewer;
 use insights::draw_journal_insights;
 pub(crate) use insights::insights_tab_at;
 use journals::draw_journals;
-pub(crate) use journals::{JOURNAL_BOX_HEIGHT, journal_list_rect};
+pub(crate) use journals::{JOURNAL_BOX_HEIGHT, journal_list_rect, journal_row_height};
 pub(crate) use layout::{TuiLayout, tui_layout};
 #[cfg(test)]
 use markdown_panel::metadata_scrolls_with_body;

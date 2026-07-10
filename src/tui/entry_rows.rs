@@ -304,6 +304,26 @@ pub(crate) fn journal_box_lines(name: &str, inner_width: usize) -> Vec<Line<'sta
     ]
 }
 
+/// One journal in flat chrome: a background-filled card the height of the
+/// bordered box (padding row, name row, padding row) followed by a blank
+/// separator row so adjacent cards read as distinct blocks. The padding rows
+/// paint explicit spaces — an empty line covers no cells, so it would leave
+/// the card background unpainted.
+pub(crate) fn journal_card_lines(
+    name: &str,
+    inner_width: usize,
+    style: Style,
+) -> Vec<Line<'static>> {
+    let box_width = inner_width + 4;
+    let (content, used) = take_width(name, inner_width);
+    let pad_row = || Line::from(Span::styled(" ".repeat(box_width), style));
+    let name_row = Line::from(Span::styled(
+        format!("  {content}{}", " ".repeat(box_width.saturating_sub(used + 2))),
+        style,
+    ));
+    vec![pad_row(), name_row, pad_row(), Line::from(String::new())]
+}
+
 /// The journal column's rows: active journals first, then an "Archived" divider,
 /// then the archived journals. Each journal row carries its index into
 /// `app.library.journals` (the selection index); the divider row carries `None`
@@ -313,23 +333,40 @@ pub(crate) fn journal_list_rows(app: &App, inner_width: usize) -> Vec<BoxRow> {
     let box_width = inner_width + 4;
     let active = app.active_journal_count();
     let show_divider = active > 0 && active < app.library.journals.len();
+    // Flat chrome bakes selection into the chips (the List highlight would
+    // also paint the blank padding rows); bordered keeps the List highlight.
+    let flat = crate::tui::render::flat_chrome();
+    let selected = app.nav.journal_list.selected();
+    let select_all = app.nav.mode == Mode::Search
+        && app.search.scope == crate::tui::app::SearchScope::AllJournals;
 
     let mut rows = Vec::new();
     for (index, journal) in app.library.journals.iter().enumerate() {
         if show_divider && index == active {
-            rows.push(BoxRow::new(
-                None,
-                vec![
-                    Line::from(String::new()),
-                    section_divider(box_width, "Archived", DividerAlign::Left),
-                    Line::from(String::new()),
-                ],
-            ));
+            let mut lines = vec![
+                Line::from(String::new()),
+                section_divider(box_width, "Archived", DividerAlign::Left),
+                Line::from(String::new()),
+            ];
+            if flat {
+                // Every flat row is one separator row taller than its bordered
+                // counterpart, the divider included, so `journal_row_top`'s
+                // uniform-height multiply holds in both chromes.
+                lines.push(Line::from(String::new()));
+            }
+            rows.push(BoxRow::new(None, lines));
         }
-        rows.push(BoxRow::new(
-            Some(index),
-            journal_box_lines(journal.display_name(), inner_width),
-        ));
+        let lines = if flat {
+            let style = if select_all || selected == Some(index) {
+                theme().selection()
+            } else {
+                theme().text().bg(theme().element_bg())
+            };
+            journal_card_lines(journal.display_name(), inner_width, style)
+        } else {
+            journal_box_lines(journal.display_name(), inner_width)
+        };
+        rows.push(BoxRow::new(Some(index), lines));
     }
     rows
 }
