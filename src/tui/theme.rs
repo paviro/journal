@@ -42,7 +42,6 @@ pub(crate) const DEFAULT_THEME: &str = "journal";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
     Dark,
-    #[allow(dead_code)] // constructed once terminal detection lands
     Light,
 }
 
@@ -125,9 +124,45 @@ pub(crate) fn theme() -> Theme {
 
 /// Swap the active theme; the next frame repaints with it. Used at startup,
 /// by live reload, and by the theme picker's preview.
-#[allow(dead_code)] // wired up when startup loading lands
 pub(crate) fn install(theme: Theme) {
     *THEME.write().expect("theme lock") = Some(theme);
+}
+
+/// The dark/light mode resolved at startup, cached so live reload and the
+/// theme picker resolve theme files against the same variant. `Dark` until
+/// [`init_from_config`] runs.
+static MODE: std::sync::OnceLock<Mode> = std::sync::OnceLock::new();
+
+/// The session's resolved dark/light mode.
+#[allow(dead_code)] // consumed by live reload and the theme picker
+pub(crate) fn mode() -> Mode {
+    MODE.get().copied().unwrap_or(Mode::Dark)
+}
+
+/// Detect the mode, then load and install the configured theme. Must run
+/// before the terminal enters raw mode / the alternate screen: the `auto`
+/// detection talks OSC to the normal screen.
+pub(crate) fn init_from_config(config_path: &Path, ui: &crate::config::UiSection) {
+    let mode = detect_mode(ui.color_mode);
+    let _ = MODE.set(mode);
+    install(load(config_path, &ui.theme, mode));
+}
+
+/// Resolve the configured color mode: an explicit setting wins; `auto` asks
+/// the terminal for its background (OSC 10/11, with the library's own support
+/// heuristic and timeout) and falls back to dark when the answer is unknown.
+fn detect_mode(color_mode: crate::config::ColorMode) -> Mode {
+    use crate::config::ColorMode;
+    match color_mode {
+        ColorMode::Dark => Mode::Dark,
+        ColorMode::Light => Mode::Light,
+        ColorMode::Auto => {
+            match terminal_colorsaurus::theme_mode(terminal_colorsaurus::QueryOptions::default()) {
+                Ok(terminal_colorsaurus::ThemeMode::Light) => Mode::Light,
+                Ok(terminal_colorsaurus::ThemeMode::Dark) | Err(_) => Mode::Dark,
+            }
+        }
+    }
 }
 
 /// Pin the theme seen by `theme()` on this test thread.
@@ -164,19 +199,16 @@ impl Theme {
     // --- surfaces ---
 
     /// The application background, painted under every frame.
-    #[allow(dead_code)] // consumed by the flat-chrome pass
     pub(crate) fn bg(self) -> Color {
         self.bg
     }
 
     /// Elevated surfaces: panels, dialogs, notices, toasts.
-    #[allow(dead_code)] // consumed by the flat-chrome pass
     pub(crate) fn panel_bg(self) -> Color {
         self.panel
     }
 
     /// Interactive surfaces sitting on a panel: inputs, active controls.
-    #[allow(dead_code)] // consumed by the flat-chrome pass
     pub(crate) fn element_bg(self) -> Color {
         self.element
     }
@@ -203,20 +235,19 @@ impl Theme {
     /// The app's single accent — count bars, tags/feelings fills, series
     /// glyphs. Colour is decoration here: bars already encode magnitude by
     /// length.
-    #[allow(dead_code)] // consumed by the flat-chrome pass
+    #[allow(dead_code)] // token exists for theme authors; no in-app consumer yet
     pub(crate) fn accent(self) -> Style {
         self.accent
     }
 
     /// The secondary accent hue, for places that need contrast *with* the
     /// primary accent.
-    #[allow(dead_code)] // consumed by the flat-chrome pass
+    #[allow(dead_code)] // token exists for theme authors; no in-app consumer yet
     pub(crate) fn secondary(self) -> Style {
         self.secondary
     }
 
     /// The primary accent as a style: focused titles, current-item markers.
-    #[allow(dead_code)] // consumed by the flat-chrome pass
     pub(crate) fn primary(self) -> Style {
         self.primary
     }
@@ -281,7 +312,6 @@ impl Theme {
     }
 
     /// A primary action button chip.
-    #[allow(dead_code)] // consumed by the flat-chrome pass
     pub(crate) fn button(self) -> Style {
         self.selection
     }
@@ -335,49 +365,42 @@ impl Theme {
     }
 
     /// The filled part of count/frequency bars.
-    #[allow(dead_code)] // consumed by the themed-charts pass
     pub(crate) fn chart_bar(self) -> Fill {
         self.bar
     }
 
     /// The empty remainder of a bar.
-    #[allow(dead_code)] // consumed by the themed-charts pass
     pub(crate) fn chart_track(self) -> Fill {
         self.track
     }
 
     /// The positive sentiment series.
-    #[allow(dead_code)] // consumed by the themed-charts pass
     pub(crate) fn chart_positive(self) -> Fill {
         self.chart_positive
     }
 
     /// The neutral sentiment series.
-    #[allow(dead_code)] // consumed by the themed-charts pass
     pub(crate) fn chart_neutral(self) -> Fill {
         self.chart_neutral
     }
 
     /// The negative sentiment series.
-    #[allow(dead_code)] // consumed by the themed-charts pass
     pub(crate) fn chart_negative(self) -> Fill {
         self.chart_negative
     }
 
     /// Chart axis ticks and edges.
-    #[allow(dead_code)] // consumed by the themed-charts pass
+    #[allow(dead_code)] // token exists for theme authors; no in-app consumer yet
     pub(crate) fn chart_axis(self) -> Style {
         self.chart_axis
     }
 
     /// The zero baseline of signed column charts.
-    #[allow(dead_code)] // consumed by the themed-charts pass
     pub(crate) fn chart_baseline(self) -> Style {
         self.chart_baseline
     }
 
     /// Chart captions and column labels.
-    #[allow(dead_code)] // consumed by the themed-charts pass
     pub(crate) fn chart_label(self) -> Style {
         self.chart_label
     }
@@ -385,7 +408,6 @@ impl Theme {
     // --- markdown ---
 
     /// Markdown headings in the entry viewer.
-    #[allow(dead_code)] // consumed by the themed-markdown pass
     pub(crate) fn md_heading(self) -> Style {
         self.md_heading
     }
@@ -396,13 +418,11 @@ impl Theme {
     }
 
     /// Inline code and code blocks.
-    #[allow(dead_code)] // consumed by the themed-markdown pass
     pub(crate) fn md_code(self) -> Style {
         self.md_code
     }
 
     /// Block quotes.
-    #[allow(dead_code)] // consumed by the themed-markdown pass
     pub(crate) fn md_blockquote(self) -> Style {
         self.md_blockquote
     }
@@ -410,14 +430,12 @@ impl Theme {
     // --- chrome ---
 
     /// Whether this theme separates surfaces by background or drawn borders.
-    #[allow(dead_code)] // consumed by the flat-chrome pass
     pub(crate) fn chrome(self) -> ChromeStyle {
         self.chrome
     }
 
     /// How strongly the screen dims behind dialogs, `0.0..=1.0`. Zero means
     /// the DIM-modifier fallback.
-    #[allow(dead_code)] // consumed by the scrim pass
     pub(crate) fn scrim_strength(self) -> f32 {
         self.scrim
     }
@@ -459,7 +477,6 @@ impl Theme {
 // --- loading ---
 
 /// The directory holding the user-editable theme files, next to `config.toml`.
-#[allow(dead_code)] // wired up when startup loading lands
 pub(crate) fn themes_dir(config_path: &Path) -> PathBuf {
     config_path
         .parent()

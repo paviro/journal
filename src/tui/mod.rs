@@ -51,6 +51,9 @@ pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResu
     // Ensure the store exists before probing for a lock so identity checks
     // reflect on-disk state.
     store.ensure()?;
+    // Before raw mode / the alternate screen: auto dark/light detection talks
+    // OSC to the normal screen, and load warnings should print readably.
+    theme::init_from_config(&config_path, &config.ui);
     with_terminal(|terminal| run_after_unlock(terminal, config_path, config, store))
 }
 
@@ -69,6 +72,7 @@ pub fn run_compose(
     metadata: journal_core::Metadata,
 ) -> AppResult<()> {
     store.ensure()?;
+    theme::init_from_config(&config_path, &config.ui);
     if store.unlock_available() && !store.identity_needs_passphrase()? {
         store.unlock(None)?;
     }

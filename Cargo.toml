@@ -55,6 +55,7 @@ serde_json = "1"
 toml = "1.1"
 unicode-width = "0.2"
 zeroize = "1.9.0"
+terminal-colorsaurus = "1.0.3"
 
 [features]
 # Off by default: the standard build has no FUSE dependency and runs everywhere.
