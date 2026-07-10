@@ -917,7 +917,9 @@ fn validate_existing_journal(root: &Path, journal: &str) -> AppResult<()> {
     let journal = JournalStore::validate_journal_name(journal)?;
     let path = root.join(&journal);
     if !path.is_dir() {
-        bail!("journal '{journal}' does not exist");
+        bail!(
+            "journal '{journal}' does not exist; create it or pick another with `journal use <name>`"
+        );
     }
     Ok(())
 }
