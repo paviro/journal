@@ -27,6 +27,7 @@ error   = { dark = "#fb7185", light = "#be123c" }
 info    = { dark = "#93c5fd", light = "#1d4ed8" }
 
 selection = { bg = { dark = "#f472b6", light = "#c22e79" }, fg = { dark = "#181014", light = "#ffffff" }, bold = true }
+hover     = { bg = { dark = "#382636", light = "#eec5db" } }
 key_hint  = { fg = { dark = "#f4e3ec", light = "#3d1f30" }, bold = true }
 
 [charts]

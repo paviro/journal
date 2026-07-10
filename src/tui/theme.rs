@@ -81,6 +81,7 @@ pub(crate) struct Theme {
     error: Style,
     info: Style,
     selection: Style,
+    hover: Style,
     key_hint: Style,
     chart_positive: Fill,
     chart_neutral: Fill,
@@ -316,6 +317,14 @@ impl Theme {
         self.selection
     }
 
+    /// The row/chip under the mouse cursor. Defaults to the element surface,
+    /// which resolves to the terminal default on classic/bordered themes (no
+    /// visible hover) and to a subtle lift on flat themes. Layers under the
+    /// row's existing ink, so no contrast foreground is required.
+    pub(crate) fn hover(self) -> Style {
+        self.hover
+    }
+
     /// A primary action button chip.
     pub(crate) fn button(self) -> Style {
         self.selection
@@ -462,6 +471,7 @@ impl Theme {
             ("error", self.error),
             ("info", self.info),
             ("selection", self.selection),
+            ("hover", self.hover),
             ("key_hint", self.key_hint),
             ("chart_positive", self.chart_positive.style),
             ("chart_neutral", self.chart_neutral.style),
@@ -718,6 +728,7 @@ struct ColorsSection {
     error: Option<TokenSpec>,
     info: Option<TokenSpec>,
     selection: Option<StyleSpec>,
+    hover: Option<StyleSpec>,
     key_hint: Option<StyleSpec>,
 }
 
@@ -815,6 +826,12 @@ impl ThemeFile {
                 spec.resolve(mode, palette, "colors.selection")?
             }
             None => Style::default().add_modifier(Modifier::REVERSED),
+        };
+        // Unlike selection, a bg-only hover is fine: it layers under the
+        // row's existing foreground instead of replacing it.
+        let hover = match &colors.hover {
+            Some(spec) => spec.resolve(mode, palette, "colors.hover")?,
+            None => Style::default().bg(element),
         };
         let key_hint = match &colors.key_hint {
             Some(spec) => spec.resolve(mode, palette, "colors.key_hint")?,
@@ -917,6 +934,7 @@ impl ThemeFile {
                 "colors.info",
             )?,
             selection,
+            hover,
             key_hint,
             chart_positive,
             chart_neutral,
@@ -1025,6 +1043,9 @@ mod tests {
             theme.key_hint(),
             Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
         );
+        // Hover inherits the element surface, which is the terminal default
+        // here — an invisible hover, keeping the classic look inert.
+        assert_eq!(theme.hover(), Style::default().bg(Color::Reset));
         assert_eq!(theme.chrome(), ChromeStyle::Bordered);
         assert_eq!(theme.scrim_strength(), 0.0);
     }
