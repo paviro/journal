@@ -1,7 +1,8 @@
 use ratatui::{
     Frame,
+    buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Margin, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{
         Block, BorderType, Borders, Clear, Padding, Paragraph, Scrollbar, ScrollbarOrientation,
@@ -800,6 +801,34 @@ pub(crate) fn base_style() -> Style {
         style = style.fg(fg);
     }
     style
+}
+
+/// Dim everything drawn so far, so an overlay rendered afterwards floats on a
+/// darkened backdrop. True-color cells blend toward black by the theme's scrim
+/// strength; palette/terminal-default cells (and strength 0) fall back to the
+/// DIM modifier. Cells owned by terminal graphics protocols (`skip`) can't be
+/// restyled and stay bright.
+pub(crate) fn scrim(buf: &mut Buffer, area: Rect) {
+    let keep = 1.0 - theme().scrim_strength().clamp(0.0, 1.0);
+    let mul = |channel: u8| (f32::from(channel) * keep) as u8;
+    for pos in area.positions() {
+        let cell = &mut buf[pos];
+        if cell.diff_option == ratatui::buffer::CellDiffOption::Skip {
+            continue;
+        }
+        let mut blended = false;
+        if keep < 1.0 {
+            for color in [&mut cell.fg, &mut cell.bg] {
+                if let Color::Rgb(r, g, b) = *color {
+                    *color = Color::Rgb(mul(r), mul(g), mul(b));
+                    blended = true;
+                }
+            }
+        }
+        if !blended {
+            cell.modifier.insert(Modifier::DIM);
+        }
+    }
 }
 
 /// A dialog's content rect within its outer `area`. Draw functions and mouse

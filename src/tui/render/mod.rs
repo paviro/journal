@@ -166,6 +166,17 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
 }
 
 fn draw_overlays(frame: &mut Frame<'_>, app: &mut App) {
+    // Any overlay dims what's behind it first, so dialogs float on a darkened
+    // backdrop instead of sitting flush on the content.
+    let editor_prompt_open = app
+        .editor
+        .as_ref()
+        .is_some_and(|editor| !matches!(editor.prompt, EditorPrompt::None));
+    if !matches!(app.overlay, crate::tui::state::Overlay::None) || editor_prompt_open {
+        let area = frame.area();
+        chrome::scrim(frame.buffer_mut(), area);
+    }
+
     if let crate::tui::state::Overlay::ConfirmDelete(ctx) = &app.overlay {
         draw_confirm_delete(frame, ctx);
     }
