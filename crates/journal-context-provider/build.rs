@@ -132,21 +132,36 @@ fn notarize_and_staple(app: &Path, out_dir: &Path) {
 
     let notary_zip = out_dir.join("JournalLocate-notary.zip");
     ditto(&["-c", "-k", "--keepParent"], app, &notary_zip);
-    run(
-        Command::new("xcrun").args([
-            "notarytool",
-            "submit",
-            notary_zip.to_str().unwrap(),
-            "--apple-id",
-            &user,
-            "--password",
-            &password,
-            "--team-id",
-            &team_id,
-            "--wait",
-        ]),
-        "notarize the location helper",
-    );
+    let mut submit = Command::new("xcrun");
+    submit.args([
+        "notarytool",
+        "submit",
+        notary_zip.to_str().unwrap(),
+        "--apple-id",
+        &user,
+        "--password",
+        &password,
+        "--team-id",
+        &team_id,
+        "--wait",
+    ]);
+    // A network blip during the long `--wait` poll fails the whole command;
+    // resubmitting the same zip is cheap and Apple accepts duplicates. Blips
+    // last longer than an instant retry, so wait out the hiccup between tries.
+    for attempt in 1..=4 {
+        let status = submit
+            .status()
+            .unwrap_or_else(|error| panic!("could not notarize the location helper: {error}"));
+        if status.success() {
+            break;
+        }
+        assert!(
+            attempt < 4,
+            "failed to notarize the location helper (exit {status})"
+        );
+        println!("cargo:warning=notarization attempt {attempt} failed (exit {status}); retrying in 30s");
+        std::thread::sleep(std::time::Duration::from_secs(30));
+    }
     run(
         Command::new("xcrun").arg("stapler").arg("staple").arg(app),
         "staple the notarization ticket",
