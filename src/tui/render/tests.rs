@@ -2,8 +2,8 @@ use super::*;
 use crate::{
     config::Config,
     tui::{
-        app::{Focus, INLINE_ENTRY_VIEW_MIN_WIDTH, Mode},
-        state::{EditMetadataFocus, EditMetadataState, MetadataKind},
+        app::{EditMetadataFocus, EditMetadataState, Focus, INLINE_ENTRY_VIEW_MIN_WIDTH, Mode},
+        state::MetadataKind,
         test_support::{app_with_entry, app_with_journals, new_app},
     },
 };
@@ -714,7 +714,7 @@ fn list_dialogs_keep_preferred_width_until_they_hit_edges() {
 
 #[test]
 fn feelings_dialog_folds_groups_and_marks_disclosure() {
-    use crate::tui::state::EditFeelingState;
+    use crate::tui::app::EditFeelingState;
     use journal_core::feelings::{Feeling, FeelingGroup};
 
     static GROUPS: &[FeelingGroup] = &[
@@ -771,7 +771,7 @@ fn feelings_dialog_folds_groups_and_marks_disclosure() {
 
 #[test]
 fn feelings_dialog_shows_no_matches_when_filter_is_empty() {
-    use crate::tui::state::EditFeelingState;
+    use crate::tui::app::EditFeelingState;
     use journal_core::feelings::{Feeling, FeelingGroup};
 
     static GROUPS: &[FeelingGroup] = &[FeelingGroup {
@@ -872,7 +872,7 @@ fn edit_tags_dialog_counts_no_matches_row_when_sizing() {
         Vec::new(),
         1,
     );
-    state.input = "missing".to_string();
+    state.input = "missing".into();
     state.focus = EditMetadataFocus::Input;
     let rendered = render_edit_tags_dialog_text(state, 200, 12);
 
@@ -895,7 +895,7 @@ fn edit_metadata_input_hint_saves_when_empty_and_adds_when_not_empty() {
     let mut with_value =
         EditMetadataState::new(MetadataKind::People, Vec::new(), Vec::new(), Vec::new(), 0);
     with_value.focus = EditMetadataFocus::Input;
-    with_value.input = "alex".to_string();
+    with_value.input = "alex".into();
     let rendered_value = render_edit_tags_dialog_text(with_value, 200, 12);
     assert!(rendered_value.contains("enter  add"));
     assert!(rendered_value.contains("tab  list"));
@@ -1624,7 +1624,7 @@ fn search_results_footer_shows_escape_and_entry_actions() {
     let mut app = app_with_entry();
     app.nav.mode = Mode::Search;
     app.nav.focus = Focus::Entries;
-    app.search.query = "body".to_string();
+    app.search.query = "body".into();
     app.search.hits = vec![SearchHit {
         id: app.library.entries[0].id.clone(),
         journal: "work".to_string(),
@@ -1903,15 +1903,19 @@ fn entry_group_labels_fall_back_to_filename_date() {
     assert_eq!(entry_day_label(&entry), Some("Wednesday 01".to_string()));
 }
 
-fn render_unlock_text(input: &str, error: Option<&str>, caret_visible: bool) -> String {
+fn render_unlock_text(input: &str, error: Option<&str>) -> String {
+    let mut field = crate::tui::text_input::PassphraseInput::default();
+    for ch in input.chars() {
+        field.insert(ch);
+    }
     render_to_text(60, 16, |frame| {
-        draw_unlock(frame, input, error, caret_visible)
+        draw_unlock(frame, &field, error);
     })
 }
 
 #[test]
 fn unlock_screen_masks_passphrase_and_draws_border() {
-    let text = render_unlock_text("hunter2", None, false);
+    let text = render_unlock_text("hunter2", None);
     // Bordered fullscreen chrome with the title and hint.
     assert!(text.contains("Unlock Journal"));
     assert!(text.contains("enter unlock"));
@@ -1927,17 +1931,20 @@ fn unlock_screen_masks_passphrase_and_draws_border() {
 
 #[test]
 fn unlock_screen_replaces_hint_with_error() {
-    let text = render_unlock_text("", Some("Incorrect passphrase"), true);
+    let text = render_unlock_text("", Some("Incorrect passphrase"));
     // The error takes the hint's place after a wrong passphrase.
     assert!(text.contains("Incorrect passphrase"));
     assert!(!text.contains("Enter your passphrase to unlock"));
 }
 
 fn render_unlock_rows(width: u16, height: u16, error: Option<&str>) -> Vec<String> {
-    render_to_rows(width, height, |frame| draw_unlock(frame, "", error, false))
-        .into_iter()
-        .map(|row| row.trim().to_string())
-        .collect()
+    let input = crate::tui::text_input::PassphraseInput::default();
+    render_to_rows(width, height, |frame| {
+        draw_unlock(frame, &input, error);
+    })
+    .into_iter()
+    .map(|row| row.trim().to_string())
+    .collect()
 }
 
 #[test]

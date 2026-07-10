@@ -109,6 +109,32 @@ impl App {
         }
     }
 
+    /// The location the location dialog should open with: the open editor's
+    /// draft (empty for a new entry), else the selected entry's.
+    pub(crate) fn editing_location(&self) -> Option<journal_core::Location> {
+        match &self.editor {
+            Some(editor) => editor.metadata.location.clone(),
+            None => self
+                .resolved_selected_entry()
+                .and_then(|entry| entry.location.clone()),
+        }
+    }
+
+    /// Write a location edit into the open editor's buffer (applied to the
+    /// entry only on save). No-op when the editor is closed.
+    pub(crate) fn set_editor_location(&mut self, location: Option<journal_core::Location>) {
+        let Some(editor) = self.editor.as_mut() else {
+            return;
+        };
+        let cleared = location.is_none();
+        editor.metadata.location = location;
+        self.set_status(if cleared {
+            "Location cleared"
+        } else {
+            "Location set"
+        });
+    }
+
     /// Write a metadata edit into the open editor's buffer (applied to the entry
     /// only on save). No-op when the editor is closed.
     pub(crate) fn set_editor_metadata(&mut self, kind: MetadataKind, values: &[String]) {

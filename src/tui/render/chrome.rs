@@ -17,6 +17,8 @@ use crate::tui::surface::point_in_rect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HintId {
+    /// Select all text in whichever single-line field owns the caret.
+    InputSelectAll,
     NewJournal,
     ToggleArchiveJournal,
     NewEntry,
@@ -1010,6 +1012,7 @@ const EDITOR_SHORTCUT_SECTIONS: [(&str, &[(&str, &str)]); 3] = [
     (
         "Edit",
         &[
+            ("ctrl+a", "Select all"),
             ("ctrl+u", "Undo"),
             ("ctrl+r", "Redo"),
             ("ctrl+x", "Cut"),

@@ -159,7 +159,9 @@ fn notarize_and_staple(app: &Path, out_dir: &Path) {
             attempt < 4,
             "failed to notarize the location helper (exit {status})"
         );
-        println!("cargo:warning=notarization attempt {attempt} failed (exit {status}); retrying in 30s");
+        println!(
+            "cargo:warning=notarization attempt {attempt} failed (exit {status}); retrying in 30s"
+        );
         std::thread::sleep(std::time::Duration::from_secs(30));
     }
     run(

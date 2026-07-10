@@ -2,20 +2,68 @@ use super::*;
 
 impl App {
     pub(crate) fn begin_new_journal_input(&mut self) {
-        self.overlay = Overlay::NewJournal(String::new());
+        self.overlay = Overlay::NewJournal(TextInput::default());
         self.clear_status();
     }
 
-    pub(crate) fn new_journal_input(&self) -> Option<&str> {
+    pub(crate) fn new_journal_input(&self) -> Option<&TextInput> {
         match &self.overlay {
             Overlay::NewJournal(name) => Some(name),
             _ => None,
         }
     }
 
-    pub(crate) fn new_journal_input_mut(&mut self) -> Option<&mut String> {
+    pub(crate) fn new_journal_input_mut(&mut self) -> Option<&mut TextInput> {
         match &mut self.overlay {
             Overlay::NewJournal(name) => Some(name),
+            _ => None,
+        }
+    }
+
+    /// One editing path for every single-line field: forward the key to the
+    /// field that owns the caret, then run its after-edit hook when the text
+    /// actually changed. Lives next to [`Self::focused_text_input_mut`] so a
+    /// new field is added to both in one place.
+    pub(crate) fn handle_text_input_key(&mut self, key: crossterm::event::KeyEvent) {
+        match &mut self.overlay {
+            Overlay::NewJournal(input) => {
+                input.input(key);
+            }
+            Overlay::EditMetadata(state) => {
+                if state.input.input(key) {
+                    state.rebuild_filter();
+                }
+            }
+            Overlay::EditFeelings(state) => {
+                if state.input.input(key) {
+                    state.rebuild_filter();
+                }
+            }
+            Overlay::EditLocation(state) => state.input_key(key),
+            _ => self.search_input_key(key),
+        }
+    }
+
+    /// The text field that currently owns the caret, if any: an overlay's
+    /// focused input, or the search box while typing in it. Selection and
+    /// caret commands route through here so every field shares one binding.
+    pub(crate) fn focused_text_input_mut(&mut self) -> Option<&mut TextInput> {
+        match &mut self.overlay {
+            Overlay::NewJournal(name) => Some(name),
+            Overlay::EditMetadata(state) if state.focus == EditMetadataFocus::Input => {
+                Some(&mut state.input)
+            }
+            Overlay::EditFeelings(state) if state.focus == EditMetadataFocus::Input => {
+                Some(&mut state.input)
+            }
+            Overlay::EditLocation(state) => match state.focus {
+                EditLocationFocus::Query => Some(&mut state.query),
+                EditLocationFocus::Name => Some(&mut state.name),
+                EditLocationFocus::List => None,
+            },
+            Overlay::None if self.nav.mode == Mode::Search && self.nav.focus == Focus::Entries => {
+                Some(&mut self.search.query)
+            }
             _ => None,
         }
     }

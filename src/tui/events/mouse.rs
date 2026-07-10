@@ -4,10 +4,13 @@ use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use std::io;
 
 use crate::tui::{
-    app::{App, Focus, Mode, ScrollbarDrag, inline_entry_view_is_visible},
+    app::{
+        App, EditLocationFocus, EditMetadataFocus, Focus, Mode, ScrollbarDrag,
+        inline_entry_view_is_visible,
+    },
     editor_state::EditorPrompt,
     render,
-    state::{EditLocationFocus, ListNav, MetadataKind, Overlay},
+    state::{ListNav, MetadataKind, Overlay},
 };
 
 use super::action::Action;
@@ -138,6 +141,9 @@ pub(crate) fn handle_mouse(
 pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
     if app.has_overlay() {
         handle_overlay_mouse(None, app, mouse, area)?;
+        return Ok(());
+    }
+    if handle_text_field_mouse(app, mouse) {
         return Ok(());
     }
 
@@ -606,6 +612,9 @@ fn handle_overlay_mouse(
     mouse: MouseEvent,
     area: Rect,
 ) -> AppResult<()> {
+    if handle_text_field_mouse(app, mouse) {
+        return Ok(());
+    }
     let action = match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => overlay_left_click(app, mouse, area),
         MouseEventKind::Drag(MouseButton::Left) => {
@@ -630,6 +639,79 @@ fn handle_overlay_mouse(
     }
 
     Ok(())
+}
+
+/// Mouse editing for the single-line text fields (the search box and dialog
+/// inputs): a press in a field focuses it, places the caret, and arms a
+/// selection; a drag extends it; release finishes it. Returns whether the
+/// event was consumed by a field, mirroring the editor's selection flow.
+fn handle_text_field_mouse(app: &mut App, mouse: MouseEvent) -> bool {
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            let Some(col) = focus_text_field_at(app, mouse.column, mouse.row) else {
+                return false;
+            };
+            if let Some(input) = app.focused_text_input_mut() {
+                input.begin_mouse_selection(col);
+                app.nav.input_selecting = true;
+            }
+            true
+        }
+        MouseEventKind::Drag(MouseButton::Left) if app.nav.input_selecting => {
+            if let Some(input) = app.focused_text_input_mut() {
+                let rect = input.last_area();
+                let col = mouse
+                    .column
+                    .clamp(rect.x, rect.x + rect.width.saturating_sub(1))
+                    - rect.x;
+                input.drag_mouse_selection(col);
+            }
+            true
+        }
+        MouseEventKind::Up(MouseButton::Left) if app.nav.input_selecting => {
+            app.nav.input_selecting = false;
+            if let Some(input) = app.focused_text_input_mut() {
+                input.end_mouse_selection();
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+/// The text field under `(col, row)`, if any: focuses it and returns the click
+/// column within the field.
+fn focus_text_field_at(app: &mut App, col: u16, row: u16) -> Option<u16> {
+    match &mut app.overlay {
+        Overlay::NewJournal(input) => input.hit_col(col, row),
+        Overlay::EditMetadata(state) => {
+            let hit = state.input.hit_col(col, row)?;
+            state.focus = EditMetadataFocus::Input;
+            Some(hit)
+        }
+        Overlay::EditFeelings(state) => {
+            let hit = state.input.hit_col(col, row)?;
+            state.focus = EditMetadataFocus::Input;
+            Some(hit)
+        }
+        Overlay::EditLocation(state) => {
+            if let Some(hit) = state.query.hit_col(col, row) {
+                state.focus = EditLocationFocus::Query;
+                Some(hit)
+            } else if let Some(hit) = state.name.hit_col(col, row) {
+                state.focus = EditLocationFocus::Name;
+                Some(hit)
+            } else {
+                None
+            }
+        }
+        Overlay::None if app.nav.mode == Mode::Search => {
+            let hit = app.search.query.hit_col(col, row)?;
+            app.nav.focus = Focus::Entries;
+            Some(hit)
+        }
+        _ => None,
+    }
 }
 
 /// Route a click landing on a dialog's hint bar to its action, if any.
@@ -677,7 +759,7 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
 
     if let Some((focus, input_is_empty)) = app
         .edit_metadata_state()
-        .map(|s| (s.focus, s.input.trim().is_empty()))
+        .map(|s| (s.focus, s.input.as_str().trim().is_empty()))
     {
         let filtered_len = app.edit_metadata_state().map_or(0, |s| s.filtered.len());
         let layout = render::metadata_dialog_layout(area, filtered_len);
@@ -692,7 +774,7 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
         }
         if render::point_in_rect(layout.list, col, row) {
             if let Some(state) = app.edit_metadata_state_mut() {
-                state.focus = crate::tui::state::EditMetadataFocus::List;
+                state.focus = EditMetadataFocus::List;
                 if let Some(index) =
                     list_row_at(layout.list, col, row, state.offset(), filtered_len)
                 {
@@ -704,7 +786,7 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
         }
         if render::point_in_rect(layout.input, col, row) {
             if let Some(state) = app.edit_metadata_state_mut() {
-                state.focus = crate::tui::state::EditMetadataFocus::Input;
+                state.focus = EditMetadataFocus::Input;
             }
             return None;
         }
@@ -730,7 +812,7 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
         }
         if render::point_in_rect(layout.list, col, row) {
             if let Some(state) = app.edit_feeling_state_mut() {
-                state.focus = crate::tui::state::EditMetadataFocus::List;
+                state.focus = EditMetadataFocus::List;
                 if let Some(index) = list_row_at(layout.list, col, row, state.offset(), all_len)
                     && index < state.item_count()
                 {
@@ -743,7 +825,7 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
         }
         if render::point_in_rect(layout.input, col, row) {
             if let Some(state) = app.edit_feeling_state_mut() {
-                state.focus = crate::tui::state::EditMetadataFocus::Input;
+                state.focus = EditMetadataFocus::Input;
             }
             return None;
         }
@@ -895,6 +977,7 @@ fn mood_score_at(bar: Rect, column: u16) -> i8 {
 /// Pure: maps a typed hint id to an Action.
 pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action> {
     match id {
+        render::HintId::InputSelectAll => Some(Action::InputSelectAll),
         render::HintId::NewJournal => Some(Action::NewJournal),
         render::HintId::ToggleArchiveJournal
             if app.nav.focus == Focus::Journals && app.selected_journal().is_some() =>

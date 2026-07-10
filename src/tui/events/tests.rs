@@ -2,11 +2,11 @@ use super::*;
 use crate::{
     config::Config,
     tui::{
-        app::{App, Focus, ScrollbarDrag},
+        app::{App, EditMetadataFocus, FeelingRow, Focus, LocationPreset, ScrollbarDrag},
         render,
         render::insights::{InsightsTab, InsightsTimeframe},
         scroll,
-        state::{EditMetadataFocus, FeelingRow, ListNav, LocationPreset},
+        state::ListNav,
         test_support::{app_with_entries, app_with_journals, new_app},
     },
 };
@@ -379,7 +379,7 @@ fn location_dialog_keys_route_by_focus() {
     // the query up (nothing resolved yet).
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Char('x')), true),
-        Some(Action::LocationInput('x'))
+        Some(Action::InputKey(key(KeyCode::Char('x'))))
     );
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Tab), true),
@@ -407,7 +407,7 @@ fn location_dialog_keys_route_by_focus() {
         });
         state.switch_focus(); // Query -> Name
         state.switch_focus(); // Name -> List
-        assert_eq!(state.focus, crate::tui::state::EditLocationFocus::List);
+        assert_eq!(state.focus, crate::tui::app::EditLocationFocus::List);
     }
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Enter), true),
@@ -431,7 +431,7 @@ fn location_ctrl_l_grabs_device_and_plain_l_types() {
     // ...but a bare 'l' is still text typed into the query field.
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Char('l')), true),
-        Some(Action::LocationInput('l'))
+        Some(Action::InputKey(key(KeyCode::Char('l'))))
     );
 }
 
@@ -443,8 +443,8 @@ fn location_query_enter_saves_once_the_query_is_resolved() {
     app.begin_edit_location();
     {
         let state = app.edit_location_state_mut().unwrap();
-        state.focus = crate::tui::state::EditLocationFocus::Query;
-        state.query = "52.5, 13.4".to_string();
+        state.focus = crate::tui::app::EditLocationFocus::Query;
+        state.query = "52.5, 13.4".into();
         state.query_looked_up = false;
     }
 
@@ -545,7 +545,7 @@ fn enter_in_metadata_input_saves_when_input_is_empty() {
         Some(Action::MetadataSave)
     );
 
-    app.edit_metadata_state_mut().unwrap().input = "rust".to_string();
+    app.edit_metadata_state_mut().unwrap().input = "rust".into();
     assert_eq!(
         keyboard::key_to_action(
             &app,
@@ -553,6 +553,36 @@ fn enter_in_metadata_input_saves_when_input_is_empty() {
             true
         ),
         Some(Action::MetadataAddFromInput)
+    );
+}
+
+#[test]
+fn arrows_in_metadata_input_move_the_caret_for_mid_string_edits() {
+    let mut app = app_with_entries(1);
+    app.begin_edit_tags();
+    let state = app.edit_metadata_state_mut().unwrap();
+    state.focus = EditMetadataFocus::Input;
+    state.input = "rst".into();
+
+    // Left in the focused input routes to the field like any editing key...
+    assert_eq!(
+        keyboard::key_to_action(
+            &app,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::empty()),
+            true
+        ),
+        Some(Action::InputKey(key(KeyCode::Left)))
+    );
+
+    // ...which resolves to this dialog's input and edits at the caret.
+    let input = app.focused_text_input_mut().unwrap();
+    input.input(key(KeyCode::Left));
+    input.input(key(KeyCode::Left));
+    input.input(key(KeyCode::Char('u')));
+    assert_eq!(
+        app.edit_metadata_state().unwrap().input.as_str(),
+        "rust",
+        "insert lands at the caret, not the end"
     );
 }
 
@@ -943,7 +973,7 @@ fn click_on_tag_dialog_placeholder_row_does_not_toggle() {
     let state = app.edit_metadata_state_mut().unwrap();
     state.all_values = vec![("work".to_string(), 1)];
     state.filtered.clear();
-    state.input = "missing".to_string();
+    state.input = "missing".into();
     state.normalize_list_state();
     let layout = render::metadata_dialog_layout(Rect::new(0, 0, 120, 12), 0);
 

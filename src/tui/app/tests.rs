@@ -1,6 +1,12 @@
 use super::*;
-use crate::tui::state::FeelingRow;
 use crate::tui::test_support::{app_with_journals, new_app, new_app_with_state};
+
+fn key_char(ch: char) -> crossterm::event::KeyEvent {
+    crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char(ch),
+        crossterm::event::KeyModifiers::NONE,
+    )
+}
 use std::fs;
 use tempfile::tempdir;
 
@@ -153,7 +159,7 @@ fn search_entry_view_title_uses_entry_timestamp() {
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.begin_search();
-    app.search.query = "needle".to_string();
+    app.search.query = "needle".into();
     app.update_search_results();
 
     let (title, content) = app.selected_entry_view().unwrap();
@@ -252,7 +258,7 @@ fn feelings_search_matches_exact_known_label() {
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.begin_search();
-    app.search.query = "feelings:calm".to_string();
+    app.search.query = "feelings:calm".into();
     app.update_search_results();
 
     assert_eq!(app.search.hits.len(), 1);
@@ -276,29 +282,29 @@ fn starred_search_filters_by_flag() {
     app.select_journal_by_name("work");
     app.begin_search();
 
-    app.search.query = "star:true".to_string();
+    app.search.query = "star:true".into();
     app.update_search_results();
     assert_eq!(app.search.hits.len(), 1);
     assert_eq!(app.search.hits[0].title, "Fav");
 
-    app.search.query = "star:false".to_string();
+    app.search.query = "star:false".into();
     app.update_search_results();
     assert_eq!(app.search.hits.len(), 1);
     assert_eq!(app.search.hits[0].title, "Plain");
 
     // 1/0 are accepted as boolean aliases.
-    app.search.query = "star:1".to_string();
+    app.search.query = "star:1".into();
     app.update_search_results();
     assert_eq!(app.search.hits.len(), 1);
     assert_eq!(app.search.hits[0].title, "Fav");
 
-    app.search.query = "star:0".to_string();
+    app.search.query = "star:0".into();
     app.update_search_results();
     assert_eq!(app.search.hits.len(), 1);
     assert_eq!(app.search.hits[0].title, "Plain");
 
     // An unparseable flag matches nothing.
-    app.search.query = "star:maybe".to_string();
+    app.search.query = "star:maybe".into();
     app.update_search_results();
     assert!(app.search.hits.is_empty());
 }
@@ -329,6 +335,38 @@ fn begin_edit_feelings_uses_fixed_list_and_selected_entry_values() {
     assert!(matches!(&state.groups[0], g if g.name == "Joy & Delight"));
     assert_eq!(state.list.selected(), Some(0));
     assert_eq!(state.selected, vec!["calm", "excited"]);
+}
+
+#[test]
+fn location_dialog_seeds_from_editor_draft_not_selected_entry() {
+    let dir = tempdir().unwrap();
+    let entry_dir = dir.path().join("work").join("2026-07-01");
+    fs::create_dir_all(&entry_dir).unwrap();
+    fs::write(
+        entry_dir.join("a.md"),
+        "+++\n[location]\nname = \"Home\"\nlatitude = 52.5\nlongitude = 13.4\n+++\n\n# A\n",
+    )
+    .unwrap();
+
+    let config = Config::new(dir.path().to_path_buf());
+    let mut app = new_app(config);
+    app.select_journal_by_name("work");
+
+    // Without an editor, the dialog seeds from the selected entry.
+    app.begin_edit_location();
+    let state = app.edit_location_state().unwrap();
+    assert_eq!(state.name.as_str(), "Home");
+    assert!(!state.query.is_empty());
+    app.close_overlay();
+
+    // Composing a new entry: the dialog seeds from the (empty) editor draft,
+    // not the entry that happens to still be selected underneath.
+    app.open_editor_for_new();
+    app.begin_edit_location();
+    let state = app.edit_location_state().unwrap();
+    assert!(state.name.is_empty());
+    assert!(state.query.is_empty());
+    assert!(state.resolved.is_none());
 }
 
 #[test]
@@ -393,7 +431,7 @@ fn entry_rows_cache_is_reused_until_inputs_change() {
 }
 
 #[test]
-fn search_insert_defers_hit_recompute_until_committed() {
+fn search_typing_defers_hit_recompute_until_committed() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
@@ -408,10 +446,10 @@ fn search_insert_defers_hit_recompute_until_committed() {
     app.begin_search();
 
     for ch in "needle".chars() {
-        app.search_insert(ch);
+        app.search_input_key(key_char(ch));
     }
     // The query echoes immediately, but the whole-corpus scan is deferred.
-    assert_eq!(app.search.query, "needle");
+    assert_eq!(app.search.query.as_str(), "needle");
     assert!(app.search.dirty);
     assert!(app.search.hits.is_empty());
 
@@ -574,7 +612,7 @@ fn search_recompute_keeps_body_and_analytics_caches_but_rebuilds_rows() {
     // only rows_version.
     app.begin_search();
     for ch in "body".chars() {
-        app.search_insert(ch);
+        app.search_input_key(key_char(ch));
     }
     app.update_search_results();
 

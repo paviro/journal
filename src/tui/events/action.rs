@@ -36,9 +36,16 @@ pub(crate) enum Action {
     EditorScrollHelp(i16),
     EditorBeginMetadata(MetadataKind),
     EditorInput(KeyEvent),
+    EditorSelectAll,
     EditorScroll(i16),
-    EditorStartSelection { col: u16, row: u16 },
-    EditorDragSelection { col: u16, row: u16 },
+    EditorStartSelection {
+        col: u16,
+        row: u16,
+    },
+    EditorDragSelection {
+        col: u16,
+        row: u16,
+    },
     EditorEndSelection,
     ViewSelected,
     // Expand the focused entry viewer to full screen (multi-column) / collapse back
@@ -65,16 +72,12 @@ pub(crate) enum Action {
     ToggleInsightsScope,
     CycleInsightsTimeframe,
     // New-journal input overlay
-    JournalInputChar(char),
-    JournalInputBackspace,
     JournalInputSubmit,
     // Tags overlay
     MetadataMoveUp,
     MetadataMoveDown,
     MetadataToggle,
     MetadataSwitchFocus,
-    MetadataInput(char),
-    MetadataBackspace,
     MetadataAddFromInput,
     MetadataSave,
     // Feelings overlay
@@ -84,8 +87,6 @@ pub(crate) enum Action {
     FeelingsExpand,
     FeelingsCollapse,
     FeelingsSwitchFocus,
-    FeelingsInput(char),
-    FeelingsBackspace,
     FeelingsSave,
     // Mood overlay
     MoodDecrease,
@@ -95,8 +96,6 @@ pub(crate) enum Action {
     // Location overlay
     BeginEditLocation,
     LocationSwitchFocus,
-    LocationInput(char),
-    LocationBackspace,
     LocationMoveUp,
     LocationMoveDown,
     LocationResolve,
@@ -109,10 +108,12 @@ pub(crate) enum Action {
     ImageViewerNext,
     ImageViewerPrev,
     // Search text input (only active when mode=Search and focus=Entries)
-    SearchInput(char),
-    SearchBackspace,
-    SearchCursorLeft,
-    SearchCursorRight,
+    /// A key press for whichever text field currently owns the caret (search
+    /// box or an open dialog's focused input): chars, backspace, caret
+    /// movement, shift-selection — everything the single-line textarea handles.
+    InputKey(KeyEvent),
+    /// Select all text in the focused single-line field (Ctrl+A / hint click).
+    InputSelectAll,
     ToggleHints,
     ToggleJournals,
 }

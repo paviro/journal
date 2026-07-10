@@ -12,6 +12,7 @@ mod state;
 mod surface;
 #[cfg(test)]
 mod test_support;
+mod text_input;
 mod theme;
 mod watcher;
 mod worker;
@@ -35,9 +36,6 @@ use std::{
 };
 use zeroize::Zeroize;
 
-/// Blink half-period for the search caret.
-const CURSOR_BLINK: Duration = Duration::from_millis(530);
-
 /// Quiet period after the last search keystroke before the (whole-corpus) hit
 /// recompute runs, so fast typing doesn't re-scan every entry per key.
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
@@ -47,6 +45,7 @@ const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 const REFRESH_DEBOUNCE: Duration = Duration::from_millis(400);
 
 use app::App;
+use text_input::PassphraseInput;
 
 pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResult<()> {
     // Ensure the store exists before probing for a lock so identity checks
@@ -275,6 +274,8 @@ enum UnlockAction {
     Cancel,
     Insert(char),
     Delete,
+    MoveLeft,
+    MoveRight,
     Ignore,
 }
 
@@ -288,6 +289,8 @@ fn unlock_key_action(key: KeyEvent) -> UnlockAction {
         KeyCode::Enter => UnlockAction::Submit,
         KeyCode::Esc => UnlockAction::Cancel,
         KeyCode::Backspace => UnlockAction::Delete,
+        KeyCode::Left => UnlockAction::MoveLeft,
+        KeyCode::Right => UnlockAction::MoveRight,
         KeyCode::Char(ch) => UnlockAction::Insert(ch),
         _ => UnlockAction::Ignore,
     }
@@ -296,53 +299,59 @@ fn unlock_key_action(key: KeyEvent) -> UnlockAction {
 /// Draw the fullscreen unlock screen and collect the passphrase until it unlocks
 /// the store. Returns `Ok(true)` once unlocked, `Ok(false)` if the user quits
 /// (Esc / Ctrl-C) first. The typed passphrase is zeroized as soon as it's been
-/// handed to `store.unlock`, so it doesn't linger in the heap.
+/// handed to `store.unlock`, so it doesn't linger in the heap. The native
+/// terminal cursor marks the caret, so nothing animates between events.
 fn run_unlock_screen(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     store: &mut JournalStore,
 ) -> AppResult<bool> {
-    let mut input = String::new();
+    let mut input = PassphraseInput::default();
     let mut error: Option<String> = None;
-    // Reuse the search caret's blink cadence: a keystroke holds it solid, idle
-    // toggles it on the blink half-period.
-    let mut caret_visible = true;
-    let mut last_blink = Instant::now();
 
     loop {
-        terminal
-            .draw(|frame| render::draw_unlock(frame, &input, error.as_deref(), caret_visible))?;
+        let mut field_rect = None;
+        terminal.draw(|frame| field_rect = render::draw_unlock(frame, &input, error.as_deref()))?;
 
-        if event::poll(CURSOR_BLINK)? {
-            if let Event::Key(key) = event::read()? {
-                caret_visible = true;
-                last_blink = Instant::now();
-                match unlock_key_action(key) {
-                    UnlockAction::Cancel => {
-                        input.zeroize();
-                        return Ok(false);
-                    }
-                    UnlockAction::Submit => {
-                        match store.unlock(Some(&SecretString::from(input.as_str()))) {
-                            Ok(()) => {
-                                input.zeroize();
-                                return Ok(true);
-                            }
-                            Err(_) => {
-                                input.zeroize();
-                                error = Some("Incorrect passphrase".to_string());
-                            }
+        match event::read()? {
+            Event::Key(key) => match unlock_key_action(key) {
+                UnlockAction::Cancel => {
+                    input.zeroize();
+                    return Ok(false);
+                }
+                UnlockAction::Submit => {
+                    match store.unlock(Some(&SecretString::from(input.as_str()))) {
+                        Ok(()) => {
+                            input.zeroize();
+                            return Ok(true);
+                        }
+                        Err(_) => {
+                            input.zeroize();
+                            error = Some("Incorrect passphrase".to_string());
                         }
                     }
-                    UnlockAction::Insert(ch) => input.push(ch),
-                    UnlockAction::Delete => {
-                        input.pop();
-                    }
-                    UnlockAction::Ignore => {}
+                }
+                UnlockAction::Insert(ch) => input.insert(ch),
+                UnlockAction::Delete => input.backspace(),
+                UnlockAction::MoveLeft => input.move_left(),
+                UnlockAction::MoveRight => input.move_right(),
+                UnlockAction::Ignore => {}
+            },
+            // Click in the field to place the caret, like every other input.
+            Event::Mouse(mouse)
+                if matches!(
+                    mouse.kind,
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left)
+                ) =>
+            {
+                if let Some(rect) = field_rect
+                    && mouse.row == rect.y
+                    && mouse.column >= rect.x
+                    && mouse.column < rect.x + rect.width
+                {
+                    input.click_at(mouse.column - rect.x);
                 }
             }
-        } else if last_blink.elapsed() >= CURSOR_BLINK {
-            last_blink = Instant::now();
-            caret_visible = !caret_visible;
+            _ => {}
         }
     }
 }
@@ -386,7 +395,6 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
 
     terminal.draw(|frame| render::draw(frame, &mut app))?;
     let mut overlay_was_visible = app.has_overlay();
-    let mut last_blink = Instant::now();
     // When set, a watched file change is pending; reload once the filesystem has
     // been quiet until this deadline (coalesces import-time write storms). The
     // accumulated changed paths let the reload touch only affected entries.
@@ -421,10 +429,6 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         if geocode_pending || app.environment.has_pending() {
             poll_timeout = poll_timeout.min(Duration::from_millis(50));
         }
-        // Wake often enough to blink the search caret while typing in the field.
-        if app.is_search_input_active() {
-            poll_timeout = poll_timeout.min(CURSOR_BLINK);
-        }
         // Wake to run a debounced search recompute once typing pauses.
         if app.search.dirty {
             let remaining = app
@@ -446,7 +450,6 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         } else {
             None
         };
-        let is_key_event = matches!(&event, Some(Event::Key(_)));
 
         let redraw = match event {
             Some(Event::Key(key)) => {
@@ -538,32 +541,12 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         // ellipsis keeps animating.
         let animate_loading = app.image_viewer_state().is_some() && app.image.runtime.has_pending();
 
-        // Drive the search caret's blink: keystrokes hold it solid, idle toggles
-        // it on the blink half-period, and outside the field it stays visible.
-        let mut blink_toggled = false;
-        if app.is_search_input_active() {
-            if is_key_event {
-                last_blink = Instant::now();
-                if !app.search.cursor_visible {
-                    app.search.cursor_visible = true;
-                    blink_toggled = true;
-                }
-            } else if last_blink.elapsed() >= CURSOR_BLINK {
-                last_blink = Instant::now();
-                app.search.cursor_visible = !app.search.cursor_visible;
-                blink_toggled = true;
-            }
-        } else if !app.search.cursor_visible {
-            app.search.cursor_visible = true;
-        }
-
         if redraw
             || refreshed
             || search_recomputed
             || images_ready
             || geocode_ready
             || animate_loading
-            || blink_toggled
         {
             if overlay_closed && app.image.runtime.uses_graphics() {
                 terminal.clear()?;
@@ -595,19 +578,21 @@ mod tests {
     /// `run_unlock_screen` does, returning the resulting buffer and whether it
     /// submitted (Enter) or cancelled (Esc / Ctrl-C).
     fn drive(keys: &[KeyEvent]) -> (String, Option<bool>) {
-        let mut input = String::new();
+        let mut input = text_input::PassphraseInput::default();
         for &k in keys {
             match unlock_key_action(k) {
-                UnlockAction::Submit => return (input, Some(true)),
-                UnlockAction::Cancel => return (input, Some(false)),
-                UnlockAction::Insert(ch) => input.push(ch),
+                UnlockAction::Submit => return (input.as_str().to_string(), Some(true)),
+                UnlockAction::Cancel => return (input.as_str().to_string(), Some(false)),
+                UnlockAction::Insert(ch) => input.insert(ch),
                 UnlockAction::Delete => {
-                    input.pop();
+                    input.backspace();
                 }
+                UnlockAction::MoveLeft => input.move_left(),
+                UnlockAction::MoveRight => input.move_right(),
                 UnlockAction::Ignore => {}
             }
         }
-        (input, None)
+        (input.as_str().to_string(), None)
     }
 
     #[test]
@@ -648,12 +633,25 @@ mod tests {
     #[test]
     fn non_editing_keys_are_ignored() {
         assert!(matches!(
-            unlock_key_action(key(KeyCode::Left)),
+            unlock_key_action(key(KeyCode::Up)),
             UnlockAction::Ignore
         ));
         assert!(matches!(
             unlock_key_action(key(KeyCode::Tab)),
             UnlockAction::Ignore
         ));
+    }
+
+    #[test]
+    fn arrows_move_the_caret_for_mid_passphrase_edits() {
+        // "ac", Left, "b" → the caret edit lands between the two chars.
+        let (input, done) = drive(&[
+            key(KeyCode::Char('a')),
+            key(KeyCode::Char('c')),
+            key(KeyCode::Left),
+            key(KeyCode::Char('b')),
+        ]);
+        assert_eq!(input, "abc");
+        assert_eq!(done, None);
     }
 }

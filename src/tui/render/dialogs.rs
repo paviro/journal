@@ -3,20 +3,24 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, Paragraph},
 };
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::tui::entry_rows::wrap_text;
-use crate::tui::state::{
-    DeleteContext, EditFeelingState, EditLocationFocus, EditLocationState, EditMetadataFocus,
-    EditMetadataState, EditMoodState, FeelingRow, ListNav, LocationResolveStatus,
+use crate::tui::app::{
+    EditFeelingState, EditLocationFocus, EditLocationState, EditMetadataFocus, EditMetadataState,
+    FeelingRow, LocationResolveStatus,
 };
+use crate::tui::entry_rows::wrap_text;
+use crate::tui::state::{DeleteContext, EditMoodState, ListNav};
 use crate::tui::surface::metadata_value_rows;
+use crate::tui::text_input::TextInput;
 
 use super::{
-    chrome::{Hint, HintId, hint_height, hint_lines, render_confirm_buttons, render_scrollbar_if_needed},
+    chrome::{
+        Hint, HintId, hint_height, hint_lines, render_confirm_buttons, render_scrollbar_if_needed,
+    },
     list_state_for_render,
     markdown_panel::MoodBar,
 };
@@ -32,8 +36,9 @@ const FEELINGS_DIALOG_LIST_HINTS: [Hint; 6] = [
     Hint::new("cancel", "esc", HintId::CancelOverlay),
 ];
 
-const FEELINGS_DIALOG_INPUT_HINTS: [Hint; 3] = [
+const FEELINGS_DIALOG_INPUT_HINTS: [Hint; 4] = [
     Hint::new("list", "tab", HintId::FeelingsSwitchFocus),
+    Hint::new("select all", "^a", HintId::InputSelectAll),
     Hint::new("save", "enter", HintId::FeelingsSave),
     Hint::new("cancel", "esc", HintId::CancelOverlay),
 ];
@@ -77,9 +82,10 @@ const METADATA_DIALOG_INPUT_EMPTY_HINTS: [Hint; 3] = [
     Hint::new("cancel", "esc", HintId::CancelOverlay),
 ];
 
-const METADATA_DIALOG_INPUT_VALUE_HINTS: [Hint; 3] = [
+const METADATA_DIALOG_INPUT_VALUE_HINTS: [Hint; 4] = [
     Hint::new("add", "enter", HintId::MetadataAddFromInput),
     Hint::new("list", "tab", HintId::MetadataSwitchFocus),
+    Hint::new("select all", "^a", HintId::InputSelectAll),
     Hint::new("cancel", "esc", HintId::CancelOverlay),
 ];
 
@@ -94,7 +100,7 @@ const LOCATION_DIALOG_QUERY_HINTS: [Hint; 5] = [
     Hint::new("look up", "enter", HintId::LocationResolve),
     Hint::new("locate", "^l", HintId::LocationGrabDevice),
     Hint::new("next", "tab", HintId::LocationSwitchFocus),
-    Hint::new("clear", "del", HintId::LocationClear),
+    Hint::new("select all", "^a", HintId::InputSelectAll),
     Hint::new("cancel", "esc", HintId::CancelOverlay),
 ];
 
@@ -103,7 +109,7 @@ const LOCATION_DIALOG_QUERY_RESOLVED_HINTS: [Hint; 5] = [
     Hint::new("save", "enter", HintId::LocationSave),
     Hint::new("locate", "^l", HintId::LocationGrabDevice),
     Hint::new("next", "tab", HintId::LocationSwitchFocus),
-    Hint::new("clear", "del", HintId::LocationClear),
+    Hint::new("select all", "^a", HintId::InputSelectAll),
     Hint::new("cancel", "esc", HintId::CancelOverlay),
 ];
 
@@ -111,7 +117,7 @@ const LOCATION_DIALOG_NAME_HINTS: [Hint; 5] = [
     Hint::new("save", "enter", HintId::LocationSave),
     Hint::new("locate", "^l", HintId::LocationGrabDevice),
     Hint::new("next", "tab", HintId::LocationSwitchFocus),
-    Hint::new("clear", "del", HintId::LocationClear),
+    Hint::new("select all", "^a", HintId::InputSelectAll),
     Hint::new("cancel", "esc", HintId::CancelOverlay),
 ];
 
@@ -555,45 +561,29 @@ pub(crate) fn mood_dialog_layout(frame_area: Rect) -> MoodDialogLayout {
 // ── Shared render helpers ─────────────────────────────────────────────────────
 
 /// Render a single-line search/filter input styled as a form field: a normal
-/// label followed by an underlined value area that spans the rest of the row, so
-/// it reads as an editable field whether or not text has been entered. The active
-/// field is also reversed for a clear focus cue.
-fn render_search_field(frame: &mut Frame<'_>, rect: Rect, label: &str, value: &str, focused: bool) {
+/// label followed by an underlined textarea spanning the rest of the row, so it
+/// reads as an editable field whether or not text has been entered. The active
+/// field is marked by the `>` prefix and the native bar cursor at the caret.
+/// (No whole-field reversal: a reversed text selection would vanish inside it.)
+fn render_search_field(
+    frame: &mut Frame<'_>,
+    rect: Rect,
+    label: &str,
+    value: &mut TextInput,
+    focused: bool,
+) {
     let prefix = format!("{}{label}", if focused { ">" } else { " " });
-    let prefix_w = UnicodeWidthStr::width(prefix.as_str());
+    let prefix_w = UnicodeWidthStr::width(prefix.as_str()) as u16;
+    frame.render_widget(Paragraph::new(prefix), rect);
+
     // Leave one blank column before the dialog border so the underlined field
     // doesn't run flush against it.
-    let field_w = (rect.width as usize)
-        .saturating_sub(prefix_w)
-        .saturating_sub(1);
-
-    // Pad (or clip) the value so the underline always fills the field width.
-    let value_w = UnicodeWidthStr::width(value);
-    let field = if value_w < field_w {
-        format!("{value}{}", " ".repeat(field_w - value_w))
-    } else {
-        value
-            .chars()
-            .rev()
-            .take(field_w)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect()
+    let field = Rect {
+        x: rect.x + prefix_w,
+        width: rect.width.saturating_sub(prefix_w).saturating_sub(1),
+        ..rect
     };
-
-    let mut field_style = Style::default().add_modifier(Modifier::UNDERLINED);
-    if focused {
-        field_style = field_style.add_modifier(Modifier::REVERSED);
-    }
-
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw(prefix),
-            Span::styled(field, field_style),
-        ])),
-        rect,
-    );
+    value.render_in(frame, field, focused);
 }
 
 fn render_lines_in_area<'a>(
@@ -714,19 +704,34 @@ pub(super) fn draw_confirm_delete(frame: &mut Frame<'_>, ctx: &DeleteContext) {
     render_confirm_buttons(frame, inner, "Delete (y)", "Cancel (n)");
 }
 
-pub(super) fn draw_new_journal_input(frame: &mut Frame<'_>, input: &str) {
+pub(super) fn draw_new_journal_input(frame: &mut Frame<'_>, input: &mut TextInput) {
     let area = super::centered_rect_fixed_size(NEW_JOURNAL_DIALOG_WIDTH, 5, frame.area());
     frame.render_widget(Clear, area);
-    let dialog = Paragraph::new(format!("Name: {input}\n\nEnter saves | Esc cancels"))
-        .block(Block::default().title("New Journal").borders(Borders::ALL))
-        .wrap(Wrap { trim: true });
-    frame.render_widget(dialog, area);
+    let block = Block::default().title("New Journal").borders(Borders::ALL);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let label = "Name: ";
+    frame.render_widget(Paragraph::new(label), inner);
+    let field = Rect {
+        x: inner.x + label.len() as u16,
+        y: inner.y,
+        width: inner.width.saturating_sub(label.len() as u16),
+        height: 1,
+    };
+    input.render_in(frame, field, true);
+
+    let hint = Rect {
+        y: inner.y + 2,
+        height: 1,
+        ..inner
+    };
+    frame.render_widget(Paragraph::new("Enter saves | Esc cancels"), hint);
 }
 
 pub(super) fn draw_edit_metadata_dialog(frame: &mut Frame<'_>, state: &mut EditMetadataState) {
     let layout = metadata_dialog_layout(frame.area(), state.filtered.len());
     let title = state.kind.title();
-    let value_name = state.kind.value_name();
 
     let list_focused = state.focus == EditMetadataFocus::List;
     let input_focused = state.focus == EditMetadataFocus::Input;
@@ -789,13 +794,13 @@ pub(super) fn draw_edit_metadata_dialog(frame: &mut Frame<'_>, state: &mut EditM
     render_search_field(
         frame,
         layout.input,
-        &format!("Search / new {value_name}: "),
-        &state.input,
+        "Search / new: ",
+        &mut state.input,
         input_focused,
     );
     render_hint_line(
         frame,
-        metadata_dialog_hints(state.focus, state.input.trim().is_empty()),
+        metadata_dialog_hints(state.focus, state.input.as_str().trim().is_empty()),
         layout.hints,
     );
     render_scrollbar_if_needed(frame, layout.area, list_lines, max_visible, scroll);
@@ -895,20 +900,16 @@ pub(super) fn draw_edit_location_dialog(frame: &mut Frame<'_>, state: &mut EditL
     );
     render_separator(frame, layout.title_separator);
 
+    let query_focused = state.focus == EditLocationFocus::Query;
+    let name_focused = state.focus == EditLocationFocus::Name;
     render_search_field(
         frame,
         layout.query,
         "Place / address / coords: ",
-        &state.query,
-        state.focus == EditLocationFocus::Query,
+        &mut state.query,
+        query_focused,
     );
-    render_search_field(
-        frame,
-        layout.name,
-        "Name: ",
-        &state.name,
-        state.focus == EditLocationFocus::Name,
-    );
+    render_search_field(frame, layout.name, "Name: ", &mut state.name, name_focused);
 
     // Status line: reflects the in-flight/last lookup, or the resolved value.
     let status_line = match &state.status {
@@ -1069,7 +1070,13 @@ pub(super) fn draw_edit_feelings_dialog(frame: &mut Frame<'_>, state: &mut EditF
     );
     frame.render_stateful_widget(list, layout.list, &mut render_state);
     render_separator(frame, layout.list_bottom_separator);
-    render_search_field(frame, layout.input, "Search: ", &state.input, input_focused);
+    render_search_field(
+        frame,
+        layout.input,
+        "Search: ",
+        &mut state.input,
+        input_focused,
+    );
 
     // The summary lines get a leading pad space; the "Selected:" label is bold and
     // its continuation lines align under the first.
@@ -1131,7 +1138,10 @@ mod tests {
         assert_eq!(location_list_row_at(list, &labels, 0, 10), Some(0));
         // Any continuation line of the wrapped label still maps to it.
         let last_of_second = 10 + (l0 + l1 - 1) as u16;
-        assert_eq!(location_list_row_at(list, &labels, 0, last_of_second), Some(1));
+        assert_eq!(
+            location_list_row_at(list, &labels, 0, last_of_second),
+            Some(1)
+        );
         // The third label starts right after the wrapped one.
         let third_start = 10 + (l0 + l1) as u16;
         assert_eq!(location_list_row_at(list, &labels, 0, third_start), Some(2));

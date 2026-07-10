@@ -10,8 +10,8 @@ use crate::tui::state::MetadataKind;
 pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
     let value = app
         .new_journal_input()
+        .map(|input| input.as_str().trim())
         .unwrap_or_default()
-        .trim()
         .to_string();
     if value.is_empty() {
         app.set_status("Nothing added");
@@ -129,6 +129,11 @@ fn apply_metadata_changes(
     }
     if current.mood != original.mood {
         fields.push(MetadataField::Mood(current.mood));
+    }
+    if current.location != original.location {
+        fields.push(MetadataField::Location(
+            current.location.clone().map(Box::new),
+        ));
     }
     app.store.set_entry_metadata_fields(path, &fields)?;
     Ok(())

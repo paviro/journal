@@ -23,13 +23,14 @@ use ratatui::{
 };
 
 use super::state::{
-    DeleteContext, EditFeelingState, EditMetadataState, EditMoodState, ImageViewerState,
-    MetadataKind, Overlay, ScrollState, SearchState, StatusBar, move_list_selection,
+    DeleteContext, EditMoodState, ImageViewerState, MetadataKind, Overlay, ScrollState,
+    SearchState, StatusBar, move_list_selection,
 };
 use crate::tui::editor_state::EntryEditor;
 use crate::tui::entry_rows::{EntryRowCache, RowMeta, build_entry_row_cache};
 use crate::tui::image::{ImageAsset, ImageRuntime, entry_images, viewer_image_size};
 use crate::tui::render::insights::{InsightsScope, InsightsTab, InsightsTimeframe};
+use crate::tui::text_input::TextInput;
 use journal_analytics::{Analytics, Correlations, analyze, build_correlations};
 
 pub(crate) const JOURNAL_LIST_WIDTH: u16 = 27;
@@ -120,7 +121,7 @@ struct RenderCaches {
     entry_row_cache: RefCell<Option<(EntryRowKey, Rc<EntryRowCache>)>>,
     /// Memoized rendered body lines for the entry preview, keyed by
     /// [`EntryBodyKey`]. Rebuilt only when the shown entry or wrap width changes,
-    /// so scroll/blink/image ticks reuse it.
+    /// so scroll and image ticks reuse it.
     entry_body_cache: RefCell<Option<(EntryBodyKey, Rc<RenderedEntryBody>)>>,
     /// Memoized analytics for the `(entries_version, scope key)` they were
     /// computed for. The scope key is the journal name for `Journal` scope or a
@@ -343,6 +344,9 @@ pub(crate) struct Nav {
     /// Orthogonal to `insights_scope`: scope picks *which* entries, timeframe picks
     /// *which slice of time* within them.
     pub(crate) insights_timeframe: InsightsTimeframe,
+    /// A mouse drag is selecting text in a single-line field (search box or a
+    /// dialog input); set on press in the field, cleared on release.
+    pub(crate) input_selecting: bool,
 }
 
 impl Default for Nav {
@@ -359,6 +363,7 @@ impl Default for Nav {
             insights_tab: InsightsTab::default(),
             insights_scope: InsightsScope::default(),
             insights_timeframe: InsightsTimeframe::default(),
+            input_selecting: false,
         }
     }
 }
@@ -654,7 +659,7 @@ impl App {
     /// Return the memoized rendered body for the entry at `path`/`width`, building
     /// it with `build` only on a cache miss (entry or width changed, or the store
     /// reloaded). The markdown parse+render `build` runs is the preview pane's
-    /// dominant per-frame cost, so this keeps blink/scroll/image-tick redraws cheap.
+    /// dominant per-frame cost, so this keeps scroll and image-tick redraws cheap.
     pub(crate) fn cached_entry_body(
         &self,
         path: Option<&Path>,
@@ -871,12 +876,19 @@ pub(crate) fn single_panel_is_active(width: u16) -> bool {
 
 mod editor;
 mod environment;
+mod feelings;
 mod images;
 mod location;
 mod metadata;
 mod overlays;
 mod search;
 mod selection;
+
+pub(crate) use feelings::{EditFeelingState, FeelingRow};
+#[cfg(test)]
+pub(crate) use location::LocationPreset;
+pub(crate) use location::{EditLocationFocus, EditLocationState, LocationResolveStatus};
+pub(crate) use metadata::{EditMetadataFocus, EditMetadataState};
 
 #[cfg(test)]
 mod tests;

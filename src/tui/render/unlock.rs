@@ -1,13 +1,13 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Flex, Layout},
+    layout::{Alignment, Constraint, Flex, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Padding, Paragraph, Wrap},
 };
 
-use super::caret_style;
 use crate::tui::entry_rows::wrap_text;
+use crate::tui::text_input::PassphraseInput;
 
 /// Width of the "Enter Password" container box, clamped to the available width.
 const CONTAINER_WIDTH: u16 = 68;
@@ -27,17 +27,18 @@ const MAX_STATUS_LINES: usize = 4;
 /// Draw the fullscreen unlock screen shown at startup while an encrypted store
 /// is still locked. The passphrase sits in a "Enter Password" container whose
 /// input line has its own faint-bordered sub-field; it's masked with `*` and
-/// carries the same blinking block caret as the search field. A standing hint
+/// carries the native bar cursor like every other text field. A standing hint
 /// sits below the field, replaced by the error message after a wrong passphrase.
+/// Returns the passphrase field's inner rect, so the unlock loop can map a
+/// mouse click onto the caret. `None` when the screen is too small to draw it.
 pub(crate) fn draw_unlock(
     frame: &mut Frame<'_>,
-    input: &str,
+    input: &PassphraseInput,
     error: Option<&str>,
-    caret_visible: bool,
-) {
+) -> Option<Rect> {
     let inner = super::draw_modal_frame(frame, "Unlock Journal", "enter unlock · esc quit");
     if inner.height == 0 || inner.width == 0 {
-        return;
+        return None;
     }
 
     // Size the status region to whatever wraps to the most rows at this width, so
@@ -86,10 +87,12 @@ pub(crate) fn draw_unlock(
         .padding(Padding::horizontal(1));
     let subfield_inner = subfield.inner(subfield_box);
     frame.render_widget(subfield, subfield_box);
-    frame.render_widget(
-        Paragraph::new(masked_field(input, caret_visible)),
-        subfield_inner,
-    );
+    frame.render_widget(Paragraph::new(masked_field(input)), subfield_inner);
+    // Native bar cursor at the caret, like every other text field.
+    if subfield_inner.width > 0 {
+        let col = (input.cursor() as u16).min(subfield_inner.width - 1);
+        frame.set_cursor_position((subfield_inner.x + col, subfield_inner.y));
+    }
 
     // Status line below the field, centered within the container: a standing
     // hint normally, replaced by the error message after a wrong passphrase. It
@@ -104,14 +107,11 @@ pub(crate) fn draw_unlock(
         .wrap(Wrap { trim: true }),
         error_row,
     );
+
+    Some(subfield_inner)
 }
 
-/// The masked passphrase, echoing one `*` per typed character (never the raw
-/// passphrase) with a trailing block caret — the same reversed-cell idiom the
-/// search field uses (`search_field_title`).
-fn masked_field(input: &str, caret_visible: bool) -> Line<'static> {
-    Line::from(vec![
-        Span::raw("*".repeat(input.chars().count())),
-        Span::styled(" ", caret_style(caret_visible)),
-    ])
+/// The masked passphrase: one `*` per typed character, never the raw text.
+fn masked_field(input: &PassphraseInput) -> Line<'static> {
+    Line::from("*".repeat(input.as_str().chars().count()))
 }

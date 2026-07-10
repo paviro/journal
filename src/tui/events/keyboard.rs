@@ -4,12 +4,12 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 
 use crate::tui::{
-    app::{App, Focus, Mode, entry_view_is_available},
+    app::{App, EditLocationFocus, EditMetadataFocus, Focus, Mode, entry_view_is_available},
     editor_state::EditorPrompt,
     image::image_for_digit,
     render,
     render::insights::InsightsTab,
-    state::{EditLocationFocus, EditMetadataFocus, Overlay},
+    state::Overlay,
 };
 
 use super::action::Action;
@@ -93,6 +93,11 @@ fn handle_editor_key(
     match key.code {
         KeyCode::Char('s') if ctrl => {
             return super::dispatch_action(terminal, app, Action::EditorSave);
+        }
+        // Ctrl+A selects all, shadowing the textarea's emacs-style line-start
+        // (Home still covers that).
+        KeyCode::Char('a') if ctrl => {
+            return super::dispatch_action(terminal, app, Action::EditorSelectAll);
         }
         // Fullscreen is on Ctrl+O, not Ctrl+F: the textarea binds Ctrl+F to
         // forward-char (emacs), which we leave to it.
@@ -366,7 +371,7 @@ fn search_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
             Some(Action::CollapseEntryView)
         }
         KeyCode::Esc => Some(Action::ExitSearch),
-        KeyCode::Char('q') => Some(Action::Quit),
+        KeyCode::Char('q') if app.nav.focus != Focus::Entries => Some(Action::Quit),
         // Left backs the viewer out to the results list, but is inert in multi-column
         // full screen (Esc collapses that).
         KeyCode::Left
@@ -375,15 +380,18 @@ fn search_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
         {
             Some(Action::FocusLeft)
         }
-        // In the search field, Left/Right move the caret. Right only claims the key
-        // while the caret can still advance; at the end of the query it falls
-        // through to the view/focus arms below.
-        KeyCode::Left if app.nav.focus == Focus::Entries => Some(Action::SearchCursorLeft),
+        // In the search field, Right claims the key while the caret can still
+        // advance, a selection is being made, or one is active (so plain Right
+        // collapses it instead of leaving it painted while focus moves away);
+        // only at the end of the query does it fall through to the view/focus
+        // arms below.
         KeyCode::Right
             if app.nav.focus == Focus::Entries
-                && app.search.cursor < app.search.query.chars().count() =>
+                && (key.modifiers.contains(KeyModifiers::SHIFT)
+                    || !app.search.query.cursor_at_end()
+                    || app.search.query.selection_range().is_some()) =>
         {
-            Some(Action::SearchCursorRight)
+            Some(Action::InputKey(key))
         }
         KeyCode::Right
             if app.nav.focus == Focus::Entries
@@ -396,10 +404,11 @@ fn search_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
             Some(Action::FocusRight)
         }
         KeyCode::Enter if app.can_act_on_selected_entry() => Some(Action::ViewSelected),
-        KeyCode::Backspace if app.nav.focus == Focus::Entries => Some(Action::SearchBackspace),
-        KeyCode::Char(ch) if app.nav.focus == Focus::Entries => Some(Action::SearchInput(ch)),
         KeyCode::Up => Some(Action::MoveUp),
         KeyCode::Down => Some(Action::MoveDown),
+        // Everything else typed while the search field is focused edits it —
+        // including 'q', which quits only from the other panes.
+        _ if app.nav.focus == Focus::Entries => Some(Action::InputKey(key)),
         _ => None,
     }
 }
@@ -416,9 +425,7 @@ fn new_journal_key_to_action(key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Esc => Some(Action::CancelOverlay),
         KeyCode::Enter => Some(Action::JournalInputSubmit),
-        KeyCode::Backspace => Some(Action::JournalInputBackspace),
-        KeyCode::Char(ch) => Some(Action::JournalInputChar(ch)),
-        _ => None,
+        _ => Some(Action::InputKey(key)),
     }
 }
 
@@ -429,13 +436,12 @@ fn tags_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
         KeyCode::Esc => Some(Action::CancelOverlay),
         KeyCode::Tab => Some(Action::MetadataSwitchFocus),
         KeyCode::Enter if focus == EditMetadataFocus::List => Some(Action::MetadataSave),
-        KeyCode::Enter if state.input.trim().is_empty() => Some(Action::MetadataSave),
+        KeyCode::Enter if state.input.as_str().trim().is_empty() => Some(Action::MetadataSave),
         KeyCode::Enter => Some(Action::MetadataAddFromInput),
         KeyCode::Up if focus == EditMetadataFocus::List => Some(Action::MetadataMoveUp),
         KeyCode::Down if focus == EditMetadataFocus::List => Some(Action::MetadataMoveDown),
         KeyCode::Char(' ') if focus == EditMetadataFocus::List => Some(Action::MetadataToggle),
-        KeyCode::Backspace if focus == EditMetadataFocus::Input => Some(Action::MetadataBackspace),
-        KeyCode::Char(ch) if focus == EditMetadataFocus::Input => Some(Action::MetadataInput(ch)),
+        _ if focus == EditMetadataFocus::Input => Some(Action::InputKey(key)),
         _ => None,
     }
 }
@@ -451,8 +457,7 @@ fn feelings_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
         KeyCode::Right if focus == EditMetadataFocus::List => Some(Action::FeelingsExpand),
         KeyCode::Left if focus == EditMetadataFocus::List => Some(Action::FeelingsCollapse),
         KeyCode::Char(' ') if focus == EditMetadataFocus::List => Some(Action::FeelingsToggle),
-        KeyCode::Backspace if focus == EditMetadataFocus::Input => Some(Action::FeelingsBackspace),
-        KeyCode::Char(ch) if focus == EditMetadataFocus::Input => Some(Action::FeelingsInput(ch)),
+        _ if focus == EditMetadataFocus::Input => Some(Action::InputKey(key)),
         _ => None,
     }
 }
@@ -480,8 +485,9 @@ fn location_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
         KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::LocationGrabDevice)
         }
-        // Delete (not Backspace, which edits text) clears the entry's location.
-        KeyCode::Delete => Some(Action::LocationClear),
+        // Delete clears the entry's location only from the list; in the text
+        // fields it forward-deletes at the caret like any editor.
+        KeyCode::Delete if focus == EditLocationFocus::List => Some(Action::LocationClear),
         KeyCode::Up if focus == EditLocationFocus::List => Some(Action::LocationMoveUp),
         KeyCode::Down if focus == EditLocationFocus::List => Some(Action::LocationMoveDown),
         // On the list, Enter/Space adopt the highlighted preset or match and save.
@@ -496,8 +502,7 @@ fn location_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
         KeyCode::Enter if focus == EditLocationFocus::Query => Some(Action::LocationResolve),
         // In the name field, Enter commits.
         KeyCode::Enter => Some(Action::LocationSave),
-        KeyCode::Backspace if focus != EditLocationFocus::List => Some(Action::LocationBackspace),
-        KeyCode::Char(ch) if focus != EditLocationFocus::List => Some(Action::LocationInput(ch)),
+        _ if focus != EditLocationFocus::List => Some(Action::InputKey(key)),
         _ => None,
     }
 }

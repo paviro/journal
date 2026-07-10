@@ -1,16 +1,17 @@
 use ratatui::{
     Frame,
+    layout::Rect,
     style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{HighlightSpacing, List},
+    text::Line,
+    widgets::{Clear, HighlightSpacing, List},
 };
 
 use crate::tui::{
     app::{App, Focus, Mode},
     entry_rows::visible_box_items,
     render::{
-        EntryListGeometry, caret_style, clamp_scroll, count_label, list_state_for_render,
-        panel_block, render_centered_notice, render_scrollbar_if_needed,
+        EntryListGeometry, clamp_scroll, count_label, list_state_for_render, panel_block,
+        render_centered_notice, render_scrollbar_if_needed,
     },
 };
 
@@ -34,12 +35,6 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
     let total_height = cache.total_height;
     let pixel_offset = clamp_scroll(app.nav.entry_list.offset(), total_height, viewport_height);
     *app.nav.entry_list.offset_mut() = pixel_offset;
-
-    // In search mode, show the live query on the panel's top-right border so it
-    // reads as the search field, rather than tucking it into the footer.
-    if app.nav.mode == Mode::Search {
-        block = block.title(search_field_title(app).right_aligned());
-    }
 
     // iOS-style sticky section header: once a month's divider scrolls above the
     // viewport, pin that month's label to the panel's top-right border so the
@@ -69,6 +64,12 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
         list_state_for_render(selected_visible, 0, viewport_height, highlight_active);
 
     frame.render_widget(block, geometry.panel.area);
+    // In search mode, the query renders as a fixed-width field on the panel's
+    // top-right border — sized from the panel, not the typed text, so it
+    // doesn't grow and shrink while typing.
+    if app.nav.mode == Mode::Search {
+        draw_search_field(frame, geometry.panel.area, app);
+    }
     frame.render_stateful_widget(list, geometry.panel.content, &mut render_state);
     render_scrollbar_if_needed(
         frame,
@@ -86,44 +87,30 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
     }
 }
 
-/// The search query drawn on the panel's top-right border. While the field is
-/// the active focus it carries a blinking block caret (`search.cursor_visible`)
-/// at the edit position; once focus moves off the field the caret is hidden and
-/// only the query text remains.
-fn search_field_title(app: &App) -> Line<'static> {
-    let show_caret = app.is_search_input_active();
-    let caret_style = caret_style(app.search.cursor_visible);
-
-    if app.search.query.is_empty() {
-        let mut spans = vec![Span::raw(" ")];
-        if show_caret {
-            spans.push(Span::styled(" ", caret_style));
-        }
-        spans.push(Span::styled(
-            "type to search ",
-            Style::default().add_modifier(Modifier::DIM),
-        ));
-        return Line::from(spans);
+/// The search field on the panel's top-right border: a fixed-width single-line
+/// textarea (with the native bar cursor while typing in it), padded one cell on
+/// each side so it doesn't run into the border line.
+fn draw_search_field(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
+    let field_w = (area.width / 2)
+        .clamp(12, 30)
+        .min(area.width.saturating_sub(6));
+    if field_w < 4 || area.height == 0 {
+        return;
     }
-
-    if !show_caret {
-        return Line::from(format!(" {} ", app.search.query));
-    }
-
-    let chars: Vec<char> = app.search.query.chars().collect();
-    let cursor = app.search.cursor.min(chars.len());
-    let before: String = chars[..cursor].iter().collect();
-    let mut spans = vec![Span::raw(" "), Span::raw(before)];
-    if cursor < chars.len() {
-        spans.push(Span::styled(chars[cursor].to_string(), caret_style));
-        let after: String = chars[cursor + 1..].iter().collect();
-        spans.push(Span::raw(after));
-    } else {
-        // Caret sits past the last char: draw it as an inverted trailing block.
-        spans.push(Span::styled(" ", caret_style));
-    }
-    spans.push(Span::raw(" "));
-    Line::from(spans)
+    let rect = Rect {
+        x: area.x + area.width - field_w - 2,
+        y: area.y,
+        width: field_w,
+        height: 1,
+    };
+    let pad = Rect {
+        x: rect.x - 1,
+        width: field_w + 2,
+        ..rect
+    };
+    frame.render_widget(Clear, pad);
+    let focused = app.is_search_input_active() && !app.has_overlay() && app.editor.is_none();
+    app.search.query.render_in(frame, rect, focused);
 }
 
 /// The month label to pin on the panel border. The first month rides the border

@@ -16,8 +16,7 @@ impl App {
         self.search.scope = scope;
         self.nav.mode = Mode::Search;
         self.nav.focus = Focus::Entries;
-        self.search.cursor = query.chars().count();
-        self.search.query = query;
+        self.search.query.set_text(&query);
         self.search.hits = hits;
         self.commit_search_selection();
     }
@@ -26,7 +25,6 @@ impl App {
         self.nav.mode = Mode::Browse;
         self.search.scope = SearchScope::AllJournals;
         self.search.query.clear();
-        self.search.cursor = 0;
         self.search.hits.clear();
         self.commit_search_selection();
     }
@@ -62,59 +60,30 @@ impl App {
         self.search.last_edit = Some(Instant::now());
     }
 
-    /// The search caret is active (blinking) only while typing in the field.
+    /// The search field owns the caret only while typing in it.
     pub(crate) fn is_search_input_active(&self) -> bool {
         self.nav.mode == Mode::Search && self.nav.focus == Focus::Entries
     }
 
-    /// Byte offset in `query` for the current caret char index, clamped to the end.
-    fn search_cursor_byte(&self) -> usize {
-        self.search
-            .query
-            .char_indices()
-            .nth(self.search.cursor)
-            .map(|(byte, _)| byte)
-            .unwrap_or(self.search.query.len())
-    }
-
-    /// Insert a typed char at the caret and advance it.
-    pub(crate) fn search_insert(&mut self, ch: char) {
-        let byte = self.search_cursor_byte();
-        self.search.query.insert(byte, ch);
-        self.search.cursor += 1;
-        self.mark_search_dirty();
-    }
-
-    /// Delete the char before the caret (Backspace).
-    pub(crate) fn search_backspace(&mut self) {
-        if self.search.cursor == 0 {
-            return;
+    /// Feed a key press to the search field, deferring the hit recompute when
+    /// it changed the query (debounce).
+    pub(crate) fn search_input_key(&mut self, key: crossterm::event::KeyEvent) {
+        if self.search.query.input(key) {
+            self.mark_search_dirty();
         }
-        self.search.cursor -= 1;
-        let byte = self.search_cursor_byte();
-        self.search.query.remove(byte);
-        self.mark_search_dirty();
-    }
-
-    pub(crate) fn search_cursor_left(&mut self) {
-        self.search.cursor = self.search.cursor.saturating_sub(1);
-    }
-
-    pub(crate) fn search_cursor_right(&mut self) {
-        let max = self.search.query.chars().count();
-        self.search.cursor = (self.search.cursor + 1).min(max);
     }
 
     pub(super) fn search_results(&self) -> Vec<SearchHit> {
-        if let Some(tag) = self.search.query.strip_prefix("tags:") {
+        let query = self.search.query.as_str();
+        if let Some(tag) = query.strip_prefix("tags:") {
             self.search_results_by_metadata(MetadataKind::Tags, tag.trim())
-        } else if let Some(person) = self.search.query.strip_prefix("people:") {
+        } else if let Some(person) = query.strip_prefix("people:") {
             self.search_results_by_metadata(MetadataKind::People, person.trim())
-        } else if let Some(activity) = self.search.query.strip_prefix("activities:") {
+        } else if let Some(activity) = query.strip_prefix("activities:") {
             self.search_results_by_metadata(MetadataKind::Activities, activity.trim())
-        } else if let Some(feeling) = self.search.query.strip_prefix("feelings:") {
+        } else if let Some(feeling) = query.strip_prefix("feelings:") {
             self.search_results_by_feeling(feeling.trim())
-        } else if let Some(value) = self.search.query.strip_prefix("star:") {
+        } else if let Some(value) = query.strip_prefix("star:") {
             match parse_starred_value(value) {
                 Some(want) => self.search_results_by_starred(want),
                 // An unparseable flag (e.g. `star:maybe`) matches nothing,
@@ -122,11 +91,7 @@ impl App {
                 None => Vec::new(),
             }
         } else {
-            search_loaded_entries(
-                &self.library.entries,
-                &self.search.query,
-                &self.search.scope,
-            )
+            search_loaded_entries(&self.library.entries, query, &self.search.scope)
         }
     }
 

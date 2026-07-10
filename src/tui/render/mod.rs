@@ -13,7 +13,6 @@ mod unlock;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
-    style::{Modifier, Style},
     widgets::{ListState, Paragraph},
 };
 
@@ -41,25 +40,25 @@ pub(crate) use chrome::{
     Hint, HintId, MetadataChoice, MetadataMenuMode, centered_rect_fixed_size, confirm_button_at,
     count_label, draw_editor_discard_confirm, draw_editor_shortcuts, draw_metadata_menu,
     draw_modal_frame, editor_discard_choice_at_point, editor_shortcut_close_at_point,
-    editor_shortcut_hint_at_point,
-    expanded_footer_height, expanded_footer_hint_id_at_point, expanded_footer_lines,
-    footer_hint_id_at_point, footer_lines, hint_id_at_wrapped, metadata_menu_choice_at_point,
-    metadata_menu_close_at_point, panel_block, render_centered_notice, render_scrollbar_if_needed,
+    editor_shortcut_hint_at_point, expanded_footer_height, expanded_footer_hint_id_at_point,
+    expanded_footer_lines, footer_hint_id_at_point, footer_lines, hint_id_at_wrapped,
+    metadata_menu_choice_at_point, metadata_menu_close_at_point, panel_block,
+    render_centered_notice, render_scrollbar_if_needed,
 };
 #[cfg(test)]
 pub(crate) use chrome::{
     expanded_footer_text, footer_height, footer_hint_id_at, footer_text, hint_grid_text,
     hint_height,
 };
-use dialogs::{
-    draw_confirm_delete, draw_edit_feelings_dialog, draw_edit_location_dialog,
-    draw_edit_metadata_dialog, draw_edit_mood_dialog, draw_new_journal_input,
-};
 pub(crate) use dialogs::{
     confirm_delete_inner, feelings_dialog_hints, feelings_dialog_layout,
     feelings_selected_line_count, location_dialog_hints, location_dialog_layout,
     location_list_row_at, location_list_rows, metadata_dialog_hints, metadata_dialog_layout,
     mood_dialog_hints, mood_dialog_layout,
+};
+use dialogs::{
+    draw_confirm_delete, draw_edit_feelings_dialog, draw_edit_location_dialog,
+    draw_edit_metadata_dialog, draw_edit_mood_dialog, draw_new_journal_input,
 };
 use entries::draw_entry_list;
 use image_viewer::draw_image_viewer;
@@ -73,16 +72,6 @@ pub(crate) use pending::{
     AccessNotice, draw_disable_notice, draw_pending_notice, draw_pending_request,
 };
 pub(crate) use unlock::draw_unlock;
-
-/// Style for the blinking block caret shared by the search field and the unlock
-/// screen: reversed video while visible, plain while blinked off.
-pub(crate) fn caret_style(visible: bool) -> Style {
-    if visible {
-        Style::default().add_modifier(Modifier::REVERSED)
-    } else {
-        Style::default()
-    }
-}
 
 pub(crate) fn list_state_for_render(
     selected: Option<usize>,
@@ -99,6 +88,10 @@ pub(crate) fn list_state_for_render(
 }
 
 pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
+    // A field that isn't re-drawn this frame (its panel hidden by a fullscreen
+    // pane) must not keep swallowing clicks at its stale coordinates; drawing
+    // it below re-registers the rect.
+    app.search.query.forget_area();
     let area = frame.area();
 
     // Cleared each frame; the entry-view render repopulates it when an entry is
@@ -173,7 +166,7 @@ fn draw_overlays(frame: &mut Frame<'_>, app: &mut App) {
         draw_metadata_menu(frame, MetadataMenuMode::Viewer);
     }
 
-    if let Some(input) = app.new_journal_input() {
+    if let Some(input) = app.new_journal_input_mut() {
         draw_new_journal_input(frame, input);
     }
 

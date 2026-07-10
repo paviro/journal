@@ -33,7 +33,7 @@ pub(crate) fn dispatch_action(
     app: &mut App,
     action: Action,
 ) -> AppResult<bool> {
-    use crate::tui::state::EditMetadataFocus;
+    use crate::tui::app::EditMetadataFocus;
 
     match action {
         Action::Quit => return Ok(true),
@@ -104,6 +104,11 @@ pub(crate) fn dispatch_action(
                 editor.textarea.input(key);
             }
         }
+        Action::EditorSelectAll => {
+            if let Some(editor) = app.editor.as_mut() {
+                editor.textarea.select_all();
+            }
+        }
         Action::EditorScroll(delta) => {
             if let Some(editor) = app.editor.as_mut() {
                 editor.scroll_lines(delta);
@@ -164,17 +169,14 @@ pub(crate) fn dispatch_action(
             keep_selection_visible(terminal, app)?;
         }
 
-        Action::JournalInputChar(ch) => {
-            if let Some(input) = app.new_journal_input_mut() {
-                input.push(ch);
-            }
-        }
-        Action::JournalInputBackspace => {
-            if let Some(input) = app.new_journal_input_mut() {
-                input.pop();
-            }
-        }
         Action::JournalInputSubmit => submit_new_journal(app)?,
+
+        Action::InputKey(key) => app.handle_text_input_key(key),
+        Action::InputSelectAll => {
+            if let Some(input) = app.focused_text_input_mut() {
+                input.select_all();
+            }
+        }
 
         Action::MetadataMoveUp | Action::FeelingsMoveUp | Action::LocationMoveUp => {
             navigate_open_dialog(terminal, app, |list| list.move_up())?;
@@ -193,18 +195,6 @@ pub(crate) fn dispatch_action(
                     EditMetadataFocus::List => EditMetadataFocus::Input,
                     EditMetadataFocus::Input => EditMetadataFocus::List,
                 };
-            }
-        }
-        Action::MetadataInput(ch) => {
-            if let Some(state) = app.edit_metadata_state_mut() {
-                state.input.push(ch);
-                state.rebuild_filter();
-            }
-        }
-        Action::MetadataBackspace => {
-            if let Some(state) = app.edit_metadata_state_mut() {
-                state.input.pop();
-                state.rebuild_filter();
             }
         }
         Action::MetadataAddFromInput => {
@@ -250,18 +240,6 @@ pub(crate) fn dispatch_action(
         Action::FeelingsSwitchFocus => {
             if let Some(state) = app.edit_feeling_state_mut() {
                 state.switch_focus();
-            }
-        }
-        Action::FeelingsInput(ch) => {
-            if let Some(state) = app.edit_feeling_state_mut() {
-                state.input.push(ch);
-                state.rebuild_filter();
-            }
-        }
-        Action::FeelingsBackspace => {
-            if let Some(state) = app.edit_feeling_state_mut() {
-                state.input.pop();
-                state.rebuild_filter();
             }
         }
         Action::FeelingsSave => {
@@ -322,16 +300,6 @@ pub(crate) fn dispatch_action(
                 state.switch_focus();
             }
         }
-        Action::LocationInput(ch) => {
-            if let Some(state) = app.edit_location_state_mut() {
-                state.input_char(ch);
-            }
-        }
-        Action::LocationBackspace => {
-            if let Some(state) = app.edit_location_state_mut() {
-                state.backspace();
-            }
-        }
         Action::LocationResolve => app.resolve_location_query(),
         Action::LocationGrabDevice => app.grab_device_location(),
         Action::LocationSelectRow => {
@@ -341,26 +309,33 @@ pub(crate) fn dispatch_action(
             let Some(location) = app.edit_location_state().map(|state| state.composed()) else {
                 return Ok(false);
             };
-            commit_entry_edit(app, |app| set_location_on_entry(app, location.clone()))?;
+            edit_or_commit(
+                app,
+                |app| app.set_editor_location(location.clone()),
+                |app| set_location_on_entry(app, location.clone()),
+            )?;
         }
         Action::LocationSave => {
             let Some(location) = app.edit_location_state().map(|state| state.composed()) else {
                 return Ok(false);
             };
-            commit_entry_edit(app, |app| set_location_on_entry(app, location.clone()))?;
+            edit_or_commit(
+                app,
+                |app| app.set_editor_location(location.clone()),
+                |app| set_location_on_entry(app, location.clone()),
+            )?;
         }
         Action::LocationClear => {
-            commit_entry_edit(app, |app| set_location_on_entry(app, None))?;
+            edit_or_commit(
+                app,
+                |app| app.set_editor_location(None),
+                |app| set_location_on_entry(app, None),
+            )?;
         }
 
         Action::OpenImageViewer(index) => app.begin_image_viewer(index),
         Action::ImageViewerNext => app.image_viewer_step(1),
         Action::ImageViewerPrev => app.image_viewer_step(-1),
-
-        Action::SearchInput(ch) => app.search_insert(ch),
-        Action::SearchBackspace => app.search_backspace(),
-        Action::SearchCursorLeft => app.search_cursor_left(),
-        Action::SearchCursorRight => app.search_cursor_right(),
 
         Action::ToggleHints => {
             app.state.ui.show_hints = !app.state.ui.show_hints;
