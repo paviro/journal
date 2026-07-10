@@ -2,7 +2,6 @@ mod action;
 mod actions;
 mod keyboard;
 mod mouse;
-mod terminal;
 
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use std::io;
@@ -20,10 +19,9 @@ use ratatui_textarea::CursorMove;
 
 use action::Action;
 use actions::{
-    create_entry_in_selected_journal, delete_selected, delete_selected_journal, edit_selected,
-    save_internal_editor, set_feelings_on_entry, set_location_on_entry, set_metadata_on_entry,
-    set_mood_on_entry, submit_new_journal, toggle_archive_selected_journal,
-    toggle_starred_on_entry, view_selected,
+    delete_selected, delete_selected_journal, save_internal_editor, set_feelings_on_entry,
+    set_location_on_entry, set_metadata_on_entry, set_mood_on_entry, submit_new_journal,
+    toggle_archive_selected_journal, toggle_starred_on_entry, view_selected,
 };
 use keyboard::{keep_selection_visible, move_focus_left, move_focus_right};
 
@@ -70,15 +68,7 @@ pub(crate) fn dispatch_action(
         Action::ExitSearch => {
             app.exit_search();
         }
-        Action::EditSelected => {
-            if app.config.editor.is_internal() {
-                app.open_editor_for_selected();
-            } else {
-                let snapshot = EntryViewSnapshot::capture(app);
-                edit_selected(terminal, app)?;
-                restore_entry_view_or_close(app, snapshot);
-            }
-        }
+        Action::EditSelected => app.open_editor_for_selected(),
         Action::EditorSave => {
             let restore_existing = matches!(
                 app.editor.as_ref().map(|editor| &editor.target),
@@ -159,29 +149,7 @@ pub(crate) fn dispatch_action(
             app.begin_edit_mood();
         }
         Action::ToggleStarred => commit_entry_edit(app, toggle_starred_on_entry)?,
-        Action::NewEntry => {
-            if app.config.editor.is_internal() {
-                app.open_editor_for_new();
-            } else {
-                let snapshot = EntryViewSnapshot::capture(app);
-                let restore_to_viewer = snapshot
-                    .as_ref()
-                    .is_some_and(|snapshot| snapshot.focus == Focus::EntryView);
-                let created = create_entry_in_selected_journal(terminal, app)?;
-                if restore_to_viewer {
-                    let created_id = created.as_deref().and_then(journal_storage::entry_id);
-                    if let Some(id) = created_id {
-                        if app.select_entry_by_id(&id, true) {
-                            app.nav.focus = Focus::EntryView;
-                        } else {
-                            restore_entry_view_or_close(app, snapshot);
-                        }
-                    } else {
-                        restore_entry_view_or_close(app, snapshot);
-                    }
-                }
-            }
-        }
+        Action::NewEntry => app.open_editor_for_new(),
         Action::NewJournal => app.begin_new_journal_input(),
         Action::ToggleInsightsScope => {
             app.nav.insights_scope = app.nav.insights_scope.toggle();
@@ -410,6 +378,12 @@ pub(crate) fn dispatch_action(
             }
             crate::config::save_state(&app.config_path, &app.state)?;
         }
+    }
+
+    // One-shot compose (`journal log` with no body) quits as soon as its editor
+    // closes — whether the entry was saved or discarded.
+    if app.compose && app.editor.is_none() {
+        return Ok(true);
     }
 
     Ok(false)

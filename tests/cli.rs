@@ -13,11 +13,7 @@ fn journal_bin() -> &'static str {
 }
 
 fn write_config(path: &Path, root: &Path, default_journal: Option<&str>) {
-    write_config_with_editor(path, root, default_journal, "true");
-}
-
-fn write_config_with_editor(path: &Path, root: &Path, default_journal: Option<&str>, editor: &str) {
-    let mut config = journal::config::Config::new(root.to_path_buf(), editor);
+    let mut config = journal::config::Config::new(root.to_path_buf());
     config.journal.default = default_journal.map(str::to_string);
     journal::config::save_config(path, &config).unwrap();
 }
@@ -309,67 +305,9 @@ fn piped_log_command_creates_entry_in_default_journal() {
     assert!(entries[0].body.contains("Line one\n\nLine three"));
 }
 
-#[test]
-fn editor_log_command_creates_entry_in_default_journal() {
-    let dir = tempdir().unwrap();
-    let root = dir.path().join("journals");
-    let config = dir.path().join("config.toml");
-    fs::create_dir_all(root.join("work")).unwrap();
-
-    let script = dir.path().join("fake-editor.sh");
-    fs::write(
-        &script,
-        "#!/bin/sh\nprintf '# Edited\\nBody from fake editor\\n' >> \"$1\"\n",
-    )
-    .unwrap();
-    let chmod = Command::new("chmod")
-        .arg("+x")
-        .arg(&script)
-        .status()
-        .unwrap();
-    assert!(chmod.success());
-    write_config_with_editor(&config, &root, Some("work"), script.to_str().unwrap());
-
-    let output = Command::new(journal_bin())
-        .arg("--config")
-        .arg(config.parent().unwrap())
-        .arg("log")
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let entries = scan_entries_for(&root, "work");
-    assert_eq!(entries.len(), 1);
-    assert!(entries[0].body.contains("# Edited"));
-}
-
-#[test]
-fn editor_log_command_creates_no_entry_when_body_is_empty() {
-    let dir = tempdir().unwrap();
-    let root = dir.path().join("journals");
-    let config = dir.path().join("config.toml");
-    fs::create_dir_all(root.join("work")).unwrap();
-    write_config(&config, &root, Some("work"));
-
-    let output = Command::new(journal_bin())
-        .arg("--config")
-        .arg(config.parent().unwrap())
-        .arg("log")
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(scan_entries_for(&root, "work").is_empty());
-}
+// `journal log` with no body now opens the interactive fullscreen editor, which
+// can't be driven from a headless subprocess, so that path is exercised by the
+// in-process editor tests in `src/tui/` rather than here.
 
 #[test]
 fn bare_text_is_rejected() {
@@ -514,35 +452,6 @@ fn log_command_rejects_text_and_piped_stdin_together() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("piped stdin"));
     assert!(scan_entries_for(&root, "work").is_empty());
-}
-
-#[test]
-fn fake_editor_command_edits_entry_files_in_place() {
-    let root = tempdir().unwrap();
-    fs::create_dir_all(root.path().join("work")).unwrap();
-
-    let script = root.path().join("fake-editor.sh");
-    fs::write(
-        &script,
-        "#!/bin/sh\nprintf '\\n# Edited\\nBody from fake editor\\n' >> \"$1\"\n",
-    )
-    .unwrap();
-    let chmod = Command::new("chmod")
-        .arg("+x")
-        .arg(&script)
-        .status()
-        .unwrap();
-    assert!(chmod.success());
-
-    let store = JournalStore::for_config(&root.path().join("config.toml"), root.path()).unwrap();
-    let entry = store
-        .create_entry_via_editor("work", &Metadata::default(), |body| {
-            journal::editor::edit_body(script.to_str().unwrap(), body)
-        })
-        .unwrap()
-        .unwrap();
-    let entry_text = fs::read_to_string(entry).unwrap();
-    assert!(entry_text.contains("# Edited"));
 }
 
 #[test]
@@ -848,33 +757,23 @@ fn encrypted_entry_command_writes_age_files_without_unlocking() {
 }
 
 #[test]
-fn encrypted_editor_log_command_writes_age_files_without_unlocking() {
+fn encrypted_log_command_writes_age_files_without_unlocking() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
     let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
     store.unlock(Some(&SecretString::from("secret"))).unwrap();
+    // Remove the identity so the CLI has no way to decrypt — a new entry must
+    // still encrypt to the roster, proving writing needs only the recipients.
     fs::remove_file(&store.paths().keys.identity_file).unwrap();
     fs::create_dir_all(root.join("work")).unwrap();
-
-    let script = dir.path().join("fake-editor.sh");
-    fs::write(
-        &script,
-        "#!/bin/sh\nprintf '# Encrypted editor body\\n' >> \"$1\"\n",
-    )
-    .unwrap();
-    let chmod = Command::new("chmod")
-        .arg("+x")
-        .arg(&script)
-        .status()
-        .unwrap();
-    assert!(chmod.success());
-    write_config_with_editor(&config, &root, Some("work"), script.to_str().unwrap());
+    write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
         .arg("--config")
         .arg(config.parent().unwrap())
         .arg("log")
+        .arg("# Encrypted editor body")
         .output()
         .unwrap();
 

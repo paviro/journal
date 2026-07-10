@@ -62,21 +62,18 @@ impl EditOutcome {
     }
 }
 
-/// Read, extract body, call `edit`, then reassemble and write back.
+/// Replace an entry's body with `new_body`, preserving its front matter.
 ///
-/// The callback receives the body text (without front matter) and returns the
-/// new body, or `None` when the editor cancelled/failed.
-pub fn edit_entry_body(
+/// An empty `new_body` deletes the entry when `remove_if_empty` is set; a body
+/// equal to the current one is a no-op. The outcome lets callers record editing
+/// time only on a real change.
+pub fn set_entry_body(
     codec: &EntryCodec<'_>,
     path: &Path,
     remove_if_empty: bool,
-    edit: impl FnOnce(&str) -> AppResult<Option<String>>,
+    new_body: &str,
 ) -> AppResult<EditOutcome> {
     let entry = codec.open(path)?;
-
-    let Some(new_body) = edit(&entry.body)? else {
-        return Ok(EditOutcome::Unchanged);
-    };
 
     if remove_if_empty && new_body.trim().is_empty() {
         fs::remove_file(path)?;
@@ -85,8 +82,7 @@ pub fn edit_entry_body(
     }
 
     let new_body = new_body.trim_start_matches('\n');
-    let changed = new_body != entry.body;
-    if !changed {
+    if new_body == entry.body {
         return Ok(EditOutcome::Unchanged);
     }
     codec.write_body(path, entry.front_matter.as_deref(), new_body)?;

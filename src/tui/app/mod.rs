@@ -377,6 +377,10 @@ pub(crate) struct App {
     /// [`Overlay`] because it replaces the entry-view content rather than
     /// floating a modal over it.
     pub(crate) editor: Option<EntryEditor>,
+    /// One-shot compose mode: the app launched straight into a fullscreen new-entry
+    /// editor (`journal log` with no body) and quits once that entry is saved or
+    /// discarded, rather than dropping back to the entry list.
+    pub(crate) compose: bool,
     pub(crate) status_bar: StatusBar,
     pub(crate) image: ImageState,
     /// Background geocoding for the location dialog; spawned on first lookup.
@@ -460,6 +464,7 @@ impl App {
             search: SearchState::default(),
             overlay: Overlay::None,
             editor: None,
+            compose: false,
             status_bar: StatusBar::default(),
             image: ImageState::default(),
             geocode: crate::tui::geocode::GeocodeWorker::default(),

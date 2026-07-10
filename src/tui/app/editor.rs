@@ -1,6 +1,7 @@
 use super::{App, Focus};
 use crate::tui::editor_state::{EditorTarget, EntryEditor};
 use crate::tui::state::MetadataKind;
+use journal_core::Metadata;
 
 impl App {
     /// Open the internal editor on the selected entry, replacing the entry-view
@@ -40,6 +41,20 @@ impl App {
         };
         self.editor = Some(EntryEditor::for_new(journal));
         self.nav.focus = Focus::EntryView;
+    }
+
+    /// Enter one-shot compose mode: open a fullscreen new-entry editor for
+    /// `journal`, seeded with any metadata from the `journal log` flags, and mark
+    /// the app to quit once that entry is saved or discarded. No journal need be
+    /// selected.
+    pub(crate) fn begin_compose(&mut self, journal: String, metadata: Metadata) {
+        let mut editor = EntryEditor::for_new(journal);
+        editor.metadata = metadata.clone();
+        editor.original_metadata = metadata;
+        self.editor = Some(editor);
+        self.nav.entry_view_fullscreen = true;
+        self.nav.focus = Focus::EntryView;
+        self.compose = true;
     }
 
     /// Discard the open editor without saving. A cancelled new-entry compose has

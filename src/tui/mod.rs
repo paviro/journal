@@ -52,7 +52,40 @@ pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResu
     // Ensure the store exists before probing for a lock so identity checks
     // reflect on-disk state.
     store.ensure()?;
+    with_terminal(|terminal| run_after_unlock(terminal, config_path, config, store))
+}
 
+/// Launch straight into a fullscreen new-entry editor and quit once the entry is
+/// saved or discarded — the `journal log` no-body path. Never prompts for a
+/// passphrase: a passphrase-less identity is unlocked silently so the metadata
+/// dialogs can suggest recently-used people/tags from existing entries, but an
+/// identity that *needs* a passphrase is left locked (writing a new entry needs
+/// only the recipients roster, so it works either way; the store's other entries
+/// simply stay locked placeholders behind the editor).
+pub fn run_compose(
+    config_path: PathBuf,
+    config: Config,
+    mut store: JournalStore,
+    journal: String,
+    metadata: journal_core::Metadata,
+) -> AppResult<()> {
+    store.ensure()?;
+    if store.unlock_available() && !store.identity_needs_passphrase()? {
+        store.unlock(None)?;
+    }
+    with_terminal(|terminal| {
+        let mut app = App::new(config_path, config, store)?;
+        app.begin_compose(journal, metadata);
+        run_loop(terminal, app)
+    })
+}
+
+/// Set up the terminal (raw mode + alternate screen + mouse capture), run `inner`,
+/// then restore the terminal — disarming the panic-restore guard only on a clean
+/// restore. Shared by [`run`] and [`run_compose`].
+fn with_terminal(
+    inner: impl FnOnce(&mut Terminal<CrosstermBackend<io::Stdout>>) -> AppResult<()>,
+) -> AppResult<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -60,7 +93,7 @@ pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResu
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_after_unlock(&mut terminal, config_path, config, store);
+    let result = inner(&mut terminal);
 
     let restore_result = restore_terminal(terminal.backend_mut());
     if restore_result.is_ok() {

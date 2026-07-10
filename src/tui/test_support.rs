@@ -31,7 +31,7 @@ pub(crate) fn new_app_with_state(config: Config, state: State) -> App {
 fn app_in_temp(setup: impl FnOnce(&Path)) -> App {
     let dir = tempdir().unwrap();
     setup(dir.path());
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let app = new_app(config);
     std::mem::forget(dir);
     app

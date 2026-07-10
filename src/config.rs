@@ -12,8 +12,6 @@ use std::{
 pub struct Config {
     pub journal: JournalSection,
     #[serde(default)]
-    pub editor: EditorSection,
-    #[serde(default)]
     pub attachments: AttachmentsSection,
     #[serde(default)]
     pub ui: UiSection,
@@ -27,21 +25,6 @@ pub struct JournalSection {
     /// Journal selected on startup when the previous session didn't record one.
     #[serde(default)]
     pub default: Option<String>,
-}
-
-/// The editor used to write entries: either an external command, or the
-/// built-in editor when [`command`](Self::command) is the sentinel `internal`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct EditorSection {
-    #[serde(default = "default_editor")]
-    pub command: String,
-}
-
-impl EditorSection {
-    /// Whether entries open in the built-in editor rather than an external one.
-    pub fn is_internal(&self) -> bool {
-        self.command.trim().eq_ignore_ascii_case("internal")
-    }
 }
 
 /// How entry attachments are handled.
@@ -80,14 +63,6 @@ pub struct EntryViewerSection {
     pub body_max_width: u16,
 }
 
-impl Default for EditorSection {
-    fn default() -> Self {
-        Self {
-            command: default_editor(),
-        }
-    }
-}
-
 impl Default for AttachmentsSection {
     fn default() -> Self {
         Self {
@@ -113,21 +88,12 @@ fn default_body_max_width() -> u16 {
     100
 }
 
-fn default_editor() -> String {
-    // External nano stays the default for now; a future release flips this to
-    // "internal" to make the built-in editor the default.
-    "nano".to_string()
-}
-
 impl Config {
-    pub fn new(journal_root: PathBuf, editor: impl Into<String>) -> Self {
+    pub fn new(journal_root: PathBuf) -> Self {
         Self {
             journal: JournalSection {
                 path: expand_tilde(journal_root),
                 default: None,
-            },
-            editor: EditorSection {
-                command: editor.into(),
             },
             attachments: AttachmentsSection::default(),
             ui: UiSection::default(),
@@ -328,20 +294,7 @@ fn interactive_setup(config_path: &Path) -> AppResult<(Config, JournalStore)> {
         PathBuf::from(root_input.trim())
     };
 
-    write!(
-        stdout,
-        "Editor (a command like nano/vim, or `internal` for the built-in editor) [nano]: "
-    )?;
-    stdout.flush()?;
-    let mut editor_input = String::new();
-    io::stdin().read_line(&mut editor_input)?;
-    let editor = if editor_input.trim().is_empty() {
-        "nano".to_string()
-    } else {
-        editor_input.trim().to_string()
-    };
-
-    let config = Config::new(journal_root, editor);
+    let config = Config::new(journal_root);
     let store = JournalStore::for_config(config_path, &config.journal.path)?;
     store.ensure()?;
 
@@ -466,7 +419,6 @@ mod tests {
         let config = load_config(&path).unwrap();
 
         assert!(config.journal.path.ends_with("Journals"));
-        assert_eq!(config.editor.command, "nano");
         assert_eq!(config.journal.default, None);
     }
 
@@ -475,7 +427,7 @@ mod tests {
         let dir = tempdir().unwrap();
         // A nested path also exercises that save creates missing parent dirs.
         let path = dir.path().join("nested").join("config.toml");
-        let mut config = Config::new(dir.path().join("root"), "vim");
+        let mut config = Config::new(dir.path().join("root"));
         config.journal.default = Some("work".to_string());
         config.attachments.download_remote_images = false;
         config.ui.layout.entry_viewer.body_center_vertically = false;
@@ -495,7 +447,6 @@ mod tests {
 
         let config = load_config(&path).unwrap();
 
-        assert_eq!(config.editor.command, "nano");
         assert!(config.attachments.download_remote_images);
         assert!(config.ui.layout.entry_viewer.body_center_vertically);
         assert_eq!(config.ui.layout.entry_viewer.body_max_width, 100);

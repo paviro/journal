@@ -729,33 +729,16 @@ impl JournalStore {
         codec.write_existing(path, &updated)
     }
 
-    /// Open a new entry in the editor. The callback receives an empty string
-    /// and returns the body text the user wrote, or `None` to cancel.
-    pub fn create_entry_via_editor(
-        &self,
-        journal: &str,
-        metadata: &Metadata,
-        edit: impl FnOnce(&str) -> AppResult<Option<String>>,
-    ) -> AppResult<Option<PathBuf>> {
-        let Some(body) = edit("")? else {
-            return Ok(None);
-        };
-        if body.trim().is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(self.create_entry_with_body(journal, &body, metadata)?))
-    }
-
-    /// Open an existing entry in the editor. The callback receives the body
-    /// text and returns the edited body, or `None` to leave unchanged.
-    /// Returns `true` if the entry was kept, `false` if deleted for being empty.
-    pub fn edit_entry_via_editor(
+    /// Replace an existing entry's body, preserving its front matter. An empty
+    /// body deletes the entry when `remove_if_empty` is set; an unchanged body is
+    /// a no-op. The outcome lets callers record editing time only on a real edit.
+    pub fn set_entry_body(
         &self,
         path: &Path,
         remove_if_empty: bool,
-        edit: impl FnOnce(&str) -> AppResult<Option<String>>,
+        new_body: &str,
     ) -> AppResult<EditOutcome> {
-        storage::edit_entry_body(&self.entry_codec(), path, remove_if_empty, edit)
+        storage::set_entry_body(&self.entry_codec(), path, remove_if_empty, new_body)
     }
 
     /// The codec for reading and writing this store's entry files, carrying the

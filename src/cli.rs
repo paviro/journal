@@ -1,4 +1,4 @@
-use crate::{AppResult, config, editor, encryption_cli, prompts, tui};
+use crate::{AppResult, config, encryption_cli, prompts, tui};
 use anyhow::{Context, bail};
 use clap::{Args, Parser, Subcommand};
 use journal_core::feelings;
@@ -47,7 +47,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum CliCommand {
-    /// Create a journal entry from text, stdin, or the configured editor
+    /// Create a journal entry from text or stdin, or compose one in the editor
     Log(LogArgs),
     /// Set the default journal for new entries
     Use {
@@ -840,30 +840,28 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
     };
 
     let store = JournalStore::for_config(&config_path, &config.journal.path)?;
-    let path = if body_from_args || stdin_is_pipe {
-        let body = if body_from_args {
-            args.body.join(" ")
-        } else {
-            let mut body = String::new();
-            io::stdin().read_to_string(&mut body)?;
-            body
-        };
 
-        Some(store.create_entry_with_body(journal, &body, &metadata)?)
-    } else {
-        let editor_cmd = config.editor.command.clone();
-        store.create_entry_via_editor(journal, &metadata, |body| {
-            editor::edit_body(&editor_cmd, body)
-        })?
-    };
-    if let Some(path) = path {
-        let report =
-            store.process_entry_assets(&path, config.attachments.download_remote_images, false)?;
-        if !report.is_noop() {
-            eprintln!("{}", asset_report_message(&report));
-        }
-        println!("{}", path.display());
+    // No inline text: compose interactively in the fullscreen built-in editor. It
+    // handles asset ingest and status on save, so nothing is printed here.
+    if !body_from_args && !stdin_is_pipe {
+        let journal = journal.to_string();
+        return tui::run_compose(config_path, config, store, journal, metadata);
     }
+
+    let body = if body_from_args {
+        args.body.join(" ")
+    } else {
+        let mut body = String::new();
+        io::stdin().read_to_string(&mut body)?;
+        body
+    };
+    let path = store.create_entry_with_body(journal, &body, &metadata)?;
+    let report =
+        store.process_entry_assets(&path, config.attachments.download_remote_images, false)?;
+    if !report.is_noop() {
+        eprintln!("{}", asset_report_message(&report));
+    }
+    println!("{}", path.display());
     Ok(())
 }
 

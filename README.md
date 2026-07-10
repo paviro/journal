@@ -21,7 +21,8 @@ on light, dark, and monochrome/e-ink terminals.
   enter coordinates, or grab the device's current GPS — geocoded via
   OpenStreetMap Nominatim). Located entries also capture weather and air quality
   from Open-Meteo. See [Location](#location).
-- **Editor integration** — write and edit entries in `$EDITOR`.
+- **Built-in editor** — write and edit entries in a fullscreen editor, in the TUI
+  or straight from `journal log`.
 - **Day One import** — import a Day One JSON export, photos included.
 - **End-to-end encryption** — per-device [age](https://age-encryption.org) keys,
   a signed device roster, and an approval flow for adding new devices. Private
@@ -48,7 +49,6 @@ Run `journal` with no arguments to start setup. It asks for:
 
 - **Journal root** — the folder your entries live in (default `~/Journals`).
   Point this at a synced folder if you want multi-device sync (see below).
-- **Editor** — command used to write entries (default `nano`).
 
 For a brand-new, empty root it also offers to enable encryption on the spot.
 Config is written to `~/.config/journal/config.toml` (on macOS,
@@ -60,7 +60,7 @@ Config is written to `~/.config/journal/config.toml` (on macOS,
 ```bash
 journal                       # launch the TUI
 journal log "Had a good day"  # quick entry from the command line
-journal log                   # compose an entry in $EDITOR
+journal log                   # compose an entry in the fullscreen editor
 echo "note" | journal log     # entry from stdin
 journal use personal          # set the default journal for new entries via the cli
 ```
@@ -347,9 +347,6 @@ fuse-t's own layer may lag a few seconds before external changes appear.
 [journal]
 path = "~/Journals"             # point at a synced folder for multi-device use
 default = "personal"            # optional
-
-[editor]
-command = "nano"
 
 [attachments]
 download_remote_images = true   # fetch remote image links referenced in entries

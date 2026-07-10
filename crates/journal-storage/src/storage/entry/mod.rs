@@ -15,7 +15,7 @@ pub(crate) use assets::{ingest_and_cleanup_opts, resolve_entry_asset_path};
 pub(crate) use codec::EntryCodec;
 pub use create::{ImportedEntryDraft, create_entry, create_imported_entry};
 pub use edit::{
-    EditOutcome, delete_empty_entry, delete_journal, edit_entry_body, move_entry_to_trash,
+    EditOutcome, delete_empty_entry, delete_journal, move_entry_to_trash, set_entry_body,
 };
 #[cfg(test)]
 pub use paths::entry_path;

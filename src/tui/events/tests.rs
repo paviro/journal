@@ -56,7 +56,7 @@ fn set_tag_dialog_items(app: &mut App, count: usize) {
 fn enter_on_journals_moves_to_entries_like_right_arrow() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("work")).unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut enter_app = new_app(config.clone());
     let mut right_app = new_app(config);
 
@@ -77,7 +77,7 @@ fn right_on_entry_expands_when_inline_entry_view_is_hidden() {
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\nBody\n").unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::Entries;
@@ -98,7 +98,7 @@ fn expanded_entry_title_matches_entry_view_timestamp_title() {
         "+++\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::Entries;
@@ -115,7 +115,7 @@ fn right_on_entry_focuses_entry_view_when_entry_view_is_available() {
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\nBody\n").unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::Entries;
@@ -133,7 +133,6 @@ fn key(code: KeyCode) -> KeyEvent {
 #[test]
 fn keyboard_and_footer_edit_use_the_same_action() {
     let mut app = app_with_entries(1);
-    app.config.editor.command = "internal".to_string();
     app.nav.focus = Focus::Entries;
 
     let key_action = keyboard::key_to_action(&app, key(KeyCode::Char('e')), true);
@@ -146,7 +145,6 @@ fn keyboard_and_footer_edit_use_the_same_action() {
 #[test]
 fn editor_footer_hints_route_to_editor_actions() {
     let mut app = app_with_entries(1);
-    app.config.editor.command = "internal".to_string();
     app.open_editor_for_selected();
     app.state.ui.show_hints = false;
 
@@ -857,7 +855,7 @@ fn select_created_entry_path_opens_expanded_entry_view() {
     )
     .unwrap();
 
-    let config = Config::new(root.clone(), "true");
+    let config = Config::new(root.clone());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     view_selected(&mut app).unwrap();

@@ -1,41 +1,11 @@
-use crate::{AppResult, editor};
+use crate::AppResult;
 use journal_core::{Location, Metadata, MetadataField};
 use journal_storage::EditOutcome;
-use ratatui::{Terminal, backend::CrosstermBackend};
-use std::{
-    io,
-    path::{Path, PathBuf},
-    time::Instant,
-};
+use std::path::{Path, PathBuf};
 
-use super::terminal::suspend_terminal;
 use crate::tui::app::{App, EntryTarget, Focus};
 use crate::tui::editor_state::EditorTarget;
 use crate::tui::state::MetadataKind;
-
-type Term = Terminal<CrosstermBackend<io::Stdout>>;
-
-/// Open the entry at `path` in the editor, transparently handling encrypted
-/// entries (decrypt to a temp file, edit, re-encrypt) and plaintext ones. Records
-/// the editor-open time against the entry when the edit actually changed it.
-/// Returns the [`EditOutcome`].
-fn edit_entry_at(
-    terminal: &mut Term,
-    app: &App,
-    path: &Path,
-    editor_cmd: &str,
-) -> AppResult<EditOutcome> {
-    let start = Instant::now();
-    let outcome = suspend_terminal(terminal, || {
-        app.store
-            .edit_entry_via_editor(path, true, |body| editor::edit_body(editor_cmd, body))
-    })?;
-    if outcome == EditOutcome::Changed {
-        app.store
-            .add_writing_seconds(path, start.elapsed().as_secs())?;
-    }
-    Ok(outcome)
-}
 
 pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
     let value = app
@@ -55,49 +25,6 @@ pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
     app.set_status(format!("Created journal {}", journal.name));
     app.close_overlay();
     Ok(())
-}
-
-pub(super) fn create_entry_in_selected_journal(
-    terminal: &mut Term,
-    app: &mut App,
-) -> AppResult<Option<PathBuf>> {
-    if app.selected_journal().is_some() {
-        new_entry(terminal, app)
-    } else {
-        app.set_status("Create a journal first with n");
-        Ok(None)
-    }
-}
-
-fn new_entry(terminal: &mut Term, app: &mut App) -> AppResult<Option<PathBuf>> {
-    let Some(journal) = app.selected_journal().cloned() else {
-        app.set_status("No journal selected");
-        return Ok(None);
-    };
-
-    let editor_cmd = app.config.editor.command.clone();
-    let journal_name = journal.name;
-    let start = Instant::now();
-    let created = suspend_terminal(terminal, || {
-        app.store.create_entry_via_editor(
-            &journal_name,
-            &journal_core::Metadata::default(),
-            |body| editor::edit_body(&editor_cmd, body),
-        )
-    })?;
-    let elapsed = start.elapsed();
-    if let Some(path) = &created {
-        let report = app.store.process_entry_assets(
-            path,
-            app.config.attachments.download_remote_images,
-            false,
-        )?;
-        app.set_status(save_status("Entry saved", &report));
-        // A new entry always counts as written.
-        app.store.add_writing_seconds(path, elapsed.as_secs())?;
-        refresh_entry_path(app, path)?;
-    }
-    Ok(created)
 }
 
 /// Build a save status message, appending image ingest details when relevant.
@@ -136,23 +63,9 @@ fn reject_if_locked(app: &mut App, target: &EntryTarget) -> bool {
     true
 }
 
-pub(super) fn edit_selected(terminal: &mut Term, app: &mut App) -> AppResult<()> {
-    let Some(target) = app.selected_entry_target() else {
-        return Ok(());
-    };
-
-    if !reject_if_locked(app, &target) {
-        return Ok(());
-    }
-
-    let editor = app.config.editor.command.clone();
-    let outcome = edit_entry_at(terminal, app, &target.path, &editor)?;
-    finish_existing_edit(app, &target.path, &target.title, outcome)
-}
-
-/// The shared post-edit tail for an existing entry, run by both the external and
-/// internal editors: ingest any new image assets (or report the deletion),
-/// refresh the entry, and back-fill weather after a real change.
+/// The shared post-edit tail for an existing entry: ingest any new image assets
+/// (or report the deletion), refresh the entry, and back-fill weather after a
+/// real change.
 fn finish_existing_edit(
     app: &mut App,
     path: &Path,
@@ -237,8 +150,7 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
     match target {
         EditorTarget::Existing { path, title } => {
             let outcome = if text.trim().is_empty() || text != original_body {
-                app.store
-                    .edit_entry_via_editor(&path, true, |_old| Ok(Some(text)))?
+                app.store.set_entry_body(&path, true, &text)?
             } else {
                 EditOutcome::Unchanged
             };
@@ -264,9 +176,14 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
             }
         }
         EditorTarget::New { journal } => {
-            let created = app
-                .store
-                .create_entry_via_editor(&journal, &metadata, |_empty| Ok(Some(text)))?;
+            let created = if text.trim().is_empty() {
+                None
+            } else {
+                Some(
+                    app.store
+                        .create_entry_with_body(&journal, &text, &metadata)?,
+                )
+            };
             match created {
                 Some(path) => {
                     let report = app.store.process_entry_assets(
@@ -526,7 +443,7 @@ mod tests {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, "locked ciphertext placeholder").unwrap();
 
-        let config = Config::new(dir.path().to_path_buf(), "true");
+        let config = Config::new(dir.path().to_path_buf());
         let mut app = new_app(config);
         app.select_journal_by_name("work");
 
@@ -543,7 +460,7 @@ mod tests {
         let path = entry_dir.join("a.md");
         fs::write(&path, "+++\ntags = []\nfeelings = []\n+++\n\n# A\n").unwrap();
 
-        let config = Config::new(dir.path().to_path_buf(), "true");
+        let config = Config::new(dir.path().to_path_buf());
         let mut app = new_app(config);
         app.select_journal_by_name("work");
         let feelings = vec!["calm".to_string(), "focused".to_string()];
@@ -561,7 +478,7 @@ mod tests {
         let path = entry_dir.join("a.md");
         fs::write(&path, "+++\ntags = []\n+++\n\n# A\n").unwrap();
 
-        let config = Config::new(dir.path().to_path_buf(), "true");
+        let config = Config::new(dir.path().to_path_buf());
         let mut app = new_app(config);
         app.select_journal_by_name("work");
 
@@ -585,7 +502,7 @@ mod tests {
         let path = entry_dir.join("a.md");
         fs::write(&path, body).unwrap();
 
-        let config = Config::new(dir.path().to_path_buf(), "internal");
+        let config = Config::new(dir.path().to_path_buf());
         let mut app = new_app(config);
         app.select_journal_by_name("work");
         (dir, app, path)

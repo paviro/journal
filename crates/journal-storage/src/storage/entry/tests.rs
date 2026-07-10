@@ -107,7 +107,7 @@ fn create_entry_with_body_preserves_multiline_body_and_trailing_newline() {
 }
 
 #[test]
-fn edit_entry_body_reports_changed_unchanged_and_deleted() {
+fn set_entry_body_reports_changed_unchanged_and_deleted() {
     let dir = tempdir().unwrap();
     let codec = EntryCodec::plain();
     let path = create_entry(
@@ -121,21 +121,16 @@ fn edit_entry_body_reports_changed_unchanged_and_deleted() {
 
     // Saving the same body is not a change and does not rewrite timestamps.
     let before = fs::read_to_string(&path).unwrap();
-    let outcome = edit_entry_body(&codec, &path, true, |body| Ok(Some(body.to_string()))).unwrap();
+    let outcome = set_entry_body(&codec, &path, true, "original body\n").unwrap();
     assert_eq!(outcome, EditOutcome::Unchanged);
     assert_eq!(fs::read_to_string(&path).unwrap(), before);
 
     // A different body is a change.
-    let outcome =
-        edit_entry_body(&codec, &path, true, |_| Ok(Some("new body\n".to_string()))).unwrap();
+    let outcome = set_entry_body(&codec, &path, true, "new body\n").unwrap();
     assert_eq!(outcome, EditOutcome::Changed);
 
-    // A cancelled/failed editor (None) leaves it unchanged.
-    let outcome = edit_entry_body(&codec, &path, true, |_| Ok(None)).unwrap();
-    assert_eq!(outcome, EditOutcome::Unchanged);
-
     // Emptying it deletes the entry.
-    let outcome = edit_entry_body(&codec, &path, true, |_| Ok(Some("   ".to_string()))).unwrap();
+    let outcome = set_entry_body(&codec, &path, true, "   ").unwrap();
     assert_eq!(outcome, EditOutcome::Deleted);
     assert!(!path.exists());
 }

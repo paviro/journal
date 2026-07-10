@@ -410,7 +410,7 @@ fn entry_view_wraps_long_location_with_flush_left_continuation() {
             "+++\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Grand Central Station Cafe\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::EntryView;
@@ -511,7 +511,7 @@ fn entry_view_wraps_metadata_rows_without_leading_space_or_separator() {
             "+++\ntags = [\"work\", \"personal\", \"health\"]\nfeelings = [\"calm\", \"focused\", \"tired\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::EntryView;
@@ -582,7 +582,7 @@ fn short_entry_view_scrolls_metadata_after_body() {
             ),
         )
         .unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::EntryView;
@@ -590,7 +590,7 @@ fn short_entry_view_scrolls_metadata_after_body() {
     let top = render_text(app, 80, 20);
     assert!(!top.contains("Tags: tiny-screen"));
 
-    let mut app = new_app(Config::new(dir.path().to_path_buf(), "true"));
+    let mut app = new_app(Config::new(dir.path().to_path_buf()));
     app.select_journal_by_name("work");
     app.nav.focus = Focus::EntryView;
     app.nav.scroll.entry_view = u16::MAX;
@@ -911,7 +911,7 @@ fn entry_hit_testing_ignores_month_divider_and_maps_boxed_entries() {
         "+++\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nSecond preview\n",
     )
     .unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     let area = EntryListGeometry::new(Rect::new(0, 0, 40, 16));
@@ -992,7 +992,7 @@ fn first_month_rides_border_and_next_month_takes_over_after_scrolling() {
 }
 
 fn app_for(dir: &tempfile::TempDir) -> App {
-    let mut app = new_app(Config::new(dir.path().to_path_buf(), "true"));
+    let mut app = new_app(Config::new(dir.path().to_path_buf()));
     app.select_journal_by_name("work");
     app.nav.focus = Focus::Entries;
     app
@@ -1015,7 +1015,7 @@ fn entry_view_renders_feelings_metadata() {
             "+++\nfeelings = [\"calm\", \"focused\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::EntryView;
@@ -1035,7 +1035,7 @@ fn entry_view_renders_indented_mermaid_diagram() {
             "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n```mermaid\n  graph TD\n      A[Open journal] --> B[Write entry]\n      B --> C{Preview}\n      C -->|looks good| D[Save]\n      C -->|needs work| B\n  ```\n",
         )
         .unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::EntryView;
@@ -1065,7 +1065,7 @@ fn list_panels_show_counts_in_bottom_titles() {
     .unwrap();
     fs::create_dir_all(root.join("personal")).unwrap();
 
-    let config = Config::new(root, "true");
+    let config = Config::new(root);
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::Entries;
@@ -1198,7 +1198,7 @@ fn app_with_metadata_entry() -> App {
         "+++\ntags = [\"work\"]\nfeelings = [\"calm\"]\npeople = [\"alex\"]\nactivities = [\"running\"]\nmood = 3\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     std::mem::forget(dir);
@@ -1289,7 +1289,7 @@ fn app_with_drivers() -> App {
         )
         .unwrap();
     }
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     std::mem::forget(dir);
@@ -1360,7 +1360,7 @@ fn app_with_many_drivers(count: usize) -> App {
         )
         .unwrap();
     }
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     std::mem::forget(dir);
@@ -1600,7 +1600,7 @@ fn expanded_entry_draws_confirm_delete_overlay() {
 fn entries_footer_omits_entry_actions_without_a_selection() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("work")).unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::Entries;
@@ -2059,7 +2059,7 @@ fn internal_editor_shows_entry_location() {
         "+++\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Testville Cafe\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
-    let mut app = new_app(Config::new(dir.path().to_path_buf(), "true"));
+    let mut app = new_app(Config::new(dir.path().to_path_buf()));
     app.select_journal_by_name("work");
     app.open_editor_for_selected();
 

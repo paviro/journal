@@ -12,7 +12,7 @@ fn changing_selected_entry_resets_entry_view_scroll() {
     fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
     fs::write(entry_dir.join("b.md"), "+++\ntags = []\n+++\n\n# B\n").unwrap();
 
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::Entries;
@@ -31,7 +31,7 @@ fn scrolling_up_past_first_entry_deselects_and_shows_insights() {
     fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
     fs::write(entry_dir.join("b.md"), "+++\ntags = []\n+++\n\n# B\n").unwrap();
 
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     assert_eq!(app.nav.selected_entry_index, Some(0));
@@ -56,7 +56,7 @@ fn focusing_journals_shows_insights_even_with_a_lingering_entry_selection() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
 
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.select_entry_index(0);
@@ -82,7 +82,7 @@ fn focusing_insights_shows_insights_even_with_a_lingering_entry_selection() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
 
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.select_entry_index(0);
@@ -107,7 +107,7 @@ fn hidden_journals_launch_focuses_entries_with_insights_preview() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
 
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut state = crate::config::State::default();
     state.ui.show_journals = false;
     let app = new_app_with_state(config, state);
@@ -128,7 +128,7 @@ fn selected_entry_view_title_uses_entry_timestamp() {
     )
     .unwrap();
 
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
 
@@ -149,7 +149,7 @@ fn search_entry_view_title_uses_entry_timestamp() {
     )
     .unwrap();
 
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.begin_search();
@@ -169,7 +169,7 @@ fn journal_focus_does_not_make_entry_targets_actionable() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
 
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
 
@@ -198,7 +198,7 @@ fn inline_entry_view_uses_minimum_three_column_width() {
 
 #[test]
 fn search_from_journal_focus_is_global() {
-    let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+    let config = Config::new(tempdir().unwrap().path().to_path_buf());
     let mut app = new_app(config);
     app.nav.focus = Focus::Journals;
 
@@ -211,7 +211,7 @@ fn search_from_journal_focus_is_global() {
 fn search_from_entries_focus_is_scoped_to_selected_journal() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("work")).unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::Entries;
@@ -223,7 +223,7 @@ fn search_from_entries_focus_is_scoped_to_selected_journal() {
 
 #[test]
 fn empty_search_has_no_selected_entry() {
-    let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+    let config = Config::new(tempdir().unwrap().path().to_path_buf());
     let mut app = new_app(config);
 
     app.begin_search();
@@ -248,7 +248,7 @@ fn feelings_search_matches_exact_known_label() {
     )
     .unwrap();
 
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.begin_search();
@@ -271,7 +271,7 @@ fn starred_search_filters_by_flag() {
     .unwrap();
     fs::write(entry_dir.join("b.md"), "+++\n+++\n\n# Plain\n").unwrap();
 
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.begin_search();
@@ -314,7 +314,7 @@ fn begin_edit_feelings_uses_fixed_list_and_selected_entry_values() {
     )
     .unwrap();
 
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
 
@@ -333,7 +333,7 @@ fn begin_edit_feelings_uses_fixed_list_and_selected_entry_values() {
 
 #[test]
 fn status_timeout_is_none_without_active_status() {
-    let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+    let config = Config::new(tempdir().unwrap().path().to_path_buf());
     let app = new_app(config);
 
     assert!(app.status_timeout().is_none());
@@ -341,7 +341,7 @@ fn status_timeout_is_none_without_active_status() {
 
 #[test]
 fn status_timeout_is_some_with_active_status() {
-    let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+    let config = Config::new(tempdir().unwrap().path().to_path_buf());
     let mut app = new_app(config);
 
     app.set_status("Saved");
@@ -351,7 +351,7 @@ fn status_timeout_is_some_with_active_status() {
 
 #[test]
 fn expire_status_reports_visible_change_once() {
-    let config = Config::new(tempdir().unwrap().path().to_path_buf(), "true");
+    let config = Config::new(tempdir().unwrap().path().to_path_buf());
     let mut app = new_app(config);
     app.status_bar.set_expired("Saved");
 
@@ -375,7 +375,7 @@ fn entry_rows_cache_is_reused_until_inputs_change() {
         "+++\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
     )
     .unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
 
@@ -402,7 +402,7 @@ fn search_insert_defers_hit_recompute_until_committed() {
         "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nneedle\n",
     )
     .unwrap();
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.begin_search();
@@ -443,7 +443,7 @@ fn refresh_paths_updates_only_the_changed_entry() {
         "# A\nold body",
     );
     write_entry(&entry_dir, "b.md", "2026-07-01T11:00:00+02:00", "# B\nbee");
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     assert_eq!(app.library.entries.len(), 2);
@@ -484,7 +484,7 @@ fn refresh_paths_handles_create_and_delete() {
         "2026-07-01T10:00:00+02:00",
         "# A\nalpha",
     );
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     assert_eq!(app.library.entries.len(), 1);
@@ -509,7 +509,7 @@ fn refresh_paths_falls_back_to_full_reload_for_a_new_journal() {
     let work = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&work).unwrap();
     write_entry(&work, "a.md", "2026-07-01T10:00:00+02:00", "# A\nalpha");
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
 
@@ -536,7 +536,7 @@ fn entry_body_cache_is_reused_until_entry_or_width_changes() {
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     write_entry(&entry_dir, "a.md", "2026-07-01T10:00:00+02:00", "# A\nBody");
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     let path = app.selected_entry_target().map(|target| target.path);
@@ -560,7 +560,7 @@ fn search_recompute_keeps_body_and_analytics_caches_but_rebuilds_rows() {
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     write_entry(&entry_dir, "a.md", "2026-07-01T10:00:00+02:00", "# A\nbody");
-    let config = Config::new(dir.path().to_path_buf(), "true");
+    let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     let path = app.selected_entry_target().map(|target| target.path);
@@ -609,7 +609,7 @@ fn metadata_partitioned_excludes_archived_and_isolates_archived_only() {
     )
     .unwrap();
 
-    let app = new_app(Config::new(dir.path().to_path_buf(), "true"));
+    let app = new_app(Config::new(dir.path().to_path_buf()));
     let (active, archived_only) = app.metadata_partitioned(MetadataKind::Tags);
 
     let active_tags: Vec<&str> = active.iter().map(|(t, _)| t.as_str()).collect();
@@ -632,7 +632,7 @@ fn archiving_journal_renames_reorders_and_keeps_entries_resolvable() {
     write_entry(&entry_dir, "a.md", "2026-07-01T10:00:00+02:00", "# A\nbody");
     fs::create_dir_all(dir.path().join("work")).unwrap();
 
-    let mut app = new_app(Config::new(dir.path().to_path_buf(), "true"));
+    let mut app = new_app(Config::new(dir.path().to_path_buf()));
 
     app.store.set_journal_archived("personal", true).unwrap();
     app.refresh().unwrap();
