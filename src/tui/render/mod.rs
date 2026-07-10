@@ -69,6 +69,8 @@ use journals::draw_journals;
 pub(crate) use journals::{JOURNAL_BOX_HEIGHT, journal_list_rect};
 pub(crate) use layout::{TuiLayout, tui_layout};
 use markdown_panel::{draw_entry_editor, draw_selected_entry_view};
+#[cfg(test)]
+use markdown_panel::metadata_scrolls_with_body;
 pub(crate) use pending::{
     AccessNotice, draw_disable_notice, draw_pending_notice, draw_pending_request,
 };

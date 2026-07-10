@@ -29,11 +29,14 @@ use crate::tui::{
     },
     surface::{
         EntryMetadataLayout, EntryMetadataValues, LOCATION_PREFIX, MetadataRowLayout,
-        PanelGeometry, location_wrapped_lines, metadata_value_rows,
+        PanelGeometry, location_wrapped_lines, metadata_section_height, metadata_value_rows,
     },
 };
 
-const SCROLLING_METADATA_ENTRY_VIEW_HEIGHT_CUTOFF: u16 = 20;
+/// The body (writing/reading area) is kept at least this tall; the metadata block
+/// only pins below the body when the pane can still afford these lines, otherwise it
+/// folds into the scroll.
+const MIN_ENTRY_BODY_LINES: u16 = 20;
 
 pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     if let Some((title, content)) = app.selected_entry_view() {
@@ -90,13 +93,14 @@ pub(crate) fn draw_entry_editor(
     // every other front-matter field show in edit mode too.
     let metadata = EntryMetadata::from_metadata(&editor.metadata);
 
-    // The metadata section pins below the body when the pane is tall enough. On a
-    // short pane it would leave almost no room to write, so it's dropped and the
-    // whole pane goes to the textarea. (The viewer instead folds metadata into its
-    // scroll there, but the editor's scroll is cursor-driven and can't reach a
-    // read-only block past the text.) Nothing is lost: the Ctrl+G dialogs show the
-    // current values as you edit them, and the viewer shows them in full on save.
-    let (body_area, layout) = if metadata_scrolls_with_body(area) {
+    // The metadata section pins below the body only while the pane can still give the
+    // body its minimum height; once the metadata would push it under that, it's
+    // dropped and the whole pane goes to the textarea. (The viewer instead folds
+    // metadata into its scroll there, but the editor's scroll is cursor-driven and
+    // can't reach a read-only block past the text.) Nothing is lost: the Ctrl+G
+    // dialogs show the current values as you edit them, and the viewer shows them in
+    // full on save.
+    let (body_area, layout) = if metadata_scrolls_with_body(area, metadata.values()) {
         (PanelGeometry::new(area).content, None)
     } else {
         let layout = entry_metadata_layout(area, metadata.values());
@@ -191,7 +195,7 @@ fn draw_markdown_panel(
         Some(count_label(word_count, "word", "words")),
     );
     let layout = entry_metadata_layout(area, metadata.values());
-    let metadata_scrolls = metadata_scrolls_with_body(area);
+    let metadata_scrolls = metadata_scrolls_with_body(area, metadata.values());
     let content_rect = if metadata_scrolls {
         PanelGeometry::new(area).content
     } else {
@@ -259,8 +263,13 @@ fn draw_markdown_panel(
     (scroll, labels, body_rect, line_count)
 }
 
-fn metadata_scrolls_with_body(area: Rect) -> bool {
-    area.height < SCROLLING_METADATA_ENTRY_VIEW_HEIGHT_CUTOFF
+/// Pin the metadata below the body only when doing so still leaves the body at least
+/// [`MIN_ENTRY_BODY_LINES`]; otherwise fold it into the scroll. With no metadata the
+/// height is zero and this reduces to a plain minimum-body check.
+pub(crate) fn metadata_scrolls_with_body(area: Rect, values: EntryMetadataValues<'_>) -> bool {
+    let inner = PanelGeometry::new(area).content;
+    let metadata_height = metadata_section_height(inner.width, values);
+    inner.height < MIN_ENTRY_BODY_LINES.saturating_add(metadata_height)
 }
 
 /// Cap `rect` at `max_width` and center it horizontally, leaving the height and

@@ -601,6 +601,23 @@ fn short_entry_view_scrolls_metadata_after_body() {
 }
 
 #[test]
+fn metadata_pins_only_when_body_keeps_min_height() {
+    let tags = vec!["x".to_string()];
+    let values = EntryMetadataValues {
+        tags: &tags,
+        people: &[],
+        activities: &[],
+        feelings: &[],
+        mood: None,
+        location: None,
+    };
+    // Separator + one tag row = 2 metadata rows; inner height = area.height - 2. The
+    // body needs 20 lines, so pin only once the inner height reaches 22 (area 24).
+    assert!(metadata_scrolls_with_body(Rect::new(0, 0, 80, 23), values)); // inner 21 → body 19
+    assert!(!metadata_scrolls_with_body(Rect::new(0, 0, 80, 24), values)); // inner 22 → body 20
+}
+
+#[test]
 fn viewer_scroll_clamps_to_rendered_content_height() {
     assert_eq!(viewer_scroll(100, 20, 8), 12);
     assert_eq!(viewer_scroll(5, 4, 8), 0);

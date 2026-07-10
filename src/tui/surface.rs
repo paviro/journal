@@ -301,7 +301,7 @@ fn location_row_height(width: u16, value: &str) -> u16 {
         .min(u16::MAX as usize) as u16
 }
 
-fn metadata_section_height(row_width: u16, values: EntryMetadataValues<'_>) -> u16 {
+pub(crate) fn metadata_section_height(row_width: u16, values: EntryMetadataValues<'_>) -> u16 {
     let rows = values.mood.is_some() as u16
         + (!values.feelings.is_empty() as u16)
             * metadata_row_height("Feelings: ".len() as u16, row_width, values.feelings)
