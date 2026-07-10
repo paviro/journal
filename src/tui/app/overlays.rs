@@ -3,7 +3,6 @@ use super::*;
 impl App {
     pub(crate) fn begin_new_journal_input(&mut self) {
         self.overlay = Overlay::NewJournal(TextInput::default());
-        self.clear_status();
     }
 
     pub(crate) fn new_journal_input(&self) -> Option<&TextInput> {

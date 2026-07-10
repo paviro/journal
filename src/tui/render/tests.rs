@@ -2278,6 +2278,85 @@ mod flat_chrome_tests {
             Rect::new(12, 6, 40, 18)
         );
     }
+
+    #[test]
+    fn toast_renders_top_right_with_variant_edges() {
+        pin_flat();
+        let mut app = app_with_journals(&["alpha"]);
+        app.toast(crate::tui::state::ToastVariant::Success, "Entry saved");
+
+        let backend = render_app(app, 120, 30);
+        let buffer = backend.buffer();
+
+        // Width 44 with a right inset of 2 → columns 74..=117, starting at row 1;
+        // a one-line message makes a 3-row box.
+        let success = theme::test_flat_theme().success();
+        for y in 1..=3u16 {
+            for x in [74u16, 117u16] {
+                assert_eq!(buffer[(x, y)].symbol(), "┃", "edge missing at ({x},{y})");
+                assert_eq!(buffer[(x, y)].fg, success.fg.unwrap());
+            }
+        }
+        let message_row: String = (75..117)
+            .map(|x| buffer[(x as u16, 2u16)].symbol())
+            .collect();
+        assert!(
+            message_row.contains("Entry saved"),
+            "row was: {message_row}"
+        );
+        // Padding rows above and below the message stay blank.
+        for y in [1u16, 3u16] {
+            let row: String = (75..117).map(|x| buffer[(x as u16, y)].symbol()).collect();
+            assert_eq!(row.trim(), "");
+        }
+    }
+
+    #[test]
+    fn toasts_stack_with_a_blank_row_between() {
+        pin_flat();
+        let mut app = app_with_journals(&["alpha"]);
+        app.toast(crate::tui::state::ToastVariant::Info, "First");
+        app.toast(crate::tui::state::ToastVariant::Error, "Second");
+
+        let backend = render_app(app, 120, 30);
+        let buffer = backend.buffer();
+
+        // Oldest on top (rows 1..=3), a blank row, then the newest (rows 5..=7).
+        let info = theme::test_flat_theme().info();
+        let error = theme::test_flat_theme().error();
+        assert_eq!(buffer[(74u16, 1u16)].fg, info.fg.unwrap());
+        assert_ne!(buffer[(74u16, 4u16)].symbol(), "┃");
+        assert_eq!(buffer[(74u16, 5u16)].symbol(), "┃");
+        assert_eq!(buffer[(74u16, 5u16)].fg, error.fg.unwrap());
+    }
+}
+
+mod toast_bordered_tests {
+    use super::*;
+
+    #[test]
+    fn toast_draws_a_variant_colored_border_box() {
+        // The default (terminal/classic) theme is bordered chrome.
+        let mut app = app_with_journals(&["alpha"]);
+        app.toast(crate::tui::state::ToastVariant::Error, "Save failed");
+
+        let backend = render_app(app, 120, 30);
+        let buffer = backend.buffer();
+
+        assert_eq!(buffer[(74u16, 1u16)].symbol(), "┌");
+        assert_eq!(buffer[(117u16, 1u16)].symbol(), "┐");
+        assert_eq!(buffer[(74u16, 3u16)].symbol(), "└");
+        if let Some(fg) = crate::tui::theme::theme().error().fg {
+            assert_eq!(buffer[(74u16, 1u16)].fg, fg);
+        }
+        let message_row: String = (75..117)
+            .map(|x| buffer[(x as u16, 2u16)].symbol())
+            .collect();
+        assert!(
+            message_row.contains("Save failed"),
+            "row was: {message_row}"
+        );
+    }
 }
 
 mod scrim_tests {

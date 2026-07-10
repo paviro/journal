@@ -245,25 +245,21 @@ impl Theme {
     }
 
     /// A success/confirmation state (toasts, status glyphs).
-    #[allow(dead_code)] // consumed by toasts
     pub(crate) fn success(self) -> Style {
         self.success
     }
 
     /// A warning state.
-    #[allow(dead_code)] // consumed by toasts
     pub(crate) fn warning(self) -> Style {
         self.warning
     }
 
     /// An error state.
-    #[allow(dead_code)] // consumed by toasts
     pub(crate) fn error(self) -> Style {
         self.error
     }
 
     /// An informational state.
-    #[allow(dead_code)] // consumed by toasts
     pub(crate) fn info(self) -> Style {
         self.info
     }

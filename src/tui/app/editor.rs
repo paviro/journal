@@ -1,6 +1,6 @@
 use super::{App, Focus};
 use crate::tui::editor_state::{EditorTarget, EntryEditor};
-use crate::tui::state::MetadataKind;
+use crate::tui::state::{MetadataKind, ToastVariant};
 use journal_core::Metadata;
 
 impl App {
@@ -12,7 +12,7 @@ impl App {
             return;
         };
         if target.locked {
-            self.set_status("Encryption identity not available");
+            self.toast(ToastVariant::Error, "Encryption identity not available");
             return;
         }
         let Some((body, metadata)) = self
@@ -39,7 +39,7 @@ impl App {
     /// that column to the editor even with no entry selected.
     pub(crate) fn open_editor_for_new(&mut self) {
         let Some(journal) = self.selected_journal().map(|journal| journal.name.clone()) else {
-            self.set_status("Create a journal first with n");
+            self.toast(ToastVariant::Info, "Create a journal first with n");
             return;
         };
         self.editor = Some(EntryEditor::for_new(journal));
@@ -128,11 +128,14 @@ impl App {
         };
         let cleared = location.is_none();
         editor.metadata.location = location;
-        self.set_status(if cleared {
-            "Location cleared"
-        } else {
-            "Location set"
-        });
+        self.toast(
+            ToastVariant::Success,
+            if cleared {
+                "Location cleared"
+            } else {
+                "Location set"
+            },
+        );
         // Fetch weather/air/celestial in the background now, so it's ready to
         // attach on save (or the save waits briefly on it). A cleared/coordless
         // location abandons any in-flight fetch.
@@ -150,7 +153,7 @@ impl App {
             MetadataKind::People => editor.metadata.people = values.to_vec(),
             MetadataKind::Activities => editor.metadata.activities = values.to_vec(),
         }
-        self.set_status(format!("{} set", kind.title()));
+        self.toast(ToastVariant::Success, format!("{} set", kind.title()));
     }
 
     pub(crate) fn set_editor_feelings(&mut self, feelings: &[String]) {
@@ -158,7 +161,7 @@ impl App {
             return;
         };
         editor.metadata.feelings = feelings.to_vec();
-        self.set_status("Feelings set");
+        self.toast(ToastVariant::Success, "Feelings set");
     }
 
     pub(crate) fn set_editor_mood(&mut self, mood: Option<i8>) {
@@ -166,10 +169,13 @@ impl App {
             return;
         };
         editor.metadata.mood = mood;
-        self.set_status(if mood.is_some() {
-            "Mood set"
-        } else {
-            "Mood cleared"
-        });
+        self.toast(
+            ToastVariant::Success,
+            if mood.is_some() {
+                "Mood set"
+            } else {
+                "Mood cleared"
+            },
+        );
     }
 }

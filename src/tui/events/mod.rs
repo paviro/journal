@@ -12,7 +12,7 @@ use crate::{
         app::{App, Focus, entry_view_is_available},
         editor_state::{EditorPrompt, EditorTarget},
         render,
-        state::{ListNav, Overlay},
+        state::{ListNav, Overlay, ToastVariant},
     },
 };
 use ratatui_textarea::CursorMove;
@@ -156,7 +156,7 @@ pub(crate) fn dispatch_action(
         Action::CancelOverlay => {
             if app.has_overlay() {
                 if matches!(app.overlay, Overlay::NewJournal(_)) {
-                    app.set_status("Cancelled");
+                    app.toast(ToastVariant::Info, "Cancelled");
                 }
                 app.close_overlay();
             }

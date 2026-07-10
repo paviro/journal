@@ -416,7 +416,7 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         // Close the "Fetching…" modal and finish the deferred save once ready.
         let context_saved = events::poll_fetching_environment(&mut app)?;
         let mut poll_timeout = app
-            .status_timeout()
+            .toast_deadline()
             .map(|t| t.min(Duration::from_millis(200)))
             .unwrap_or(Duration::from_millis(200));
         // Poll briefly while builds are pending so results paint promptly.
@@ -497,7 +497,7 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
             }
             Some(Event::Resize(_, _)) => true,
             Some(_) => false,
-            None => app.expire_status(),
+            None => app.expire_toasts(),
         };
 
         // Debounce watcher-driven reloads: each change pushes the deadline out and

@@ -10,7 +10,10 @@ use super::app::{EditFeelingState, EditLocationState, EditMetadataState, SearchS
 use super::image::ImageAsset;
 use super::text_input::TextInput;
 
-const STATUS_DURATION: Duration = Duration::from_secs(3);
+const TOAST_LIFETIME: Duration = Duration::from_secs(5);
+
+/// Newest toasts kept when the queue overflows.
+const TOAST_CAP: usize = 4;
 
 /// Vertical scroll offsets for the panels that scroll their own body: the entry
 /// preview, and the insights panel's ranked-list tabs (People / Activities / Tags).
@@ -34,51 +37,72 @@ impl ScrollState {
     }
 }
 
-/// Transient status-bar message with an auto-expiry deadline.
-#[derive(Default)]
-pub(crate) struct StatusBar {
-    text: String,
-    until: Option<Instant>,
+/// The kind of event a toast reports, driving its accent color.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToastVariant {
+    Info,
+    Success,
+    Warning,
+    Error,
 }
 
-impl StatusBar {
-    pub(crate) fn text(&self) -> &str {
-        &self.text
-    }
+/// A transient notification stacked in the screen's top-right corner, with an
+/// auto-expiry deadline.
+pub(crate) struct Toast {
+    pub(crate) message: String,
+    pub(crate) variant: ToastVariant,
+    deadline: Instant,
+}
 
-    pub(crate) fn set(&mut self, message: impl Into<String>) {
-        self.text = message.into();
-        self.until = Some(Instant::now() + STATUS_DURATION);
-    }
+/// The toast queue: capped to the newest [`TOAST_CAP`], each toast expiring on
+/// its own deadline.
+#[derive(Default)]
+pub(crate) struct Toasts {
+    items: Vec<Toast>,
+}
 
-    pub(crate) fn clear(&mut self) {
-        self.text.clear();
-        self.until = None;
-    }
-
-    pub(crate) fn timeout(&self) -> Option<Duration> {
-        self.until
-            .map(|deadline| deadline.saturating_duration_since(Instant::now()))
-    }
-
-    /// Clear the status if its deadline has passed, reporting whether it did.
-    pub(crate) fn expire(&mut self) -> bool {
-        if self
-            .until
-            .is_some_and(|deadline| Instant::now() >= deadline)
-        {
-            self.clear();
-            return true;
+impl Toasts {
+    pub(crate) fn push(&mut self, variant: ToastVariant, message: impl Into<String>) {
+        self.items.push(Toast {
+            message: message.into(),
+            variant,
+            deadline: Instant::now() + TOAST_LIFETIME,
+        });
+        if self.items.len() > TOAST_CAP {
+            self.items.drain(..self.items.len() - TOAST_CAP);
         }
-
-        false
     }
 
-    /// Set a message whose deadline is already in the past (test helper).
+    /// The queued toasts, oldest first.
+    pub(crate) fn items(&self) -> &[Toast] {
+        &self.items
+    }
+
+    /// Time until the nearest deadline, for the event loop's poll timeout.
+    pub(crate) fn deadline(&self) -> Option<Duration> {
+        self.items
+            .iter()
+            .map(|toast| toast.deadline.saturating_duration_since(Instant::now()))
+            .min()
+    }
+
+    /// Drop expired toasts, reporting whether any were removed (so the event
+    /// loop knows a repaint is due).
+    pub(crate) fn expire(&mut self) -> bool {
+        let now = Instant::now();
+        let before = self.items.len();
+        self.items.retain(|toast| toast.deadline > now);
+        self.items.len() < before
+    }
+
+    /// Push a toast whose deadline is already in the past (test helper).
     #[cfg(test)]
-    pub(crate) fn set_expired(&mut self, message: impl Into<String>) {
-        self.text = message.into();
-        self.until = Some(Instant::now() - Duration::from_secs(1));
+    pub(crate) fn push_expired(&mut self, variant: ToastVariant, message: impl Into<String>) {
+        self.items.push(Toast {
+            message: message.into(),
+            variant,
+            deadline: Instant::now() - Duration::from_secs(1),
+        });
     }
 }
 

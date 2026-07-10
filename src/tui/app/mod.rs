@@ -24,7 +24,7 @@ use ratatui::{
 
 use super::state::{
     DeleteContext, EditMoodState, ImageViewerState, MetadataKind, Overlay, ScrollState,
-    SearchState, StatusBar, move_list_selection,
+    SearchState, ToastVariant, Toasts, move_list_selection,
 };
 use crate::tui::editor_state::EntryEditor;
 use crate::tui::entry_rows::{EntryRowCache, RowMeta, build_entry_row_cache};
@@ -386,7 +386,7 @@ pub(crate) struct App {
     /// editor (`journal log` with no body) and quits once that entry is saved or
     /// discarded, rather than dropping back to the entry list.
     pub(crate) compose: bool,
-    pub(crate) status_bar: StatusBar,
+    pub(crate) toasts: Toasts,
     pub(crate) image: ImageState,
     /// Background geocoding for the location dialog; spawned on first lookup.
     pub(crate) geocode: crate::tui::geocode::GeocodeWorker,
@@ -484,7 +484,7 @@ impl App {
             overlay: Overlay::None,
             editor: None,
             compose: false,
-            status_bar: StatusBar::default(),
+            toasts: Toasts::default(),
             image: ImageState::default(),
             geocode: crate::tui::geocode::GeocodeWorker::default(),
             environment: crate::tui::environment::EnvironmentWorker::default(),
@@ -807,24 +807,18 @@ impl App {
         self.scroll_insights(delta.saturating_mul(PAGE_STEP));
     }
 
-    pub(crate) fn set_status(&mut self, message: impl Into<String>) {
-        self.status_bar.set(message);
+    pub(crate) fn toast(&mut self, variant: ToastVariant, message: impl Into<String>) {
+        self.toasts.push(variant, message);
     }
 
-    pub(crate) fn clear_status(&mut self) {
-        self.status_bar.clear();
+    /// Drop expired toasts, reporting whether any were removed (a repaint is due).
+    pub(crate) fn expire_toasts(&mut self) -> bool {
+        self.toasts.expire()
     }
 
-    pub(crate) fn status(&self) -> &str {
-        self.status_bar.text()
-    }
-
-    pub(crate) fn status_timeout(&self) -> Option<Duration> {
-        self.status_bar.timeout()
-    }
-
-    pub(crate) fn expire_status(&mut self) -> bool {
-        self.status_bar.expire()
+    /// Time until the nearest toast deadline, for the event loop's poll timeout.
+    pub(crate) fn toast_deadline(&self) -> Option<Duration> {
+        self.toasts.deadline()
     }
 }
 

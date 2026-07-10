@@ -370,32 +370,57 @@ fn location_dialog_seeds_from_editor_draft_not_selected_entry() {
 }
 
 #[test]
-fn status_timeout_is_none_without_active_status() {
+fn toast_deadline_is_none_without_toasts() {
     let config = Config::new(tempdir().unwrap().path().to_path_buf());
     let app = new_app(config);
 
-    assert!(app.status_timeout().is_none());
+    assert!(app.toast_deadline().is_none());
 }
 
 #[test]
-fn status_timeout_is_some_with_active_status() {
+fn toast_deadline_is_some_with_an_active_toast() {
     let config = Config::new(tempdir().unwrap().path().to_path_buf());
     let mut app = new_app(config);
 
-    app.set_status("Saved");
+    app.toast(ToastVariant::Success, "Saved");
 
-    assert!(app.status_timeout().is_some());
+    assert!(app.toast_deadline().is_some());
 }
 
 #[test]
-fn expire_status_reports_visible_change_once() {
+fn expire_toasts_drops_only_expired_ones_and_reports_once() {
     let config = Config::new(tempdir().unwrap().path().to_path_buf());
     let mut app = new_app(config);
-    app.status_bar.set_expired("Saved");
+    app.toasts.push_expired(ToastVariant::Info, "Old");
+    app.toast(ToastVariant::Success, "Fresh");
 
-    assert!(app.expire_status());
-    assert!(app.status().is_empty());
-    assert!(!app.expire_status());
+    assert!(app.expire_toasts());
+    let messages: Vec<&str> = app
+        .toasts
+        .items()
+        .iter()
+        .map(|toast| toast.message.as_str())
+        .collect();
+    assert_eq!(messages, ["Fresh"]);
+    assert!(!app.expire_toasts());
+}
+
+#[test]
+fn toast_queue_caps_at_the_four_newest() {
+    let config = Config::new(tempdir().unwrap().path().to_path_buf());
+    let mut app = new_app(config);
+
+    for n in 0..6 {
+        app.toast(ToastVariant::Info, format!("toast {n}"));
+    }
+
+    let messages: Vec<&str> = app
+        .toasts
+        .items()
+        .iter()
+        .map(|toast| toast.message.as_str())
+        .collect();
+    assert_eq!(messages, ["toast 2", "toast 3", "toast 4", "toast 5"]);
 }
 
 #[test]

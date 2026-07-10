@@ -13,7 +13,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::table;
 use crate::tui::app::{App, Focus, Mode};
-use crate::tui::state::MetadataKind;
+use crate::tui::state::{MetadataKind, ToastVariant};
 use crate::tui::surface::point_in_rect;
 use crate::tui::theme::{ChromeStyle, theme};
 
@@ -122,11 +122,9 @@ fn key_chip_style() -> Style {
 
 #[derive(Debug, Clone)]
 struct RenderedHintLine {
-    /// The row's full visual text (prefix + justified hints), identical to what is
+    /// The row's full visual text of justified hints, identical to what is
     /// drawn — so `find`-based column lookups line up with hit-testing.
     text: String,
-    /// A left-hand prefix (status label), drawn plain before the hints. Usually empty.
-    prefix: String,
     /// `(start column, hint)` for each hint, columns absolute within the row.
     placements: Vec<(u16, Hint)>,
 }
@@ -144,50 +142,8 @@ fn placement_at(placements: &[(u16, Hint)], origin_x: u16, col: u16) -> Option<H
     })
 }
 
-/// Lay out one already-packed row: `prefix` at the far left, then the hints spaced
-/// evenly across the rest of `width` (space-around — roughly equal padding at both
-/// ends and between hints). Returns the drawn text and each hint's start column.
-fn layout_hint_row(prefix: &str, hints: &[Hint], width: u16) -> RenderedHintLine {
-    let prefix_width = UnicodeWidthStr::width(prefix);
-    let mut text = String::from(prefix);
-    if hints.is_empty() {
-        return RenderedHintLine {
-            text,
-            prefix: prefix.to_string(),
-            placements: Vec::new(),
-        };
-    }
-
-    let widths: Vec<usize> = hints.iter().map(hint_width).collect();
-    let hint_total: usize = widths.iter().sum();
-    let area = (width as usize).saturating_sub(prefix_width);
-    // n hints → n+1 gaps (both ends + between); only the leading n are drawn, the
-    // trailing one is implicit right padding. Spread the slack beyond the minimum
-    // gaps evenly across all n+1.
-    let gap_count = hints.len() + 1;
-    let (base, remainder) = spread_gaps(area, hint_total, gap_count);
-
-    let mut col = prefix_width;
-    let mut placements = Vec::with_capacity(hints.len());
-    for (index, hint) in hints.iter().enumerate() {
-        let gap = HINT_MIN_GAP + base + usize::from(index < remainder);
-        for _ in 0..gap {
-            text.push(' ');
-        }
-        col += gap;
-        placements.push((clamp_u16(col), *hint));
-        text.push_str(&hint.text());
-        col += widths[index];
-    }
-    RenderedHintLine {
-        text,
-        prefix: prefix.to_string(),
-        placements,
-    }
-}
-
-/// Render a laid-out hint row as styled spans: the prefix and gaps stay plain and
-/// each key chip is drawn reversed + bold. Columns match [`RenderedHintLine::text`]
+/// Render a laid-out hint row as styled spans: the gaps stay plain and each key
+/// chip is drawn reversed + bold. Columns match [`RenderedHintLine::text`]
 /// exactly, so the visual output lines up with hit-testing.
 fn styled_hint_line(rendered: &RenderedHintLine) -> Line<'static> {
     if rendered.placements.is_empty() {
@@ -195,10 +151,6 @@ fn styled_hint_line(rendered: &RenderedHintLine) -> Line<'static> {
     }
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut col = 0u16;
-    if !rendered.prefix.is_empty() {
-        col = clamp_u16(UnicodeWidthStr::width(rendered.prefix.as_str()));
-        spans.push(Span::raw(rendered.prefix.clone()));
-    }
     for (start, hint) in &rendered.placements {
         if *start > col {
             spans.push(Span::raw(" ".repeat((*start - col) as usize)));
@@ -322,44 +274,12 @@ fn build_grid_row(col_x: &[u16], hints: &[Hint]) -> RenderedHintLine {
         text.push_str(&hint.text());
         col += hint_width(hint) as u16;
     }
-    RenderedHintLine {
-        text,
-        prefix: String::new(),
-        placements,
-    }
-}
-
-fn wrapped_hint_rows(hints: &[Hint], width: u16) -> Vec<Vec<Hint>> {
-    let available = width as usize;
-    let mut rows: Vec<Vec<Hint>> = Vec::new();
-    let mut row: Vec<Hint> = Vec::new();
-    // Reserve a trailing edge gap; each hint reserves a leading gap plus its width
-    // (matching the space-around layout), so a packed row is always justifiable.
-    let mut used = HINT_MIN_GAP;
-
-    for hint in hints.iter().copied() {
-        let need = HINT_MIN_GAP + hint_width(&hint);
-        if !row.is_empty() && used + need > available {
-            rows.push(std::mem::take(&mut row));
-            used = HINT_MIN_GAP;
-        }
-        used += need;
-        row.push(hint);
-    }
-
-    if !row.is_empty() {
-        rows.push(row);
-    }
-
-    rows
+    RenderedHintLine { text, placements }
 }
 
 /// The footer's justified rows joined by newlines, for tests to inspect.
 #[cfg(test)]
 pub(crate) fn footer_text(app: &App, width: u16) -> String {
-    if !app.status().is_empty() {
-        return app.status().to_string();
-    }
     if app.editor.is_some() {
         return editor_footer_line()
             .rendered_lines(width)
@@ -383,7 +303,6 @@ pub(crate) fn footer_text(app: &App, width: u16) -> String {
 /// full-screen forms.
 fn editor_footer_line() -> HintLine {
     HintLine {
-        prefix: None,
         hints: vec![
             Hint::new("save", "ctrl+s", HintId::EditorSave),
             Hint::new("discard", "esc", HintId::EditorDiscard),
@@ -395,9 +314,6 @@ fn editor_footer_line() -> HintLine {
 }
 
 pub(crate) fn footer_lines(app: &App, width: u16) -> Text<'static> {
-    if !app.status().is_empty() {
-        return Text::from(app.status().to_string());
-    }
     if app.editor.is_some() {
         return Text::from(editor_footer_line().lines(width));
     }
@@ -413,9 +329,6 @@ pub(crate) fn footer_lines(app: &App, width: u16) -> Text<'static> {
 }
 
 pub(crate) fn footer_height(app: &App, width: u16) -> u16 {
-    if !app.status().is_empty() {
-        return 1;
-    }
     if app.editor.is_some() {
         return editor_footer_line().height(width);
     }
@@ -431,9 +344,6 @@ pub(crate) fn footer_height(app: &App, width: u16) -> u16 {
 
 #[cfg(test)]
 pub(crate) fn footer_hint_id_at(app: &App, origin_x: u16, width: u16, col: u16) -> Option<HintId> {
-    if !app.status().is_empty() {
-        return None;
-    }
     if app.editor.is_some() {
         return editor_footer_line()
             .rendered_lines(width)
@@ -457,9 +367,6 @@ pub(crate) fn footer_hint_id_at_point(
     col: u16,
     row: u16,
 ) -> Option<HintId> {
-    if !app.status().is_empty() {
-        return None;
-    }
     if app.editor.is_some() {
         return editor_footer_line().hint_id_at_point(origin_x, origin_y, width, col, row);
     }
@@ -544,43 +451,12 @@ pub(crate) fn expanded_footer_hint_id_at_point(
 
 #[derive(Debug, Clone)]
 struct HintLine {
-    prefix: Option<String>,
     hints: Vec<Hint>,
 }
 
 impl HintLine {
     fn rendered_lines(&self, width: u16) -> Vec<RenderedHintLine> {
-        let prefix = self.prefix.as_deref().unwrap_or("");
-        if self.hints.is_empty() {
-            return if prefix.is_empty() {
-                Vec::new()
-            } else {
-                vec![layout_hint_row(prefix, &[], width)]
-            };
-        }
-        if prefix.is_empty() {
-            return rendered_hint_lines(&self.hints, width);
-        }
-
-        let prefix_width = clamp_u16(UnicodeWidthStr::width(prefix));
-        let first_hint_width = self.hints.first().map(hint_width).unwrap_or(0) as u16;
-        let mut lines = Vec::new();
-        let mut remaining = self.hints.as_slice();
-        if prefix_width
-            .saturating_add(HINT_MIN_GAP as u16)
-            .saturating_add(first_hint_width)
-            <= width
-        {
-            let first_area = width.saturating_sub(prefix_width);
-            if let Some(first_row) = wrapped_hint_rows(remaining, first_area).first() {
-                lines.push(layout_hint_row(prefix, first_row, width));
-                remaining = &remaining[first_row.len()..];
-            }
-        } else {
-            lines.push(layout_hint_row(prefix, &[], width));
-        }
-        lines.extend(rendered_hint_lines(remaining, width));
-        lines
+        rendered_hint_lines(&self.hints, width)
     }
 
     fn lines(&self, width: u16) -> Vec<Line<'static>> {
@@ -634,10 +510,7 @@ fn search_footer_line(app: &App) -> HintLine {
         }
     };
 
-    HintLine {
-        prefix: None,
-        hints,
-    }
+    HintLine { hints }
 }
 
 fn browse_footer_line(app: &App) -> HintLine {
@@ -697,10 +570,7 @@ fn browse_footer_line(app: &App) -> HintLine {
         }
     };
 
-    HintLine {
-        prefix: None,
-        hints,
-    }
+    HintLine { hints }
 }
 
 /// The `images (i)` hint, shown only when the selected entry has images.
@@ -829,6 +699,95 @@ pub(crate) fn scrim(buf: &mut Buffer, area: Rect) {
             cell.modifier.insert(Modifier::DIM);
         }
     }
+}
+
+// ── Toasts ────────────────────────────────────────────────────────────────────
+
+/// Widest a toast gets; narrower terminals shrink it further.
+const TOAST_MAX_WIDTH: u16 = 44;
+/// Longest a toast message renders before ellipsizing.
+const TOAST_MAX_LINES: usize = 4;
+/// Blank columns kept between a toast and the terminal's right edge.
+const TOAST_RIGHT_INSET: u16 = 2;
+
+fn toast_style(variant: ToastVariant) -> Style {
+    match variant {
+        ToastVariant::Info => theme().info(),
+        ToastVariant::Success => theme().success(),
+        ToastVariant::Warning => theme().warning(),
+        ToastVariant::Error => theme().error(),
+    }
+}
+
+/// Draw the toast stack in the top-right corner, oldest at the top with a blank
+/// row between toasts. Runs at the very end of the frame — after overlays and
+/// the scrim — so notifications stay readable over everything. Stacking stops
+/// once a toast no longer fits the remaining height.
+pub(crate) fn draw_toasts(frame: &mut Frame<'_>, app: &App) {
+    let area = frame.area();
+    let width = TOAST_MAX_WIDTH.min(area.width.saturating_sub(6));
+    if width <= 4 {
+        return;
+    }
+    let x = area.right().saturating_sub(TOAST_RIGHT_INSET + width);
+    let mut y = area.y + 1;
+    for toast in app.toasts.items() {
+        let lines = crate::tui::entry_rows::wrap_text(
+            &toast.message,
+            (width - 4) as usize,
+            TOAST_MAX_LINES,
+        );
+        let height = clamp_u16(lines.len()) + 2;
+        if y + height > area.bottom() {
+            break;
+        }
+        draw_toast(frame, Rect::new(x, y, width, height), toast.variant, &lines);
+        y += height + 1;
+    }
+}
+
+/// One toast box. Flat chrome paints a panel-colored card with thick `┃` edge
+/// columns in the variant's hue; bordered chrome draws a plain box with the
+/// variant-colored border. Both keep one padding column inside the edges and
+/// one padding row above and below the text.
+fn draw_toast(frame: &mut Frame<'_>, area: Rect, variant: ToastVariant, lines: &[String]) {
+    frame.render_widget(Clear, area);
+    let accent = toast_style(variant);
+    let text: Vec<Line<'static>> = lines
+        .iter()
+        .map(|line| Line::from(Span::styled(line.clone(), theme().text())))
+        .collect();
+    let content = Rect {
+        x: area.x + 2,
+        y: area.y + 1,
+        width: area.width.saturating_sub(4),
+        height: area.height.saturating_sub(2),
+    };
+    if flat_chrome() {
+        frame.render_widget(
+            Block::new().style(Style::default().bg(theme().panel_bg())),
+            area,
+        );
+        for edge_x in [area.x, area.right().saturating_sub(1)] {
+            let stripe: Vec<Line<'static>> = (0..area.height)
+                .map(|_| Line::from(Span::styled("┃", accent)))
+                .collect();
+            frame.render_widget(
+                Paragraph::new(stripe),
+                Rect {
+                    x: edge_x,
+                    width: 1,
+                    ..area
+                },
+            );
+        }
+    } else {
+        frame.render_widget(
+            Block::default().borders(Borders::ALL).border_style(accent),
+            area,
+        );
+    }
+    frame.render_widget(Paragraph::new(text), content);
 }
 
 /// A dialog's content rect within its outer `area`. Draw functions and mouse

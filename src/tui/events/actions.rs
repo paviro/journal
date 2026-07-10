@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::tui::app::{App, EntryTarget, Focus};
 use crate::tui::editor_state::EditorTarget;
 use crate::tui::environment::environment_fields;
-use crate::tui::state::{MetadataKind, Overlay};
+use crate::tui::state::{MetadataKind, Overlay, ToastVariant};
 use std::time::Instant;
 
 pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
@@ -16,7 +16,7 @@ pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
         .unwrap_or_default()
         .to_string();
     if value.is_empty() {
-        app.set_status("Nothing added");
+        app.toast(ToastVariant::Info, "Nothing added");
         app.close_overlay();
         return Ok(());
     }
@@ -24,7 +24,10 @@ pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
     let journal = app.store.create_journal(&value)?;
     app.refresh()?;
     app.select_journal_by_name(&journal.name);
-    app.set_status(format!("Created journal {}", journal.name));
+    app.toast(
+        ToastVariant::Success,
+        format!("Created journal {}", journal.name),
+    );
     app.close_overlay();
     Ok(())
 }
@@ -55,6 +58,16 @@ fn save_status(base: &str, report: &journal_storage::AssetReport) -> String {
     parts.join(" — ")
 }
 
+/// A save toast's variant: a save that dropped images is a warning, not a
+/// clean success.
+fn save_variant(report: &journal_storage::AssetReport) -> ToastVariant {
+    if report.failed.is_empty() {
+        ToastVariant::Success
+    } else {
+        ToastVariant::Warning
+    }
+}
+
 fn asset_options(app: &App) -> journal_storage::EntryAssetOptions {
     journal_storage::EntryAssetOptions {
         download_remote: app.config.attachments.download_remote_images,
@@ -66,7 +79,7 @@ fn asset_options(app: &App) -> journal_storage::EntryAssetOptions {
 /// encrypted entry that cannot be read or written without the identity.
 fn reject_if_locked(app: &mut App, target: &EntryTarget) -> bool {
     if target.locked {
-        app.set_status("Encryption identity not available");
+        app.toast(ToastVariant::Error, "Encryption identity not available");
         return false;
     }
     true
@@ -84,11 +97,14 @@ fn finish_existing_edit(
 ) -> AppResult<()> {
     match outcome {
         EditOutcome::Unchanged => {
-            app.set_status("No changes");
+            app.toast(ToastVariant::Info, "No changes");
             return Ok(());
         }
-        EditOutcome::Changed => app.set_status(save_status(&format!("Edited {title}"), report)),
-        EditOutcome::Deleted => app.set_status("Empty entry deleted"),
+        EditOutcome::Changed => app.toast(
+            save_variant(report),
+            save_status(&format!("Edited {title}"), report),
+        ),
+        EditOutcome::Deleted => app.toast(ToastVariant::Success, "Empty entry deleted"),
     }
     refresh_entry_path(app, path)?;
     Ok(())
@@ -202,7 +218,10 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
             };
             match created {
                 Some(created) => {
-                    app.set_status(save_status("Entry saved", &created.assets));
+                    app.toast(
+                        save_variant(&created.assets),
+                        save_status("Entry saved", &created.assets),
+                    );
                     let path = created.path;
                     refresh_entry_path(app, &path)?;
                     if let Some(id) = journal_storage::entry_id(&path)
@@ -213,7 +232,7 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
                     app.editor = None;
                 }
                 None => {
-                    app.set_status("Nothing added");
+                    app.toast(ToastVariant::Info, "Nothing added");
                     app.nav.entry_view_fullscreen = false;
                     app.nav.focus = Focus::Entries;
                     app.editor = None;
@@ -252,10 +271,10 @@ pub(super) fn delete_selected(app: &mut App) -> AppResult<()> {
 
     if has_body {
         app.store.move_entry_to_trash(&target.path)?;
-        app.set_status("Moved to trash");
+        app.toast(ToastVariant::Success, "Moved to trash");
     } else {
         app.store.delete_empty_entry(&target.path)?;
-        app.set_status("Deleted");
+        app.toast(ToastVariant::Success, "Deleted");
     }
     Ok(())
 }
@@ -278,7 +297,7 @@ pub(super) fn delete_selected_journal(app: &mut App) -> AppResult<()> {
     let display = journal_storage::journal_display_name(&journal_name).to_string();
     app.store
         .delete_journal(&journal_name, &journal_path, &entries)?;
-    app.set_status(format!("Deleted journal {display}"));
+    app.toast(ToastVariant::Success, format!("Deleted journal {display}"));
     Ok(())
 }
 
@@ -299,10 +318,13 @@ pub(super) fn toggle_archive_selected_journal(app: &mut App) -> AppResult<()> {
     app.select_journal_by_name(&new_journal.name);
     // Keep focus on the journals column so the user can keep managing journals.
     app.nav.focus = Focus::Journals;
-    app.set_status(format!(
-        "{} journal {display}",
-        if archive { "Archived" } else { "Unarchived" }
-    ));
+    app.toast(
+        ToastVariant::Success,
+        format!(
+            "{} journal {display}",
+            if archive { "Archived" } else { "Unarchived" }
+        ),
+    );
     Ok(())
 }
 
@@ -326,7 +348,7 @@ pub(super) fn set_metadata_on_entry(
     };
     app.store.set_entry_metadata_field(&target.path, field)?;
 
-    app.set_status(format!("{} saved", kind.title()));
+    app.toast(ToastVariant::Success, format!("{} saved", kind.title()));
     refresh_entry_path(app, &target.path)?;
     Ok(())
 }
@@ -343,7 +365,7 @@ pub(super) fn set_feelings_on_entry(app: &mut App, feelings: &[String]) -> AppRe
     app.store
         .set_entry_metadata_field(&target.path, MetadataField::Feelings(feelings.to_vec()))?;
 
-    app.set_status("Feelings saved");
+    app.toast(ToastVariant::Success, "Feelings saved");
     refresh_entry_path(app, &target.path)?;
     Ok(())
 }
@@ -360,7 +382,7 @@ pub(super) fn set_mood_on_entry(app: &mut App, mood: Option<i8>) -> AppResult<()
     app.store
         .set_entry_metadata_field(&target.path, MetadataField::Mood(mood))?;
 
-    app.set_status("Mood saved");
+    app.toast(ToastVariant::Success, "Mood saved");
     refresh_entry_path(app, &target.path)?;
     Ok(())
 }
@@ -386,11 +408,14 @@ pub(super) fn set_location_on_entry(app: &mut App, location: Option<Location>) -
     }
     app.store.set_entry_metadata_fields(&target.path, &fields)?;
 
-    app.set_status(if had_location {
-        "Location saved"
-    } else {
-        "Location cleared"
-    });
+    app.toast(
+        ToastVariant::Success,
+        if had_location {
+            "Location saved"
+        } else {
+            "Location cleared"
+        },
+    );
     refresh_entry_path(app, &target.path)?;
 
     // Fetch weather/air/celestial in the background; it's written back when it
@@ -414,7 +439,10 @@ pub(super) fn toggle_starred_on_entry(app: &mut App) -> AppResult<()> {
     app.store
         .set_entry_metadata_field(&target.path, MetadataField::Starred(starred))?;
 
-    app.set_status(if starred { "Starred" } else { "Unstarred" });
+    app.toast(
+        ToastVariant::Success,
+        if starred { "Starred" } else { "Unstarred" },
+    );
     refresh_entry_path(app, &target.path)?;
     Ok(())
 }
@@ -438,8 +466,14 @@ mod tests {
         App::new(config_path, config, store).unwrap()
     }
 
+    /// The newest toast as `(message, variant)`.
+    fn last_toast(app: &App) -> (&str, ToastVariant) {
+        let toast = app.toasts.items().last().expect("a toast was pushed");
+        (toast.message.as_str(), toast.variant)
+    }
+
     #[test]
-    fn view_selected_locked_entry_sets_status_without_opening_viewer() {
+    fn view_selected_locked_entry_toasts_without_opening_viewer() {
         let dir = tempdir().unwrap();
         let path = dir
             .path()
@@ -457,7 +491,10 @@ mod tests {
 
         view_selected(&mut app).unwrap();
 
-        assert_eq!(app.status(), "Encryption identity not available");
+        assert_eq!(
+            last_toast(&app),
+            ("Encryption identity not available", ToastVariant::Error)
+        );
     }
 
     #[test]
@@ -558,7 +595,7 @@ mod tests {
         save_internal_editor(&mut app).unwrap();
 
         assert!(app.editor.is_none());
-        assert_eq!(app.status(), "No changes");
+        assert_eq!(last_toast(&app), ("No changes", ToastVariant::Info));
         assert_eq!(app.store.read_entry_content(&path).unwrap(), original);
     }
 
@@ -595,7 +632,10 @@ mod tests {
         save_internal_editor(&mut app).unwrap();
 
         assert!(!path.exists());
-        assert_eq!(app.status(), "Empty entry deleted");
+        assert_eq!(
+            last_toast(&app),
+            ("Empty entry deleted", ToastVariant::Success)
+        );
     }
 
     #[test]
@@ -607,7 +647,9 @@ mod tests {
         app.editor = Some(editor);
         save_internal_editor(&mut app).unwrap();
 
-        assert!(app.status().starts_with("Entry saved"));
+        let (message, variant) = last_toast(&app);
+        assert!(message.starts_with("Entry saved"));
+        assert_eq!(variant, ToastVariant::Success);
         assert!(
             app.library
                 .entries

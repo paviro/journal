@@ -40,7 +40,7 @@ pub(crate) use super::surface::{
 pub(crate) use chrome::{
     Hint, HintId, MetadataChoice, MetadataMenuMode, centered_rect_fixed_size, confirm_button_at,
     container_block, count_label, draw_editor_discard_confirm, draw_editor_shortcuts,
-    draw_metadata_menu, draw_modal_frame, editor_discard_choice_at_point,
+    draw_metadata_menu, draw_modal_frame, draw_toasts, editor_discard_choice_at_point,
     editor_shortcut_close_at_point, editor_shortcut_hint_at_point, expanded_footer_height,
     expanded_footer_hint_id_at_point, expanded_footer_lines, flat_chrome, footer_hint_id_at_point,
     footer_lines, hint_id_at_wrapped, metadata_menu_choice_at_point, metadata_menu_close_at_point,
@@ -135,6 +135,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
             footer_text_area,
         );
         draw_overlays(frame, app);
+        draw_toasts(frame, app);
         return;
     }
 
@@ -163,6 +164,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(footer, layout.footer);
 
     draw_overlays(frame, app);
+    draw_toasts(frame, app);
 }
 
 fn draw_overlays(frame: &mut Frame<'_>, app: &mut App) {
