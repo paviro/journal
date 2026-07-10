@@ -72,7 +72,7 @@ pub(crate) fn build(
     let mut sentiment_windows = [Sentiment::default(); 3];
 
     for (entry, date) in entries.iter().zip(dates) {
-        if let Some(mood) = entry.metadata.mood {
+        if let Some(mood) = entry.mood {
             moods.push(mood);
             add_mood_valence(&mut sentiment, mood);
             if let Some(date) = date {
@@ -144,7 +144,7 @@ pub(crate) fn build(
 
 /// Fold one entry's feelings into the frequency accumulator.
 fn tally_feelings<'a>(entry: &'a Entry, feelings: &mut HashMap<&'a str, usize>) {
-    for feeling in &entry.metadata.feelings {
+    for feeling in &entry.feelings {
         *feelings.entry(feeling.as_str()).or_default() += 1;
     }
 }

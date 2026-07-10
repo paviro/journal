@@ -45,7 +45,7 @@ pub fn create_entry(
         body,
         metadata,
         timezone.as_deref(),
-        None,
+        metadata.location.as_ref(),
         None,
         None,
         None,

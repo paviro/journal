@@ -10,7 +10,10 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+use super::table;
 use crate::tui::app::{App, Focus, Mode};
+use crate::tui::state::MetadataKind;
+use crate::tui::surface::point_in_rect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HintId {
@@ -22,11 +25,6 @@ pub(crate) enum HintId {
     EditSelected,
     ViewSelected,
     BeginDelete,
-    BeginEditTags,
-    BeginEditPeople,
-    BeginEditActivities,
-    BeginEditFeelings,
-    BeginEditMood,
     ToggleStarred,
     ExitSearch,
     CancelOverlay,
@@ -44,7 +42,6 @@ pub(crate) enum HintId {
     MoodIncrease,
     MoodSave,
     MoodClear,
-    BeginEditLocation,
     LocationSwitchFocus,
     LocationResolve,
     LocationGrabDevice,
@@ -52,6 +49,7 @@ pub(crate) enum HintId {
     LocationSave,
     LocationClear,
     OpenImageViewer,
+    OpenMetadataMenu,
     HintsToggle,
     ToggleJournals,
     InsightsTab,
@@ -59,6 +57,11 @@ pub(crate) enum HintId {
     InsightsTimeframe,
     ExpandInsights,
     CloseInsights,
+    EditorSave,
+    EditorDiscard,
+    EditorFullscreen,
+    EditorMetadata,
+    EditorHelp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -346,6 +349,14 @@ pub(crate) fn footer_text(app: &App, width: u16) -> String {
     if !app.status().is_empty() {
         return app.status().to_string();
     }
+    if app.editor.is_some() {
+        return editor_footer_line()
+            .rendered_lines(width)
+            .iter()
+            .map(|row| row.text.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
     let line = match app.nav.mode {
         Mode::Search => search_footer_line(app),
         Mode::Browse => browse_footer_line(app),
@@ -357,9 +368,27 @@ pub(crate) fn footer_text(app: &App, width: u16) -> String {
         .join("\n")
 }
 
+/// Footer hints shown while the internal editor is open, in both its in-pane and
+/// full-screen forms.
+fn editor_footer_line() -> HintLine {
+    HintLine {
+        prefix: None,
+        hints: vec![
+            Hint::new("save", "ctrl+s", HintId::EditorSave),
+            Hint::new("discard", "esc", HintId::EditorDiscard),
+            Hint::new("fullscreen", "ctrl+o", HintId::EditorFullscreen),
+            Hint::new("metadata", "ctrl+g", HintId::EditorMetadata),
+            Hint::new("shortcuts", "ctrl+t", HintId::EditorHelp),
+        ],
+    }
+}
+
 pub(crate) fn footer_lines(app: &App, width: u16) -> Text<'static> {
     if !app.status().is_empty() {
         return Text::from(app.status().to_string());
+    }
+    if app.editor.is_some() {
+        return Text::from(editor_footer_line().lines(width));
     }
     if !app.state.ui.show_hints {
         return Text::default();
@@ -376,6 +405,9 @@ pub(crate) fn footer_height(app: &App, width: u16) -> u16 {
     if !app.status().is_empty() {
         return 1;
     }
+    if app.editor.is_some() {
+        return editor_footer_line().height(width);
+    }
     if !app.state.ui.show_hints {
         return 0;
     }
@@ -390,6 +422,12 @@ pub(crate) fn footer_height(app: &App, width: u16) -> u16 {
 pub(crate) fn footer_hint_id_at(app: &App, origin_x: u16, width: u16, col: u16) -> Option<HintId> {
     if !app.status().is_empty() {
         return None;
+    }
+    if app.editor.is_some() {
+        return editor_footer_line()
+            .rendered_lines(width)
+            .first()
+            .and_then(|row| placement_at(&row.placements, origin_x, col));
     }
     let line = match app.nav.mode {
         Mode::Search => search_footer_line(app),
@@ -408,7 +446,13 @@ pub(crate) fn footer_hint_id_at_point(
     col: u16,
     row: u16,
 ) -> Option<HintId> {
-    if !app.status().is_empty() || !app.state.ui.show_hints {
+    if !app.status().is_empty() {
+        return None;
+    }
+    if app.editor.is_some() {
+        return editor_footer_line().hint_id_at_point(origin_x, origin_y, width, col, row);
+    }
+    if !app.state.ui.show_hints {
         return None;
     }
 
@@ -425,6 +469,14 @@ pub(crate) fn footer_hint_id_at_point(
 /// The expanded footer's justified rows joined by newlines, for tests.
 #[cfg(test)]
 pub(crate) fn expanded_footer_text(app: &App, width: u16) -> String {
+    if app.editor.is_some() {
+        return editor_footer_line()
+            .rendered_lines(width)
+            .iter()
+            .map(|row| row.text.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
     rendered_hint_lines(&expanded_footer_hints(app), width.saturating_sub(1))
         .iter()
         .map(|row| row.text.clone())
@@ -433,6 +485,9 @@ pub(crate) fn expanded_footer_text(app: &App, width: u16) -> String {
 }
 
 pub(crate) fn expanded_footer_lines(app: &App, width: u16) -> Text<'static> {
+    if app.editor.is_some() {
+        return Text::from(editor_footer_line().lines(width));
+    }
     if !app.state.ui.show_hints {
         return Text::default();
     }
@@ -443,6 +498,9 @@ pub(crate) fn expanded_footer_lines(app: &App, width: u16) -> Text<'static> {
 }
 
 pub(crate) fn expanded_footer_height(app: &App, width: u16) -> u16 {
+    if app.editor.is_some() {
+        return editor_footer_line().height(width);
+    }
     if !app.state.ui.show_hints {
         return 0;
     }
@@ -457,6 +515,9 @@ pub(crate) fn expanded_footer_hint_id_at_point(
     col: u16,
     row: u16,
 ) -> Option<HintId> {
+    if app.editor.is_some() {
+        return editor_footer_line().hint_id_at_point(origin_x, origin_y, width, col, row);
+    }
     if !app.state.ui.show_hints {
         return None;
     }
@@ -669,10 +730,7 @@ fn selected_entry_action_hints(include_view: bool) -> Vec<Hint> {
         hints.push(Hint::new("view", "enter", HintId::ViewSelected));
     }
     hints.push(Hint::new("del", "d", HintId::BeginDelete));
-    hints.push(Hint::new("tags", "t", HintId::BeginEditTags));
-    hints.push(Hint::new("feel", "f", HintId::BeginEditFeelings));
-    hints.push(Hint::new("mood", "m", HintId::BeginEditMood));
-    hints.push(Hint::new("location", "l", HintId::BeginEditLocation));
+    hints.push(Hint::new("metadata", "ctrl+g", HintId::OpenMetadataMenu));
     hints
 }
 
@@ -696,12 +754,7 @@ fn expanded_footer_hints(app: &App) -> Vec<Hint> {
         hints.push(Hint::new("edit", "e", HintId::EditSelected));
         hints.push(close_entry_view_hint(app));
         hints.push(Hint::new("del", "d", HintId::BeginDelete));
-        hints.push(Hint::new("tags", "t", HintId::BeginEditTags));
-        hints.push(Hint::new("ppl", "p", HintId::BeginEditPeople));
-        hints.push(Hint::new("act", "a", HintId::BeginEditActivities));
-        hints.push(Hint::new("feel", "f", HintId::BeginEditFeelings));
-        hints.push(Hint::new("mood", "m", HintId::BeginEditMood));
-        hints.push(Hint::new("location", "l", HintId::BeginEditLocation));
+        hints.push(Hint::new("metadata", "ctrl+g", HintId::OpenMetadataMenu));
         hints.push(Hint::new("star", "s", HintId::ToggleStarred));
         hints.extend(image_hint(app));
     } else {
@@ -754,6 +807,506 @@ pub(crate) fn render_centered_notice(frame: &mut Frame<'_>, content: Rect, messa
             .alignment(Alignment::Center)
             .style(Style::default().add_modifier(Modifier::DIM)),
         line,
+    );
+}
+
+/// Draw the internal editor's "Discard changes?" confirmation as a centered
+/// modal, matching the confirm-delete dialog's look.
+pub(crate) fn draw_editor_discard_confirm(frame: &mut Frame<'_>) {
+    let area = editor_discard_confirm_area(frame.area());
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .title("Discard Changes")
+        .borders(Borders::ALL);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let line = Rect {
+        y: inner.y + inner.height.saturating_sub(1) / 2,
+        height: 1,
+        ..inner
+    };
+    frame.render_widget(
+        Paragraph::new("Discard unsaved changes?  y/n").alignment(Alignment::Center),
+        line,
+    );
+}
+
+pub(crate) fn editor_discard_confirm_area(frame_area: Rect) -> Rect {
+    centered_rect_fixed_size(42, 5, frame_area)
+}
+
+pub(crate) fn editor_discard_choice_at_point(frame_area: Rect, col: u16, row: u16) -> Option<bool> {
+    let area = editor_discard_confirm_area(frame_area);
+    if !point_in_rect(area, col, row) {
+        return None;
+    }
+    let inner = area.inner(Margin {
+        vertical: 1,
+        horizontal: 1,
+    });
+    if row != inner.y + inner.height.saturating_sub(1) / 2 {
+        return None;
+    }
+    Some(col < inner.x + inner.width / 2)
+}
+
+const METADATA_MENU_ITEMS: [(&str, &str); 6] = [
+    ("t", "Tags"),
+    ("p", "People"),
+    ("a", "Activities"),
+    ("f", "Feelings"),
+    ("m", "Mood"),
+    ("l", "Location"),
+];
+
+fn metadata_menu_rows() -> Vec<Vec<String>> {
+    METADATA_MENU_ITEMS
+        .iter()
+        .map(|(key, label)| vec![key.to_string(), label.to_string()])
+        .collect()
+}
+
+fn metadata_menu_dialog(rows: &[Vec<String>], mode: MetadataMenuMode) -> TableDialog<'_> {
+    TableDialog {
+        title: "Add Metadata",
+        headers: &["Key", "Add"],
+        rows,
+        key_col: 0,
+        footer: mode.footer(),
+    }
+}
+
+/// Where the metadata chooser is shown. The editor gates its metadata keys behind
+/// this popup ("press key"); the viewer's keys work at any time, so there the popup
+/// is only a reference ("reference").
+#[derive(Clone, Copy)]
+pub(crate) enum MetadataMenuMode {
+    Editor,
+    Viewer,
+}
+
+impl MetadataMenuMode {
+    fn footer(self) -> &'static str {
+        match self {
+            Self::Editor => "press key · esc",
+            Self::Viewer => "reference · esc",
+        }
+    }
+}
+
+/// Draw the "Add metadata" chooser: a centered popup whose highlighted letters open
+/// the tags/people/activities/feelings/mood dialogs, laid out as a table matching
+/// the insights tabs. Shared by the internal editor and the entry viewer.
+pub(crate) fn draw_metadata_menu(frame: &mut Frame<'_>, mode: MetadataMenuMode) {
+    let rows = metadata_menu_rows();
+    // The chooser always fits, so it never scrolls.
+    let mut scroll = 0;
+    draw_table_dialog(frame, &metadata_menu_dialog(&rows, mode), &mut scroll);
+}
+
+pub(crate) enum MetadataChoice {
+    Metadata(MetadataKind),
+    Feelings,
+    Mood,
+    Location,
+}
+
+pub(crate) fn metadata_menu_choice_at_point(
+    frame_area: Rect,
+    mode: MetadataMenuMode,
+    col: u16,
+    row: u16,
+) -> Option<MetadataChoice> {
+    let rows = metadata_menu_rows();
+    let index =
+        table_dialog_row_at_point(frame_area, &metadata_menu_dialog(&rows, mode), 0, col, row)?;
+    match index {
+        0 => Some(MetadataChoice::Metadata(MetadataKind::Tags)),
+        1 => Some(MetadataChoice::Metadata(MetadataKind::People)),
+        2 => Some(MetadataChoice::Metadata(MetadataKind::Activities)),
+        3 => Some(MetadataChoice::Feelings),
+        4 => Some(MetadataChoice::Mood),
+        5 => Some(MetadataChoice::Location),
+        _ => None,
+    }
+}
+
+pub(crate) fn metadata_menu_close_at_point(
+    frame_area: Rect,
+    mode: MetadataMenuMode,
+    col: u16,
+    row: u16,
+) -> bool {
+    let rows = metadata_menu_rows();
+    table_dialog_footer_at_point(frame_area, &metadata_menu_dialog(&rows, mode), 0, col, row)
+}
+
+const EDITOR_SHORTCUT_SECTIONS: [(&str, &[(&str, &str)]); 3] = [
+    (
+        "File",
+        &[
+            ("ctrl+s", "Save"),
+            ("ctrl+o", "Fullscreen"),
+            ("ctrl+g", "Metadata"),
+            ("esc", "Discard"),
+        ],
+    ),
+    (
+        "Edit",
+        &[
+            ("ctrl+u", "Undo"),
+            ("ctrl+r", "Redo"),
+            ("ctrl+x", "Cut"),
+            ("ctrl+c", "Copy"),
+            ("ctrl+y", "Paste"),
+            ("ctrl+k", "Cut to line end"),
+            ("ctrl+w", "Delete word"),
+        ],
+    ),
+    (
+        "Move",
+        &[
+            ("arrows", "Move"),
+            ("shift+move", "Select"),
+            ("ctrl+←/→", "Word"),
+            ("home/end", "Line start/end"),
+            ("ctrl+↑/↓", "Paragraph"),
+            ("pgup/pgdn", "Page"),
+        ],
+    ),
+];
+
+fn editor_shortcut_rows() -> Vec<Vec<String>> {
+    let mut rows = Vec::new();
+    for (group, items) in EDITOR_SHORTCUT_SECTIONS {
+        for (i, (keys, action)) in items.iter().enumerate() {
+            let group = if i == 0 { group } else { "" };
+            rows.push(vec![
+                group.to_string(),
+                keys.to_string(),
+                action.to_string(),
+            ]);
+        }
+    }
+    rows
+}
+
+fn editor_shortcut_dialog(rows: &[Vec<String>]) -> TableDialog<'_> {
+    TableDialog {
+        title: "Editor Shortcuts",
+        headers: &["Group", "Key", "Action"],
+        rows,
+        key_col: 1,
+        footer: "reference · esc",
+    }
+}
+
+/// Draw the internal editor's shortcut reference: a bordered table listing every
+/// key the editor honors, grouped by purpose. Opened with Ctrl+T, scrolled with
+/// the arrows/page keys, dismissed by any other key. Keeps the always-on footer
+/// lean while staying fully discoverable.
+pub(crate) fn draw_editor_shortcuts(frame: &mut Frame<'_>, scroll: &mut u16) {
+    let rows = editor_shortcut_rows();
+    draw_table_dialog(frame, &editor_shortcut_dialog(&rows), scroll);
+}
+
+pub(crate) fn editor_shortcut_hint_at_point(
+    frame_area: Rect,
+    scroll: u16,
+    col: u16,
+    row: u16,
+) -> Option<HintId> {
+    let rows = editor_shortcut_rows();
+    let index =
+        table_dialog_row_at_point(frame_area, &editor_shortcut_dialog(&rows), scroll, col, row)?;
+    match index {
+        0 => Some(HintId::EditorSave),
+        1 => Some(HintId::EditorFullscreen),
+        2 => Some(HintId::EditorMetadata),
+        3 => Some(HintId::EditorDiscard),
+        _ => None,
+    }
+}
+
+/// Column content widths for a dialog table, each fitting the widest cell (and the
+/// header). The key column reserves the two spaces of its reversed key chip.
+fn dialog_widths(headers: &[&str], rows: &[Vec<String>], key_col: usize) -> Vec<usize> {
+    (0..headers.len())
+        .map(|c| {
+            rows.iter()
+                .map(|row| {
+                    let len = UnicodeWidthStr::width(row[c].as_str());
+                    if c == key_col && !row[c].is_empty() {
+                        len + 2
+                    } else {
+                        len
+                    }
+                })
+                .chain(std::iter::once(UnicodeWidthStr::width(headers[c])))
+                .max()
+                .unwrap_or(0)
+        })
+        .collect()
+}
+
+/// One data cell's spans, padded to `width`: the key column as a reversed key chip
+/// (one space each side) left-aligned; a leading group column bold; the rest plain.
+fn dialog_cell(text: &str, col: usize, key_col: usize, width: usize) -> Vec<Span<'static>> {
+    if col == key_col && !text.is_empty() {
+        let chip = key_chip_text(text);
+        let padding = width.saturating_sub(UnicodeWidthStr::width(chip.as_str()));
+        return vec![
+            Span::styled(chip, key_chip_style()),
+            Span::raw(" ".repeat(padding)),
+        ];
+    }
+    let style = if col == 0 && col != key_col {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    vec![Span::styled(pad_display(text, width), style)]
+}
+
+/// Left-pad `text` to `width` display columns.
+fn pad_display(text: &str, width: usize) -> String {
+    let pad = width.saturating_sub(UnicodeWidthStr::width(text));
+    format!("{text}{}", " ".repeat(pad))
+}
+
+/// A faint inter-row rule. Columns whose cell in `row` is empty (a spanning group
+/// cell continuing from the row above) are left blank so the group reads as one
+/// merged cell rather than a stack of separately-ruled blanks.
+fn row_separator(widths: &[usize], row: &[String], muted: Style) -> Line<'static> {
+    let faint = table::faint_rule_style();
+    let mut spans = vec![Span::styled("│".to_string(), muted)];
+    for (c, w) in widths.iter().enumerate() {
+        if c > 0 {
+            spans.push(Span::styled("│".to_string(), muted));
+        }
+        if row[c].is_empty() {
+            spans.push(Span::raw(" ".repeat(w + 2)));
+        } else {
+            spans.push(Span::styled("─".repeat(w + 2), faint));
+        }
+    }
+    spans.push(Span::styled("│".to_string(), muted));
+    Line::from(spans)
+}
+
+/// The full bordered grid (insights style): outer border, muted header, and a faint
+/// rule between each row. Returns the lines and the table's total column width.
+fn grid_table(headers: &[&str], rows: &[Vec<String>], key_col: usize) -> (Vec<Line<'static>>, u16) {
+    let widths = dialog_widths(headers, rows, key_col);
+    let muted = table::border_style();
+
+    let mut lines = Vec::with_capacity(2 * rows.len() + 4);
+    lines.push(table::rule(&widths, '┌', '┬', '┐', muted, muted));
+    let mut header = vec![table::border()];
+    for (c, label) in headers.iter().enumerate() {
+        table::push_cell_spans(
+            &mut header,
+            vec![Span::styled(table::pad(label, widths[c], false), muted)],
+        );
+    }
+    lines.push(Line::from(header));
+    lines.push(table::rule(&widths, '├', '┼', '┤', muted, muted));
+    for (r, row) in rows.iter().enumerate() {
+        // A faint rule between rows, its column borders running straight through as
+        // plain `│` so the verticals stay continuous — matching the insights table.
+        // A spanning group cell (empty on continuation rows) keeps its rule blank so
+        // it reads as one merged cell.
+        if r > 0 {
+            lines.push(row_separator(&widths, row, muted));
+        }
+        let mut spans = vec![table::border()];
+        for (c, text) in row.iter().enumerate() {
+            table::push_cell_spans(&mut spans, dialog_cell(text, c, key_col, widths[c]));
+        }
+        lines.push(Line::from(spans));
+    }
+    lines.push(table::rule(&widths, '└', '┴', '┘', muted, muted));
+
+    // Each column renders as `│ <content> `; the last cell adds the closing `│`.
+    let width = widths.iter().map(|w| w + 3).sum::<usize>() + 1;
+    (lines, width as u16)
+}
+
+/// The chrome-less fallback: one data row per line (no borders or rules), columns
+/// aligned and separated by two spaces — the same collapse the insights tabs use
+/// when there isn't room for the full grid.
+fn compact_table(
+    headers: &[&str],
+    rows: &[Vec<String>],
+    key_col: usize,
+) -> (Vec<Line<'static>>, u16) {
+    let widths = dialog_widths(headers, rows, key_col);
+    let lines: Vec<Line<'static>> = rows
+        .iter()
+        .map(|row| {
+            let mut spans = Vec::new();
+            for (c, text) in row.iter().enumerate() {
+                if c > 0 {
+                    spans.push(Span::raw("  "));
+                }
+                spans.extend(dialog_cell(text, c, key_col, widths[c]));
+            }
+            Line::from(spans)
+        })
+        .collect();
+    let width = widths.iter().sum::<usize>() + 2 * headers.len().saturating_sub(1);
+    (lines, width as u16)
+}
+
+/// A table popup's content, independent of where it lands on screen: title,
+/// column headers, data rows, the key column to render as a chip, and the
+/// bottom-border footer label. Built once per dialog and threaded through the
+/// draw and both hit-tests so they can't disagree on what's being shown.
+struct TableDialog<'a> {
+    title: &'a str,
+    headers: &'a [&'a str],
+    rows: &'a [Vec<String>],
+    key_col: usize,
+    footer: &'a str,
+}
+
+/// The full geometry and rendered content of a table dialog, computed once and
+/// shared by [`draw_table_dialog`] and the mouse hit-tests so the click map can
+/// never drift from the pixels.
+struct TableDialogMetrics {
+    area: Rect,
+    content: Rect,
+    /// The rendered body: the full bordered grid, or the chrome-less collapse.
+    lines: Vec<Line<'static>>,
+    /// The bottom-border label, with the `↑↓ scroll` prefix already added when the
+    /// content overflows.
+    footer: String,
+    /// Whether `lines` is the bordered grid (vs the compact collapse); the row
+    /// hit-test needs this to map a line back to its data row.
+    grid: bool,
+    total: u16,
+    scroll: u16,
+}
+
+fn table_dialog_metrics(frame_area: Rect, dialog: &TableDialog, scroll: u16) -> TableDialogMetrics {
+    let (grid_lines, grid_w) = grid_table(dialog.headers, dialog.rows, dialog.key_col);
+    let avail_h = frame_area.height.saturating_sub(2).max(3);
+    let (lines, content_w, grid) = if grid_lines.len() as u16 + 2 <= avail_h {
+        (grid_lines, grid_w, true)
+    } else {
+        let (compact_lines, compact_w) = compact_table(dialog.headers, dialog.rows, dialog.key_col);
+        (compact_lines, compact_w, false)
+    };
+    let total = lines.len() as u16;
+    let outer_h = (total + 2).min(avail_h);
+    let footer = if total > outer_h.saturating_sub(2) {
+        format!("↑↓ scroll · {}", dialog.footer)
+    } else {
+        dialog.footer.to_string()
+    };
+    let border_label = |text: &str| UnicodeWidthStr::width(text) as u16 + 4;
+    let outer_w = (content_w + 4)
+        .max(border_label(dialog.title))
+        .max(border_label(&footer))
+        .min(frame_area.width);
+    let area = centered_rect_fixed_size(outer_w, outer_h, frame_area);
+    let inner = area.inner(Margin {
+        vertical: 1,
+        horizontal: 1,
+    });
+    let content_w = content_w.min(inner.width);
+    let content = Rect {
+        x: inner.x + (inner.width - content_w) / 2,
+        width: content_w,
+        ..inner
+    };
+    let max_offset = total.saturating_sub(content.height);
+    TableDialogMetrics {
+        area,
+        content,
+        lines,
+        footer,
+        grid,
+        total,
+        scroll: scroll.min(max_offset),
+    }
+}
+
+fn table_dialog_row_at_point(
+    frame_area: Rect,
+    dialog: &TableDialog,
+    scroll: u16,
+    col: u16,
+    row: u16,
+) -> Option<usize> {
+    let metrics = table_dialog_metrics(frame_area, dialog, scroll);
+    if !point_in_rect(metrics.content, col, row) {
+        return None;
+    }
+    let visible_line = row - metrics.content.y;
+    let content_line = visible_line + metrics.scroll;
+    let index = if metrics.grid {
+        if content_line < 3 || !(content_line - 3).is_multiple_of(2) {
+            return None;
+        }
+        (content_line - 3) / 2
+    } else {
+        content_line
+    };
+    (index as usize)
+        .lt(&dialog.rows.len())
+        .then_some(index as usize)
+}
+
+fn table_dialog_footer_at_point(
+    frame_area: Rect,
+    dialog: &TableDialog,
+    scroll: u16,
+    col: u16,
+    row: u16,
+) -> bool {
+    let metrics = table_dialog_metrics(frame_area, dialog, scroll);
+    row == metrics.area.y + metrics.area.height.saturating_sub(1)
+        && col >= metrics.area.x
+        && col < metrics.area.x + metrics.area.width
+}
+
+pub(crate) fn editor_shortcut_close_at_point(
+    frame_area: Rect,
+    scroll: u16,
+    col: u16,
+    row: u16,
+) -> bool {
+    let rows = editor_shortcut_rows();
+    table_dialog_footer_at_point(frame_area, &editor_shortcut_dialog(&rows), scroll, col, row)
+}
+
+/// Draw a centered dialog: the usual titled border box (with `footer` on its bottom
+/// border) wrapping a table of `rows` with one column of space each side. Shows the
+/// full bordered grid when the box is tall enough, otherwise collapses to chrome-
+/// less rows — like the insights tabs. `scroll` drives a scrollbar when the content
+/// still overflows.
+fn draw_table_dialog(frame: &mut Frame<'_>, dialog: &TableDialog, scroll: &mut u16) {
+    let metrics = table_dialog_metrics(frame.area(), dialog, *scroll);
+    *scroll = metrics.scroll;
+
+    frame.render_widget(Clear, metrics.area);
+    let block = Block::default()
+        .title(format!(" {} ", dialog.title))
+        .title_bottom(Line::from(format!(" {} ", metrics.footer)).centered())
+        .borders(Borders::ALL);
+    frame.render_widget(block, metrics.area);
+
+    frame.render_widget(
+        Paragraph::new(metrics.lines).scroll((metrics.scroll, 0)),
+        metrics.content,
+    );
+    render_scrollbar_if_needed(
+        frame,
+        metrics.area,
+        metrics.total as usize,
+        metrics.content.height,
+        metrics.scroll as usize,
     );
 }
 

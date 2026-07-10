@@ -459,12 +459,9 @@ fn refresh_paths_updates_only_the_changed_entry() {
 
     assert_eq!(app.library.entries.len(), 2);
     let updated = app.library.entry_by_id("a").unwrap();
-    assert!(updated.content.contains("new body here"));
+    assert!(updated.body.contains("new body here"));
     // Precomputed word count is rebuilt from the fresh body on re-read.
-    assert_eq!(
-        updated.word_count,
-        updated.content.split_whitespace().count()
-    );
+    assert_eq!(updated.word_count, updated.body.split_whitespace().count());
     assert!(!updated.search_haystack.is_empty());
     // `entries` stays sorted by path (descending) so `journal_ranges` holds.
     assert!(

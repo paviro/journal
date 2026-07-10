@@ -67,7 +67,7 @@ fn metadata_values<'a>(
         activities: &[],
         feelings,
         mood,
-        location: &[],
+        location: None,
     }
 }
 
@@ -93,9 +93,18 @@ fn layout_places_hit_targets_in_three_columns() {
     // The three columns share the rows the footer doesn't take.
     let footer_h = footer_height(&app, 140);
     let content_h = 20 - footer_h;
-    assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 27, content_h));
-    assert_eq!(layout.entries.unwrap().panel.area, Rect::new(27, 0, 47, content_h));
-    assert_eq!(layout.entry_view.unwrap().area, Rect::new(74, 0, 66, content_h));
+    assert_eq!(
+        layout.journals.unwrap().area,
+        Rect::new(0, 0, 27, content_h)
+    );
+    assert_eq!(
+        layout.entries.unwrap().panel.area,
+        Rect::new(27, 0, 47, content_h)
+    );
+    assert_eq!(
+        layout.entry_view.unwrap().area,
+        Rect::new(74, 0, 66, content_h)
+    );
     assert_eq!(layout.footer, Rect::new(0, content_h, 140, footer_h));
 }
 
@@ -319,14 +328,13 @@ fn metadata_hit_map_accounts_for_mood_row() {
 fn metadata_layout_places_location_row_after_tags() {
     let area = Rect::new(42, 0, 60, 19);
     let tags = vec!["work".to_string()];
-    let location = vec!["Testville, Testland".to_string()];
     let values = EntryMetadataValues {
         tags: &tags,
         people: &[],
         activities: &[],
         feelings: &[],
         mood: None,
-        location: &location,
+        location: Some("Testville, Testland"),
     };
 
     let layout = crate::tui::surface::entry_metadata_layout(area, values);
@@ -363,8 +371,6 @@ fn location_wrapped_lines_break_a_long_label_flush_left() {
 
 #[test]
 fn location_row_height_reflects_wrapped_lines() {
-    let short = vec!["Cafe".to_string()];
-    let long = vec!["Grand Central Station Cafe".to_string()];
     let area = Rect::new(0, 0, 24, 60);
 
     let short_layout = crate::tui::surface::entry_metadata_layout(
@@ -375,7 +381,7 @@ fn location_row_height_reflects_wrapped_lines() {
             activities: &[],
             feelings: &[],
             mood: None,
-            location: &short,
+            location: Some("Cafe"),
         },
     );
     let long_layout = crate::tui::surface::entry_metadata_layout(
@@ -386,7 +392,7 @@ fn location_row_height_reflects_wrapped_lines() {
             activities: &[],
             feelings: &[],
             mood: None,
-            location: &long,
+            location: Some("Grand Central Station Cafe"),
         },
     );
 
@@ -410,14 +416,13 @@ fn entry_view_wraps_long_location_with_flush_left_continuation() {
     app.nav.focus = Focus::EntryView;
 
     let entry_view = Rect::new(0, 0, 24, 60 - expanded_footer_height(&app, 24));
-    let location = vec!["Grand Central Station Cafe".to_string()];
     let values = EntryMetadataValues {
         tags: &[],
         people: &[],
         activities: &[],
         feelings: &[],
         mood: None,
-        location: &location,
+        location: Some("Grand Central Station Cafe"),
     };
     let metadata = crate::tui::surface::entry_metadata_layout(entry_view, values);
     let location_row = metadata.location.expect("location row is laid out");
@@ -1549,18 +1554,25 @@ fn expanded_entry_footer_includes_inline_entry_actions() {
         "n  new entry",
         "e  edit",
         "d  del",
-        "t  tags",
-        "f  feel",
-        "m  mood",
+        "ctrl+g  metadata",
         "/  search",
         "q  quit",
     ] {
         assert!(inline_text.contains(label));
         assert!(expanded_text.contains(label));
     }
-    for label in ["p  ppl", "a  act"] {
+    // The per-field metadata shortcuts are folded into the metadata popup, so no
+    // longer appear as their own footer chips in either form.
+    for label in [
+        "t  tags",
+        "p  ppl",
+        "a  act",
+        "f  feel",
+        "m  mood",
+        "l  location",
+    ] {
         assert!(!inline_text.contains(label));
-        assert!(expanded_text.contains(label));
+        assert!(!expanded_text.contains(label));
     }
     // Single-column full screen (the flag is unset): Left also exits, so it is
     // listed alongside Enter/Esc.
@@ -1650,13 +1662,13 @@ fn wrapped_footer_hint_routing_uses_visible_row() {
     let (row_index, line) = text
         .split('\n')
         .enumerate()
-        .find(|(_, line)| line.contains("f  feel"))
-        .expect("feelings hint present");
-    let col = line.find("f  feel").unwrap() as u16;
+        .find(|(_, line)| line.contains("ctrl+g  metadata"))
+        .expect("metadata hint present");
+    let col = line.find("ctrl+g  metadata").unwrap() as u16;
 
     assert_eq!(
         footer_hint_id_at_point(&app, 0, origin_y, width, col, origin_y + row_index as u16),
-        Some(HintId::BeginEditFeelings)
+        Some(HintId::OpenMetadataMenu)
     );
 }
 
@@ -1667,8 +1679,8 @@ fn footer_hint_routing_uses_typed_ids() {
     let text = footer_text(&app, 200);
 
     assert_eq!(
-        footer_hint_id_at(&app, 0, 200, text.find("t  tags").unwrap() as u16),
-        Some(HintId::BeginEditTags)
+        footer_hint_id_at(&app, 0, 200, text.find("ctrl+g  metadata").unwrap() as u16),
+        Some(HintId::OpenMetadataMenu)
     );
     assert_eq!(
         footer_hint_id_at(&app, 0, 200, text.find("e  edit").unwrap() as u16),
@@ -1686,9 +1698,9 @@ fn expanded_footer_hint_routing_uses_typed_ids() {
     let (row_index, line) = text
         .split('\n')
         .enumerate()
-        .find(|(_, line)| line.contains("t  tags"))
-        .expect("tags hint present");
-    let col = line.find("t  tags").unwrap() as u16;
+        .find(|(_, line)| line.contains("ctrl+g  metadata"))
+        .expect("metadata hint present");
+    let col = line.find("ctrl+g  metadata").unwrap() as u16;
 
     assert_eq!(
         expanded_footer_hint_id_at_point(
@@ -1699,7 +1711,7 @@ fn expanded_footer_hint_routing_uses_typed_ids() {
             1 + col,
             origin_y + row_index as u16
         ),
-        Some(HintId::BeginEditTags)
+        Some(HintId::OpenMetadataMenu)
     );
 }
 
@@ -1741,37 +1753,6 @@ fn dialog_hint_routing_uses_typed_ids() {
     assert_hints_routable(mood_dialog_hints(), 200);
 }
 
-#[test]
-fn scoped_search_hit_labels_omit_journal_prefix() {
-    let mut app = app_with_entry();
-    app.search.scope = crate::tui::app::SearchScope::Journal("work".to_string());
-    let hit = SearchHit {
-        id: app.library.entries[0].id.clone(),
-        journal: "work".to_string(),
-        created_at: None,
-        title: "A".to_string(),
-        preview: "Body".to_string(),
-        starred: false,
-    };
-
-    assert_eq!(app.search_hit_label(&hit), "A");
-}
-
-#[test]
-fn global_search_hit_labels_include_journal_prefix() {
-    let app = app_with_entry();
-    let hit = SearchHit {
-        id: app.library.entries[0].id.clone(),
-        journal: "work".to_string(),
-        created_at: None,
-        title: "A".to_string(),
-        preview: "Body".to_string(),
-        starred: false,
-    };
-
-    assert_eq!(app.search_hit_label(&hit), "work/A");
-}
-
 fn rendered_lines(lines: &[Line<'static>]) -> Vec<String> {
     lines
         .iter()
@@ -1793,10 +1774,15 @@ fn plain_entry(created_at: Option<&str>, preview: &str) -> Entry {
         created_at: created_at.map(journal_core::Timestamp::parse),
         edited_at: None,
         preview: preview.to_string(),
-        metadata: journal_core::Metadata::default(),
+        activities: Vec::new(),
+        feelings: Vec::new(),
+        people: Vec::new(),
+        tags: Vec::new(),
+        mood: None,
+        starred: false,
         location: None,
         import: None,
-        content: String::new(),
+        body: String::new(),
         word_count: 0,
         search_haystack: String::new(),
     }
@@ -1866,10 +1852,15 @@ fn entry_group_labels_use_created_timestamp() {
         created_at: Some(journal_core::Timestamp::parse("2026-07-01T10:23:00+02:00")),
         edited_at: None,
         preview: String::new(),
-        metadata: journal_core::Metadata::default(),
+        activities: Vec::new(),
+        feelings: Vec::new(),
+        people: Vec::new(),
+        tags: Vec::new(),
+        mood: None,
+        starred: false,
         location: None,
         import: None,
-        content: String::new(),
+        body: String::new(),
         word_count: 0,
         search_haystack: String::new(),
     };
@@ -1888,10 +1879,15 @@ fn entry_group_labels_fall_back_to_filename_date() {
         created_at: None,
         edited_at: None,
         preview: String::new(),
-        metadata: journal_core::Metadata::default(),
+        activities: Vec::new(),
+        feelings: Vec::new(),
+        people: Vec::new(),
+        tags: Vec::new(),
+        mood: None,
+        starred: false,
         location: None,
         import: None,
-        content: String::new(),
+        body: String::new(),
         word_count: 0,
         search_haystack: String::new(),
     };
@@ -2004,4 +2000,129 @@ fn disable_notice_renders_in_the_journal_chrome_frame() {
     assert!(text.contains("any key to continue"));
     assert!(text.contains("Encryption disabled"));
     assert!(text.contains("journal encryption enable"));
+}
+
+#[test]
+fn internal_editor_renders_in_entry_view_pane() {
+    let mut app = app_with_entry();
+    app.open_editor_for_selected();
+    let text = render_text(app, INLINE_ENTRY_VIEW_MIN_WIDTH, 30);
+    // The textarea shows the raw markdown source (with the leading `#`), unlike
+    // the viewer which renders the heading, so the literal `# A` proves the
+    // editor drew in the pane.
+    assert!(text.contains("# A"));
+    // The editor footer replaces the browse hints.
+    assert!(text.contains("ctrl+s"));
+}
+
+#[test]
+fn internal_editor_renders_full_screen() {
+    let mut app = app_with_entry();
+    app.open_editor_for_selected();
+    app.nav.entry_view_fullscreen = true;
+    let text = render_text(app, INLINE_ENTRY_VIEW_MIN_WIDTH, 30);
+    assert!(text.contains("# A"));
+    assert!(text.contains("ctrl+s"));
+}
+
+#[test]
+fn internal_editor_new_entry_renders_in_pane_not_insights() {
+    let mut app = app_with_journals(&["work"]);
+    app.select_journal_by_name("work");
+    app.open_editor_for_new();
+    // Not fullscreen: the entry list column is still present alongside the editor.
+    let text = render_text(app, INLINE_ENTRY_VIEW_MIN_WIDTH, 30);
+    assert!(text.contains("New entry")); // editor pane title, not the insights panel
+    assert!(text.contains("ctrl+s")); // editor footer
+}
+
+#[test]
+fn internal_editor_metadata_menu_renders() {
+    let mut app = app_with_entry();
+    app.open_editor_for_selected();
+    app.editor.as_mut().unwrap().prompt = crate::tui::editor_state::EditorPrompt::MetadataMenu;
+    let text = render_text(app, INLINE_ENTRY_VIEW_MIN_WIDTH, 30);
+    assert!(text.contains("Add Metadata"));
+    assert!(text.contains("Feelings"));
+}
+
+/// The editor's metadata section renders the entry's location just like the
+/// viewer — both go through `EntryMetadata::from_metadata`, so a front-matter
+/// field can't show in one mode and vanish in the other.
+#[test]
+fn internal_editor_shows_entry_location() {
+    let dir = tempdir().unwrap();
+    let entry_dir = dir.path().join("work").join("2026-07-01");
+    fs::create_dir_all(&entry_dir).unwrap();
+    fs::write(
+        entry_dir.join("a.md"),
+        "+++\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Testville Cafe\"\n+++\n\n# A\nBody\n",
+    )
+    .unwrap();
+    let mut app = new_app(Config::new(dir.path().to_path_buf(), "true"));
+    app.select_journal_by_name("work");
+    app.open_editor_for_selected();
+
+    let text = render_text(app, INLINE_ENTRY_VIEW_MIN_WIDTH, 30);
+    assert!(text.contains("Testville Cafe"), "editor pane was:\n{text}");
+}
+
+/// The shortcut overlay shows the full bordered grid when tall enough and
+/// collapses to chrome-less rows (no box-drawing) when it is not.
+#[test]
+fn editor_shortcuts_collapses_when_short() {
+    let has_grid = |h: u16| {
+        render_to_text(64, h, |frame| {
+            super::chrome::draw_editor_shortcuts(frame, &mut 0)
+        })
+        .contains('┼')
+    };
+    assert!(has_grid(44), "tall terminal shows the bordered grid");
+    assert!(!has_grid(20), "short terminal collapses to plain rows");
+}
+
+#[test]
+fn editor_shortcuts_hit_test_action_rows() {
+    let area = Rect::new(0, 0, 64, 44);
+    let mut found = Vec::new();
+    let mut close_found = false;
+    for y in 0..area.height {
+        for x in 0..area.width {
+            if let Some(id) = super::chrome::editor_shortcut_hint_at_point(area, 0, x, y) {
+                found.push(id);
+            }
+            close_found |= super::chrome::editor_shortcut_close_at_point(area, 0, x, y);
+        }
+    }
+
+    assert!(found.contains(&HintId::EditorSave));
+    assert!(found.contains(&HintId::EditorFullscreen));
+    assert!(found.contains(&HintId::EditorMetadata));
+    assert!(found.contains(&HintId::EditorDiscard));
+    assert!(close_found);
+}
+
+#[test]
+fn editor_metadata_menu_hit_tests_rows() {
+    let area = Rect::new(0, 0, 64, 30);
+    let mut found_tags = false;
+    let mut found_feelings = false;
+    let mut found_mood = false;
+    for y in 0..area.height {
+        for x in 0..area.width {
+            let mode = super::chrome::MetadataMenuMode::Editor;
+            match super::chrome::metadata_menu_choice_at_point(area, mode, x, y) {
+                Some(super::chrome::MetadataChoice::Metadata(MetadataKind::Tags)) => {
+                    found_tags = true;
+                }
+                Some(super::chrome::MetadataChoice::Feelings) => found_feelings = true,
+                Some(super::chrome::MetadataChoice::Mood) => found_mood = true,
+                _ => {}
+            }
+        }
+    }
+
+    assert!(found_tags);
+    assert!(found_feelings);
+    assert!(found_mood);
 }

@@ -330,6 +330,7 @@ fn random_metadata(
         feelings,
         mood: Some(mood_score),
         starred: rng.random_bool(star_probability(target)),
+        location: None,
     }
 }
 
@@ -497,7 +498,7 @@ mod tests {
                 .scan_entries()
                 .unwrap()
                 .iter()
-                .map(|entry| entry.content.clone())
+                .map(|entry| entry.body.clone())
                 .collect();
             bodies.sort();
             bodies

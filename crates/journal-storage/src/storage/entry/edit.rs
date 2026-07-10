@@ -86,12 +86,11 @@ pub fn edit_entry_body(
 
     let new_body = new_body.trim_start_matches('\n');
     let changed = new_body != entry.body;
+    if !changed {
+        return Ok(EditOutcome::Unchanged);
+    }
     codec.write_body(path, entry.front_matter.as_deref(), new_body)?;
-    Ok(if changed {
-        EditOutcome::Changed
-    } else {
-        EditOutcome::Unchanged
-    })
+    Ok(EditOutcome::Changed)
 }
 
 pub fn delete_empty_entry(path: &Path) -> AppResult<()> {

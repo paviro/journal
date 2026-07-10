@@ -137,6 +137,18 @@ pub fn read_entry(
     let word_count = body.split_whitespace().count();
     let search_haystack = build_search_haystack(&body, &metadata);
 
+    // The `[location]` table is its own front-matter field; the flattened
+    // `metadata` never carries it (skipped by serde), so ignore that slot.
+    let Metadata {
+        activities,
+        feelings,
+        people,
+        tags,
+        mood,
+        starred,
+        location: _,
+    } = metadata;
+
     Ok(Entry {
         id,
         journal: journal.to_string(),
@@ -145,10 +157,15 @@ pub fn read_entry(
         created_at,
         edited_at,
         preview,
-        metadata,
+        activities,
+        feelings,
+        people,
+        tags,
+        mood,
+        starred,
         location,
         import,
-        content: body,
+        body,
         word_count,
         search_haystack,
     })
@@ -194,7 +211,7 @@ fn placeholder_entry(
     path: &Path,
     encryption_state: EntryEncryptionState,
     preview: &str,
-    content: &str,
+    body: &str,
 ) -> AppResult<Entry> {
     let id = entry_id(path).context("entry file has no UTF-8 stem")?;
     Ok(Entry {
@@ -205,10 +222,15 @@ fn placeholder_entry(
         created_at: None,
         edited_at: None,
         preview: preview.to_string(),
-        metadata: Metadata::default(),
+        activities: Vec::new(),
+        feelings: Vec::new(),
+        people: Vec::new(),
+        tags: Vec::new(),
+        mood: None,
+        starred: false,
         location: None,
         import: None,
-        content: content.to_string(),
+        body: body.to_string(),
         word_count: 0,
         search_haystack: String::new(),
     })

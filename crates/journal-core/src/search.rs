@@ -70,8 +70,17 @@ mod tests {
     use crate::entry::{EntryEncryptionState, Metadata, build_search_haystack};
     use std::path::PathBuf;
 
-    fn entry_with(id: &str, journal: &str, content: &str, metadata: Metadata) -> Entry {
-        let search_haystack = build_search_haystack(content, &metadata);
+    fn entry_with(id: &str, journal: &str, body: &str, metadata: Metadata) -> Entry {
+        let search_haystack = build_search_haystack(body, &metadata);
+        let Metadata {
+            activities,
+            feelings,
+            people,
+            tags,
+            mood,
+            starred,
+            location,
+        } = metadata;
         Entry {
             id: id.to_string(),
             journal: journal.to_string(),
@@ -80,11 +89,16 @@ mod tests {
             created_at: None,
             edited_at: None,
             preview: String::new(),
-            metadata,
-            location: None,
+            activities,
+            feelings,
+            people,
+            tags,
+            mood,
+            starred,
+            location,
             import: None,
-            content: content.to_string(),
-            word_count: content.split_whitespace().count(),
+            body: body.to_string(),
+            word_count: body.split_whitespace().count(),
             search_haystack,
         }
     }

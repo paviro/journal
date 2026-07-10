@@ -1,5 +1,5 @@
 use crate::{AppResult, editor};
-use journal_core::{Location, MetadataField};
+use journal_core::{Location, Metadata, MetadataField};
 use journal_storage::EditOutcome;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
@@ -10,6 +10,7 @@ use std::{
 
 use super::terminal::suspend_terminal;
 use crate::tui::app::{App, EntryTarget, Focus};
+use crate::tui::editor_state::EditorTarget;
 use crate::tui::state::MetadataKind;
 
 type Term = Terminal<CrosstermBackend<io::Stdout>>;
@@ -146,30 +147,150 @@ pub(super) fn edit_selected(terminal: &mut Term, app: &mut App) -> AppResult<()>
 
     let editor = app.config.editor.command.clone();
     let outcome = edit_entry_at(terminal, app, &target.path, &editor)?;
-    if outcome.kept() {
-        let report = app.store.process_entry_assets(
-            &target.path,
-            app.config.attachments.download_remote_images,
-            false,
-        )?;
-        app.set_status(save_status(&format!("Edited {}", target.title), &report));
-    } else {
-        app.set_status("Empty entry deleted");
+    finish_existing_edit(app, &target.path, &target.title, outcome)
+}
+
+/// The shared post-edit tail for an existing entry, run by both the external and
+/// internal editors: ingest any new image assets (or report the deletion),
+/// refresh the entry, and back-fill weather after a real change.
+fn finish_existing_edit(
+    app: &mut App,
+    path: &Path,
+    title: &str,
+    outcome: EditOutcome,
+) -> AppResult<()> {
+    match outcome {
+        EditOutcome::Unchanged => {
+            app.set_status("No changes");
+            return Ok(());
+        }
+        EditOutcome::Changed => {
+            let report = app.store.process_entry_assets(
+                path,
+                app.config.attachments.download_remote_images,
+                false,
+            )?;
+            app.set_status(save_status(&format!("Edited {title}"), &report));
+        }
+        EditOutcome::Deleted => app.set_status("Empty entry deleted"),
     }
-    refresh_entry_path(app, &target.path)?;
+    refresh_entry_path(app, path)?;
 
     // After a real edit, back-fill weather for an entry that has coordinates but
     // no weather yet — never clobbering weather already captured (e.g. imported).
     if outcome == EditOutcome::Changed {
         let entry_info = app.resolved_selected_entry().and_then(|entry| {
-            (entry.path == target.path).then(|| (entry.location.clone(), entry.created_time()))
+            (entry.path == *path).then(|| (entry.location.clone(), entry.created_time()))
         });
         if let Some((Some(location), Some(datetime))) = entry_info
             && location.latitude.is_some()
             && location.longitude.is_some()
-            && !app.store.entry_has_weather(&target.path).unwrap_or(true)
+            && !app.store.entry_has_weather(path).unwrap_or(true)
         {
-            app.capture_environment_for_entry(&target.path, &location, datetime);
+            app.capture_environment_for_entry(path, &location, datetime);
+        }
+    }
+    Ok(())
+}
+
+/// Write only the metadata fields the editor changed to an existing entry, so an
+/// unchanged field never rewrites the file (or bumps timestamps unnecessarily).
+fn apply_metadata_changes(
+    app: &mut App,
+    path: &Path,
+    original: &Metadata,
+    current: &Metadata,
+) -> AppResult<()> {
+    let mut fields = Vec::new();
+    if current.tags != original.tags {
+        fields.push(MetadataField::Tags(current.tags.clone()));
+    }
+    if current.people != original.people {
+        fields.push(MetadataField::People(current.people.clone()));
+    }
+    if current.activities != original.activities {
+        fields.push(MetadataField::Activities(current.activities.clone()));
+    }
+    if current.feelings != original.feelings {
+        fields.push(MetadataField::Feelings(current.feelings.clone()));
+    }
+    if current.mood != original.mood {
+        fields.push(MetadataField::Mood(current.mood));
+    }
+    app.store.set_entry_metadata_fields(path, &fields)?;
+    Ok(())
+}
+
+/// Save the open internal-editor buffer. The editor stays open until every
+/// fallible write/refresh step succeeds.
+pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
+    let Some(editor) = app.editor.as_ref() else {
+        return Ok(());
+    };
+    let text = editor.text();
+    let elapsed = editor.start.elapsed();
+    let original_body = editor.original.clone();
+    let metadata = editor.metadata.clone();
+    let original_metadata = editor.original_metadata.clone();
+    let target = editor.target.clone();
+
+    match target {
+        EditorTarget::Existing { path, title } => {
+            let outcome = if text.trim().is_empty() || text != original_body {
+                app.store
+                    .edit_entry_via_editor(&path, true, |_old| Ok(Some(text)))?
+            } else {
+                EditOutcome::Unchanged
+            };
+            let metadata_changed = metadata != original_metadata;
+            if outcome == EditOutcome::Changed {
+                app.store.add_writing_seconds(&path, elapsed.as_secs())?;
+            }
+            if outcome.kept() {
+                apply_metadata_changes(app, &path, &original_metadata, &metadata)?;
+            }
+            let status_outcome = if metadata_changed && outcome == EditOutcome::Unchanged {
+                EditOutcome::Changed
+            } else {
+                outcome
+            };
+            finish_existing_edit(app, &path, &title, status_outcome)?;
+            app.editor = None;
+            if outcome == EditOutcome::Deleted {
+                app.nav.focus = Focus::Entries;
+                app.nav.scroll.reset_entry_view();
+            } else {
+                app.nav.focus = Focus::EntryView;
+            }
+        }
+        EditorTarget::New { journal } => {
+            let created = app
+                .store
+                .create_entry_via_editor(&journal, &metadata, |_empty| Ok(Some(text)))?;
+            match created {
+                Some(path) => {
+                    let report = app.store.process_entry_assets(
+                        &path,
+                        app.config.attachments.download_remote_images,
+                        false,
+                    )?;
+                    app.set_status(save_status("Entry saved", &report));
+                    app.store.add_writing_seconds(&path, elapsed.as_secs())?;
+                    refresh_entry_path(app, &path)?;
+                    if let Some(id) = journal_storage::entry_id(&path)
+                        && app.select_entry_by_id(&id, true)
+                    {
+                        app.nav.focus = Focus::EntryView;
+                    }
+                    app.editor = None;
+                }
+                None => {
+                    app.set_status("Nothing added");
+                    app.nav.entry_view_fullscreen = false;
+                    app.nav.focus = Focus::Entries;
+                    app.editor = None;
+                }
+            }
         }
     }
     Ok(())
@@ -198,7 +319,7 @@ pub(super) fn delete_selected(app: &mut App) -> AppResult<()> {
         .entries
         .iter()
         .find(|e| e.path == target.path)
-        .map(|e| !e.content.trim().is_empty())
+        .map(|e| !e.body.trim().is_empty())
         .unwrap_or(false);
 
     if has_body {
@@ -223,7 +344,7 @@ pub(super) fn delete_selected_journal(app: &mut App) -> AppResult<()> {
         .entries
         .iter()
         .filter(|e| e.journal == journal_name)
-        .map(|e| (e.path.clone(), !e.content.trim().is_empty()))
+        .map(|e| (e.path.clone(), !e.body.trim().is_empty()))
         .collect();
 
     let display = journal_storage::journal_display_name(&journal_name).to_string();
@@ -381,6 +502,7 @@ fn refresh_entry_path(app: &mut App, path: &Path) -> AppResult<()> {
 mod tests {
     use super::*;
     use crate::config::Config;
+    use crate::tui::editor_state::EntryEditor;
     use journal_storage::JournalStore;
     use std::fs;
     use tempfile::tempdir;
@@ -454,5 +576,181 @@ mod tests {
 
         set_location_on_entry(&mut app, None).unwrap();
         assert_eq!(app.selected_entry_location(), None);
+    }
+
+    fn app_with_entry(body: &str) -> (tempfile::TempDir, App, PathBuf) {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        let path = entry_dir.join("a.md");
+        fs::write(&path, body).unwrap();
+
+        let config = Config::new(dir.path().to_path_buf(), "internal");
+        let mut app = new_app(config);
+        app.select_journal_by_name("work");
+        (dir, app, path)
+    }
+
+    #[test]
+    fn open_editor_loads_body_and_focuses_view() {
+        let (_dir, mut app, _path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+        let expected = app.resolved_selected_entry().unwrap().body.clone();
+
+        app.open_editor_for_selected();
+
+        assert!(app.editor.is_some());
+        assert_eq!(app.nav.focus, Focus::EntryView);
+        assert_eq!(app.editor.as_ref().unwrap().text(), expected);
+    }
+
+    #[test]
+    fn save_internal_editor_writes_body_and_bumps_edited_at() {
+        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# Original\n");
+        let target = app.selected_entry_target().unwrap();
+
+        let mut editor = EntryEditor::for_existing(
+            target.path.clone(),
+            target.title,
+            "# Edited body",
+            journal_core::Metadata::default(),
+        );
+        editor.original = "# Original".to_string();
+        app.editor = Some(editor);
+        save_internal_editor(&mut app).unwrap();
+
+        assert!(app.editor.is_none());
+        let content = app.store.read_entry_content(&path).unwrap();
+        assert!(content.contains("# Edited body"));
+        assert!(content.contains("edited_at"));
+    }
+
+    #[test]
+    fn save_internal_editor_unchanged_body_does_not_rewrite() {
+        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# Original\n");
+        let original = app.store.read_entry_content(&path).unwrap();
+
+        app.open_editor_for_selected();
+        save_internal_editor(&mut app).unwrap();
+
+        assert!(app.editor.is_none());
+        assert_eq!(app.status(), "No changes");
+        assert_eq!(app.store.read_entry_content(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn save_internal_editor_error_keeps_buffer_open() {
+        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# Original\n");
+        let target = app.selected_entry_target().unwrap();
+        let mut editor = EntryEditor::for_existing(
+            path.with_file_name("missing.md"),
+            target.title,
+            "# Edited body",
+            journal_core::Metadata::default(),
+        );
+        editor.original = "# Original".to_string();
+        app.editor = Some(editor);
+
+        let result = save_internal_editor(&mut app);
+
+        assert!(result.is_err());
+        assert_eq!(app.editor.as_ref().unwrap().text(), "# Edited body");
+    }
+
+    #[test]
+    fn save_internal_editor_empty_body_deletes_existing_entry() {
+        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+        let target = app.selected_entry_target().unwrap();
+
+        app.editor = Some(EntryEditor::for_existing(
+            target.path.clone(),
+            target.title,
+            "   \n  ",
+            journal_core::Metadata::default(),
+        ));
+        save_internal_editor(&mut app).unwrap();
+
+        assert!(!path.exists());
+        assert_eq!(app.status(), "Empty entry deleted");
+    }
+
+    #[test]
+    fn save_internal_editor_creates_new_entry() {
+        let (_dir, mut app, _path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+
+        let mut editor = EntryEditor::for_new("work".to_string());
+        editor.textarea.insert_str("Brand new thoughts");
+        app.editor = Some(editor);
+        save_internal_editor(&mut app).unwrap();
+
+        assert!(app.status().starts_with("Entry saved"));
+        assert!(
+            app.library
+                .entries
+                .iter()
+                .any(|entry| entry.body.contains("Brand new thoughts"))
+        );
+    }
+
+    #[test]
+    fn open_editor_seeds_buffered_metadata_from_entry() {
+        let (_dir, mut app, _path) = app_with_entry("+++\ntags = [\"seed\"]\n+++\n\n# A\n");
+        app.open_editor_for_selected();
+        assert_eq!(
+            app.editor.as_ref().unwrap().metadata.tags,
+            vec!["seed".to_string()]
+        );
+    }
+
+    #[test]
+    fn save_internal_editor_applies_buffered_metadata_to_existing_entry() {
+        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+        app.open_editor_for_selected();
+        app.set_editor_metadata(
+            MetadataKind::Tags,
+            &["work".to_string(), "focus".to_string()],
+        );
+
+        save_internal_editor(&mut app).unwrap();
+
+        let content = app.store.read_entry_content(&path).unwrap();
+        assert!(content.contains("work"), "front matter was: {content}");
+        assert!(content.contains("focus"), "front matter was: {content}");
+    }
+
+    #[test]
+    fn save_internal_editor_writes_buffered_metadata_for_new_entry() {
+        let (_dir, mut app, _path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+
+        let mut editor = EntryEditor::for_new("work".to_string());
+        editor.textarea.insert_str("New body");
+        editor.metadata.mood = Some(3);
+        editor.metadata.tags = vec!["idea".to_string()];
+        app.editor = Some(editor);
+
+        save_internal_editor(&mut app).unwrap();
+
+        let saved = app
+            .library
+            .entries
+            .iter()
+            .find(|entry| entry.body.contains("New body"))
+            .expect("new entry saved");
+        assert_eq!(saved.mood, Some(3));
+        assert!(saved.tags.contains(&"idea".to_string()));
+    }
+
+    #[test]
+    fn cancel_editor_discards_changes() {
+        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+
+        app.open_editor_for_selected();
+        app.editor.as_mut().unwrap().textarea.insert_str("mutation");
+        assert!(app.editor.as_ref().unwrap().is_dirty());
+
+        app.cancel_editor();
+
+        assert!(app.editor.is_none());
+        let content = app.store.read_entry_content(&path).unwrap();
+        assert!(!content.contains("mutation"));
     }
 }

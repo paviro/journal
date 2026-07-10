@@ -119,9 +119,11 @@ fn edit_entry_body_reports_changed_unchanged_and_deleted() {
     )
     .unwrap();
 
-    // Saving the same body is not a change.
+    // Saving the same body is not a change and does not rewrite timestamps.
+    let before = fs::read_to_string(&path).unwrap();
     let outcome = edit_entry_body(&codec, &path, true, |body| Ok(Some(body.to_string()))).unwrap();
     assert_eq!(outcome, EditOutcome::Unchanged);
+    assert_eq!(fs::read_to_string(&path).unwrap(), before);
 
     // A different body is a change.
     let outcome =
@@ -181,7 +183,7 @@ fn entry_tags_read_toml_list() {
 
     let entry = read_entry("journal", &path, None).unwrap();
 
-    assert_eq!(entry.metadata.tags, vec!["work", "deep focus"]);
+    assert_eq!(entry.tags, vec!["work", "deep focus"]);
 }
 
 #[test]
@@ -196,7 +198,7 @@ fn entry_feelings_read_known_values_only() {
 
     let entry = read_entry("journal", &path, None).unwrap();
 
-    assert_eq!(entry.metadata.feelings, vec!["calm", "focused"]);
+    assert_eq!(entry.feelings, vec!["calm", "focused"]);
 }
 
 #[test]
@@ -219,6 +221,7 @@ fn create_entry_with_body_and_metadata_writes_metadata() {
             feelings: feelings.clone(),
             mood: None,
             starred: false,
+            location: None,
         },
     )
     .unwrap();
@@ -240,6 +243,39 @@ fn create_entry_with_body_and_metadata_writes_metadata() {
         Some(feelings)
     );
     assert!(text.ends_with("\nSome text\n"));
+}
+
+#[test]
+fn create_entry_with_body_writes_metadata_location() {
+    let dir = tempdir().unwrap();
+    let created = create_entry(
+        &EntryCodec::plain(),
+        dir.path(),
+        "work",
+        "Some text",
+        &Metadata {
+            location: Some(journal_core::Location {
+                name: Some("Cafe".to_string()),
+                latitude: Some(52.52),
+                longitude: Some(13.405),
+                ..journal_core::Location::default()
+            }),
+            ..Metadata::default()
+        },
+    )
+    .unwrap();
+
+    let text = fs::read_to_string(created).unwrap();
+    let (front_matter, _) = crate::markdown::split_front_matter(&text);
+    let fields = front_matter.map(crate::markdown::front_matter_fields);
+
+    assert_eq!(
+        fields
+            .as_ref()
+            .and_then(|fields| fields.location.as_ref())
+            .and_then(|location| location.name.as_deref()),
+        Some("Cafe")
+    );
 }
 
 #[test]
@@ -325,7 +361,7 @@ fn scan_entries_returns_locked_placeholder_for_encrypted_entry_without_key() {
         EntryEncryptionState::EncryptedLocked
     );
     assert_eq!(entries[0].preview, "[locked] Encrypted entry");
-    assert_eq!(entries[0].content, "Encryption identity not available");
+    assert_eq!(entries[0].body, "Encryption identity not available");
     assert_eq!(
         journal_core::entry_group_date(&entries[0]),
         Some(chrono::NaiveDate::from_ymd_opt(2026, 7, 1).unwrap())
@@ -360,7 +396,7 @@ fn scan_entries_marks_encrypted_entry_unlocked_with_identity() {
         EntryEncryptionState::EncryptedUnlocked
     );
     assert_eq!(entries[0].preview, "Secret Body");
-    assert!(entries[0].content.contains("Body"));
+    assert!(entries[0].body.contains("Body"));
 }
 
 #[test]
@@ -391,7 +427,7 @@ fn scan_entries_marks_corrupt_encrypted_entry_unreadable_with_identity() {
         EntryEncryptionState::EncryptedUnreadable
     );
     assert_eq!(entries[0].preview, "[unreadable] Encrypted entry");
-    assert_eq!(entries[0].content, "Encrypted entry could not be decrypted");
+    assert_eq!(entries[0].body, "Encrypted entry could not be decrypted");
 }
 
 #[test]

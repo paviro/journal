@@ -423,7 +423,7 @@ pub(crate) fn entry_list_lines(
         &entry.preview,
         Some(&footer_left_label(
             word_count_label(entry.word_count),
-            entry.metadata.starred,
+            entry.starred,
         )),
         None,
         text_width,

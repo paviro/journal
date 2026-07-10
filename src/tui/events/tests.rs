@@ -131,6 +131,40 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 #[test]
+fn keyboard_and_footer_edit_use_the_same_action() {
+    let mut app = app_with_entries(1);
+    app.config.editor.command = "internal".to_string();
+    app.nav.focus = Focus::Entries;
+
+    let key_action = keyboard::key_to_action(&app, key(KeyCode::Char('e')), true);
+    let hint_action = mouse::hint_id_to_action(&app, render::HintId::EditSelected);
+
+    assert_eq!(key_action, Some(Action::EditSelected));
+    assert_eq!(hint_action, Some(Action::EditSelected));
+}
+
+#[test]
+fn editor_footer_hints_route_to_editor_actions() {
+    let mut app = app_with_entries(1);
+    app.config.editor.command = "internal".to_string();
+    app.open_editor_for_selected();
+    app.state.ui.show_hints = false;
+
+    assert_eq!(
+        mouse::hint_id_to_action(&app, render::HintId::EditorSave),
+        Some(Action::EditorSave)
+    );
+    assert_eq!(
+        mouse::hint_id_to_action(&app, render::HintId::EditorDiscard),
+        Some(Action::EditorRequestDiscard)
+    );
+    assert_eq!(
+        mouse::hint_id_to_action(&app, render::HintId::EditorMetadata),
+        Some(Action::EditorOpenMetadataMenu)
+    );
+}
+
+#[test]
 fn right_past_entries_focuses_insights_and_arrows_cycle_tabs() {
     let mut app = app_with_entries(1);
     app.nav.focus = Focus::Entries;
@@ -451,8 +485,8 @@ fn typed_hint_ids_route_to_actions_without_string_parsing() {
     app.nav.focus = Focus::Entries;
 
     assert_eq!(
-        mouse::hint_id_to_action(&app, render::HintId::BeginEditTags),
-        Some(Action::BeginEditTags)
+        mouse::hint_id_to_action(&app, render::HintId::OpenMetadataMenu),
+        Some(Action::OpenMetadataMenu)
     );
     assert_eq!(
         mouse::hint_id_to_action(&app, render::HintId::EditSelected),

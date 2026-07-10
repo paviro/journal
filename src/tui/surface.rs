@@ -65,8 +65,8 @@ pub(crate) struct EntryMetadataValues<'a> {
     pub(crate) activities: &'a [String],
     pub(crate) feelings: &'a [String],
     pub(crate) mood: Option<i8>,
-    /// Zero or one element (the location label); rendered, not clickable.
-    pub(crate) location: &'a [String],
+    /// The location label, if set; rendered, not clickable.
+    pub(crate) location: Option<&'a str>,
 }
 
 pub(crate) fn panel_inner(area: Rect) -> Rect {
@@ -187,7 +187,7 @@ pub(crate) fn entry_metadata_layout(
             });
             y = y.saturating_add(height);
         }
-        if let Some(location) = values.location.first() {
+        if let Some(location) = values.location {
             let height = location_row_height(metadata_rect.width, location);
             location_row = Some(MetadataRowLayout {
                 rect: Rect {
@@ -313,7 +313,6 @@ fn metadata_section_height(row_width: u16, values: EntryMetadataValues<'_>) -> u
             * metadata_row_height("Tags: ".len() as u16, row_width, values.tags)
         + values
             .location
-            .first()
             .map_or(0, |location| location_row_height(row_width, location));
     if rows == 0 { 0 } else { 1 + rows }
 }

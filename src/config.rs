@@ -29,11 +29,19 @@ pub struct JournalSection {
     pub default: Option<String>,
 }
 
-/// The external editor launched to write entries.
+/// The editor used to write entries: either an external command, or the
+/// built-in editor when [`command`](Self::command) is the sentinel `internal`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EditorSection {
     #[serde(default = "default_editor")]
     pub command: String,
+}
+
+impl EditorSection {
+    /// Whether entries open in the built-in editor rather than an external one.
+    pub fn is_internal(&self) -> bool {
+        self.command.trim().eq_ignore_ascii_case("internal")
+    }
 }
 
 /// How entry attachments are handled.
@@ -106,6 +114,8 @@ fn default_body_max_width() -> u16 {
 }
 
 fn default_editor() -> String {
+    // External nano stays the default for now; a future release flips this to
+    // "internal" to make the built-in editor the default.
     "nano".to_string()
 }
 
@@ -318,7 +328,10 @@ fn interactive_setup(config_path: &Path) -> AppResult<(Config, JournalStore)> {
         PathBuf::from(root_input.trim())
     };
 
-    write!(stdout, "Editor [nano]: ")?;
+    write!(
+        stdout,
+        "Editor (a command like nano/vim, or `internal` for the built-in editor) [nano]: "
+    )?;
     stdout.flush()?;
     let mut editor_input = String::new();
     io::stdin().read_line(&mut editor_input)?;

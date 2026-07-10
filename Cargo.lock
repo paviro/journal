@@ -2026,6 +2026,7 @@ dependencies = [
  "ratatui 0.30.2",
  "ratatui-image",
  "ratatui-markdown",
+ "ratatui-textarea",
  "rayon",
  "rpassword",
  "serde",
@@ -3352,6 +3353,18 @@ checksum = "faf03e0380b7744054d6cb74224fe3adf062a029754933f575ca1e3b4c2ce977"
 dependencies = [
  "ratatui-core",
  "termwiz",
+]
+
+[[package]]
+name = "ratatui-textarea"
+version = "0.9.2"
+source = "git+https://github.com/paviro/ratatui-textarea?rev=4d3632988a6cee71c2607f3b6a2f074610a43235#4d3632988a6cee71c2607f3b6a2f074610a43235"
+dependencies = [
+ "ratatui-core",
+ "ratatui-crossterm",
+ "ratatui-widgets",
+ "unicode-segmentation",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]

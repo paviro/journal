@@ -63,13 +63,13 @@ pub fn build_correlations(entries: &[&Entry]) -> Correlations {
     let mut mood_count: usize = 0;
 
     for entry in entries {
-        accumulate(&mut people, &entry.metadata.people, entry, false);
-        accumulate(&mut activities, &entry.metadata.activities, entry, false);
-        accumulate(&mut tags, &entry.metadata.tags, entry, false);
+        accumulate(&mut people, &entry.people, entry, false);
+        accumulate(&mut activities, &entry.activities, entry, false);
+        accumulate(&mut tags, &entry.tags, entry, false);
         // The feelings dimension excludes each feeling from its own associated
         // list, so `top_feelings` reads as "often logged *together* with this one".
-        accumulate(&mut feelings, &entry.metadata.feelings, entry, true);
-        if let Some(mood) = entry.metadata.mood {
+        accumulate(&mut feelings, &entry.feelings, entry, true);
+        if let Some(mood) = entry.mood {
             mood_sum += i64::from(mood);
             mood_count += 1;
         }
@@ -96,11 +96,11 @@ fn accumulate(
         let acc = map.entry(value.to_lowercase()).or_default();
         acc.count += 1;
         *acc.forms.entry(value.clone()).or_default() += 1;
-        if let Some(mood) = entry.metadata.mood {
+        if let Some(mood) = entry.mood {
             acc.mood_sum += i64::from(mood);
             acc.mood_count += 1;
         }
-        for feeling in &entry.metadata.feelings {
+        for feeling in &entry.feelings {
             if exclude_self && feeling == value {
                 continue;
             }
@@ -194,9 +194,9 @@ mod tests {
     fn entry(created: &str, mood: Option<i8>, people: &[&str], feelings: &[&str]) -> Entry {
         entry_with(|entry| {
             entry.created_at = Some(Timestamp::parse(created));
-            entry.metadata.mood = mood;
-            entry.metadata.people = people.iter().map(|s| s.to_string()).collect();
-            entry.metadata.feelings = feelings.iter().map(|s| s.to_string()).collect();
+            entry.mood = mood;
+            entry.people = people.iter().map(|s| s.to_string()).collect();
+            entry.feelings = feelings.iter().map(|s| s.to_string()).collect();
         })
     }
 

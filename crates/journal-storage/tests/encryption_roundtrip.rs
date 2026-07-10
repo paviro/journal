@@ -49,7 +49,7 @@ fn decrypt_store_restores_plaintext_and_disables_encryption() {
     assert!(!plain.encryption_enabled());
     let entries = plain.scan_entries().unwrap();
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].content.contains("hidden body"));
+    assert!(entries[0].body.contains("hidden body"));
     assert!(entries[0].path.to_string_lossy().ends_with(".md"));
 }
 
@@ -279,7 +279,7 @@ fn other_device_picks_up_a_remote_disable_and_retires_its_key() {
     // And the phone still reads the now-plaintext shared entry.
     let entries = phone.scan_entries().unwrap();
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].content.contains("shared body"));
+    assert!(entries[0].body.contains("shared body"));
 }
 
 #[test]

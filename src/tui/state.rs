@@ -992,6 +992,9 @@ pub(crate) enum DeleteContext {
 pub(crate) enum Overlay {
     #[default]
     None,
+    /// Reference popup listing the metadata shortcut keys. The keys work whether or
+    /// not it is shown, so this only aids discovery.
+    MetadataMenu,
     ConfirmDelete(DeleteContext),
     NewJournal(String),
     EditMetadata(EditMetadataState),

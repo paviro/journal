@@ -5,12 +5,91 @@ use std::io;
 
 use crate::tui::{
     app::{App, Focus, Mode, ScrollbarDrag, inline_entry_view_is_visible},
+    editor_state::EditorPrompt,
     render,
-    state::ListNav,
+    state::{ListNav, MetadataKind, Overlay},
 };
 
 use super::action::Action;
 use super::actions::view_selected;
+
+fn editor_mouse_action(app: &App, mouse: MouseEvent) -> Option<Action> {
+    match mouse.kind {
+        MouseEventKind::ScrollDown => Some(Action::EditorScroll(1)),
+        MouseEventKind::ScrollUp => Some(Action::EditorScroll(-1)),
+        MouseEventKind::Down(MouseButton::Left) => Some(Action::EditorStartSelection {
+            col: mouse.column,
+            row: mouse.row,
+        }),
+        MouseEventKind::Drag(MouseButton::Left) if app.editor.as_ref()?.mouse_selecting => {
+            Some(Action::EditorDragSelection {
+                col: mouse.column,
+                row: mouse.row,
+            })
+        }
+        MouseEventKind::Up(MouseButton::Left) => Some(Action::EditorEndSelection),
+        _ => None,
+    }
+}
+
+fn editor_prompt_is_open(app: &App) -> bool {
+    !matches!(
+        app.editor.as_ref().map(|editor| &editor.prompt),
+        None | Some(EditorPrompt::None)
+    )
+}
+
+fn editor_prompt_mouse_action(app: &App, mouse: MouseEvent, area: Rect) -> Option<Action> {
+    let prompt = app.editor.as_ref().map(|editor| &editor.prompt)?;
+    match prompt {
+        EditorPrompt::None => None,
+        EditorPrompt::ConfirmDiscard => match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                render::editor_discard_choice_at_point(area, mouse.column, mouse.row).map(
+                    |discard| {
+                        if discard {
+                            Action::EditorDiscard
+                        } else {
+                            Action::EditorClosePrompt
+                        }
+                    },
+                )
+            }
+            _ => None,
+        },
+        EditorPrompt::MetadataMenu => match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let mode = render::MetadataMenuMode::Editor;
+                if render::metadata_menu_close_at_point(area, mode, mouse.column, mouse.row) {
+                    return Some(Action::EditorClosePrompt);
+                }
+                match render::metadata_menu_choice_at_point(area, mode, mouse.column, mouse.row) {
+                    Some(render::MetadataChoice::Metadata(kind)) => {
+                        Some(Action::EditorBeginMetadata(kind))
+                    }
+                    Some(render::MetadataChoice::Feelings) => Some(Action::BeginEditFeelings),
+                    Some(render::MetadataChoice::Mood) => Some(Action::BeginEditMood),
+                    Some(render::MetadataChoice::Location) => Some(Action::BeginEditLocation),
+                    None => None,
+                }
+            }
+            _ => None,
+        },
+        EditorPrompt::Help { scroll } => match mouse.kind {
+            MouseEventKind::ScrollDown => Some(Action::EditorScrollHelp(1)),
+            MouseEventKind::ScrollUp => Some(Action::EditorScrollHelp(-1)),
+            MouseEventKind::Down(MouseButton::Left) => {
+                if render::editor_shortcut_close_at_point(area, *scroll, mouse.column, mouse.row) {
+                    return Some(Action::EditorClosePrompt);
+                }
+                let id =
+                    render::editor_shortcut_hint_at_point(area, *scroll, mouse.column, mouse.row)?;
+                hint_id_to_action(app, id)
+            }
+            _ => None,
+        },
+    }
+}
 
 pub(crate) fn handle_mouse(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -21,6 +100,12 @@ pub(crate) fn handle_mouse(
 
     if app.has_overlay() {
         handle_overlay_mouse(Some(terminal), app, mouse, area)?;
+        return Ok(false);
+    }
+
+    if let Some(action) = editor_prompt_mouse_action(app, mouse, area) {
+        return super::dispatch_action(terminal, app, action);
+    } else if editor_prompt_is_open(app) {
         return Ok(false);
     }
 
@@ -37,6 +122,13 @@ pub(crate) fn handle_mouse(
         if let Some(index) = app.image_label_at(mouse.column, mouse.row) {
             return super::dispatch_action(terminal, app, Action::OpenImageViewer(index));
         }
+    }
+
+    if app.editor.is_some() {
+        if let Some(action) = editor_mouse_action(app, mouse) {
+            return super::dispatch_action(terminal, app, action);
+        }
+        return Ok(false);
     }
 
     handle_mouse_in_area(app, mouse, area)?;
@@ -409,7 +501,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             feelings: &feelings,
             mood,
             // Location is display-only — not part of the click hit-test.
-            location: &[],
+            location: None,
         };
         if let Some((chip, value)) =
             render::metadata_at_point(area.area, mouse.column, mouse.row, metadata)
@@ -565,6 +657,23 @@ fn dialog_hint_action(
 fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Action> {
     let col = mouse.column;
     let row = mouse.row;
+
+    if matches!(app.overlay, Overlay::MetadataMenu) {
+        let mode = render::MetadataMenuMode::Viewer;
+        if render::metadata_menu_close_at_point(area, mode, col, row) {
+            return Some(Action::CancelOverlay);
+        }
+        return match render::metadata_menu_choice_at_point(area, mode, col, row)? {
+            render::MetadataChoice::Metadata(MetadataKind::Tags) => Some(Action::BeginEditTags),
+            render::MetadataChoice::Metadata(MetadataKind::People) => Some(Action::BeginEditPeople),
+            render::MetadataChoice::Metadata(MetadataKind::Activities) => {
+                Some(Action::BeginEditActivities)
+            }
+            render::MetadataChoice::Feelings => Some(Action::BeginEditFeelings),
+            render::MetadataChoice::Mood => Some(Action::BeginEditMood),
+            render::MetadataChoice::Location => Some(Action::BeginEditLocation),
+        };
+    }
 
     if let Some((focus, input_is_empty)) = app
         .edit_metadata_state()
@@ -737,21 +846,6 @@ pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action>
             Some(Action::ViewSelected)
         }
         render::HintId::BeginDelete if app.has_selected_entry_target() => Some(Action::BeginDelete),
-        render::HintId::BeginEditTags if app.has_selected_entry_target() => {
-            Some(Action::BeginEditTags)
-        }
-        render::HintId::BeginEditPeople if app.has_selected_entry_target() => {
-            Some(Action::BeginEditPeople)
-        }
-        render::HintId::BeginEditActivities if app.has_selected_entry_target() => {
-            Some(Action::BeginEditActivities)
-        }
-        render::HintId::BeginEditFeelings if app.has_selected_entry_target() => {
-            Some(Action::BeginEditFeelings)
-        }
-        render::HintId::BeginEditMood if app.has_selected_entry_target() => {
-            Some(Action::BeginEditMood)
-        }
         render::HintId::ExitSearch => Some(Action::ExitSearch),
         render::HintId::CancelOverlay => Some(Action::CancelOverlay),
         // In multi-column full screen the flag is set, so collapse back to the pane;
@@ -783,6 +877,9 @@ pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action>
         render::HintId::OpenImageViewer if app.selected_entry_image_count() > 0 => {
             Some(Action::OpenImageViewer(0))
         }
+        render::HintId::OpenMetadataMenu if app.can_act_on_selected_entry() => {
+            Some(Action::OpenMetadataMenu)
+        }
         render::HintId::HintsToggle => Some(Action::ToggleHints),
         render::HintId::ToggleJournals => Some(Action::ToggleJournals),
         // Clicking the tabs hint steps forward through the tabs (Right); scope
@@ -800,6 +897,11 @@ pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action>
         render::HintId::CloseInsights if app.insights_panel_focused() => {
             Some(Action::CollapseInsights)
         }
+        render::HintId::EditorSave => Some(Action::EditorSave),
+        render::HintId::EditorDiscard => Some(Action::EditorRequestDiscard),
+        render::HintId::EditorFullscreen => Some(Action::EditorToggleFullscreen),
+        render::HintId::EditorMetadata => Some(Action::EditorOpenMetadataMenu),
+        render::HintId::EditorHelp => Some(Action::EditorOpenHelp),
         _ => None,
     }
 }

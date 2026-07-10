@@ -72,9 +72,11 @@ impl App {
     }
 
     /// The preview pane shows journal insights (instead of an entry) when browsing and
-    /// no entry is being previewed.
+    /// no entry is being previewed. The internal editor takes over that pane, so it
+    /// suppresses the insights preview even when no entry is selected (e.g. a new
+    /// entry being composed).
     pub(crate) fn show_journal_insights_preview(&self) -> bool {
-        self.nav.mode == Mode::Browse && !self.entry_is_previewed()
+        self.editor.is_none() && self.nav.mode == Mode::Browse && !self.entry_is_previewed()
     }
 
     /// Whether the insights panel is the focused pane — the context in which its
@@ -357,17 +359,11 @@ impl App {
     }
 
     pub(crate) fn selected_entry_target(&self) -> Option<EntryTarget> {
-        // In Search mode the title comes from the hit (journal-prefixed label),
-        // otherwise from the entry itself; the rest is shared.
-        let title = match self.nav.mode {
-            Mode::Search => self.search_hit_label(self.selected_search_hit()?),
-            Mode::Browse => self.selected_entry()?.display_label(),
-        };
         let entry = self.resolved_selected_entry()?;
         Some(EntryTarget {
             id: entry.id.clone(),
             path: entry.path.clone(),
-            title,
+            title: entry_timestamp_label(entry),
             locked: matches!(
                 entry.encryption_state,
                 EntryEncryptionState::EncryptedLocked | EntryEncryptionState::EncryptedUnreadable
@@ -395,7 +391,7 @@ impl App {
 
     pub(crate) fn selected_entry_feelings(&self) -> Vec<String> {
         self.resolved_selected_entry()
-            .map(|entry| entry.metadata.feelings.clone())
+            .map(|entry| entry.feelings.clone())
             .unwrap_or_default()
     }
 
@@ -441,7 +437,7 @@ impl App {
             }
             EntryEncryptionState::Plain | EntryEncryptionState::EncryptedUnlocked => {}
         }
-        Some((entry_timestamp_label(entry), entry.content.clone()))
+        Some((entry_timestamp_label(entry), entry.body.clone()))
     }
 
     pub(crate) fn select_journal_by_name(&mut self, name: &str) {

@@ -49,16 +49,16 @@ impl App {
     }
 
     pub(crate) fn selected_entry_mood(&self) -> Option<i8> {
-        self.resolved_selected_entry()
-            .and_then(|entry| entry.metadata.mood)
+        self.resolved_selected_entry().and_then(|entry| entry.mood)
     }
 
     pub(crate) fn selected_entry_starred(&self) -> bool {
         self.resolved_selected_entry()
-            .is_some_and(|entry| entry.metadata.starred)
+            .is_some_and(|entry| entry.starred)
     }
 
     /// The selected entry's location as a one-line label, if any.
+    #[cfg(test)]
     pub(crate) fn selected_entry_location(&self) -> Option<String> {
         self.resolved_selected_entry()
             .and_then(|entry| entry.location.as_ref())
@@ -66,7 +66,7 @@ impl App {
     }
 
     pub(crate) fn begin_edit_mood(&mut self) {
-        let saved = self.selected_entry_mood();
+        let saved = self.editing_mood();
         let draft = saved.unwrap_or(0);
         self.overlay = Overlay::EditMood(EditMoodState { saved, draft });
     }
@@ -99,7 +99,7 @@ impl App {
     fn begin_confirm_delete_entry(&mut self) {
         let has_body = self
             .selected_entry()
-            .map(|e| !e.content.trim().is_empty())
+            .map(|e| !e.body.trim().is_empty())
             .unwrap_or(false);
         self.overlay = Overlay::ConfirmDelete(DeleteContext::Entry { has_body });
     }
@@ -113,19 +113,27 @@ impl App {
             .library
             .entries
             .iter()
-            .filter(|e| e.journal == name && !e.content.trim().is_empty())
+            .filter(|e| e.journal == name && !e.body.trim().is_empty())
             .count();
         let delete_count = self
             .library
             .entries
             .iter()
-            .filter(|e| e.journal == name && e.content.trim().is_empty())
+            .filter(|e| e.journal == name && e.body.trim().is_empty())
             .count();
         self.overlay = Overlay::ConfirmDelete(DeleteContext::Journal {
             name,
             trash_count,
             delete_count,
         });
+    }
+
+    /// Open the metadata-shortcuts reference popup, if the selected entry can be
+    /// acted on. The shortcuts themselves stay live whether or not it is open.
+    pub(crate) fn open_metadata_menu(&mut self) {
+        if self.can_act_on_selected_entry() {
+            self.overlay = Overlay::MetadataMenu;
+        }
     }
 
     pub(crate) fn has_overlay(&self) -> bool {

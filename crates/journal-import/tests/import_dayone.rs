@@ -56,8 +56,8 @@ fn imports_entry_with_body_tags_and_provenance() {
     assert_eq!(entries.len(), 1);
     let entry = &entries[0];
     assert_eq!(entry.import.as_ref(), Some(&dayone("ABC123")));
-    assert!(entry.content.contains("Hello from Day One"));
-    assert_eq!(entry.metadata.tags, vec!["travel", "notes"]);
+    assert!(entry.body.contains("Hello from Day One"));
+    assert_eq!(entry.tags, vec!["travel", "notes"]);
     // The on-disk date folder comes from the creationDate, not today.
     assert!(entry.path.to_string_lossy().contains("2026"));
 }
@@ -94,7 +94,7 @@ fn imports_activity_lowercased_dropping_step_count_and_stationary() {
             .iter()
             .find(|e| e.import.as_ref() == Some(&dayone(uuid)))
             .unwrap();
-        entry.metadata.activities.clone()
+        entry.activities.clone()
     };
 
     // Mapped and lowercased; the step count is never read.
@@ -134,8 +134,8 @@ fn imports_starred_flag() {
         .iter()
         .find(|e| e.import.as_ref() == Some(&dayone("PLAIN1")))
         .unwrap();
-    assert!(starred.metadata.starred);
-    assert!(!plain.metadata.starred);
+    assert!(starred.starred);
+    assert!(!plain.starred);
 }
 
 #[test]

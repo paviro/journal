@@ -1,3 +1,7 @@
+use crossterm::event::KeyEvent;
+
+use crate::tui::state::MetadataKind;
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Action {
     // Global
@@ -21,6 +25,21 @@ pub(crate) enum Action {
     BeginSearch,
     ExitSearch,
     EditSelected,
+    // Internal editor.
+    EditorSave,
+    EditorRequestDiscard,
+    EditorDiscard,
+    EditorToggleFullscreen,
+    EditorOpenMetadataMenu,
+    EditorOpenHelp,
+    EditorClosePrompt,
+    EditorScrollHelp(i16),
+    EditorBeginMetadata(MetadataKind),
+    EditorInput(KeyEvent),
+    EditorScroll(i16),
+    EditorStartSelection { col: u16, row: u16 },
+    EditorDragSelection { col: u16, row: u16 },
+    EditorEndSelection,
     ViewSelected,
     // Expand the focused entry viewer to full screen (multi-column) / collapse back
     ExpandEntryView,
@@ -32,6 +51,7 @@ pub(crate) enum Action {
     ConfirmDelete,
     // Cancel / close — covers Esc across all overlays
     CancelOverlay,
+    OpenMetadataMenu,
     BeginEditTags,
     BeginEditPeople,
     BeginEditActivities,

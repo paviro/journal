@@ -105,17 +105,6 @@ impl App {
         self.search.cursor = (self.search.cursor + 1).min(max);
     }
 
-    pub(crate) fn search_hit_label(&self, hit: &SearchHit) -> String {
-        match self.search.scope {
-            SearchScope::AllJournals => format!(
-                "{}/{}",
-                journal_storage::journal_display_name(&hit.journal),
-                hit.title
-            ),
-            SearchScope::Journal(_) => hit.title.clone(),
-        }
-    }
-
     pub(super) fn search_results(&self) -> Vec<SearchHit> {
         if let Some(tag) = self.search.query.strip_prefix("tags:") {
             self.search_results_by_metadata(MetadataKind::Tags, tag.trim())
@@ -179,7 +168,6 @@ impl App {
         };
         self.search_results_matching(|entry| {
             entry
-                .metadata
                 .feelings
                 .iter()
                 .any(|entry_feeling| entry_feeling == &feeling)
@@ -187,7 +175,7 @@ impl App {
     }
 
     pub(super) fn search_results_by_starred(&self, want: bool) -> Vec<SearchHit> {
-        self.search_results_matching(|entry| entry.metadata.starred == want)
+        self.search_results_matching(|entry| entry.starred == want)
     }
 }
 

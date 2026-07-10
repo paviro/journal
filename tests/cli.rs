@@ -81,7 +81,7 @@ fn log_command_creates_entry_in_default_journal() {
     assert!(output.status.success());
     let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].content.contains("Some text"));
+    assert!(entries[0].body.contains("Some text"));
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn log_command_writes_tags() {
     let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
     assert_eq!(
-        entries[0].metadata.tags,
+        entries[0].tags,
         vec!["rust".to_string(), "open source".to_string()]
     );
 }
@@ -162,7 +162,7 @@ fn log_command_accepts_comma_separated_tags() {
     assert!(output.status.success());
     let entries = scan_entries_for(&root, "work");
     assert_eq!(
-        entries[0].metadata.tags,
+        entries[0].tags,
         vec!["rust".to_string(), "open source".to_string()]
     );
 }
@@ -192,11 +192,11 @@ fn log_command_writes_people_and_activities() {
     assert!(output.status.success());
     let entries = scan_entries_for(&root, "work");
     assert_eq!(
-        entries[0].metadata.people,
+        entries[0].people,
         vec!["alex".to_string(), "sam".to_string()]
     );
     assert_eq!(
-        entries[0].metadata.activities,
+        entries[0].activities,
         vec!["programming".to_string(), "cycling".to_string()]
     );
 }
@@ -222,7 +222,7 @@ fn log_command_accepts_comma_separated_feelings() {
     assert!(output.status.success());
     let entries = scan_entries_for(&root, "work");
     assert_eq!(
-        entries[0].metadata.feelings,
+        entries[0].feelings,
         vec!["calm".to_string(), "focused".to_string()]
     );
 }
@@ -251,7 +251,7 @@ fn log_command_writes_repeatable_feelings() {
     let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
     assert_eq!(
-        entries[0].metadata.feelings,
+        entries[0].feelings,
         vec!["calm".to_string(), "focused".to_string()]
     );
 }
@@ -306,7 +306,7 @@ fn piped_log_command_creates_entry_in_default_journal() {
     assert!(output.status.success());
     let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].content.contains("Line one\n\nLine three"));
+    assert!(entries[0].body.contains("Line one\n\nLine three"));
 }
 
 #[test]
@@ -344,7 +344,7 @@ fn editor_log_command_creates_entry_in_default_journal() {
     );
     let entries = scan_entries_for(&root, "work");
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].content.contains("# Edited"));
+    assert!(entries[0].body.contains("# Edited"));
 }
 
 #[test]
@@ -441,7 +441,7 @@ fn journal_flag_overrides_default_journal() {
     assert!(scan_entries_for(&root, "work").is_empty());
     let entries = scan_entries_for(&root, "personal");
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].content.contains("Override text"));
+    assert!(entries[0].body.contains("Override text"));
 }
 
 #[test]
@@ -1040,7 +1040,7 @@ fn key_workflow_grants_second_device_history_access() {
     phone.unlock(None).unwrap();
     let entries = phone.scan_entries().unwrap();
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].content.contains("secret history"));
+    assert!(entries[0].body.contains("secret history"));
 
     // Both devices are recipients; the pending request is cleared.
     assert_eq!(phone.recipients().unwrap().len(), 2);
@@ -1063,7 +1063,7 @@ fn encrypt_decrypt_converts_assets_and_keeps_clean_links() {
         &["log", "--journal", "work", image.to_string_lossy().as_ref()],
     );
     let plain = JournalStore::for_config(&config, &root).unwrap();
-    let body = plain.scan_entries().unwrap().remove(0).content;
+    let body = plain.scan_entries().unwrap().remove(0).body;
     assert!(
         body.contains(".assets/") && !body.contains(".age"),
         "{body}"
@@ -1076,7 +1076,7 @@ fn encrypt_decrypt_converts_assets_and_keeps_clean_links() {
     enc.unlock(None).unwrap();
     let entry = enc.scan_entries().unwrap().remove(0);
     // The body is byte-for-byte unchanged (link still clean) though it's encrypted.
-    assert_eq!(entry.content, body);
+    assert_eq!(entry.body, body);
     assert!(entry.path.to_string_lossy().ends_with(".md.age"));
 
     // The asset on disk is now `.age`, and the clean link still resolves+decrypts.
@@ -1099,7 +1099,7 @@ fn encrypt_decrypt_converts_assets_and_keeps_clean_links() {
     run_ok(&config, &["encryption", "disable", "--yes"]);
     let dec = JournalStore::for_config(&config, &root).unwrap();
     let dec_entry = dec.scan_entries().unwrap().remove(0);
-    assert_eq!(dec_entry.content, body);
+    assert_eq!(dec_entry.body, body);
     let dec_stem = journal_storage::entry_id(&dec_entry.path).unwrap();
     let dec_assets = dec_entry
         .path

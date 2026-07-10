@@ -23,7 +23,7 @@ pub fn entry_date_from_path(path: &Path) -> Option<NaiveDate> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{EntryEncryptionState, Metadata, Timestamp};
+    use crate::{EntryEncryptionState, Timestamp};
     use std::path::PathBuf;
 
     fn entry(created_at: Option<&str>, path: &str) -> Entry {
@@ -35,10 +35,15 @@ mod tests {
             created_at: created_at.map(Timestamp::parse),
             edited_at: None,
             preview: String::new(),
-            metadata: Metadata::default(),
+            activities: Vec::new(),
+            feelings: Vec::new(),
+            people: Vec::new(),
+            tags: Vec::new(),
+            mood: None,
+            starred: false,
             location: None,
             import: None,
-            content: String::new(),
+            body: String::new(),
             word_count: 0,
             search_haystack: String::new(),
         }

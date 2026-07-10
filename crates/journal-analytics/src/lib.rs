@@ -150,7 +150,7 @@ fn top_feeling_in_year(
     let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     for (entry, date) in entries.iter().zip(dates) {
         if date.map(|date| date.year()) == Some(year) {
-            for feeling in &entry.metadata.feelings {
+            for feeling in &entry.feelings {
                 *counts.entry(feeling.as_str()).or_default() += 1;
             }
         }
@@ -213,7 +213,7 @@ pub(crate) mod test_support {
     use std::path::PathBuf;
 
     use chrono::NaiveDate;
-    use journal_core::{Entry, EntryEncryptionState, Metadata, Timestamp};
+    use journal_core::{Entry, EntryEncryptionState, Timestamp};
 
     /// Build a plain entry from defaults, letting the caller set only the fields
     /// a test cares about (created_at, word_count, metadata, id).
@@ -226,10 +226,15 @@ pub(crate) mod test_support {
             created_at: None,
             edited_at: None,
             preview: String::new(),
-            metadata: Metadata::default(),
+            activities: Vec::new(),
+            feelings: Vec::new(),
+            people: Vec::new(),
+            tags: Vec::new(),
+            mood: None,
+            starred: false,
             location: None,
             import: None,
-            content: String::new(),
+            body: String::new(),
             word_count: 0,
             search_haystack: String::new(),
         };
@@ -241,8 +246,8 @@ pub(crate) mod test_support {
     pub(crate) fn mood_entry(created: &str, mood: Option<i8>, feelings: &[&str]) -> Entry {
         entry_with(|entry| {
             entry.created_at = Some(Timestamp::parse(created));
-            entry.metadata.mood = mood;
-            entry.metadata.feelings = feelings.iter().map(|s| s.to_string()).collect();
+            entry.mood = mood;
+            entry.feelings = feelings.iter().map(|s| s.to_string()).collect();
         })
     }
 
@@ -327,7 +332,7 @@ mod tests {
         let dated = |created: &str, mood: i8, configure: fn(&mut journal_core::Entry)| {
             entry_with(|entry| {
                 entry.created_at = Some(Timestamp::parse(created));
-                entry.metadata.mood = Some(mood);
+                entry.mood = Some(mood);
                 configure(entry);
             })
         };
@@ -335,11 +340,9 @@ mod tests {
             dated("2024-01-01T00:00:00Z", -3, |_| {}),
             dated("2024-01-02T00:00:00Z", -3, |_| {}),
             dated("2024-01-03T00:00:00Z", 5, |e| {
-                e.metadata.people = vec!["gym-buddy".into()]
+                e.people = vec!["gym-buddy".into()]
             }),
-            dated("2024-01-04T00:00:00Z", 5, |e| {
-                e.metadata.tags = vec!["sun".into()]
-            }),
+            dated("2024-01-04T00:00:00Z", 5, |e| e.tags = vec!["sun".into()]),
         ];
         // A companion comes from people, the thing from activities/tags.
         let analytics = analyze(&refs(&entries), date(2024, 1, 5));
@@ -358,19 +361,15 @@ mod tests {
         let dated = |created: &str, mood: i8, configure: fn(&mut journal_core::Entry)| {
             entry_with(|entry| {
                 entry.created_at = Some(Timestamp::parse(created));
-                entry.metadata.mood = Some(mood);
+                entry.mood = Some(mood);
                 configure(entry);
             })
         };
         let entries = [
             dated("2024-01-01T00:00:00Z", 4, |_| {}),
             dated("2024-01-02T00:00:00Z", 4, |_| {}),
-            dated("2024-01-03T00:00:00Z", -5, |e| {
-                e.metadata.people = vec!["ex".into()]
-            }),
-            dated("2024-01-04T00:00:00Z", -5, |e| {
-                e.metadata.tags = vec!["rain".into()]
-            }),
+            dated("2024-01-03T00:00:00Z", -5, |e| e.people = vec!["ex".into()]),
+            dated("2024-01-04T00:00:00Z", -5, |e| e.tags = vec!["rain".into()]),
         ];
         let analytics = analyze(&refs(&entries), date(2024, 1, 5));
         assert_eq!(analytics.highlights.drains_person.as_deref(), Some("ex"));
@@ -386,18 +385,18 @@ mod tests {
             let person = person.to_string();
             entry_with(move |entry| {
                 entry.created_at = Some(Timestamp::parse(created));
-                entry.metadata.mood = Some(mood);
-                entry.metadata.people = vec![person];
+                entry.mood = Some(mood);
+                entry.people = vec![person];
             })
         };
         let entries = [
             entry_with(|e| {
                 e.created_at = Some(Timestamp::parse("2024-01-01T00:00:00Z"));
-                e.metadata.mood = Some(-3);
+                e.mood = Some(-3);
             }),
             entry_with(|e| {
                 e.created_at = Some(Timestamp::parse("2024-01-02T00:00:00Z"));
-                e.metadata.mood = Some(-3);
+                e.mood = Some(-3);
             }),
             with_person("2024-01-03T00:00:00Z", 5, "aaa"),
             with_person("2024-01-04T00:00:00Z", 5, "bbb"),

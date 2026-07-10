@@ -7,10 +7,13 @@ use std::path::PathBuf;
 /// (see [`Metadata`]) and rejected at the CLI boundary.
 pub const MOOD_RANGE: RangeInclusive<i8> = -5..=5;
 
-/// The user-assignable metadata shared by an [`Entry`], its on-disk front
-/// matter, and the create/import paths: free-text tag lists plus an optional
-/// mood score. One shape, defined once.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The user-assignable metadata carried by the create/import/edit paths: the
+/// free-text lists, an optional mood, the starred flag, and where the entry was
+/// written. Not a field on [`Entry`] (whose front-matter fields are flat); it
+/// serves as the construction bundle and the codec's flatten carrier.
+///
+/// Not `Eq`: `location` carries `f64` coordinates.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Metadata {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub activities: Vec<String>,
@@ -30,10 +33,25 @@ pub struct Metadata {
     /// matter when false so existing files stay byte-stable.
     #[serde(default, skip_serializing_if = "is_unstarred")]
     pub starred: bool,
+    /// Where the entry was written. Skipped by serde here: the `[location]` TOML
+    /// table is owned by the front-matter codec (so the flattened scalars stay
+    /// byte-stable), which syncs it to/from this field at the boundary.
+    #[serde(skip)]
+    pub location: Option<Location>,
 }
 
 fn is_unstarred(starred: &bool) -> bool {
     !*starred
+}
+
+impl Metadata {
+    /// The location rendered as its one-line label, if a location with named
+    /// parts or coordinates is set. The entry-view metadata section shows this.
+    pub fn location_label(&self) -> Option<String> {
+        self.location
+            .as_ref()
+            .and_then(|location| location.display_label())
+    }
 }
 
 /// Where an entry was written — coordinates plus a fine-to-coarse place
@@ -361,19 +379,25 @@ pub struct Entry {
     pub created_at: Option<Timestamp>,
     pub edited_at: Option<String>,
     pub preview: String,
-    pub metadata: Metadata,
-    /// Where the entry was written. Not searched, and edited on its own path
-    /// (the location dialog), so it lives outside [`Metadata`].
+    // Front-matter metadata, one flat field each (see [`Metadata`] for the
+    // construction bundle that mirrors the editable subset).
+    pub activities: Vec<String>,
+    pub feelings: Vec<String>,
+    pub people: Vec<String>,
+    pub tags: Vec<String>,
+    pub mood: Option<i8>,
+    pub starred: bool,
+    /// Where the entry was written.
     pub location: Option<Location>,
     /// Provenance of an imported entry (source tool + its id). `None` for
     /// entries created directly in the app. Used to skip re-importing and as an
     /// anchor for back-filling richer metadata once the format supports it.
     pub import: Option<ImportSource>,
-    pub content: String,
-    /// Word count of `content`, computed once at load so the entry-list row
+    pub body: String,
+    /// Word count of `body`, computed once at load so the entry-list row
     /// builder never tokenizes the full body on the render path.
     pub word_count: usize,
-    /// `content` plus every metadata value merged into one string, built once at
+    /// `body` plus every metadata value merged into one string, built once at
     /// load ([`build_search_haystack`]) so whole-corpus fuzzy search never
     /// rebuilds the haystack per entry per keystroke.
     pub search_haystack: String,
@@ -392,6 +416,20 @@ impl Entry {
         self.created_at
             .as_ref()
             .and_then(|timestamp| timestamp.parsed)
+    }
+
+    /// The entry's metadata cloned into a [`Metadata`] bundle — the shape the
+    /// editor buffers and the entry-view metadata section renders from.
+    pub fn metadata_bundle(&self) -> Metadata {
+        Metadata {
+            activities: self.activities.clone(),
+            feelings: self.feelings.clone(),
+            people: self.people.clone(),
+            tags: self.tags.clone(),
+            mood: self.mood,
+            starred: self.starred,
+            location: self.location.clone(),
+        }
     }
 
     /// A non-empty label for the entry: the start of the preview, else the
@@ -445,9 +483,8 @@ pub enum MetadataField {
     Feelings(Vec<String>),
     Mood(Option<i8>),
     Starred(bool),
-    /// The whole `[location]` table. `None` clears it. Unlike the other fields,
-    /// this lives outside [`Metadata`] on [`Entry::location`]. Boxed because
-    /// `Location` is far larger than the other variants.
+    /// The whole `[location]` table. `None` clears it. Boxed because `Location`
+    /// is far larger than the other variants.
     Location(Option<Box<Location>>),
     /// The whole `[weather]` table. `None` clears it. Written independently of
     /// `[celestial]` so the network-fetched weather and the locally-computed
@@ -483,7 +520,7 @@ impl SearchHit {
             created_at: entry.created_raw().map(str::to_string),
             title: entry.display_label(),
             preview: entry.preview.clone(),
-            starred: entry.metadata.starred,
+            starred: entry.starred,
         }
     }
 }

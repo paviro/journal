@@ -26,6 +26,7 @@ use super::state::{
     DeleteContext, EditFeelingState, EditMetadataState, EditMoodState, ImageViewerState,
     MetadataKind, Overlay, ScrollState, SearchState, StatusBar, move_list_selection,
 };
+use crate::tui::editor_state::EntryEditor;
 use crate::tui::entry_rows::{EntryRowCache, RowMeta, build_entry_row_cache};
 use crate::tui::image::{ImageAsset, ImageRuntime, entry_images, viewer_image_size};
 use crate::tui::render::insights::{InsightsScope, InsightsTab, InsightsTimeframe};
@@ -372,6 +373,10 @@ pub(crate) struct App {
     pub(crate) nav: Nav,
     pub(crate) search: SearchState,
     pub(crate) overlay: Overlay,
+    /// The in-pane internal editor session, when one is open. Distinct from
+    /// [`Overlay`] because it replaces the entry-view content rather than
+    /// floating a modal over it.
+    pub(crate) editor: Option<EntryEditor>,
     pub(crate) status_bar: StatusBar,
     pub(crate) image: ImageState,
     /// Background geocoding for the location dialog; spawned on first lookup.
@@ -454,6 +459,7 @@ impl App {
             nav: Nav::default(),
             search: SearchState::default(),
             overlay: Overlay::None,
+            editor: None,
             status_bar: StatusBar::default(),
             image: ImageState::default(),
             geocode: crate::tui::geocode::GeocodeWorker::default(),
@@ -840,9 +846,9 @@ fn is_asset_path(path: &Path) -> bool {
 
 fn metadata_values(entry: &Entry, kind: MetadataKind) -> &[String] {
     match kind {
-        MetadataKind::Tags => &entry.metadata.tags,
-        MetadataKind::People => &entry.metadata.people,
-        MetadataKind::Activities => &entry.metadata.activities,
+        MetadataKind::Tags => &entry.tags,
+        MetadataKind::People => &entry.people,
+        MetadataKind::Activities => &entry.activities,
     }
 }
 
@@ -858,6 +864,7 @@ pub(crate) fn single_panel_is_active(width: u16) -> bool {
     width < TWO_PANEL_MIN_WIDTH
 }
 
+mod editor;
 mod environment;
 mod images;
 mod location;

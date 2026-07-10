@@ -16,10 +16,12 @@ use ratatui_markdown::{
     theme::{CodeColors, ThemeConfig},
 };
 
+use journal_core::{Entry, Metadata};
 use std::path::Path;
 
 use crate::tui::{
     app::{App, EntryViewImageHits, Focus},
+    editor_state::EntryEditor,
     image::{digit_for_image, sole_image_ref},
     render::{
         count_label, entry_metadata_layout, panel_block, render_centered_notice,
@@ -35,14 +37,10 @@ const SCROLLING_METADATA_ENTRY_VIEW_HEIGHT_CUTOFF: u16 = 20;
 
 pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     if let Some((title, content)) = app.selected_entry_view() {
-        let tags = app.selected_entry_tags();
-        let people = app.selected_entry_people();
-        let activities = app.selected_entry_activities();
-        let feelings = app.selected_entry_feelings();
-        let mood = app.selected_entry_mood();
-        // Zero-or-one element so the location label flows through the same
-        // `&[String]` row machinery as tags/feelings.
-        let location: Vec<String> = app.selected_entry_location().into_iter().collect();
+        let metadata = app
+            .resolved_selected_entry()
+            .map(Entry::metadata_bundle)
+            .unwrap_or_default();
         let entry_path = app.selected_entry_target().map(|target| target.path);
 
         let (scroll, labels, content_rect, line_count) = draw_markdown_panel(
@@ -53,14 +51,7 @@ pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &
                 title: &title,
                 content: &content,
                 word_count: app.selected_entry_word_count(),
-                metadata: EntryMetadata {
-                    tags: &tags,
-                    people: &people,
-                    activities: &activities,
-                    feelings: &feelings,
-                    mood,
-                    location: &location,
-                },
+                metadata: EntryMetadata::from_metadata(&metadata),
             },
             app.nav.scroll.entry_view,
             app.nav.focus == Focus::EntryView,
@@ -78,6 +69,65 @@ pub(crate) fn draw_selected_entry_view(frame: &mut Frame<'_>, area: Rect, app: &
         let content = PanelGeometry::new(area).content;
         frame.render_widget(block, area);
         render_centered_notice(frame, content, "No entry selected");
+    }
+}
+
+/// Draw the internal editor in the entry-view pane: the same bordered panel as
+/// the viewer, with the `ratatui-textarea` buffer as the body and the buffered
+/// metadata pinned below it. Honors the viewer's max-width and vertical-center
+/// settings, and shows an inline discard confirmation when one is pending.
+pub(crate) fn draw_entry_editor(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    editor: &mut EntryEditor,
+    side_margin: u16,
+    top_margin: u16,
+) {
+    let block = panel_block(editor.title(), true, None);
+    frame.render_widget(block, area);
+
+    // Same builder the viewer uses, from the buffered metadata — so location and
+    // every other front-matter field show in edit mode too.
+    let metadata = EntryMetadata::from_metadata(&editor.metadata);
+
+    // The metadata section pins below the body when the pane is tall enough. On a
+    // short pane it would leave almost no room to write, so it's dropped and the
+    // whole pane goes to the textarea. (The viewer instead folds metadata into its
+    // scroll there, but the editor's scroll is cursor-driven and can't reach a
+    // read-only block past the text.) Nothing is lost: the Ctrl+G dialogs show the
+    // current values as you edit them, and the viewer shows them in full on save.
+    let (body_area, layout) = if metadata_scrolls_with_body(area) {
+        (PanelGeometry::new(area).content, None)
+    } else {
+        let layout = entry_metadata_layout(area, metadata.values());
+        (layout.content, Some(layout))
+    };
+
+    // Inset the writing area with a fixed margin (side left/right, top, 0 bottom)
+    // rather than a max-width gutter. The editor never floats vertically — typing
+    // at a moving baseline is disorienting.
+    let text_rect = Rect {
+        x: body_area.x + side_margin,
+        y: body_area.y + top_margin,
+        width: body_area.width.saturating_sub(side_margin * 2),
+        height: body_area.height.saturating_sub(top_margin),
+    };
+
+    editor.text_rect = text_rect;
+    frame.render_widget(&editor.textarea, text_rect);
+
+    // Scroll offset and wrapped-line count are only valid after the textarea has
+    // rendered (it stores them during render), so read them here.
+    render_scrollbar_if_needed(
+        frame,
+        area,
+        editor.textarea.screen_line_count(),
+        text_rect.height,
+        editor.textarea.scroll_offset() as usize,
+    );
+
+    if let Some(layout) = layout {
+        draw_metadata_section(frame, layout, &metadata);
     }
 }
 
@@ -144,12 +194,28 @@ fn draw_markdown_panel(
     let mut lines = body.0.clone();
     let labels = body.1.clone();
     if metadata_scrolls {
-        lines.extend(metadata_section_lines(body_rect.width, metadata));
+        let meta_lines = metadata_section_lines(body_rect.width, &metadata);
+        if !meta_lines.is_empty() {
+            let height = body_rect.height as usize;
+            if lines.len() + meta_lines.len() < height {
+                // Fits: bottom-attach the metadata to the pane's bottom edge,
+                // matching the pinned layout on taller panes.
+                lines.resize(height - meta_lines.len(), Line::from(""));
+            } else {
+                // Overflows: one blank line sets the metadata off from the body as
+                // it scrolls into view.
+                lines.push(Line::from(""));
+            }
+            lines.extend(meta_lines);
+        }
     }
     let line_count = lines.len();
     let scroll = viewer_scroll(requested_scroll, line_count, body_rect.height);
-    // When the whole entry fits (no scrollbar), float it in the vertical middle.
-    let body_rect = if app.config.ui.layout.entry_viewer.body_center_vertically {
+    // Float a short entry in the vertical middle — but only when the metadata is
+    // pinned (taller panes). On short panes the body flows from the top with the
+    // metadata bottom-attached, so centering would fight that.
+    let body_rect = if app.config.ui.layout.entry_viewer.body_center_vertically && !metadata_scrolls
+    {
         center_body_vertically(body_rect, line_count, scroll)
     } else {
         body_rect
@@ -159,7 +225,7 @@ fn draw_markdown_panel(
     frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), body_rect);
 
     if !metadata_scrolls && layout.metadata.is_some() {
-        draw_metadata_section(frame, layout, metadata);
+        draw_metadata_section(frame, layout, &metadata);
     }
 
     render_scrollbar_if_needed(frame, area, line_count, body_rect.height, scroll as usize);
@@ -314,25 +380,41 @@ fn into_owned_line(line: Line<'_>) -> Line<'static> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct EntryMetadata<'a> {
     tags: &'a [String],
     people: &'a [String],
     activities: &'a [String],
     feelings: &'a [String],
     mood: Option<i8>,
-    location: &'a [String],
+    /// The formatted location label, computed from the bundle's `Location`.
+    location: Option<String>,
 }
 
 impl<'a> EntryMetadata<'a> {
-    fn values(self) -> EntryMetadataValues<'a> {
+    /// Build the entry-view metadata section straight from a [`Metadata`] bundle
+    /// — the single construction path for both the viewer and the internal
+    /// editor, so no front-matter field can render in one mode and vanish in the
+    /// other.
+    fn from_metadata(metadata: &'a Metadata) -> Self {
+        Self {
+            tags: &metadata.tags,
+            people: &metadata.people,
+            activities: &metadata.activities,
+            feelings: &metadata.feelings,
+            mood: metadata.mood,
+            location: metadata.location_label(),
+        }
+    }
+
+    fn values(&self) -> EntryMetadataValues<'_> {
         EntryMetadataValues {
             tags: self.tags,
             people: self.people,
             activities: self.activities,
             feelings: self.feelings,
             mood: self.mood,
-            location: self.location,
+            location: self.location.as_deref(),
         }
     }
 }
@@ -340,7 +422,7 @@ impl<'a> EntryMetadata<'a> {
 fn draw_metadata_section(
     frame: &mut Frame<'_>,
     layout: EntryMetadataLayout,
-    metadata: EntryMetadata<'_>,
+    metadata: &EntryMetadata<'_>,
 ) {
     let Some(area) = layout.metadata else {
         return;
@@ -414,7 +496,7 @@ fn draw_metadata_section(
         );
     }
 
-    if let Some(location) = metadata.location.first()
+    if let Some(location) = metadata.location.as_deref()
         && let Some(row) = layout.location
     {
         frame.render_widget(
@@ -446,13 +528,13 @@ fn location_lines(prefix_width: u16, width: u16, value: &str) -> Vec<Line<'stati
         .collect()
 }
 
-fn metadata_section_lines(width: u16, metadata: EntryMetadata<'_>) -> Vec<Line<'static>> {
+fn metadata_section_lines(width: u16, metadata: &EntryMetadata<'_>) -> Vec<Line<'static>> {
     if metadata.mood.is_none()
         && metadata.feelings.is_empty()
         && metadata.people.is_empty()
         && metadata.activities.is_empty()
         && metadata.tags.is_empty()
-        && metadata.location.is_empty()
+        && metadata.location.is_none()
     {
         return Vec::new();
     }
@@ -497,7 +579,7 @@ fn metadata_section_lines(width: u16, metadata: EntryMetadata<'_>) -> Vec<Line<'
             metadata.tags,
         ));
     }
-    if let Some(location) = metadata.location.first() {
+    if let Some(location) = metadata.location.as_deref() {
         lines.extend(location_lines(
             LOCATION_PREFIX.len() as u16,
             width,

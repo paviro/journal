@@ -57,14 +57,14 @@ impl App {
         let all_values: Vec<(String, usize)> =
             active_values.into_iter().chain(archived_only).collect();
         let filtered: Vec<usize> = (0..active_len).collect();
-        let entry_tags: Vec<String> = self.selected_entry_metadata(kind).into_iter().collect();
+        let entry_tags: Vec<String> = self.editing_metadata_values(kind);
         self.overlay = Overlay::EditMetadata(EditMetadataState::new(
             kind, all_values, filtered, entry_tags, active_len,
         ));
     }
 
     pub(crate) fn begin_edit_feelings(&mut self) {
-        let selected = self.selected_entry_feelings();
+        let selected = self.editing_feelings();
         self.overlay = Overlay::EditFeelings(EditFeelingState::new(FEELING_GROUPS, selected));
     }
 

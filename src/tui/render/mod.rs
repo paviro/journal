@@ -7,6 +7,7 @@ mod journals;
 mod layout;
 mod markdown_panel;
 mod pending;
+mod table;
 mod unlock;
 
 use ratatui::{
@@ -16,7 +17,8 @@ use ratatui::{
     widgets::{ListState, Paragraph},
 };
 
-use super::app::{App, EntryViewImageHits};
+use super::app::{App, EntryViewImageHits, single_panel_is_active};
+use super::editor_state::EditorPrompt;
 #[cfg(test)]
 pub(crate) use super::entry_rows::entry_row_metadata;
 #[cfg(test)]
@@ -36,9 +38,12 @@ pub(crate) use super::surface::{
     point_in_rect,
 };
 pub(crate) use chrome::{
-    Hint, HintId, centered_rect_fixed_size, count_label, draw_modal_frame, expanded_footer_height,
-    expanded_footer_hint_id_at_point, expanded_footer_lines, footer_hint_id_at_point, footer_lines,
-    hint_id_at_wrapped, panel_block, render_centered_notice, render_scrollbar_if_needed,
+    Hint, HintId, MetadataChoice, MetadataMenuMode, centered_rect_fixed_size, count_label,
+    draw_editor_discard_confirm, draw_editor_shortcuts, draw_metadata_menu, draw_modal_frame,
+    editor_discard_choice_at_point, editor_shortcut_close_at_point, editor_shortcut_hint_at_point,
+    expanded_footer_height, expanded_footer_hint_id_at_point, expanded_footer_lines,
+    footer_hint_id_at_point, footer_lines, hint_id_at_wrapped, metadata_menu_choice_at_point,
+    metadata_menu_close_at_point, panel_block, render_centered_notice, render_scrollbar_if_needed,
 };
 #[cfg(test)]
 pub(crate) use chrome::{
@@ -61,7 +66,7 @@ pub(crate) use insights::insights_tab_at;
 use journals::draw_journals;
 pub(crate) use journals::{JOURNAL_BOX_HEIGHT, journal_list_rect};
 pub(crate) use layout::{TuiLayout, tui_layout};
-use markdown_panel::draw_selected_entry_view;
+use markdown_panel::{draw_entry_editor, draw_selected_entry_view};
 pub(crate) use pending::{
     AccessNotice, draw_disable_notice, draw_pending_notice, draw_pending_request,
 };
@@ -104,7 +109,18 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(0), Constraint::Length(footer_height)])
             .split(area);
-        draw_selected_entry_view(frame, chunks[0], app);
+        if let Some(editor) = app.editor.as_mut() {
+            // Single-column (the one-col viewer breakpoint) gets a tighter margin
+            // than an expanded fullscreen editor on a wide terminal.
+            let (side, top) = if single_panel_is_active(area.width) {
+                (3, 1)
+            } else {
+                (5, 3)
+            };
+            draw_entry_editor(frame, chunks[0], editor, side, top);
+        } else {
+            draw_selected_entry_view(frame, chunks[0], app);
+        }
         let footer_area = chunks[1];
         let footer_text_area = ratatui::layout::Rect {
             x: footer_area.x.saturating_add(1),
@@ -130,8 +146,10 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     if let Some(area) = layout.insights {
         draw_journal_insights(frame, area.area, app);
     } else if let Some(area) = layout.entry_view {
-        // With no entry selected, the preview pane shows the journal insights.
-        if app.show_journal_insights_preview() {
+        if let Some(editor) = app.editor.as_mut() {
+            draw_entry_editor(frame, area.area, editor, 5, 3);
+        } else if app.show_journal_insights_preview() {
+            // With no entry selected, the preview pane shows the journal insights.
             draw_journal_insights(frame, area.area, app);
         } else {
             draw_selected_entry_view(frame, area.area, app);
@@ -147,6 +165,10 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
 fn draw_overlays(frame: &mut Frame<'_>, app: &mut App) {
     if let crate::tui::state::Overlay::ConfirmDelete(ctx) = &app.overlay {
         draw_confirm_delete(frame, ctx);
+    }
+
+    if matches!(app.overlay, crate::tui::state::Overlay::MetadataMenu) {
+        draw_metadata_menu(frame, MetadataMenuMode::Viewer);
     }
 
     if let Some(input) = app.new_journal_input() {
@@ -171,6 +193,15 @@ fn draw_overlays(frame: &mut Frame<'_>, app: &mut App) {
 
     if let Some(state) = app.image_viewer_state() {
         draw_image_viewer(frame, state, &app.image.runtime);
+    }
+
+    if let Some(editor) = app.editor.as_mut() {
+        match &mut editor.prompt {
+            EditorPrompt::MetadataMenu => draw_metadata_menu(frame, MetadataMenuMode::Editor),
+            EditorPrompt::Help { scroll } => draw_editor_shortcuts(frame, scroll),
+            EditorPrompt::ConfirmDiscard => draw_editor_discard_confirm(frame),
+            EditorPrompt::None => {}
+        }
     }
 }
 

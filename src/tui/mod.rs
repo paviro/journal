@@ -1,4 +1,5 @@
 mod app;
+mod editor_state;
 mod entry_rows;
 mod environment;
 mod events;
@@ -405,15 +406,16 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
 
         let redraw = match event {
             Some(Event::Key(key)) => {
-                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-                    break;
-                }
+                // No global Ctrl+C quit: `q` quits the app, and the editor forwards
+                // Ctrl+C to the textarea as copy.
                 if events::handle_key(terminal, &mut app, key)? {
                     break;
                 }
                 true
             }
-            Some(Event::Mouse(mouse)) if events::is_wheel(mouse.kind) && !app.has_overlay() => {
+            Some(Event::Mouse(mouse))
+                if events::is_wheel(mouse.kind) && !app.has_overlay() && app.editor.is_none() =>
+            {
                 // Coalesce a macOS smooth-scroll burst into one applied step and
                 // one repaint: drain everything already queued, sum the net
                 // wheel movement, and apply it once. A reverse flick cancels the

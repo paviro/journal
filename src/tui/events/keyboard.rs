@@ -5,6 +5,7 @@ use std::io;
 
 use crate::tui::{
     app::{App, Focus, Mode, entry_view_is_available},
+    editor_state::EditorPrompt,
     image::image_for_digit,
     render,
     render::insights::InsightsTab,
@@ -18,6 +19,14 @@ pub(crate) fn handle_key(
     app: &mut App,
     key: KeyEvent,
 ) -> AppResult<bool> {
+    // While the internal editor is open (and no metadata dialog is layered over
+    // it), keystrokes go to the textarea — only a few control keys are intercepted
+    // — bypassing the char-only Action enum so typing `q`, `/`, `n`, etc. inserts
+    // literally. When a dialog is open, fall through so its handler runs.
+    if app.editor.is_some() && matches!(app.overlay, Overlay::None) {
+        return handle_editor_key(terminal, app, key);
+    }
+
     let entry_view_available = entry_view_is_available(terminal.size()?.width);
 
     if let Some(action) = key_to_action(app, key, entry_view_available) {
@@ -25,6 +34,92 @@ pub(crate) fn handle_key(
     } else {
         Ok(false)
     }
+}
+
+/// Translate a keystroke while the internal editor is open. Text insertion still
+/// goes through dispatch as an editor input action so keyboard and mouse cannot
+/// grow separate mutation paths.
+fn handle_editor_key(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    key: KeyEvent,
+) -> AppResult<bool> {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+
+    if matches!(editor_prompt(app), Some(EditorPrompt::ConfirmDiscard)) {
+        let action = match key.code {
+            KeyCode::Char('y' | 'Y') | KeyCode::Enter => Some(Action::EditorDiscard),
+            KeyCode::Char('n' | 'N') | KeyCode::Esc => Some(Action::EditorClosePrompt),
+            _ => None,
+        };
+        if let Some(action) = action {
+            return super::dispatch_action(terminal, app, action);
+        }
+        return Ok(false);
+    }
+
+    if matches!(editor_prompt(app), Some(EditorPrompt::Help { .. })) {
+        let action = match key.code {
+            KeyCode::Up => Action::EditorScrollHelp(-1),
+            KeyCode::Down => Action::EditorScrollHelp(1),
+            KeyCode::PageUp => Action::EditorScrollHelp(-10),
+            KeyCode::PageDown => Action::EditorScrollHelp(10),
+            KeyCode::Home => Action::EditorScrollHelp(i16::MIN),
+            KeyCode::End => Action::EditorScrollHelp(i16::MAX),
+            _ => Action::EditorClosePrompt,
+        };
+        return super::dispatch_action(terminal, app, action);
+    }
+
+    if matches!(editor_prompt(app), Some(EditorPrompt::MetadataMenu)) {
+        let action = match key.code {
+            KeyCode::Char('t') => {
+                Action::EditorBeginMetadata(crate::tui::state::MetadataKind::Tags)
+            }
+            KeyCode::Char('p') => {
+                Action::EditorBeginMetadata(crate::tui::state::MetadataKind::People)
+            }
+            KeyCode::Char('a') => {
+                Action::EditorBeginMetadata(crate::tui::state::MetadataKind::Activities)
+            }
+            KeyCode::Char('f') => Action::BeginEditFeelings,
+            KeyCode::Char('m') => Action::BeginEditMood,
+            KeyCode::Char('l') => Action::BeginEditLocation,
+            _ => Action::EditorClosePrompt,
+        };
+        return super::dispatch_action(terminal, app, action);
+    }
+
+    match key.code {
+        KeyCode::Char('s') if ctrl => {
+            return super::dispatch_action(terminal, app, Action::EditorSave);
+        }
+        // Fullscreen is on Ctrl+O, not Ctrl+F: the textarea binds Ctrl+F to
+        // forward-char (emacs), which we leave to it.
+        KeyCode::Char('o') if ctrl => {
+            return super::dispatch_action(terminal, app, Action::EditorToggleFullscreen);
+        }
+        // Ctrl+G and Ctrl+T open the metadata chooser and shortcut overlay. Both
+        // avoid the textarea's Ctrl bindings and Alt+letter (eaten on macOS and
+        // Termux); the overlays are handled at the top of this function.
+        KeyCode::Char('g') if ctrl => {
+            return super::dispatch_action(terminal, app, Action::EditorOpenMetadataMenu);
+        }
+        KeyCode::Char('t') if ctrl => {
+            return super::dispatch_action(terminal, app, Action::EditorOpenHelp);
+        }
+        KeyCode::Esc => {
+            return super::dispatch_action(terminal, app, Action::EditorRequestDiscard);
+        }
+        _ => {}
+    }
+
+    super::dispatch_action(terminal, app, Action::EditorInput(key))
+}
+
+/// The open editor's current modal prompt, if an editor is open.
+fn editor_prompt(app: &App) -> Option<&EditorPrompt> {
+    app.editor.as_ref().map(|ed| &ed.prompt)
 }
 
 pub(super) fn key_to_action(
@@ -37,6 +132,7 @@ pub(super) fn key_to_action(
             search_key_to_action(app, key, entry_view_available)
         }
         Overlay::None => browse_key_to_action(app, key, entry_view_available),
+        Overlay::MetadataMenu => metadata_menu_key_to_action(key),
         Overlay::ConfirmDelete(_) => confirm_delete_key_to_action(key),
         Overlay::NewJournal(_) => new_journal_key_to_action(key),
         Overlay::EditMetadata(_) => tags_key_to_action(app, key),
@@ -45,6 +141,21 @@ pub(super) fn key_to_action(
         Overlay::EditLocation(_) => location_key_to_action(app, key),
         Overlay::ImageViewer(_) => image_viewer_key_to_action(key),
     }
+}
+
+/// Keys while the metadata reference popup is open: the listed letters open their
+/// edit dialog (replacing the popup), anything else dismisses it. The letters also
+/// work directly on the viewer, so this popup is only a discovery aid.
+fn metadata_menu_key_to_action(key: KeyEvent) -> Option<Action> {
+    Some(match key.code {
+        KeyCode::Char('t') => Action::BeginEditTags,
+        KeyCode::Char('p') => Action::BeginEditPeople,
+        KeyCode::Char('a') => Action::BeginEditActivities,
+        KeyCode::Char('f') => Action::BeginEditFeelings,
+        KeyCode::Char('m') => Action::BeginEditMood,
+        KeyCode::Char('l') => Action::BeginEditLocation,
+        _ => Action::CancelOverlay,
+    })
 }
 
 /// Map a digit key to the image index it opens (`0`–`9`), gated on that image
@@ -179,6 +290,11 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
         {
             Some(Action::ToggleArchiveJournal)
         }
+        KeyCode::Char('g')
+            if key.modifiers.contains(KeyModifiers::CONTROL) && app.can_act_on_selected_entry() =>
+        {
+            Some(Action::OpenMetadataMenu)
+        }
         KeyCode::Char('t') if app.can_act_on_selected_entry() => Some(Action::BeginEditTags),
         KeyCode::Char('p') if app.can_act_on_selected_entry() => Some(Action::BeginEditPeople),
         KeyCode::Char('a') if app.can_act_on_selected_entry() => Some(Action::BeginEditActivities),
@@ -204,6 +320,9 @@ fn entry_view_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Char('e') => Some(Action::EditSelected),
         KeyCode::Char('d') => Some(Action::BeginDelete),
+        KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::OpenMetadataMenu)
+        }
         KeyCode::Char('t') => Some(Action::BeginEditTags),
         KeyCode::Char('p') => Some(Action::BeginEditPeople),
         KeyCode::Char('a') => Some(Action::BeginEditActivities),

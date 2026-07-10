@@ -18,6 +18,7 @@ use journal_analytics::Correlate;
 use super::signed;
 use crate::tui::entry_rows::truncate_ellipsis;
 use crate::tui::render::render_centered_notice;
+use crate::tui::render::table::{self, border, pad, push_cell};
 use crate::tui::theme::theme;
 
 /// Below this panel width the table's borders crowd the columns, so the compact
@@ -208,11 +209,7 @@ impl Columns {
         widths
     }
 
-    /// A horizontal border rule, e.g. `┌────┬────┐`, matching the column widths. The
-    /// junction glyphs (which sit on the vertical column borders) take `junction`
-    /// and the `─` fill takes `dash`; giving the inter-row rules a fainter `dash`
-    /// but a full-weight `junction` keeps the vertical column lines uniform instead
-    /// of banding where the rules cross them.
+    /// A horizontal border rule, e.g. `┌────┬────┐`, matching the column widths.
     fn rule(
         &self,
         left: char,
@@ -221,15 +218,7 @@ impl Columns {
         junction: Style,
         dash: Style,
     ) -> Line<'static> {
-        let mut spans = vec![Span::styled(left.to_string(), junction)];
-        for (i, w) in self.widths().iter().enumerate() {
-            if i > 0 {
-                spans.push(Span::styled(mid.to_string(), junction));
-            }
-            spans.push(Span::styled("─".repeat(w + 2), dash));
-        }
-        spans.push(Span::styled(right.to_string(), junction));
-        Line::from(spans)
+        table::rule(&self.widths(), left, mid, right, junction, dash)
     }
 
     /// The dim header row, its labels padded to the column widths. `feeling_header`
@@ -337,28 +326,6 @@ fn feelings_label(correlate: &Correlate) -> String {
         .map(|(name, count)| format!("{name} ({count})"))
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-/// A dim `│` column border.
-fn border() -> Span<'static> {
-    Span::styled("│", theme().muted())
-}
-
-/// Push a padded cell (` content `) plus its trailing column border.
-fn push_cell(spans: &mut Vec<Span<'static>>, content: Span<'static>) {
-    spans.push(Span::raw(" "));
-    spans.push(content);
-    spans.push(Span::raw(" "));
-    spans.push(border());
-}
-
-/// Pad `text` to `width`, right-aligned for numeric columns and left otherwise.
-fn pad(text: &str, width: usize, right: bool) -> String {
-    if right {
-        format!("{text:>width$}")
-    } else {
-        format!("{text:<width$}")
-    }
 }
 
 /// A diverging bar centred on zero: the fill extends right of the centre marker
