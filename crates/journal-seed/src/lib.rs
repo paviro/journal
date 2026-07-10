@@ -14,7 +14,7 @@
 use chrono::{Duration, Local};
 use journal_core::feelings::{self, FEELING_GROUPS};
 use journal_core::{AppResult, ImportSource, MOOD_RANGE, Metadata};
-use journal_storage::{ImportedEntryDraft, JournalStore};
+use journal_storage::JournalStore;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 /// The `source` value stamped into every generated entry's `[import]` block.
@@ -181,19 +181,23 @@ pub fn generate(store: &JournalStore, config: &GenConfig) -> AppResult<usize> {
             id: random_id(&mut rng),
         };
 
-        store.create_imported_entry(ImportedEntryDraft {
-            journal: &config.journal,
-            body: &body,
-            metadata: &metadata,
-            created_at,
-            edited_at: created_at,
-            timezone: None,
-            location: None,
-            weather: None,
-            celestial: None,
-            editing_seconds: None,
-            import: &import,
-        })?;
+        store.create_entry(
+            journal_storage::EntryDraft {
+                journal: &config.journal,
+                body: &body,
+                metadata: &metadata,
+                created_at: Some(created_at),
+                edited_at: Some(created_at),
+                timezone: None,
+                location: None,
+                weather: None,
+                celestial: None,
+                air_quality: None,
+                writing_seconds: None,
+                import: Some(&import),
+            },
+            journal_storage::EntryAssetOptions::default(),
+        )?;
     }
 
     Ok(config.count)

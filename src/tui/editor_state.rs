@@ -28,12 +28,13 @@ pub(crate) enum EditorPrompt {
 }
 
 /// In-memory editing session shown inside the entry-view pane. Holds the
-/// `ratatui-textarea` buffer plus enough context to save (or discard) without
+/// `ratatui-textarea` buffer plus enough environment to save (or discard) without
 /// ever writing the body to a plaintext temp file.
 pub(crate) struct EntryEditor {
     pub(crate) textarea: TextArea<'static>,
     pub(crate) target: EditorTarget,
-    /// When the session opened, for `add_writing_seconds` on save.
+    /// When the session opened, so elapsed writing time can be folded into the
+    /// final save.
     pub(crate) start: Instant,
     /// The body as loaded, to detect unsaved changes on cancel.
     pub(crate) original: String,
@@ -50,6 +51,13 @@ pub(crate) struct EntryEditor {
     pub(crate) text_rect: Rect,
     /// Whether a left-button drag is currently extending a selection.
     pub(crate) mouse_selecting: bool,
+    /// Id assigned to the next background environment fetch, bumped each time the
+    /// location changes so a stale reply for an older location is ignored.
+    pub(crate) environment_request_id: u64,
+    /// The in-flight environment fetch's id, or `None` when nothing is outstanding.
+    pub(crate) pending_environment: Option<u64>,
+    /// The landed environment for the current location, attached to the entry on save.
+    pub(crate) environment: Option<crate::tui::environment::Environment>,
 }
 
 impl EntryEditor {
@@ -69,6 +77,9 @@ impl EntryEditor {
             prompt: EditorPrompt::None,
             text_rect: Rect::default(),
             mouse_selecting: false,
+            environment_request_id: 0,
+            pending_environment: None,
+            environment: None,
         }
     }
 
@@ -83,6 +94,9 @@ impl EntryEditor {
             prompt: EditorPrompt::None,
             text_rect: Rect::default(),
             mouse_selecting: false,
+            environment_request_id: 0,
+            pending_environment: None,
+            environment: None,
         }
     }
 

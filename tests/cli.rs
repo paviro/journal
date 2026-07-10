@@ -33,6 +33,16 @@ fn generate_identity_store(config: &Path, root: &Path, passphrase: &str) -> (Jou
     (store, recipient)
 }
 
+fn create_entry(store: &JournalStore, journal: &str, body: &str) -> std::path::PathBuf {
+    store
+        .create_entry(
+            journal_storage::EntryDraft::new(journal, body, &Metadata::default()),
+            journal_storage::EntryAssetOptions::default(),
+        )
+        .unwrap()
+        .path
+}
+
 fn png_bytes() -> Vec<u8> {
     let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
     bytes.extend_from_slice(&[0u8; 16]);
@@ -564,9 +574,7 @@ fn encrypt_command_can_be_rerun_when_store_is_already_encrypted() {
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
     let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
-    let encrypted = store
-        .create_entry_with_body("work", "# Secret\nBody", &Metadata::default())
-        .unwrap();
+    let encrypted = create_entry(&store, "work", "# Secret\nBody");
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -604,9 +612,7 @@ fn encrypt_command_finishes_partial_encryption_without_touching_existing_age_fil
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
     let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
-    let existing_encrypted = store
-        .create_entry_with_body("work", "# Existing", &Metadata::default())
-        .unwrap();
+    let existing_encrypted = create_entry(&store, "work", "# Existing");
     let entry_dir = root.join("work").join("2026").join("07").join("02");
     fs::create_dir_all(&entry_dir).unwrap();
     let remaining_plain = entry_dir.join("remaining.md");
@@ -677,9 +683,7 @@ fn encrypt_command_fails_when_encrypted_entries_exist_without_device_roster() {
     let root = dir.path().join("journals");
     let config = dir.path().join("config.toml");
     let (store, _recipient) = generate_identity_store(&config, &root, "secret");
-    let encrypted = store
-        .create_entry_with_body("work", "# Secret", &Metadata::default())
-        .unwrap();
+    let encrypted = create_entry(&store, "work", "# Secret");
     fs::remove_file(&store.paths().keys.devices_file).unwrap();
     write_config(&config, &root, Some("work"));
 

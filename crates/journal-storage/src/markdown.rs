@@ -157,15 +157,32 @@ fn map_front_matter(content: &str, mutate: impl FnOnce(&mut FrontMatter)) -> Opt
 /// is no front matter. Applying together (e.g. weather + air quality) shares one
 /// re-render instead of rewriting the file per field.
 pub fn with_metadata_fields(content: &str, fields: &[MetadataField]) -> Option<String> {
+    with_metadata_fields_inner(content, fields, true)
+}
+
+/// Like [`with_metadata_fields`] but leaves `edited_at` untouched — for
+/// background enrichment (weather/celestial backfill) the user never triggered,
+/// which shouldn't mark the entry as freshly edited.
+pub fn with_metadata_fields_quiet(content: &str, fields: &[MetadataField]) -> Option<String> {
+    with_metadata_fields_inner(content, fields, false)
+}
+
+fn with_metadata_fields_inner(
+    content: &str,
+    fields: &[MetadataField],
+    touch_edited: bool,
+) -> Option<String> {
     map_front_matter(content, |fm| {
         for field in fields {
             apply_metadata_field(fm, field);
         }
-        fm.datetime.edited_at = Some(chrono::Local::now().to_rfc3339());
+        if touch_edited {
+            fm.datetime.edited_at = Some(chrono::Local::now().to_rfc3339());
+        }
     })
 }
 
-fn apply_metadata_field(fm: &mut FrontMatter, field: &MetadataField) {
+pub(crate) fn apply_metadata_field(fm: &mut FrontMatter, field: &MetadataField) {
     match field {
         MetadataField::Tags(values) => fm.metadata.tags = values.clone(),
         MetadataField::People(values) => fm.metadata.people = values.clone(),
@@ -178,20 +195,6 @@ fn apply_metadata_field(fm: &mut FrontMatter, field: &MetadataField) {
         MetadataField::Celestial(celestial) => fm.celestial = celestial.as_deref().cloned(),
         MetadataField::AirQuality(air_quality) => fm.air_quality = air_quality.as_deref().cloned(),
     }
-}
-
-/// Return a copy of `content` with `secs` added to `[datetime].writing_seconds`.
-/// Unlike [`with_metadata_fields`], it does **not** refresh `edited_at` — recording
-/// editing time is not itself a content edit. `None` when there is no front matter.
-pub(crate) fn add_writing_seconds(content: &str, secs: u64) -> Option<String> {
-    map_front_matter(content, |fm| {
-        let total = fm
-            .datetime
-            .writing_seconds
-            .unwrap_or(0)
-            .saturating_add(secs);
-        fm.datetime.writing_seconds = Some(total);
-    })
 }
 
 pub(crate) fn parse_front_matter(front_matter: &str) -> Option<FrontMatter> {
@@ -311,6 +314,29 @@ mod tests {
         assert_eq!(front_matter_fields("mood = 6\n").metadata.mood, None);
         assert_eq!(front_matter_fields("mood = -42\n").metadata.mood, None);
         assert_eq!(front_matter_fields("mood = 999\n").metadata.mood, None);
+    }
+
+    #[test]
+    fn quiet_metadata_write_applies_field_without_stamping_edited_at() {
+        let content = "+++\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
+        let fields = [MetadataField::Mood(Some(4))];
+
+        // The loud write stamps edited_at; the quiet write (used for background
+        // context backfill) must not — the user never edited the entry.
+        assert!(
+            with_metadata_fields(content, &fields)
+                .unwrap()
+                .contains("edited_at")
+        );
+
+        let quiet = with_metadata_fields_quiet(content, &fields).unwrap();
+        assert!(!quiet.contains("edited_at"));
+        assert_eq!(
+            front_matter_fields(split_front_matter(&quiet).0.unwrap())
+                .metadata
+                .mood,
+            Some(4)
+        );
     }
 
     #[test]
@@ -490,33 +516,6 @@ mod tests {
                 .timezone,
             Some("Europe/Berlin".to_string())
         );
-    }
-
-    #[test]
-    fn add_writing_seconds_accumulates_without_touching_edited_at() {
-        let content = "+++\n[datetime]\ncreated_at = \"2021-04-03T08:30:05+02:00\"\nedited_at = \"2021-04-03T08:30:05+02:00\"\n+++\n\n# Body\n";
-
-        let once = add_writing_seconds(content, 60).unwrap();
-        let after_once = front_matter_fields(split_front_matter(&once).0.unwrap());
-        assert_eq!(after_once.datetime.writing_seconds, Some(60));
-        // Recording editing time must not look like a content edit.
-        assert_eq!(
-            after_once.datetime.edited_at.as_deref(),
-            Some("2021-04-03T08:30:05+02:00")
-        );
-
-        // A second session accumulates on top of the first.
-        let twice = add_writing_seconds(&once, 30).unwrap();
-        assert_eq!(
-            front_matter_fields(split_front_matter(&twice).0.unwrap())
-                .datetime
-                .writing_seconds,
-            Some(90)
-        );
-
-        // Omitted from the rendered TOML when never set.
-        let no_field = with_metadata_fields(content, &[MetadataField::Tags(vec![])]).unwrap();
-        assert!(!no_field.contains("writing_seconds"));
     }
 
     #[test]

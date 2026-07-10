@@ -333,4 +333,8 @@ pub(crate) enum Overlay {
     // lists), so keeping it behind a pointer keeps `Overlay` small.
     EditLocation(Box<EditLocationState>),
     ImageViewer(ImageViewerState),
+    /// Shown over the editor while a save waits on the still-in-flight weather/air
+    /// fetch. The `Instant` is when it opened, driving both the animated dots and
+    /// the timeout after which the save proceeds without the data.
+    FetchingEnvironment(Instant),
 }

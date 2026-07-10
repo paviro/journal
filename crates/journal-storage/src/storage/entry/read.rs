@@ -121,10 +121,9 @@ pub fn read_entry(
         datetime,
         import,
         location,
-        // Capture-only: preserved on disk, not surfaced on the in-memory entry.
-        weather: _,
-        celestial: _,
-        air_quality: _,
+        weather,
+        celestial,
+        air_quality,
     } = front_matter.map(front_matter_fields).unwrap_or_default();
     metadata.feelings = normalize_feelings(metadata.feelings.iter().map(String::as_str));
     let created_at = datetime.created_at.map(Timestamp::parse);
@@ -164,6 +163,9 @@ pub fn read_entry(
         mood,
         starred,
         location,
+        weather,
+        celestial,
+        air_quality,
         import,
         body,
         word_count,
@@ -229,6 +231,9 @@ fn placeholder_entry(
         mood: None,
         starred: false,
         location: None,
+        weather: None,
+        celestial: None,
+        air_quality: None,
         import: None,
         body: body.to_string(),
         word_count: 0,

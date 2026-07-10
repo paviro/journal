@@ -389,6 +389,12 @@ pub struct Entry {
     pub starred: bool,
     /// Where the entry was written.
     pub location: Option<Location>,
+    /// Captured weather from front matter, when present.
+    pub weather: Option<Weather>,
+    /// Captured sun/moon data from front matter, when present.
+    pub celestial: Option<Celestial>,
+    /// Captured air quality from front matter, when present.
+    pub air_quality: Option<AirQuality>,
     /// Provenance of an imported entry (source tool + its id). `None` for
     /// entries created directly in the app. Used to skip re-importing and as an
     /// anchor for back-filling richer metadata once the format supports it.

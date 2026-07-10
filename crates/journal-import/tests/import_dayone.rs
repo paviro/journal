@@ -403,3 +403,75 @@ fn entry_with_invalid_creation_date_is_recorded_as_a_failure() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].import.as_ref(), Some(&dayone("GOOD")));
 }
+
+/// An encrypted store rooted in a fresh temp dir, initialized and unlocked.
+fn encrypted_store() -> (TempDir, JournalStore) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = JournalStore::new(dir.path().join("journals"), dir.path());
+    store.ensure().unwrap();
+    store.initialize_encryption("dev", None).unwrap();
+    store.unlock(None).unwrap();
+    (dir, store)
+}
+
+#[test]
+fn imports_photo_into_encrypted_entry_assets() {
+    let (dir, store) = encrypted_store();
+    let photos = dir.path().join("photos");
+    fs::create_dir_all(&photos).unwrap();
+    fs::write(photos.join("aabbcc.jpeg"), b"fake jpeg bytes").unwrap();
+    let json = r#"{
+        "entries": [
+            {
+                "uuid": "PIC1",
+                "text": "Look\n\n![](dayone-moment://PHOTOID)",
+                "creationDate": "2026-07-01T10:00:00Z",
+                "photos": [{ "identifier": "PHOTOID", "md5": "aabbcc", "type": "jpeg" }]
+            }
+        ]
+    }"#;
+
+    let report = import_dayone(&store, "diary", &write_export(&dir, json), false).unwrap();
+
+    assert_eq!(report.imported, 1);
+    assert_eq!(report.images_stored, 1);
+    assert_eq!(report.images_failed, 0);
+    assert!(report.failures.is_empty());
+
+    let entries = store.scan_entries().unwrap();
+    let entry = &entries[0];
+    assert!(entry.path.to_string_lossy().ends_with(".md.age"));
+    // The body references the entry's own asset folder, not the export archive.
+    assert!(entry.body.contains(".assets/"), "{}", entry.body);
+    assert!(!entry.body.contains("photos/aabbcc.jpeg"), "{}", entry.body);
+    // The asset landed next to the entry, encrypted.
+    let assets_dir = fs::read_dir(entry.path.parent().unwrap())
+        .unwrap()
+        .map(|item| item.unwrap().path())
+        .find(|path| path.is_dir() && path.to_string_lossy().ends_with(".assets"))
+        .expect("entry assets dir");
+    let assets: Vec<_> = fs::read_dir(&assets_dir)
+        .unwrap()
+        .map(|item| item.unwrap().path())
+        .collect();
+    assert_eq!(assets.len(), 1);
+    assert!(assets[0].to_string_lossy().ends_with(".age"));
+}
+
+#[test]
+fn locked_encrypted_store_refuses_to_import() {
+    let (dir, _unlocked) = encrypted_store();
+    // A fresh store handle that was never unlocked.
+    let locked = JournalStore::new(dir.path().join("journals"), dir.path());
+    let json = r#"{
+        "entries": [
+            { "uuid": "L1", "text": "Nope", "creationDate": "2026-07-01T10:00:00Z" }
+        ]
+    }"#;
+
+    let error = import_dayone(&locked, "diary", &write_export(&dir, json), false).unwrap_err();
+
+    assert!(error.to_string().contains("unlock"), "{error}");
+    // Refused before creating anything.
+    assert!(_unlocked.scan_entries().unwrap().is_empty());
+}

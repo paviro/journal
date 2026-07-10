@@ -19,11 +19,13 @@ use crate::tui::text_input::TextInput;
 
 use super::{
     chrome::{
-        Hint, HintId, hint_height, hint_lines, render_confirm_buttons, render_scrollbar_if_needed,
+        Hint, HintId, centered_rect_fixed_size, hint_height, hint_lines, render_confirm_buttons,
+        render_scrollbar_if_needed,
     },
     list_state_for_render,
     markdown_panel::MoodBar,
 };
+use std::time::Instant;
 
 // ── Hint text constants and helpers ──────────────────────────────────────────
 
@@ -639,6 +641,26 @@ fn render_hint_line(frame: &mut Frame<'_>, hints: &[Hint], area: Rect) {
 }
 
 // ── Dialog draw functions ─────────────────────────────────────────────────────
+
+/// The "Fetching weather and air quality…" modal shown while a save waits on its
+/// background context fetch. The ellipsis cycles `.`→`..`→`...` every ~400ms;
+/// dropped dots become spaces so the fixed-width box doesn't jitter.
+pub(super) fn draw_fetching_environment(frame: &mut Frame<'_>, started: Instant) {
+    let dots = (started.elapsed().as_millis() / 400 % 3) as usize + 1;
+    let message = format!(
+        "Fetching weather and air quality{}{}",
+        ".".repeat(dots),
+        " ".repeat(3 - dots)
+    );
+    // Border (2) + a space of padding each side (2) around the fixed-width text.
+    let width = message.width() as u16 + 4;
+    let area = centered_rect_fixed_size(width, 3, frame.area());
+    frame.render_widget(Clear, area);
+    let block = Block::default().borders(Borders::ALL);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(message).alignment(Alignment::Center), inner);
+}
 
 /// The `(height, message)` a confirm-delete dialog needs for `ctx`. The message is
 /// centered at the top; the Delete/Cancel buttons occupy the last inner row.

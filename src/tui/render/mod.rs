@@ -58,7 +58,8 @@ pub(crate) use dialogs::{
 };
 use dialogs::{
     draw_confirm_delete, draw_edit_feelings_dialog, draw_edit_location_dialog,
-    draw_edit_metadata_dialog, draw_edit_mood_dialog, draw_new_journal_input,
+    draw_edit_metadata_dialog, draw_edit_mood_dialog, draw_fetching_environment,
+    draw_new_journal_input,
 };
 use entries::draw_entry_list;
 use image_viewer::draw_image_viewer;
@@ -188,6 +189,10 @@ fn draw_overlays(frame: &mut Frame<'_>, app: &mut App) {
 
     if let Some(state) = app.image_viewer_state() {
         draw_image_viewer(frame, state, &app.image.runtime);
+    }
+
+    if let crate::tui::state::Overlay::FetchingEnvironment(started) = &app.overlay {
+        draw_fetching_environment(frame, *started);
     }
 
     if let Some(editor) = app.editor.as_mut() {

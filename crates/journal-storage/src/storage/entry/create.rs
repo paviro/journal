@@ -1,10 +1,13 @@
 use super::Metadata;
+use super::assets::{AssetReport, ingest_and_cleanup_opts};
 use super::codec::EntryCodec;
-use super::paths::{ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_path_with_id};
+use super::paths::{
+    ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_assets_dir, entry_path_with_id,
+};
 use anyhow::bail;
 use chrono::{DateTime, FixedOffset, Local};
 use journal_core::AppResult;
-use journal_core::{Celestial, ImportSource, Location, Weather};
+use journal_core::{AirQuality, Celestial, ImportSource, Location, Weather};
 use nanoid::nanoid;
 use std::{
     fs::{self, OpenOptions},
@@ -14,77 +17,136 @@ use std::{
 
 const ENTRY_CREATE_ATTEMPTS: usize = 32;
 
-pub struct ImportedEntryDraft<'a> {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EntryAssetOptions {
+    pub download_remote: bool,
+    pub replace_offline: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct EntryCreateOutcome {
+    pub path: PathBuf,
+    pub assets: AssetReport,
+}
+
+pub struct EntryDraft<'a> {
     pub journal: &'a str,
     pub body: &'a str,
     pub metadata: &'a Metadata,
-    pub created_at: DateTime<FixedOffset>,
-    pub edited_at: DateTime<FixedOffset>,
+    pub created_at: Option<DateTime<FixedOffset>>,
+    pub edited_at: Option<DateTime<FixedOffset>>,
     pub timezone: Option<&'a str>,
     pub location: Option<&'a Location>,
     pub weather: Option<&'a Weather>,
     pub celestial: Option<&'a Celestial>,
-    pub editing_seconds: Option<u64>,
-    pub import: &'a ImportSource,
+    pub air_quality: Option<&'a AirQuality>,
+    pub writing_seconds: Option<u64>,
+    pub import: Option<&'a ImportSource>,
 }
 
-/// Create a new entry dated now. Whether it is encrypted follows the `codec`.
+impl<'a> EntryDraft<'a> {
+    pub fn new(journal: &'a str, body: &'a str, metadata: &'a Metadata) -> Self {
+        Self {
+            journal,
+            body,
+            metadata,
+            created_at: None,
+            edited_at: None,
+            timezone: None,
+            location: metadata.location.as_ref(),
+            weather: None,
+            celestial: None,
+            air_quality: None,
+            writing_seconds: None,
+            import: None,
+        }
+    }
+}
+
+/// Create a new entry from an in-memory draft. Asset references are rewritten
+/// before the final entry content is encoded and written, so encrypted stores do
+/// not need a read/decrypt/write pass after creation.
 pub fn create_entry(
     codec: &EntryCodec<'_>,
     root: &Path,
-    journal: &str,
-    body: &str,
-    metadata: &Metadata,
-) -> AppResult<PathBuf> {
-    let now = Local::now().fixed_offset();
-    // This machine's IANA zone name, matching what imports store; None if unresolved.
-    let timezone = iana_time_zone::get_timezone().ok();
-    let content = entry_content(
-        now,
-        now,
-        body,
-        metadata,
-        timezone.as_deref(),
-        metadata.location.as_ref(),
-        None,
-        None,
-        None,
-        None,
-    );
-    create_entry_file(codec, root, journal, now, &content, || {
-        nanoid!(ENTRY_ID_LEN)
-    })
-}
+    draft: EntryDraft<'_>,
+    assets: EntryAssetOptions,
+) -> AppResult<EntryCreateOutcome> {
+    let native_timestamp = draft.created_at.is_none();
+    let created_at = draft
+        .created_at
+        .unwrap_or_else(|| Local::now().fixed_offset());
+    let edited_at = draft.edited_at.unwrap_or(created_at);
+    let local_timezone = native_timestamp.then(|| iana_time_zone::get_timezone().ok());
+    let timezone = draft
+        .timezone
+        .or_else(|| local_timezone.as_ref().and_then(Option::as_deref));
 
-/// Create an entry that carries an explicit creation/modification date and an
-/// `[import]` provenance marker (used by importers). The on-disk path and
-/// filename are derived from `created_at`, so imported entries land in their
-/// original date folder rather than today's. Encryption follows the `codec`.
-pub fn create_imported_entry(
-    codec: &EntryCodec<'_>,
-    root: &Path,
-    draft: ImportedEntryDraft<'_>,
-) -> AppResult<PathBuf> {
-    let content = entry_content(
-        draft.created_at,
-        draft.edited_at,
-        draft.body,
-        draft.metadata,
-        draft.timezone,
-        draft.location,
-        draft.weather,
-        draft.celestial,
-        draft.editing_seconds,
-        Some(draft.import),
-    );
-    create_entry_file(
-        codec,
-        root,
-        draft.journal,
-        draft.created_at,
-        &content,
-        || nanoid!(ENTRY_ID_LEN),
-    )
+    for _ in 0..ENTRY_CREATE_ATTEMPTS {
+        let id = nanoid!(ENTRY_ID_LEN);
+        let path = if codec.encrypts_new_entries() {
+            encrypted_entry_path_with_id(root, draft.journal, created_at, &id)
+        } else {
+            entry_path_with_id(root, draft.journal, created_at, &id)
+        };
+        if path.exists() || entry_assets_dir(&path).is_some_and(|assets| assets.exists()) {
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let encryption = codec
+            .encrypts_new_entries()
+            .then(|| codec.encryption_paths());
+        let (body, report) = ingest_and_cleanup_opts(
+            &path,
+            draft.body,
+            encryption,
+            assets.download_remote,
+            assets.replace_offline,
+        )?;
+        let body = body.as_deref().unwrap_or(draft.body);
+        let content = entry_content(
+            created_at,
+            edited_at,
+            body,
+            draft.metadata,
+            timezone,
+            draft.location,
+            draft.weather,
+            draft.celestial,
+            draft.air_quality,
+            draft.writing_seconds,
+            draft.import,
+        );
+        let bytes = match codec.encode_new(&content) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                remove_assets_dir(&path);
+                return Err(error);
+            }
+        };
+
+        match write_new_file(&path, &bytes) {
+            Ok(()) => {
+                return Ok(EntryCreateOutcome {
+                    path,
+                    assets: report,
+                });
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                remove_assets_dir(&path);
+                continue;
+            }
+            Err(error) => {
+                remove_assets_dir(&path);
+                return Err(error.into());
+            }
+        }
+    }
+
+    bail!("could not create a unique entry path after {ENTRY_CREATE_ATTEMPTS} attempts")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -97,7 +159,8 @@ fn entry_content(
     location: Option<&Location>,
     weather: Option<&Weather>,
     celestial: Option<&Celestial>,
-    editing_seconds: Option<u64>,
+    air_quality: Option<&AirQuality>,
+    writing_seconds: Option<u64>,
     import: Option<&ImportSource>,
 ) -> String {
     let front_matter = crate::markdown::FrontMatter {
@@ -106,15 +169,13 @@ fn entry_content(
             created_at: Some(created_at.to_rfc3339()),
             edited_at: Some(edited_at.to_rfc3339()),
             timezone: timezone.map(str::to_string),
-            writing_seconds: editing_seconds,
+            writing_seconds,
         },
         import: import.cloned(),
         location: location.cloned(),
         weather: weather.cloned(),
         celestial: celestial.cloned(),
-        // Fetched asynchronously after creation (see the TUI weather worker),
-        // never at build time.
-        air_quality: None,
+        air_quality: air_quality.cloned(),
     };
     let mut content = crate::markdown::render_entry(&front_matter, body);
     if !content.ends_with('\n') {
@@ -128,6 +189,7 @@ fn entry_content(
 /// For encrypted entries the ciphertext is computed once up front — it does not
 /// depend on the path — and the retry loop only re-attempts the atomic
 /// `create_new` write, so a rare id collision never re-encrypts.
+#[cfg(test)]
 pub(crate) fn create_entry_file(
     codec: &EntryCodec<'_>,
     root: &Path,
@@ -158,6 +220,12 @@ pub(crate) fn create_entry_file(
     }
 
     bail!("could not create a unique entry path after {ENTRY_CREATE_ATTEMPTS} attempts")
+}
+
+fn remove_assets_dir(path: &Path) {
+    if let Some(assets_dir) = entry_assets_dir(path) {
+        let _ = fs::remove_dir_all(assets_dir);
+    }
 }
 
 fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<()> {

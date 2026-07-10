@@ -28,6 +28,35 @@ use keyboard::{keep_selection_visible, move_focus_left, move_focus_right};
 pub(crate) use keyboard::handle_key;
 pub(crate) use mouse::{fold_leading_wheel, handle_mouse, handle_scroll, is_wheel};
 
+/// How long the "Fetching weather and air quality…" modal waits before giving up
+/// and saving without the data.
+const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Drive the [`Overlay::FetchingEnvironment`] modal: once the editor's background
+/// fetch lands (or the timeout fires) close it and re-run the deferred save.
+/// Returns whether it acted, so the event loop knows to repaint. No-op when the
+/// modal isn't open.
+pub(crate) fn poll_fetching_environment(app: &mut App) -> AppResult<bool> {
+    let Overlay::FetchingEnvironment(started) = app.overlay else {
+        return Ok(false);
+    };
+    let landed = app
+        .editor
+        .as_ref()
+        .is_none_or(|editor| editor.pending_environment.is_none());
+    let timed_out = started.elapsed() >= FETCH_TIMEOUT;
+    if !(landed || timed_out) {
+        return Ok(false);
+    }
+    // Timed out with nothing yet: give up waiting so the save proceeds bare.
+    if timed_out && let Some(editor) = app.editor.as_mut() {
+        editor.pending_environment = None;
+    }
+    app.close_overlay();
+    save_internal_editor(app)?;
+    Ok(true)
+}
+
 pub(crate) fn dispatch_action(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,

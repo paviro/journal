@@ -15,7 +15,7 @@ use std::path::Path;
 use anyhow::Context;
 use chrono::{DateTime, FixedOffset};
 use journal_core::{AppResult, Celestial, ImportSource, Location, Metadata, Weather};
-use journal_storage::{AssetFailure, ImportedEntryDraft, JournalStore};
+use journal_storage::{AssetFailure, EntryAssetOptions, EntryDraft, JournalStore};
 
 /// Map Day One's parsed location onto the store's [`Location`], keeping only the
 /// place hierarchy and coordinates (the geofence `region` and `timeZoneName` are
@@ -137,6 +137,13 @@ pub fn import_dayone(
     json_path: &Path,
     download_remote: bool,
 ) -> AppResult<ImportReport> {
+    // Asset ingestion only needs the recipients roster, but duplicate detection
+    // must decrypt existing entries' `[import]` provenance — a locked import
+    // would silently re-import everything.
+    if store.encrypts_new_files() && !store.is_unlocked() {
+        anyhow::bail!("the journal store is encrypted; unlock it before importing");
+    }
+
     let file =
         File::open(json_path).with_context(|| format!("could not read {}", json_path.display()))?;
     let export: DayOneExport =
@@ -232,26 +239,32 @@ pub fn import_dayone(
         // Day One records fractional seconds; whole seconds are plenty.
         let editing_seconds = entry.editing_time.map(|secs| secs as u64);
 
-        let path = store.create_imported_entry(ImportedEntryDraft {
-            journal,
-            body: &rewrite.body,
-            metadata: &metadata,
-            created_at,
-            edited_at,
-            timezone: tz,
-            location: location.as_ref(),
-            weather: weather.as_ref(),
-            celestial: celestial.as_ref(),
-            editing_seconds,
-            import: &import,
-        })?;
         // Replace un-fetchable images with a placeholder only when we actually
         // tried to download — otherwise remote links are kept so they can be
         // fetched by a later `--download-images` run.
-        let assets = store.process_entry_assets(&path, download_remote, download_remote)?;
+        let created = store.create_entry(
+            EntryDraft {
+                journal,
+                body: &rewrite.body,
+                metadata: &metadata,
+                created_at: Some(created_at),
+                edited_at: Some(edited_at),
+                timezone: tz,
+                location: location.as_ref(),
+                weather: weather.as_ref(),
+                celestial: celestial.as_ref(),
+                air_quality: None,
+                writing_seconds: editing_seconds,
+                import: Some(&import),
+            },
+            EntryAssetOptions {
+                download_remote,
+                replace_offline: download_remote,
+            },
+        )?;
 
-        report.images_stored += assets.stored;
-        for failure in assets.failed {
+        report.images_stored += created.assets.stored;
+        for failure in created.assets.failed {
             match failure {
                 // A remote link we chose not to (or couldn't) fetch — download
                 // off, or the host is gone — is left in the body as a link, not

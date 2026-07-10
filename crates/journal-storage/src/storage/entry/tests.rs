@@ -5,6 +5,7 @@ use super::*;
 use chrono::{DateTime, FixedOffset, Local, LocalResult, TimeZone};
 use journal_encryption::{self as crypto, KeyPaths};
 use std::fs;
+use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 
 fn local_time(y: i32, m: u32, d: u32, h: u32, min: u32) -> DateTime<FixedOffset> {
@@ -14,6 +15,23 @@ fn local_time(y: i32, m: u32, d: u32, h: u32, min: u32) -> DateTime<FixedOffset>
         LocalResult::None => panic!("invalid local test time"),
     };
     local.fixed_offset()
+}
+
+fn create_test_entry(
+    codec: &EntryCodec<'_>,
+    root: &Path,
+    journal: &str,
+    body: &str,
+    metadata: &Metadata,
+) -> PathBuf {
+    create_entry(
+        codec,
+        root,
+        EntryDraft::new(journal, body, metadata),
+        EntryAssetOptions::default(),
+    )
+    .unwrap()
+    .path
 }
 
 #[test]
@@ -62,17 +80,16 @@ fn create_entry_file_retries_without_overwriting_existing_path() {
 }
 
 #[test]
-fn create_entry_with_body_writes_body_after_front_matter() {
+fn create_entry_writes_body_after_front_matter() {
     let dir = tempdir().unwrap();
 
-    let created = create_entry(
+    let created = create_test_entry(
         &EntryCodec::plain(),
         dir.path(),
         "work",
         "Some text",
         &Metadata::default(),
-    )
-    .unwrap();
+    );
     let text = fs::read_to_string(created).unwrap();
     let (front_matter, body) = crate::markdown::split_front_matter(&text);
     let fields = crate::markdown::front_matter_fields(front_matter.unwrap());
@@ -89,17 +106,16 @@ fn create_entry_with_body_writes_body_after_front_matter() {
 }
 
 #[test]
-fn create_entry_with_body_preserves_multiline_body_and_trailing_newline() {
+fn create_entry_preserves_multiline_body_and_trailing_newline() {
     let dir = tempdir().unwrap();
 
-    let created = create_entry(
+    let created = create_test_entry(
         &EntryCodec::plain(),
         dir.path(),
         "work",
         "Line one\n\nLine three\n",
         &Metadata::default(),
-    )
-    .unwrap();
+    );
     let text = fs::read_to_string(created).unwrap();
 
     assert!(text.ends_with("\n\nLine three\n"));
@@ -107,32 +123,110 @@ fn create_entry_with_body_preserves_multiline_body_and_trailing_newline() {
 }
 
 #[test]
-fn set_entry_body_reports_changed_unchanged_and_deleted() {
+fn save_entry_edit_reports_changed_unchanged_and_deleted() {
     let dir = tempdir().unwrap();
     let codec = EntryCodec::plain();
-    let path = create_entry(
+    let path = create_test_entry(
         &codec,
         dir.path(),
         "work",
         "original body\n",
         &Metadata::default(),
-    )
-    .unwrap();
+    );
+    let metadata = Metadata::default();
 
     // Saving the same body is not a change and does not rewrite timestamps.
     let before = fs::read_to_string(&path).unwrap();
-    let outcome = set_entry_body(&codec, &path, true, "original body\n").unwrap();
-    assert_eq!(outcome, EditOutcome::Unchanged);
+    let saved = save_entry_edit(
+        &codec,
+        &path,
+        EntryEdit {
+            body: "original body\n",
+            metadata: &metadata,
+            original_metadata: &metadata,
+            writing_seconds: None,
+            remove_if_empty: true,
+            extra_fields: &[],
+        },
+        EntryAssetOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(saved.outcome, EditOutcome::Unchanged);
     assert_eq!(fs::read_to_string(&path).unwrap(), before);
 
     // A different body is a change.
-    let outcome = set_entry_body(&codec, &path, true, "new body\n").unwrap();
-    assert_eq!(outcome, EditOutcome::Changed);
+    let saved = save_entry_edit(
+        &codec,
+        &path,
+        EntryEdit {
+            body: "new body\n",
+            metadata: &metadata,
+            original_metadata: &metadata,
+            writing_seconds: Some(30),
+            remove_if_empty: true,
+            extra_fields: &[],
+        },
+        EntryAssetOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(saved.outcome, EditOutcome::Changed);
+    let text = fs::read_to_string(&path).unwrap();
+    let front_matter = crate::markdown::split_front_matter(&text).0.unwrap();
+    assert_eq!(
+        crate::markdown::front_matter_fields(front_matter)
+            .datetime
+            .writing_seconds,
+        Some(30)
+    );
 
     // Emptying it deletes the entry.
-    let outcome = set_entry_body(&codec, &path, true, "   ").unwrap();
-    assert_eq!(outcome, EditOutcome::Deleted);
+    let saved = save_entry_edit(
+        &codec,
+        &path,
+        EntryEdit {
+            body: "   ",
+            metadata: &metadata,
+            original_metadata: &metadata,
+            writing_seconds: None,
+            remove_if_empty: true,
+            extra_fields: &[],
+        },
+        EntryAssetOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(saved.outcome, EditOutcome::Deleted);
     assert!(!path.exists());
+}
+
+#[test]
+fn save_entry_edit_preserves_unparseable_front_matter() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("2026-07-06T10-00-00.md");
+    let original = "+++\ntags = [unterminated\n+++\n\nold body\n";
+    fs::write(&path, original).unwrap();
+    let metadata = Metadata::default();
+
+    save_entry_edit(
+        &EntryCodec::plain(),
+        &path,
+        EntryEdit {
+            body: "new body\n",
+            metadata: &metadata,
+            original_metadata: &metadata,
+            writing_seconds: None,
+            remove_if_empty: true,
+            extra_fields: &[],
+        },
+        EntryAssetOptions::default(),
+    )
+    .unwrap();
+
+    let written = fs::read_to_string(&path).unwrap();
+    assert!(
+        written.contains("tags = [unterminated"),
+        "metadata preserved"
+    );
+    assert!(written.contains("new body"), "body updated");
 }
 
 #[test]
@@ -197,14 +291,14 @@ fn entry_feelings_read_known_values_only() {
 }
 
 #[test]
-fn create_entry_with_body_and_metadata_writes_metadata() {
+fn create_entry_writes_metadata() {
     let dir = tempdir().unwrap();
     let tags = vec!["rust".to_string()];
     let people = vec!["alex".to_string()];
     let activities = vec!["programming".to_string(), "cycling".to_string()];
     let feelings = vec!["calm".to_string(), "focused".to_string()];
 
-    let created = create_entry(
+    let created = create_test_entry(
         &EntryCodec::plain(),
         dir.path(),
         "work",
@@ -218,8 +312,7 @@ fn create_entry_with_body_and_metadata_writes_metadata() {
             starred: false,
             location: None,
         },
-    )
-    .unwrap();
+    );
     let text = fs::read_to_string(created).unwrap();
     let (front_matter, _) = crate::markdown::split_front_matter(&text);
 
@@ -241,9 +334,9 @@ fn create_entry_with_body_and_metadata_writes_metadata() {
 }
 
 #[test]
-fn create_entry_with_body_writes_metadata_location() {
+fn create_entry_writes_metadata_location() {
     let dir = tempdir().unwrap();
-    let created = create_entry(
+    let created = create_test_entry(
         &EntryCodec::plain(),
         dir.path(),
         "work",
@@ -257,8 +350,7 @@ fn create_entry_with_body_writes_metadata_location() {
             }),
             ..Metadata::default()
         },
-    )
-    .unwrap();
+    );
 
     let text = fs::read_to_string(created).unwrap();
     let (front_matter, _) = crate::markdown::split_front_matter(&text);
@@ -371,14 +463,13 @@ fn scan_entries_marks_encrypted_entry_unlocked_with_identity() {
     let paths = KeyPaths::for_config(&config, &root).unwrap();
     crypto::initialize_store_identity(&paths, "laptop", Some(&crate::SecretString::from("secret")))
         .unwrap();
-    let encrypted = create_entry(
+    let encrypted = create_test_entry(
         &EntryCodec::new(paths.clone(), None),
         &root,
         "work",
         "# Secret\nBody",
         &Metadata::default(),
-    )
-    .unwrap();
+    );
     let identity =
         crypto::unlock_identity(&paths, Some(&crate::SecretString::from("secret"))).unwrap();
 
@@ -402,14 +493,13 @@ fn scan_entries_marks_corrupt_encrypted_entry_unreadable_with_identity() {
     let paths = KeyPaths::for_config(&config, &root).unwrap();
     crypto::initialize_store_identity(&paths, "laptop", Some(&crate::SecretString::from("secret")))
         .unwrap();
-    let encrypted = create_entry(
+    let encrypted = create_test_entry(
         &EntryCodec::new(paths.clone(), None),
         &root,
         "work",
         "# Secret\nBody",
         &Metadata::default(),
-    )
-    .unwrap();
+    );
     fs::write(&encrypted, "not an age file").unwrap();
     let identity =
         crypto::unlock_identity(&paths, Some(&crate::SecretString::from("secret"))).unwrap();

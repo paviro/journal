@@ -1,7 +1,8 @@
 use super::codec::EntryCodec;
+use super::create::EntryAssetOptions;
 use super::paths::entry_assets_dir;
 use anyhow::{Context, bail};
-use journal_core::AppResult;
+use journal_core::{AppResult, Metadata, MetadataField};
 use journal_encryption::{self as crypto, KeyPaths};
 use std::{
     fs,
@@ -55,6 +56,21 @@ pub enum EditOutcome {
     Deleted,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct EntryEditOutcome {
+    pub outcome: EditOutcome,
+    pub assets: super::assets::AssetReport,
+}
+
+pub struct EntryEdit<'a> {
+    pub body: &'a str,
+    pub metadata: &'a Metadata,
+    pub original_metadata: &'a Metadata,
+    pub writing_seconds: Option<u64>,
+    pub remove_if_empty: bool,
+    pub extra_fields: &'a [MetadataField],
+}
+
 impl EditOutcome {
     /// Whether the entry still exists after the session.
     pub fn kept(self) -> bool {
@@ -62,31 +78,121 @@ impl EditOutcome {
     }
 }
 
-/// Replace an entry's body with `new_body`, preserving its front matter.
-///
-/// An empty `new_body` deletes the entry when `remove_if_empty` is set; a body
-/// equal to the current one is a no-op. The outcome lets callers record editing
-/// time only on a real change.
-pub fn set_entry_body(
+/// Save an edited entry from the plaintext body and metadata already in memory.
+/// The entry is opened once to preserve front matter, then assets, metadata,
+/// writing time, and extra save-time fields are applied before a single final
+/// write.
+pub fn save_entry_edit(
     codec: &EntryCodec<'_>,
     path: &Path,
-    remove_if_empty: bool,
-    new_body: &str,
-) -> AppResult<EditOutcome> {
+    edit: EntryEdit<'_>,
+    assets: EntryAssetOptions,
+) -> AppResult<EntryEditOutcome> {
     let entry = codec.open(path)?;
 
-    if remove_if_empty && new_body.trim().is_empty() {
+    if edit.remove_if_empty && edit.body.trim().is_empty() {
         fs::remove_file(path)?;
         remove_entry_assets(path);
-        return Ok(EditOutcome::Deleted);
+        return Ok(EntryEditOutcome {
+            outcome: EditOutcome::Deleted,
+            assets: super::assets::AssetReport::default(),
+        });
     }
 
-    let new_body = new_body.trim_start_matches('\n');
-    if new_body == entry.body {
-        return Ok(EditOutcome::Unchanged);
+    let body = edit.body.trim_start_matches('\n');
+    let body_changed = body != entry.body;
+    let metadata_fields = changed_metadata_fields(edit.original_metadata, edit.metadata);
+    let has_metadata_changes = !metadata_fields.is_empty() || !edit.extra_fields.is_empty();
+
+    if !body_changed && !has_metadata_changes {
+        return Ok(EntryEditOutcome {
+            outcome: EditOutcome::Unchanged,
+            assets: super::assets::AssetReport::default(),
+        });
     }
-    codec.write_body(path, entry.front_matter.as_deref(), new_body)?;
-    Ok(EditOutcome::Changed)
+
+    let encryption = super::paths::is_encrypted_entry_file(path).then(|| codec.encryption_paths());
+    let (rewritten_body, report) = super::assets::ingest_and_cleanup_opts(
+        path,
+        body,
+        encryption,
+        assets.download_remote,
+        assets.replace_offline,
+    )?;
+    let final_body = rewritten_body.as_deref().unwrap_or(body);
+    let content = render_edited_content(
+        entry.front_matter.as_deref(),
+        final_body,
+        &metadata_fields,
+        edit.extra_fields,
+        edit.writing_seconds,
+    );
+    codec.write_existing(path, &content)?;
+
+    Ok(EntryEditOutcome {
+        outcome: EditOutcome::Changed,
+        assets: report,
+    })
+}
+
+fn changed_metadata_fields(original: &Metadata, current: &Metadata) -> Vec<MetadataField> {
+    let mut fields = Vec::new();
+    if current.tags != original.tags {
+        fields.push(MetadataField::Tags(current.tags.clone()));
+    }
+    if current.people != original.people {
+        fields.push(MetadataField::People(current.people.clone()));
+    }
+    if current.activities != original.activities {
+        fields.push(MetadataField::Activities(current.activities.clone()));
+    }
+    if current.feelings != original.feelings {
+        fields.push(MetadataField::Feelings(current.feelings.clone()));
+    }
+    if current.mood != original.mood {
+        fields.push(MetadataField::Mood(current.mood));
+    }
+    if current.location != original.location {
+        fields.push(MetadataField::Location(
+            current.location.clone().map(Box::new),
+        ));
+    }
+    fields
+}
+
+fn render_edited_content(
+    front_matter: Option<&str>,
+    body: &str,
+    metadata_fields: &[MetadataField],
+    extra_fields: &[MetadataField],
+    writing_seconds: Option<u64>,
+) -> String {
+    let Some(front_matter) = front_matter else {
+        return body.to_string();
+    };
+    let Some(mut parsed) = crate::markdown::parse_front_matter(front_matter) else {
+        return format!(
+            "+++\n{front_matter}\n+++\n\n{}",
+            body.trim_start_matches('\n')
+        );
+    };
+
+    for field in metadata_fields.iter().chain(extra_fields) {
+        crate::markdown::apply_metadata_field(&mut parsed, field);
+    }
+    if let Some(secs) = writing_seconds
+        && secs > 0
+    {
+        parsed.datetime.writing_seconds = Some(
+            parsed
+                .datetime
+                .writing_seconds
+                .unwrap_or(0)
+                .saturating_add(secs),
+        );
+    }
+    parsed.datetime.edited_at = Some(chrono::Local::now().to_rfc3339());
+    crate::markdown::render_entry(&parsed, body)
 }
 
 pub fn delete_empty_entry(path: &Path) -> AppResult<()> {

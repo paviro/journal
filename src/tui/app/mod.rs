@@ -9,7 +9,7 @@ use journal_core::{
 use journal_storage::{Journal, JournalStore, entry_timestamp_label, is_entry_file};
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, HashSet, VecDeque},
     ops::Range,
     path::{Path, PathBuf},
     rc::Rc,
@@ -390,9 +390,23 @@ pub(crate) struct App {
     pub(crate) image: ImageState,
     /// Background geocoding for the location dialog; spawned on first lookup.
     pub(crate) geocode: crate::tui::geocode::GeocodeWorker,
-    /// Background environment lookups (weather + air quality), fired when an
-    /// entry's location is set/changed; spawned on first request.
+    /// Background weather/air-quality/celestial fetching; spawned on first use.
+    /// Serves the editor prefetch, direct location-sets, and the paced backfill.
     pub(crate) environment: crate::tui::environment::EnvironmentWorker,
+    /// Entries with a location but no captured environment, awaiting a backfill fetch.
+    /// Paced out one at a time (see [`Self::dispatch_environment_backfill`]) so the
+    /// interactive fetch never queues behind a batch and Open-Meteo isn't spammed.
+    pub(crate) backfill_queue: VecDeque<PathBuf>,
+    /// Paths ever queued for backfill this session, so a re-scan can't re-enqueue
+    /// one still in flight (its environment lands and clears the predicate later).
+    pub(crate) backfill_enqueued: HashSet<PathBuf>,
+    /// The id of the backfill request currently in flight, if any.
+    pub(crate) backfill_inflight: Option<u64>,
+    /// When the last backfill request was dispatched, for throttling.
+    pub(crate) backfill_last_dispatch: Option<Instant>,
+    /// Id counter for environment requests not tied to the editor (backfill,
+    /// direct location-set write-backs).
+    pub(crate) next_environment_id: u64,
     /// Clickable `[Image N …]` label positions from the last entry-view render.
     pub(crate) entry_view_image_hits: EntryViewImageHits,
     /// The insights list scrollbar geometry from the last render, so a mouse drag
@@ -474,6 +488,11 @@ impl App {
             image: ImageState::default(),
             geocode: crate::tui::geocode::GeocodeWorker::default(),
             environment: crate::tui::environment::EnvironmentWorker::default(),
+            backfill_queue: VecDeque::new(),
+            backfill_enqueued: HashSet::new(),
+            backfill_inflight: None,
+            backfill_last_dispatch: None,
+            next_environment_id: 0,
             entry_view_image_hits: EntryViewImageHits::default(),
             insights_scroll: InsightsScrollGeometry::default(),
             scrollbar: ScrollbarDragState::default(),
@@ -543,6 +562,8 @@ impl App {
     /// the incremental [`Self::refresh_paths`] path.
     fn after_entries_changed(&mut self) {
         self.library.rebuild_indexes();
+        // Queue any newly-seen located entry that still lacks captured environment.
+        self.enqueue_environment_backfill();
         // Entries (and possibly hits) changed: invalidate every version-keyed
         // cache — the body/analytics caches (entries_version) and the row cache
         // (rows_version).

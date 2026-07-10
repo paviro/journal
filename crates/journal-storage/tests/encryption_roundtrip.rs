@@ -14,6 +14,16 @@ fn pw(passphrase: &str) -> SecretString {
     SecretString::from(passphrase)
 }
 
+fn create_entry(store: &JournalStore, journal: &str, body: &str) -> std::path::PathBuf {
+    store
+        .create_entry(
+            journal_storage::EntryDraft::new(journal, body, &Metadata::default()),
+            journal_storage::EntryAssetOptions::default(),
+        )
+        .unwrap()
+        .path
+}
+
 #[test]
 fn decrypt_store_restores_plaintext_and_disables_encryption() {
     let dir = tempfile::tempdir().unwrap();
@@ -27,9 +37,7 @@ fn decrypt_store_restores_plaintext_and_disables_encryption() {
     assert!(store.encryption_enabled());
 
     store.create_journal("diary").unwrap();
-    let path = store
-        .create_entry_with_body("diary", "# Secret\nhidden body", &Metadata::default())
-        .unwrap();
+    let path = create_entry(&store, "diary", "# Secret\nhidden body");
     assert_eq!(path.extension().and_then(|e| e.to_str()), Some("age"));
 
     let summary = store.decrypt_store(|_, _| {}).unwrap();
@@ -77,9 +85,7 @@ fn enable_encryption_rolls_back_root_and_local_key_state_on_failure() {
     let store = store_at(dir.path());
     store.ensure().unwrap();
     store.create_journal("diary").unwrap();
-    let path = store
-        .create_entry_with_body("diary", "body before enable", &Metadata::default())
-        .unwrap();
+    let path = create_entry(&store, "diary", "body before enable");
     let stem = journal_storage::entry_id(&path).unwrap();
     let assets = path.parent().unwrap().join(format!("{stem}.assets"));
     std::fs::create_dir_all(&assets).unwrap();
@@ -132,12 +138,8 @@ fn add_recipient_rolls_back_when_reencrypt_fails() {
         .unwrap();
     laptop.unlock(Some(&pw("pw"))).unwrap();
     laptop.create_journal("diary").unwrap();
-    let good = laptop
-        .create_entry_with_body("diary", "keep me", &Metadata::default())
-        .unwrap();
-    let bad = laptop
-        .create_entry_with_body("diary", "corrupt me", &Metadata::default())
-        .unwrap();
+    let good = create_entry(&laptop, "diary", "keep me");
+    let bad = create_entry(&laptop, "diary", "corrupt me");
 
     // A second device's recipient to add.
     let phone = JournalStore::new(dir.path().join("journals"), dir.path().join("phone"));
@@ -178,9 +180,7 @@ fn disable_clears_age_artifacts() {
         .unwrap();
     laptop.unlock(Some(&pw("pw"))).unwrap();
     laptop.create_journal("diary").unwrap();
-    laptop
-        .create_entry_with_body("diary", "body", &Metadata::default())
-        .unwrap();
+    create_entry(&laptop, "diary", "body");
 
     // A pending join request left sitting in the synced key folder.
     let phone = JournalStore::new(dir.path().join("journals"), dir.path().join("phone"));
@@ -226,9 +226,7 @@ fn other_device_picks_up_a_remote_disable_and_retires_its_key() {
     laptop.initialize_encryption("laptop", None).unwrap();
     laptop.unlock(None).unwrap();
     laptop.create_journal("diary").unwrap();
-    laptop
-        .create_entry_with_body("diary", "shared body", &Metadata::default())
-        .unwrap();
+    create_entry(&laptop, "diary", "shared body");
 
     // Phone joins, is approved, then unlocks so it pins the roster locally.
     let mut phone = JournalStore::new(&journals, dir.path().join("phone"));
@@ -294,9 +292,7 @@ fn revoked_device_retires_its_identity_but_keeps_trust_pins() {
     laptop.initialize_encryption("laptop", None).unwrap();
     laptop.unlock(None).unwrap();
     laptop.create_journal("diary").unwrap();
-    laptop
-        .create_entry_with_body("diary", "shared body", &Metadata::default())
-        .unwrap();
+    create_entry(&laptop, "diary", "shared body");
 
     let mut phone = JournalStore::new(&journals, dir.path().join("phone"));
     phone.ensure().unwrap();
@@ -361,9 +357,7 @@ fn remote_disable_reconcile_holds_off_while_entries_are_still_encrypted() {
     laptop.initialize_encryption("laptop", None).unwrap();
     laptop.unlock(None).unwrap();
     laptop.create_journal("diary").unwrap();
-    laptop
-        .create_entry_with_body("diary", "still secret", &Metadata::default())
-        .unwrap();
+    create_entry(&laptop, "diary", "still secret");
 
     // Remove only the roster, leaving the encrypted entry in place.
     std::fs::remove_file(journals.join(".age").join("devices.toml")).unwrap();
@@ -419,9 +413,7 @@ fn approve_pending_is_idempotent_for_an_already_approved_key() {
         .unwrap();
     laptop.unlock(Some(&pw("pw"))).unwrap();
     laptop.create_journal("diary").unwrap();
-    laptop
-        .create_entry_with_body("diary", "history", &Metadata::default())
-        .unwrap();
+    create_entry(&laptop, "diary", "history");
 
     let phone = JournalStore::new(dir.path().join("journals"), dir.path().join("phone"));
     phone.ensure().unwrap();
@@ -455,9 +447,7 @@ fn non_recipient_device_reads_locked_placeholders_and_knows_it_is_pending() {
         .unwrap();
     laptop.unlock(Some(&pw("pw"))).unwrap();
     laptop.create_journal("diary").unwrap();
-    laptop
-        .create_entry_with_body("diary", "secret", &Metadata::default())
-        .unwrap();
+    create_entry(&laptop, "diary", "secret");
 
     // A phone that enrolled but hasn't been approved: it has its own identity but
     // isn't a recipient.
@@ -489,9 +479,7 @@ fn rotate_identity_replaces_the_key_and_keeps_reading() {
         .unwrap();
     store.unlock(Some(&pw("pw"))).unwrap();
     store.create_journal("diary").unwrap();
-    let path = store
-        .create_entry_with_body("diary", "before rotation", &Metadata::default())
-        .unwrap();
+    let path = create_entry(&store, "diary", "before rotation");
     let old_key = store.public_recipient().unwrap();
 
     // Two passes re-encrypt the single entry, so at least two files migrate.
@@ -535,9 +523,7 @@ fn write_store_file_reencrypts_entries_and_assets() {
         .unwrap();
     store.unlock(Some(&pw("pw"))).unwrap();
     store.create_journal("diary").unwrap();
-    let path = store
-        .create_entry_with_body("diary", "original body", &Metadata::default())
-        .unwrap();
+    let path = create_entry(&store, "diary", "original body");
     assert_eq!(path.extension().and_then(|e| e.to_str()), Some("age"));
     assert!(store.encrypts_new_files());
 
@@ -668,4 +654,42 @@ fn rolled_back_roster_is_rejected() {
     std::fs::write(&path, genesis_only).unwrap();
     let error = laptop.recipients().unwrap_err().to_string();
     assert!(error.contains("roster failed verification"), "{error}");
+}
+
+/// Creating an entry with assets never needs the unlocked identity: the body is
+/// ingested from memory (no read-back), and both the asset files and the
+/// rewritten entry are encrypted with the recipients roster alone.
+#[test]
+fn create_entry_ingests_assets_on_a_locked_encrypted_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut setup = store_at(dir.path());
+    setup.ensure().unwrap();
+    setup.initialize_encryption("laptop", None).unwrap();
+
+    let image = dir.path().join("pic.jpeg");
+    std::fs::write(&image, b"fake jpeg bytes").unwrap();
+
+    // A fresh store that is never unlocked.
+    let locked = store_at(dir.path());
+    assert!(!locked.is_unlocked());
+    let body = format!("Look:\n\n![pic]({})", image.display());
+    let metadata = Metadata::default();
+    let mut draft = journal_storage::EntryDraft::new("diary", &body, &metadata);
+    draft.writing_seconds = Some(12);
+    let created = locked
+        .create_entry(draft, journal_storage::EntryAssetOptions::default())
+        .unwrap();
+
+    assert_eq!(created.assets.stored, 1);
+    assert!(created.assets.failed.is_empty());
+    assert!(created.path.to_string_lossy().ends_with(".md.age"));
+
+    // The rewritten body references the entry's own asset folder, not the source.
+    setup.unlock(None).unwrap();
+    let entries = setup.scan_entries().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].body.contains(".assets/"), "{}", entries[0].body);
+    assert!(!entries[0].body.contains("pic.jpeg"));
+    let content = setup.read_entry_content(&entries[0].path).unwrap();
+    assert!(content.contains("writing_seconds = 12"), "{content}");
 }

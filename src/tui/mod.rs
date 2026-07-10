@@ -409,10 +409,12 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         let images_ready = app.image.runtime.poll_results();
         // A finished geocode lookup updates the open location dialog; repaint too.
         let geocode_ready = app.apply_geocode_results();
-        // Finished environment lookups are persisted to disk (not shown), so the
-        // file watcher — not a repaint — reflects them.
-        app.apply_environment_results();
-
+        // Route any finished weather/air fetches: attach to the editor draft or
+        // write back to the entry file. Then pace out the next backfill job.
+        let context_ready = app.apply_environment_results();
+        app.dispatch_environment_backfill();
+        // Close the "Fetching…" modal and finish the deferred save once ready.
+        let context_saved = events::poll_fetching_environment(&mut app)?;
         let mut poll_timeout = app
             .status_timeout()
             .map(|t| t.min(Duration::from_millis(200)))
@@ -421,13 +423,15 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         if app.image.runtime.has_pending() {
             poll_timeout = poll_timeout.min(Duration::from_millis(30));
         }
-        // Likewise while a geocode lookup is in flight (so its result lands
-        // quickly) or an environment lookup is (so it's persisted promptly).
-        let geocode_pending = app
-            .edit_location_state()
-            .is_some_and(|state| state.pending_request_id.is_some());
-        if geocode_pending || app.environment.has_pending() {
+        // Likewise while a geocode lookup is in flight so its result lands
+        // quickly.
+        if app.geocode.has_pending() {
             poll_timeout = poll_timeout.min(Duration::from_millis(50));
+        }
+        // And while an environment fetch runs or backfill is pending, so the modal's
+        // dots animate, results land, and backfill paces out on schedule.
+        if app.environment.has_pending() || app.environment_backfill_active() {
+            poll_timeout = poll_timeout.min(Duration::from_millis(100));
         }
         // Wake to run a debounced search recompute once typing pauses.
         if app.search.dirty {
@@ -537,15 +541,19 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         let overlay_closed = overlay_was_visible && !overlay_visible;
         overlay_was_visible = overlay_visible;
 
-        // Repaint each tick while the viewer's image builds so the loading
-        // ellipsis keeps animating.
-        let animate_loading = app.image_viewer_state().is_some() && app.image.runtime.has_pending();
+        // Repaint each tick while the viewer's image builds, or the "Fetching…"
+        // modal is up, so their loading ellipsis keeps animating.
+        let animate_loading = (app.image_viewer_state().is_some()
+            && app.image.runtime.has_pending())
+            || matches!(app.overlay, state::Overlay::FetchingEnvironment(_));
 
         if redraw
             || refreshed
             || search_recomputed
             || images_ready
             || geocode_ready
+            || context_ready
+            || context_saved
             || animate_loading
         {
             if overlay_closed && app.image.runtime.uses_graphics() {

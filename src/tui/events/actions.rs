@@ -1,11 +1,13 @@
 use crate::AppResult;
-use journal_core::{Location, Metadata, MetadataField};
+use journal_core::{Location, MetadataField};
 use journal_storage::EditOutcome;
 use std::path::{Path, PathBuf};
 
 use crate::tui::app::{App, EntryTarget, Focus};
 use crate::tui::editor_state::EditorTarget;
-use crate::tui::state::MetadataKind;
+use crate::tui::environment::environment_fields;
+use crate::tui::state::{MetadataKind, Overlay};
+use std::time::Instant;
 
 pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
     let value = app
@@ -53,6 +55,13 @@ fn save_status(base: &str, report: &journal_storage::AssetReport) -> String {
     parts.join(" — ")
 }
 
+fn asset_options(app: &App) -> journal_storage::EntryAssetOptions {
+    journal_storage::EntryAssetOptions {
+        download_remote: app.config.attachments.download_remote_images,
+        replace_offline: false,
+    }
+}
+
 /// Reports a friendly status and returns `false` when the target is a locked
 /// encrypted entry that cannot be read or written without the identity.
 fn reject_if_locked(app: &mut App, target: &EntryTarget) -> bool {
@@ -71,72 +80,53 @@ fn finish_existing_edit(
     path: &Path,
     title: &str,
     outcome: EditOutcome,
+    report: &journal_storage::AssetReport,
 ) -> AppResult<()> {
     match outcome {
         EditOutcome::Unchanged => {
             app.set_status("No changes");
             return Ok(());
         }
-        EditOutcome::Changed => {
-            let report = app.store.process_entry_assets(
-                path,
-                app.config.attachments.download_remote_images,
-                false,
-            )?;
-            app.set_status(save_status(&format!("Edited {title}"), &report));
-        }
+        EditOutcome::Changed => app.set_status(save_status(&format!("Edited {title}"), report)),
         EditOutcome::Deleted => app.set_status("Empty entry deleted"),
     }
     refresh_entry_path(app, path)?;
-
-    // After a real edit, back-fill weather for an entry that has coordinates but
-    // no weather yet — never clobbering weather already captured (e.g. imported).
-    if outcome == EditOutcome::Changed {
-        let entry_info = app.resolved_selected_entry().and_then(|entry| {
-            (entry.path == *path).then(|| (entry.location.clone(), entry.created_time()))
-        });
-        if let Some((Some(location), Some(datetime))) = entry_info
-            && location.latitude.is_some()
-            && location.longitude.is_some()
-            && !app.store.entry_has_weather(path).unwrap_or(true)
-        {
-            app.capture_environment_for_entry(path, &location, datetime);
-        }
-    }
     Ok(())
 }
 
-/// Write only the metadata fields the editor changed to an existing entry, so an
-/// unchanged field never rewrites the file (or bumps timestamps unnecessarily).
-fn apply_metadata_changes(
-    app: &mut App,
-    path: &Path,
-    original: &Metadata,
-    current: &Metadata,
-) -> AppResult<()> {
-    let mut fields = Vec::new();
-    if current.tags != original.tags {
-        fields.push(MetadataField::Tags(current.tags.clone()));
+fn clear_environment_fields() -> Vec<MetadataField> {
+    vec![
+        MetadataField::Weather(None),
+        MetadataField::Celestial(None),
+        MetadataField::AirQuality(None),
+    ]
+}
+
+/// The metadata fields for the editor's landed background environment, or empty when
+/// none arrived (a coordless location, or the fetch returned nothing).
+fn editor_environment_fields(app: &App) -> Vec<MetadataField> {
+    app.editor
+        .as_ref()
+        .and_then(|editor| editor.environment.as_ref())
+        .map(environment_fields)
+        .unwrap_or_default()
+}
+
+/// If the editor is still waiting on its background environment fetch, open the
+/// "Fetching…" modal and tell the caller to abort this save. The event loop
+/// re-runs the save once the fetch lands or the timeout fires (see
+/// [`super::poll_fetching_environment`]).
+fn defer_for_pending_environment(app: &mut App) -> bool {
+    if app
+        .editor
+        .as_ref()
+        .is_some_and(|editor| editor.pending_environment.is_some())
+    {
+        app.overlay = Overlay::FetchingEnvironment(Instant::now());
+        true
+    } else {
+        false
     }
-    if current.people != original.people {
-        fields.push(MetadataField::People(current.people.clone()));
-    }
-    if current.activities != original.activities {
-        fields.push(MetadataField::Activities(current.activities.clone()));
-    }
-    if current.feelings != original.feelings {
-        fields.push(MetadataField::Feelings(current.feelings.clone()));
-    }
-    if current.mood != original.mood {
-        fields.push(MetadataField::Mood(current.mood));
-    }
-    if current.location != original.location {
-        fields.push(MetadataField::Location(
-            current.location.clone().map(Box::new),
-        ));
-    }
-    app.store.set_entry_metadata_fields(path, &fields)?;
-    Ok(())
 }
 
 /// Save the open internal-editor buffer. The editor stays open until every
@@ -154,26 +144,36 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
 
     match target {
         EditorTarget::Existing { path, title } => {
-            let outcome = if text.trim().is_empty() || text != original_body {
-                app.store.set_entry_body(&path, true, &text)?
+            let location_changed = metadata.location != original_metadata.location;
+            // Only a changed location attaches fresh environment; when it's just
+            // removed we clear the stale fields, and an unchanged location leaves
+            // whatever's there (parse-time backfill fills a missing one).
+            let extra_fields = if text.trim().is_empty() || !location_changed {
+                Vec::new()
+            } else if metadata.location.is_none() {
+                clear_environment_fields()
             } else {
-                EditOutcome::Unchanged
+                // Wait for the background fetch spawned when the location changed.
+                if defer_for_pending_environment(app) {
+                    return Ok(());
+                }
+                editor_environment_fields(app)
             };
-            let metadata_changed = metadata != original_metadata;
-            if outcome == EditOutcome::Changed {
-                app.store.add_writing_seconds(&path, elapsed.as_secs())?;
-            }
-            if outcome.kept() {
-                apply_metadata_changes(app, &path, &original_metadata, &metadata)?;
-            }
-            let status_outcome = if metadata_changed && outcome == EditOutcome::Unchanged {
-                EditOutcome::Changed
-            } else {
-                outcome
-            };
-            finish_existing_edit(app, &path, &title, status_outcome)?;
+            let saved = app.store.save_entry_edit(
+                &path,
+                journal_storage::EntryEdit {
+                    body: &text,
+                    metadata: &metadata,
+                    original_metadata: &original_metadata,
+                    writing_seconds: (text != original_body).then_some(elapsed.as_secs()),
+                    remove_if_empty: true,
+                    extra_fields: &extra_fields,
+                },
+                asset_options(app),
+            )?;
+            finish_existing_edit(app, &path, &title, saved.outcome, &saved.assets)?;
             app.editor = None;
-            if outcome == EditOutcome::Deleted {
+            if saved.outcome == EditOutcome::Deleted {
                 app.nav.focus = Focus::Entries;
                 app.nav.scroll.reset_entry_view();
             } else {
@@ -184,20 +184,26 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
             let created = if text.trim().is_empty() {
                 None
             } else {
-                Some(
-                    app.store
-                        .create_entry_with_body(&journal, &text, &metadata)?,
-                )
+                // Wait for the background fetch spawned when the location was set.
+                if defer_for_pending_environment(app) {
+                    return Ok(());
+                }
+                let environment = app
+                    .editor
+                    .as_ref()
+                    .and_then(|editor| editor.environment.clone())
+                    .unwrap_or_default();
+                let mut draft = journal_storage::EntryDraft::new(&journal, &text, &metadata);
+                draft.weather = environment.weather.as_ref();
+                draft.celestial = environment.celestial.as_ref();
+                draft.air_quality = environment.air_quality.as_ref();
+                draft.writing_seconds = Some(elapsed.as_secs());
+                Some(app.store.create_entry(draft, asset_options(app))?)
             };
             match created {
-                Some(path) => {
-                    let report = app.store.process_entry_assets(
-                        &path,
-                        app.config.attachments.download_remote_images,
-                        false,
-                    )?;
-                    app.set_status(save_status("Entry saved", &report));
-                    app.store.add_writing_seconds(&path, elapsed.as_secs())?;
+                Some(created) => {
+                    app.set_status(save_status("Entry saved", &created.assets));
+                    let path = created.path;
                     refresh_entry_path(app, &path)?;
                     if let Some(id) = journal_storage::entry_id(&path)
                         && app.select_entry_by_id(&id, true)
@@ -373,21 +379,12 @@ pub(super) fn set_location_on_entry(app: &mut App, location: Option<Location>) -
         .resolved_selected_entry()
         .and_then(|entry| entry.created_time());
     let had_location = location.is_some();
-    app.store.set_entry_metadata_field(
-        &target.path,
-        MetadataField::Location(location.clone().map(Box::new)),
-    )?;
-
-    // An explicit location change always refreshes the captured environment data;
-    // clearing the location clears it. A name-only location (no coordinates) or an
-    // entry with no date leaves any existing data untouched.
-    match (location, datetime) {
-        (Some(location), Some(datetime)) => {
-            app.capture_environment_for_entry(&target.path, &location, datetime);
-        }
-        (None, _) => app.clear_environment_for_entry(&target.path),
-        _ => {}
+    // Write the location now; clearing also drops the stale environment fields.
+    let mut fields = vec![MetadataField::Location(location.clone().map(Box::new))];
+    if location.is_none() {
+        fields.extend(clear_environment_fields());
     }
+    app.store.set_entry_metadata_fields(&target.path, &fields)?;
 
     app.set_status(if had_location {
         "Location saved"
@@ -395,6 +392,12 @@ pub(super) fn set_location_on_entry(app: &mut App, location: Option<Location>) -
         "Location cleared"
     });
     refresh_entry_path(app, &target.path)?;
+
+    // Fetch weather/air/celestial in the background; it's written back when it
+    // lands, without touching `edited_at`. No date means no lookup is possible.
+    if let (Some(location), Some(datetime)) = (location, datetime) {
+        app.spawn_entry_environment_for(target.path.clone(), &location, datetime);
+    }
     Ok(())
 }
 
@@ -611,6 +614,123 @@ mod tests {
                 .iter()
                 .any(|entry| entry.body.contains("Brand new thoughts"))
         );
+    }
+
+    #[test]
+    fn new_entry_attaches_prefetched_environment() {
+        use crate::tui::environment::Environment;
+        use journal_context_provider::compute_celestial;
+        use journal_core::Location;
+
+        let (_dir, mut app, _path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+
+        let datetime = chrono::Local::now().fixed_offset();
+        let mut editor = EntryEditor::for_new("work".to_string());
+        editor.textarea.insert_str("Located entry");
+        editor.metadata.location = Some(Location {
+            latitude: Some(52.52),
+            longitude: Some(13.405),
+            ..Location::default()
+        });
+        // The background fetch already landed (celestial is offline, always present).
+        editor.environment = Some(Environment {
+            celestial: Some(compute_celestial(52.52, 13.405, datetime)),
+            weather: None,
+            air_quality: None,
+        });
+        app.editor = Some(editor);
+        save_internal_editor(&mut app).unwrap();
+
+        assert!(
+            app.library
+                .entries
+                .iter()
+                .any(|entry| entry.body.contains("Located entry") && entry.celestial.is_some()),
+            "prefetched environment is attached to the created entry"
+        );
+    }
+
+    #[test]
+    fn new_entry_save_defers_while_context_pending() {
+        let (_dir, mut app, _path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+
+        let mut editor = EntryEditor::for_new("work".to_string());
+        editor.textarea.insert_str("Waiting on weather");
+        editor.pending_environment = Some(1);
+        app.editor = Some(editor);
+        save_internal_editor(&mut app).unwrap();
+
+        // The save is deferred: the modal is up, the editor stays open, nothing written.
+        assert!(matches!(
+            app.overlay,
+            crate::tui::state::Overlay::FetchingEnvironment(_)
+        ));
+        assert!(app.editor.is_some());
+        assert!(
+            !app.library
+                .entries
+                .iter()
+                .any(|entry| entry.body.contains("Waiting on weather"))
+        );
+    }
+
+    #[test]
+    fn located_entry_without_context_is_backfill_queued_once() {
+        let body = "+++\n[location]\nlatitude = 52.52\nlongitude = 13.405\n+++\n\n# A\n";
+        let (_dir, app, _path) = app_with_entry(body);
+
+        // Loading the store already scanned and queued the located, environment-less
+        // entry (celestial absent marks it); a re-scan must not double-queue it.
+        assert_eq!(app.backfill_queue.len(), 1);
+        let mut app = app;
+        app.enqueue_environment_backfill();
+        assert_eq!(app.backfill_queue.len(), 1);
+    }
+
+    #[test]
+    fn direct_location_set_claims_entry_so_backfill_cannot_duplicate() {
+        // Dated (so a weather lookup can fire) but initially locationless, so it
+        // starts off the backfill queue.
+        let body = "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+00:00\"\n+++\n\n# A\n";
+        let (_dir, mut app, path) = app_with_entry(body);
+        assert!(app.backfill_queue.is_empty());
+
+        let location = Location {
+            latitude: Some(52.52),
+            longitude: Some(13.405),
+            ..Location::default()
+        };
+        set_location_on_entry(&mut app, Some(location)).unwrap();
+
+        // Setting the location enqueues the entry for backfill and also fires an
+        // immediate fetch. The fetch claims the path, so it must not remain queued —
+        // otherwise backfill would fetch and write the same environment a second time.
+        assert!(app.backfill_enqueued.contains(&path));
+        assert!(!app.backfill_queue.contains(&path));
+        app.dispatch_environment_backfill();
+        assert!(!app.backfill_queue.contains(&path));
+    }
+
+    #[test]
+    fn backfill_dispatch_skips_entry_that_already_has_environment() {
+        use journal_context_provider::compute_celestial;
+        let body = "+++\n[location]\nlatitude = 52.52\nlongitude = 13.405\n+++\n\n# A\n";
+        let (_dir, mut app, path) = app_with_entry(body);
+        assert_eq!(app.backfill_queue.len(), 1);
+
+        // A direct location-set both queues the entry for backfill and fires an
+        // immediate fetch. Simulate that fetch landing first: environment present.
+        let datetime = chrono::Local::now().fixed_offset();
+        for entry in &mut app.library.entries {
+            if entry.path == path {
+                entry.celestial = Some(compute_celestial(52.52, 13.405, datetime));
+            }
+        }
+
+        // The queued job is now stale — dispatch drains it without a duplicate fetch.
+        app.dispatch_environment_backfill();
+        assert!(app.backfill_inflight.is_none());
+        assert!(app.backfill_queue.is_empty());
     }
 
     #[test]

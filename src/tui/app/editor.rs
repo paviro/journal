@@ -133,6 +133,10 @@ impl App {
         } else {
             "Location set"
         });
+        // Fetch weather/air/celestial in the background now, so it's ready to
+        // attach on save (or the save waits briefly on it). A cleared/coordless
+        // location abandons any in-flight fetch.
+        self.spawn_editor_environment();
     }
 
     /// Write a metadata edit into the open editor's buffer (applied to the entry

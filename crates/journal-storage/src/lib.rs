@@ -9,7 +9,7 @@ pub(crate) mod markdown;
 mod migrate;
 mod storage;
 
-use journal_core::{AppResult, Entry, EntryPath, ImportSource, Metadata, MetadataField};
+use journal_core::{AppResult, Entry, EntryPath, ImportSource, MetadataField};
 use journal_encryption as crypto;
 
 pub use error::StorageError;
@@ -18,9 +18,10 @@ pub use journal_encryption::{
 };
 pub use migrate::{DecryptSummary, MigrationSummary};
 pub use storage::{
-    ARCHIVED_SUFFIX, AssetFailure, AssetReport, EditOutcome, ImportedEntryDraft, Journal, entry_id,
-    entry_timestamp_label, is_archived_name, is_entry_file, journal_display_name,
-    parse_entry_timestamp, sole_stored_image, stored_image_reference,
+    ARCHIVED_SUFFIX, AssetFailure, AssetReport, EditOutcome, EntryAssetOptions, EntryCreateOutcome,
+    EntryDraft, EntryEdit, EntryEditOutcome, Journal, entry_id, entry_timestamp_label,
+    is_archived_name, is_entry_file, journal_display_name, parse_entry_timestamp,
+    sole_stored_image, stored_image_reference,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -692,53 +693,21 @@ impl JournalStore {
         self.paths.keys.has_roster()
     }
 
-    pub fn create_entry_with_body(
+    pub fn create_entry(
         &self,
-        journal: &str,
-        body: &str,
-        metadata: &Metadata,
-    ) -> AppResult<PathBuf> {
-        storage::create_entry(
-            &self.entry_codec(),
-            &self.paths.journal_root,
-            journal,
-            body,
-            metadata,
-        )
+        draft: EntryDraft<'_>,
+        assets: EntryAssetOptions,
+    ) -> AppResult<EntryCreateOutcome> {
+        storage::create_entry(&self.entry_codec(), &self.paths.journal_root, draft, assets)
     }
 
-    /// Create an entry from an external import, preserving its original
-    /// creation/modification dates and recording an `[import]` provenance
-    /// marker in the front matter. Encryption follows the store's setting, like
-    /// [`create_entry_with_body`].
-    pub fn create_imported_entry(&self, draft: ImportedEntryDraft<'_>) -> AppResult<PathBuf> {
-        storage::create_imported_entry(&self.entry_codec(), &self.paths.journal_root, draft)
-    }
-
-    /// Add `secs` to an entry's accumulated `[datetime].writing_seconds` without
-    /// touching `edited_at`. Used to record editor-open time after a real edit.
-    pub fn add_writing_seconds(&self, path: &Path, secs: u64) -> AppResult<()> {
-        if secs == 0 {
-            return Ok(());
-        }
-        let codec = self.entry_codec();
-        let content = codec.read(path)?;
-        let Some(updated) = markdown::add_writing_seconds(&content, secs) else {
-            return Ok(());
-        };
-        codec.write_existing(path, &updated)
-    }
-
-    /// Replace an existing entry's body, preserving its front matter. An empty
-    /// body deletes the entry when `remove_if_empty` is set; an unchanged body is
-    /// a no-op. The outcome lets callers record editing time only on a real edit.
-    pub fn set_entry_body(
+    pub fn save_entry_edit(
         &self,
         path: &Path,
-        remove_if_empty: bool,
-        new_body: &str,
-    ) -> AppResult<EditOutcome> {
-        storage::set_entry_body(&self.entry_codec(), path, remove_if_empty, new_body)
+        edit: EntryEdit<'_>,
+        assets: EntryAssetOptions,
+    ) -> AppResult<EntryEditOutcome> {
+        storage::save_entry_edit(&self.entry_codec(), path, edit, assets)
     }
 
     /// The codec for reading and writing this store's entry files, carrying the
@@ -769,19 +738,6 @@ impl JournalStore {
         storage::delete_empty_entry(path)
     }
 
-    /// Whether the entry at `path` already has a `[weather]` table. Lets the
-    /// editor-save trigger fetch weather only when it's missing, so imported
-    /// (e.g. Day One) weather is never clobbered. Reads and decrypts the file.
-    pub fn entry_has_weather(&self, path: &Path) -> AppResult<bool> {
-        let codec = self.entry_codec();
-        let content = codec.read(path)?;
-        let (front_matter, _) = markdown::split_front_matter(&content);
-        Ok(front_matter
-            .map(markdown::front_matter_fields)
-            .and_then(|fm| fm.weather)
-            .is_some())
-    }
-
     /// Replace one metadata field of an entry's front matter (and refresh
     /// `edited_at`), leaving the body untouched. A no-op if the file has no
     /// front matter.
@@ -810,43 +766,23 @@ impl JournalStore {
         codec.write_existing(path, &new_content)
     }
 
-    /// Ingest external image references in the entry (copy/download them into
-    /// the entry's `<stem>.assets/` folder, encrypting when the entry is
-    /// encrypted, and rewrite the references) and delete orphaned assets. Runs
-    /// after create and edit; a no-op when the body has no external references
-    /// and no orphaned assets.
-    pub fn process_entry_assets(
+    /// Replace metadata fields like [`Self::set_entry_metadata_fields`] but
+    /// without refreshing `edited_at` — for background context (weather/air
+    /// quality/celestial) written back to an entry the user didn't edit.
+    pub fn set_entry_metadata_fields_quiet(
         &self,
         path: &Path,
-        download_remote: bool,
-        replace_offline: bool,
-    ) -> AppResult<storage::AssetReport> {
-        let encrypted = storage::is_encrypted_entry_file(path);
-        if encrypted && self.identity.is_none() {
-            return Ok(storage::AssetReport::default());
+        fields: &[MetadataField],
+    ) -> AppResult<()> {
+        if fields.is_empty() {
+            return Ok(());
         }
-
         let codec = self.entry_codec();
-        let entry = codec.open(path)?;
-
-        let encryption = encrypted.then(|| codec.encryption_paths().clone());
-        let (new_body, report) = storage::ingest_and_cleanup_opts(
-            path,
-            &entry.body,
-            encryption.as_ref(),
-            download_remote,
-            replace_offline,
-        )?;
-
-        if let Some(new_body) = new_body {
-            codec.write_body(
-                path,
-                entry.front_matter.as_deref(),
-                new_body.trim_start_matches('\n'),
-            )?;
-        }
-
-        Ok(report)
+        let content = codec.read(path)?;
+        let Some(new_content) = markdown::with_metadata_fields_quiet(&content, fields) else {
+            return Ok(());
+        };
+        codec.write_existing(path, &new_content)
     }
 
     /// Read an entry-owned image asset into memory, decrypting `.age` assets

@@ -352,6 +352,26 @@ fn open_unlocked_store(cli: &Cli) -> AppResult<JournalStore> {
     Ok(open_unlocked_store_with_passphrase(cli)?.0)
 }
 
+/// Unlock this device's identity when the store is encrypted, prompting only
+/// for a passphrase-protected key. A no-op for plaintext stores.
+fn unlock_if_encrypted(store: &mut JournalStore) -> AppResult<()> {
+    if !store.encryption_enabled() {
+        return Ok(());
+    }
+    if !store.unlock_available() {
+        bail!(
+            "this journal is encrypted but this device has no key; run `{}` first",
+            crate::ENROLL_CMD
+        );
+    }
+    let passphrase = if store.identity_needs_passphrase()? {
+        Some(prompts::prompt_unlock_passphrase()?)
+    } else {
+        None
+    };
+    store.unlock(passphrase.as_ref())
+}
+
 /// Mount the whole journal store as a decrypted filesystem. Journals appear as
 /// top-level folders; entries and their assets are decrypted on read and
 /// re-encrypted on write. Only encrypted journals can be mounted — for a
@@ -668,8 +688,11 @@ fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {
     // Validate the name only — the importer creates the journal if it's missing.
     let journal = JournalStore::validate_journal_name(journal)?;
 
-    let store = JournalStore::for_config(&config_path, &config.journal.path)?;
+    let mut store = JournalStore::for_config(&config_path, &config.journal.path)?;
     store.ensure()?;
+    // Duplicate detection reads existing entries' `[import]` provenance, which
+    // on an encrypted store requires the unlocked identity.
+    unlock_if_encrypted(&mut store)?;
 
     let report = journal_import::import_dayone(&store, &journal, &args.path, args.download_images)?;
 
@@ -813,13 +836,17 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
         io::stdin().read_to_string(&mut body)?;
         body
     };
-    let path = store.create_entry_with_body(journal, &body, &metadata)?;
-    let report =
-        store.process_entry_assets(&path, config.attachments.download_remote_images, false)?;
-    if !report.is_noop() {
-        eprintln!("{}", asset_report_message(&report));
+    let created = store.create_entry(
+        journal_storage::EntryDraft::new(journal, &body, &metadata),
+        journal_storage::EntryAssetOptions {
+            download_remote: config.attachments.download_remote_images,
+            replace_offline: false,
+        },
+    )?;
+    if !created.assets.is_noop() {
+        eprintln!("{}", asset_report_message(&created.assets));
     }
-    println!("{}", path.display());
+    println!("{}", created.path.display());
     Ok(())
 }
 

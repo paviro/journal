@@ -907,12 +907,16 @@ fn select_created_entry_path_opens_expanded_entry_view() {
 
     let store = JournalStore::for_config(&root.join("config.toml"), &root).unwrap();
     let created = store
-        .create_entry_with_body(
-            "work",
-            "# Created\nBody\n",
-            &journal_core::Metadata::default(),
+        .create_entry(
+            journal_storage::EntryDraft::new(
+                "work",
+                "# Created\nBody\n",
+                &journal_core::Metadata::default(),
+            ),
+            journal_storage::EntryAssetOptions::default(),
         )
-        .unwrap();
+        .unwrap()
+        .path;
     app.refresh().unwrap();
     let created_id = journal_storage::entry_id(&created).unwrap();
     assert!(app.select_entry_by_id(&created_id, true));

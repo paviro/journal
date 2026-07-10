@@ -145,6 +145,8 @@ pub(super) fn key_to_action(
         Overlay::EditMood(_) => mood_key_to_action(key),
         Overlay::EditLocation(_) => location_key_to_action(app, key),
         Overlay::ImageViewer(_) => image_viewer_key_to_action(key),
+        // Blocks input; it auto-resolves when the fetch lands or times out.
+        Overlay::FetchingEnvironment(_) => None,
     }
 }
 
