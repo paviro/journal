@@ -13,7 +13,7 @@ mod surface;
 #[cfg(test)]
 mod test_support;
 mod text_input;
-mod theme;
+pub(crate) mod theme;
 mod watcher;
 mod worker;
 

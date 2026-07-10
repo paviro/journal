@@ -47,10 +47,43 @@ pub struct EditorSection {
 }
 
 /// TUI presentation preferences.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UiSection {
+    /// Name of the theme file (without `.toml`) in the config directory's
+    /// `themes/` folder. The bundled themes are materialized there on launch.
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    /// Whether `{ dark, light }` theme colors follow the detected terminal
+    /// background, or are pinned to one variant.
+    #[serde(default)]
+    pub color_mode: ColorMode,
     #[serde(default)]
     pub layout: LayoutSection,
+}
+
+impl Default for UiSection {
+    fn default() -> Self {
+        Self {
+            theme: default_theme(),
+            color_mode: ColorMode::default(),
+            layout: LayoutSection::default(),
+        }
+    }
+}
+
+fn default_theme() -> String {
+    crate::tui::theme::DEFAULT_THEME.to_string()
+}
+
+/// Which variant of a theme's `{ dark, light }` colors to use. `Auto` asks the
+/// terminal for its background color at startup and falls back to dark.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ColorMode {
+    #[default]
+    Auto,
+    Dark,
+    Light,
 }
 
 /// Layout geometry: how the panels and their contents are sized. Column-width and
@@ -307,7 +340,17 @@ fn interactive_setup(config_path: &Path) -> AppResult<(Config, JournalStore)> {
         PathBuf::from(root_input.trim())
     };
 
-    let config = Config::new(journal_root);
+    let mut config = Config::new(journal_root);
+
+    // E-ink and other monochrome displays get the high-contrast black-and-white
+    // theme; everything else starts on the default color theme.
+    write!(stdout, "Is this an e-ink / monochrome display? [y/N]: ")?;
+    stdout.flush()?;
+    let mut eink_input = String::new();
+    io::stdin().read_line(&mut eink_input)?;
+    if is_yes(&eink_input) {
+        config.ui.theme = "e-ink".to_string();
+    }
     let store = JournalStore::for_config(config_path, &config.journal.path)?;
     store.ensure()?;
 
@@ -342,7 +385,7 @@ fn offer_encryption(stdout: &mut impl Write, store: &JournalStore) -> AppResult<
     stdout.flush()?;
     let mut encryption_input = String::new();
     io::stdin().read_line(&mut encryption_input)?;
-    if !matches!(encryption_input.trim(), "y" | "Y" | "yes" | "YES" | "Yes") {
+    if !is_yes(&encryption_input) {
         return Ok(());
     }
 
@@ -365,6 +408,11 @@ fn offer_encryption(stdout: &mut impl Write, store: &JournalStore) -> AppResult<
     let mut ack = String::new();
     io::stdin().read_line(&mut ack)?;
     Ok(())
+}
+
+/// Interpret an interactive `[y/N]` answer, defaulting to no.
+fn is_yes(input: &str) -> bool {
+    matches!(input.trim(), "y" | "Y" | "yes" | "YES" | "Yes")
 }
 
 pub fn expand_tilde(path: PathBuf) -> PathBuf {
@@ -443,6 +491,8 @@ mod tests {
         let mut config = Config::new(dir.path().join("root"));
         config.journal.default = Some("work".to_string());
         config.attachments.download_remote_images = false;
+        config.ui.theme = "e-ink".to_string();
+        config.ui.color_mode = ColorMode::Light;
         config.ui.layout.entry_viewer.body_center_vertically = false;
         config.ui.layout.entry_viewer.body_max_width = 80;
 
@@ -461,6 +511,8 @@ mod tests {
         let config = load_config(&path).unwrap();
 
         assert!(config.attachments.download_remote_images);
+        assert_eq!(config.ui.theme, "journal");
+        assert_eq!(config.ui.color_mode, ColorMode::Auto);
         assert!(config.ui.layout.entry_viewer.body_center_vertically);
         assert_eq!(config.ui.layout.entry_viewer.body_max_width, 100);
     }
