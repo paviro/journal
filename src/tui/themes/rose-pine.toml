@@ -46,3 +46,19 @@ heading    = { fg = { dark = "#ebbcba", light = "#d7827e" }, bold = true }
 link       = { fg = { dark = "#3e8fb0", light = "#286983" }, underlined = true }
 code       = { dark = "#c4a7e7", light = "#907aa9" }
 blockquote = { fg = { dark = "#908caa", light = "#797593" } }
+
+[markdown.syntax]
+comment     = { dark = "#6e6a86", light = "#9893a5" }
+keyword     = { dark = "#31748f", light = "#286983" }
+string      = { dark = "#f6c177", light = "#ea9d34" }
+string_escape = { dark = "#c4a7e7", light = "#907aa9" }
+number      = { dark = "#c4a7e7", light = "#907aa9" }
+constant    = { dark = "#c4a7e7", light = "#907aa9" }
+function    = { dark = "#ebbcba", light = "#d7827e" }
+type        = { dark = "#9ccfd8", light = "#56949f" }
+property    = { dark = "#9ccfd8", light = "#56949f" }
+punctuation = { dark = "#908caa", light = "#797593" }
+attribute   = { dark = "#c4a7e7", light = "#907aa9" }
+tag         = { dark = "#9ccfd8", light = "#56949f" }
+label       = { dark = "#eb6f92", light = "#b4637a" }
+error       = { dark = "#eb6f92", light = "#b4637a" }
