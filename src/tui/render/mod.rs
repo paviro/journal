@@ -42,7 +42,8 @@ pub(crate) use super::surface::{
     EntryListGeometry, EntryMetadataValues, PanelGeometry, entry_metadata_layout, point_in_rect,
 };
 pub(crate) use chrome::{
-    centered_rect_fixed_size, container_block, count_label, flat_chrome, panel_block,
+    centered_rect_fixed_size, container_block, container_block_vertical_inset, count_label,
+    flat_chrome, panel_block,
     panel_focus_stripe, render_centered_notice, render_scrollbar_if_needed,
 };
 pub(crate) use dialogs::{

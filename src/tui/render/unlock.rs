@@ -14,9 +14,10 @@ use crate::tui::theme::theme;
 const CONTAINER_WIDTH: u16 = 68;
 /// Height of the inner sub-field: faint border + one input row + faint border.
 const SUBFIELD_HEIGHT: u16 = 3;
-/// Fixed rows of the container besides the status region: border (2) + vertical
-/// padding (2) + the sub-field box + the gap above the status.
-const CONTAINER_CHROME_HEIGHT: u16 = 2 + 2 + SUBFIELD_HEIGHT + 1;
+/// Fixed content rows the container reserves besides the status region: the
+/// sub-field box plus the gap above the status. The container's own chrome
+/// (border/padding, plus the flat-mode title row) is measured off the block.
+const CONTAINER_CONTENT_HEIGHT: u16 = SUBFIELD_HEIGHT + 1;
 /// Standing hint shown below the field until a wrong passphrase replaces it. The
 /// status region is sized for whichever of this and the current message wraps to
 /// more rows, so the box stays a stable height across a retry.
@@ -51,7 +52,11 @@ pub(crate) fn draw_unlock(
         .len()
         .max(wrap_text(status, status_width, MAX_STATUS_LINES).len())
         .max(1) as u16;
-    let container_height = (CONTAINER_CHROME_HEIGHT + status_lines).min(inner.height);
+    // The container: titled top-left, generous padding around its contents.
+    let container = super::container_block("Enter Password");
+    let overhead = super::container_block_vertical_inset(&container, inner);
+    let container_height =
+        (overhead + CONTAINER_CONTENT_HEIGHT + status_lines).min(inner.height);
 
     // Center the container box within the outer border.
     let [group] = Layout::vertical([Constraint::Length(container_height)])
@@ -61,8 +66,6 @@ pub(crate) fn draw_unlock(
         .flex(Flex::Center)
         .areas(group);
 
-    // The container: titled top-left, generous padding around its contents.
-    let container = super::container_block("Enter Password");
     let container_inner = container.inner(container_box);
     frame.render_widget(container, container_box);
 

@@ -113,6 +113,13 @@ pub(crate) fn container_block(title: &str) -> Block<'static> {
     }
 }
 
+/// Rows a `container_block` reserves around its content: border + padding, plus
+/// the top title row that flat chrome has no border to fold into. Measured off
+/// the block so it can't drift from `container_block`'s padding.
+pub(crate) fn container_block_vertical_inset(block: &Block<'_>, area: Rect) -> u16 {
+    area.height.saturating_sub(block.inner(area).height)
+}
+
 /// In flat chrome the focused panel is marked by a `┃` stripe down its left
 /// padding column — the borders that used to thicken are gone, so focus needs
 /// its own ink. No-op on bordered chrome or unfocused panels.

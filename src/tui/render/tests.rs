@@ -2991,6 +2991,41 @@ mod flat_chrome_tests {
         assert_eq!(buffer[(74u16, 5u16)].symbol(), "┃");
         assert_eq!(buffer[(74u16, 5u16)].fg, error.fg.unwrap());
     }
+
+    // Flat chrome has no top border for the box title to fold into, so the title
+    // takes its own inner row. These pin that the container is sized for it and
+    // the last line — the command / hint — stays inside the box.
+
+    #[test]
+    fn pending_notice_shows_the_enroll_command_in_flat_chrome() {
+        pin_flat();
+        let text =
+            render_pending_notice_text("phone", &AccessNotice::NeedsEnroll { retired_key: false });
+        assert!(text.contains("Not authorized"));
+        assert!(text.contains(crate::ENROLL_CMD));
+    }
+
+    #[test]
+    fn pending_notice_shows_the_approve_command_in_flat_chrome() {
+        pin_flat();
+        let text = render_pending_notice_text("phone", &AccessNotice::AwaitingApproval);
+        assert!(text.contains("Awaiting approval"));
+        assert!(text.contains(&format!("{} phone", crate::APPROVE_CMD)));
+    }
+
+    #[test]
+    fn disable_notice_shows_the_enable_hint_in_flat_chrome() {
+        pin_flat();
+        let backend = render_backend(72, 20, draw_disable_notice);
+        let text: String = backend
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("Encryption disabled"));
+        assert!(text.contains("notema encryption enable"));
+    }
 }
 
 mod toast_bordered_tests {

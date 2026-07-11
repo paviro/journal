@@ -54,9 +54,12 @@ pub(crate) fn draw_pending_request(
         Line::from("Approve and re-encrypt all entries to this device?"),
     ];
 
-    // Border (2) + vertical padding (2) + info lines + gap + bottom row.
+    // Chrome (border/padding, plus the flat-mode title row) + info lines + gap +
+    // bottom row.
     let container_width = CONTAINER_WIDTH.min(inner.width);
-    let container_height = (info_lines.len() as u16 + 6).min(inner.height);
+    let container = super::container_block("Grant access");
+    let overhead = super::container_block_vertical_inset(&container, inner);
+    let container_height = (info_lines.len() as u16 + 2 + overhead).min(inner.height);
     let [group] = Layout::vertical([Constraint::Length(container_height)])
         .flex(Flex::Center)
         .areas(inner);
@@ -64,7 +67,6 @@ pub(crate) fn draw_pending_request(
         .flex(Flex::Center)
         .areas(group);
 
-    let container = super::container_block("Grant access");
     let container_inner = container.inner(container_box);
     frame.render_widget(container, container_box);
 
@@ -169,10 +171,15 @@ pub(crate) fn draw_pending_notice(frame: &mut Frame<'_>, device_name: &str, noti
     }
     lines.push(Line::from(""));
     lines.extend(wrapped(&instruction));
-    lines.push(Line::from(Span::styled(format!("  {command}"), dim)));
+    // Wrap the command like the prose above so `lines.len()` stays accurate when a
+    // long command or device name spills onto a second row.
+    for row in wrap_text(&format!("  {command}"), text_width, usize::MAX) {
+        lines.push(Line::from(Span::styled(row, dim)));
+    }
 
     let block = super::container_block(title.trim());
-    let container_height = (lines.len() as u16 + 4).min(area.height);
+    let overhead = super::container_block_vertical_inset(&block, area);
+    let container_height = (lines.len() as u16 + overhead).min(area.height);
     let [group] = Layout::vertical([Constraint::Length(container_height)])
         .flex(Flex::Center)
         .areas(area);
@@ -228,7 +235,8 @@ pub(crate) fn draw_disable_notice(frame: &mut Frame<'_>) {
     ]));
 
     let block = super::container_block("Encryption disabled");
-    let container_height = (lines.len() as u16 + 4).min(area.height);
+    let overhead = super::container_block_vertical_inset(&block, area);
+    let container_height = (lines.len() as u16 + overhead).min(area.height);
     let [group] = Layout::vertical([Constraint::Length(container_height)])
         .flex(Flex::Center)
         .areas(area);
