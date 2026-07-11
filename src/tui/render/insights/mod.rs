@@ -23,7 +23,7 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Padding},
+    widgets::{Block, Borders, Padding},
 };
 
 use journal_storage::journal_display_name;
@@ -59,11 +59,10 @@ pub(crate) fn draw_journal_insights(frame: &mut Frame<'_>, area: Rect, app: &mut
     } else {
         let mut block = Block::default()
             .title(tabs_title_line(tab, focused, hovered_tab, inner_width))
-            .borders(Borders::ALL);
+            .borders(Borders::ALL)
+            .border_set(theme().glyphs().borders.block_set(focused));
         if focused {
-            block = block
-                .border_type(BorderType::Thick)
-                .border_style(theme().focus_border());
+            block = block.border_style(theme().focus_border());
         } else {
             block = block.border_style(theme().inactive_border());
         }
@@ -236,7 +235,10 @@ fn tabs_title_line(
     let mut spans = vec![Span::raw(" ")];
     for (index, tab) in InsightsTab::ALL.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled(" · ", theme().muted()));
+            spans.push(Span::styled(
+                format!(" {} ", theme().glyphs().tab_separator),
+                theme().muted(),
+            ));
         }
         let mut style = if *tab == active {
             theme().active_tab(focused)

@@ -284,7 +284,11 @@ pub(crate) enum DividerAlign {
 }
 
 pub(crate) fn section_divider(box_width: usize, label: &str, align: DividerAlign) -> Line<'static> {
-    let fill = "━".repeat(box_width.saturating_sub(text_width(label) + 1));
+    let fill = theme()
+        .glyphs()
+        .divider
+        .to_string()
+        .repeat(box_width.saturating_sub(text_width(label) + 1));
     let label = Span::styled(label.to_string(), theme().heading());
     let spans = match align {
         DividerAlign::Left => vec![label, Span::styled(format!(" {fill}"), border_style())],
@@ -298,9 +302,9 @@ pub(crate) fn section_divider(box_width: usize, label: &str, align: DividerAlign
 pub(crate) fn journal_box_lines(name: &str, inner_width: usize) -> Vec<Line<'static>> {
     let box_width = inner_width + 4;
     vec![
-        border_line('┌', '┐', box_width, None, None),
+        border_line(BoxEdge::Top, box_width, None, None),
         box_inner_line(name.to_string(), inner_width),
-        border_line('└', '┘', box_width, None, None),
+        border_line(BoxEdge::Bottom, box_width, None, None),
     ]
 }
 
@@ -537,11 +541,16 @@ pub(crate) fn entry_box_lines(
         return lines;
     }
 
-    let mut lines = vec![border_line('┌', '┐', box_width, date_label, time)];
+    let mut lines = vec![border_line(BoxEdge::Top, box_width, date_label, time)];
     for text in wrap_text(preview, inner_width, ENTRY_BOX_PREVIEW_LINES) {
         lines.push(box_inner_line(text, inner_width));
     }
-    lines.push(border_line('└', '┘', box_width, footer_left, footer_right));
+    lines.push(border_line(
+        BoxEdge::Bottom,
+        box_width,
+        footer_left,
+        footer_right,
+    ));
     lines
 }
 
@@ -590,15 +599,27 @@ fn border_style() -> Style {
     theme().muted()
 }
 
+/// Which edge of a hand-drawn box a [`border_line`] draws, deciding its corner
+/// glyphs from the theme's line set.
+#[derive(Clone, Copy)]
+pub(crate) enum BoxEdge {
+    Top,
+    Bottom,
+}
+
 /// A box border with optional bold labels on the left and right, separated by a
-/// dim rule: `┌ Sunday 05 ──────── 14:30 ┐`.
+/// dim rule: `┌ Sunday 05 ──────── 14:30 ┐`, in the theme's line set.
 pub(crate) fn border_line(
-    open: char,
-    close: char,
+    edge: BoxEdge,
     box_width: usize,
     left: Option<&str>,
     right: Option<&str>,
 ) -> Line<'static> {
+    let set = theme().glyphs().borders.line_set();
+    let (open, close) = match edge {
+        BoxEdge::Top => (set.top_left, set.top_right),
+        BoxEdge::Bottom => (set.bottom_left, set.bottom_right),
+    };
     let border = border_style();
     let bold = theme().heading();
     let left = left.filter(|label| !label.is_empty());
@@ -608,35 +629,39 @@ pub(crate) fn border_line(
 
     if box_width < left_width + right_width + 2 {
         return Line::from(Span::styled(
-            format!("{open}{}{close}", "─".repeat(box_width.saturating_sub(2))),
+            format!(
+                "{open}{}{close}",
+                set.horizontal.repeat(box_width.saturating_sub(2))
+            ),
             border,
         ));
     }
 
     let dashes = box_width - 2 - left_width - right_width;
-    let mut spans = vec![Span::styled(open.to_string(), border)];
+    let mut spans = vec![Span::styled(open, border)];
     if let Some(left) = left {
         spans.push(Span::styled(" ".to_string(), border));
         spans.push(Span::styled(left.to_string(), bold));
         spans.push(Span::styled(" ".to_string(), border));
     }
-    spans.push(Span::styled("─".repeat(dashes), border));
+    spans.push(Span::styled(set.horizontal.repeat(dashes), border));
     if let Some(right) = right {
         spans.push(Span::styled(" ".to_string(), border));
         spans.push(Span::styled(right.to_string(), bold));
         spans.push(Span::styled(" ".to_string(), border));
     }
-    spans.push(Span::styled(close.to_string(), border));
+    spans.push(Span::styled(close, border));
     Line::from(spans)
 }
 
 pub(crate) fn box_inner_line(text: String, inner_width: usize) -> Line<'static> {
+    let vertical = theme().glyphs().borders.line_set().vertical;
     let (content, used) = take_width(&text, inner_width);
     let pad = inner_width - used;
     Line::from(vec![
-        Span::styled("│ ".to_string(), border_style()),
+        Span::styled(format!("{vertical} "), border_style()),
         Span::raw(content),
-        Span::styled(format!("{} │", " ".repeat(pad)), border_style()),
+        Span::styled(format!("{} {vertical}", " ".repeat(pad)), border_style()),
     ])
 }
 

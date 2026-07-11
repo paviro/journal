@@ -66,6 +66,163 @@ pub(crate) enum ChromeStyle {
     Bordered,
 }
 
+/// The line character set a theme draws boxes with: panel and dialog borders,
+/// the hand-drawn entry/journal cards, and table grids.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum BorderGlyphs {
+    #[default]
+    Plain,
+    Rounded,
+    Double,
+    Thick,
+    Ascii,
+}
+
+/// The `+-|` sets for [`BorderGlyphs::Ascii`], for terminals or looks that
+/// want no box-drawing characters at all.
+const ASCII_BORDER_SET: ratatui::symbols::border::Set<'static> = ratatui::symbols::border::Set {
+    top_left: "+",
+    top_right: "+",
+    bottom_left: "+",
+    bottom_right: "+",
+    vertical_left: "|",
+    vertical_right: "|",
+    horizontal_top: "-",
+    horizontal_bottom: "-",
+};
+
+const ASCII_LINE_SET: ratatui::symbols::line::Set<'static> = ratatui::symbols::line::Set {
+    vertical: "|",
+    horizontal: "-",
+    top_right: "+",
+    top_left: "+",
+    bottom_right: "+",
+    bottom_left: "+",
+    vertical_left: "+",
+    vertical_right: "+",
+    horizontal_down: "+",
+    horizontal_up: "+",
+    cross: "+",
+};
+
+impl BorderGlyphs {
+    /// The set ratatui `Block` borders draw with.
+    pub(crate) fn border_set(self) -> ratatui::symbols::border::Set<'static> {
+        use ratatui::symbols::border;
+        match self {
+            BorderGlyphs::Plain => border::PLAIN,
+            BorderGlyphs::Rounded => border::ROUNDED,
+            BorderGlyphs::Double => border::DOUBLE,
+            BorderGlyphs::Thick => border::THICK,
+            BorderGlyphs::Ascii => ASCII_BORDER_SET,
+        }
+    }
+
+    /// The full line set (corners, junctions, cross) for hand-drawn boxes and
+    /// table grids.
+    pub(crate) fn line_set(self) -> ratatui::symbols::line::Set<'static> {
+        use ratatui::symbols::line;
+        match self {
+            BorderGlyphs::Plain => line::NORMAL,
+            BorderGlyphs::Rounded => line::ROUNDED,
+            BorderGlyphs::Double => line::DOUBLE,
+            BorderGlyphs::Thick => line::THICK,
+            BorderGlyphs::Ascii => ASCII_LINE_SET,
+        }
+    }
+
+    /// The `Block` border set for a panel, thickened when focused — thickness
+    /// is how focus survives monochrome. Ascii has no thick variant; there
+    /// focus is carried by the bold border style alone.
+    pub(crate) fn block_set(self, focused: bool) -> ratatui::symbols::border::Set<'static> {
+        if focused && self != BorderGlyphs::Ascii {
+            BorderGlyphs::Thick.border_set()
+        } else {
+            self.border_set()
+        }
+    }
+}
+
+/// Resolved syntax-highlight colors for fenced code blocks. `Reset` means the
+/// category renders in the plain code style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Syntax {
+    pub(crate) comment: Color,
+    pub(crate) keyword: Color,
+    pub(crate) string: Color,
+    pub(crate) string_escape: Color,
+    pub(crate) number: Color,
+    pub(crate) constant: Color,
+    pub(crate) function: Color,
+    pub(crate) r#type: Color,
+    pub(crate) variable: Color,
+    pub(crate) property: Color,
+    pub(crate) operator: Color,
+    pub(crate) punctuation: Color,
+    pub(crate) attribute: Color,
+    pub(crate) tag: Color,
+    pub(crate) label: Color,
+    pub(crate) error: Color,
+}
+
+impl Syntax {
+    /// Whether the theme colors any category at all. Plain themes skip the
+    /// highlighter entirely, keeping their classic un-highlighted code blocks.
+    pub(crate) fn any_color(self) -> bool {
+        [
+            self.comment,
+            self.keyword,
+            self.string,
+            self.string_escape,
+            self.number,
+            self.constant,
+            self.function,
+            self.r#type,
+            self.variable,
+            self.property,
+            self.operator,
+            self.punctuation,
+            self.attribute,
+            self.tag,
+            self.label,
+            self.error,
+        ]
+        .into_iter()
+        .any(|color| color != Color::Reset)
+    }
+}
+
+/// The theme's identity glyphs — every meaning-free character the UI repeats.
+/// Meaning-carrying glyph *variance* (heavy vs light at a zero mood, distinct
+/// chart-series glyphs) stays in code and [`Fill`]s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Glyphs {
+    /// The marker before a selected list row. `None` follows the chrome
+    /// (`●` flat, `>` bordered); resolved by [`Theme::selection_marker`].
+    pub(crate) selection_marker: Option<char>,
+    /// The stripe down a focused panel's left edge (flat chrome).
+    pub(crate) focus_stripe: char,
+    /// The accent edges of a toast card (flat chrome).
+    pub(crate) toast_edge: char,
+    /// The separator between tab labels; always rendered with a space each
+    /// side so the strip's width math stays fixed.
+    pub(crate) tab_separator: char,
+    /// The rule of section dividers (month headers, "Archived").
+    pub(crate) divider: char,
+    /// The zero-baseline decoration of column charts.
+    pub(crate) chart_baseline: char,
+    /// The groove marking an empty delta bar.
+    pub(crate) chart_groove: char,
+    /// The center marker of delta/mood bars. The heavy variant shown at an
+    /// exact zero stays code-side (weight carries meaning).
+    pub(crate) bar_center: char,
+    /// The stroke of the mood bar's fill.
+    pub(crate) mood_fill: char,
+    /// The box-drawing set for borders, cards, and table grids.
+    pub(crate) borders: BorderGlyphs,
+}
+
 /// A fully resolved theme: plain styles and colors, no variants left.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Theme {
@@ -75,6 +232,8 @@ pub(crate) struct Theme {
     element: Color,
     text: Style,
     muted: Style,
+    heading: Style,
+    placeholder: Style,
     primary: Style,
     secondary: Style,
     accent: Style,
@@ -88,7 +247,12 @@ pub(crate) struct Theme {
     info: Style,
     selection: Style,
     hover: Style,
+    button: Style,
     key_hint: Style,
+    cursor: Style,
+    cursor_line: Style,
+    scrollbar_thumb: Style,
+    scrollbar_track: Style,
     chart_positive: Fill,
     chart_neutral: Fill,
     chart_negative: Fill,
@@ -98,9 +262,12 @@ pub(crate) struct Theme {
     chart_baseline: Style,
     chart_label: Style,
     md_heading: Style,
+    md_heading3: Style,
     md_link: Style,
     md_code: Style,
     md_blockquote: Style,
+    syntax: Syntax,
+    glyphs: Glyphs,
     chrome: ChromeStyle,
     scrim: f32,
 }
@@ -240,6 +407,12 @@ pub(crate) fn test_eink_theme() -> Theme {
     builtin("e-ink", Mode::Dark).expect("bundled e-ink theme resolves")
 }
 
+/// Resolve a theme snippet (dark mode) for tests that pin specific tokens.
+#[cfg(test)]
+pub(crate) fn test_theme_from_toml(text: &str) -> Theme {
+    parse(text, Mode::Dark).expect("test theme snippet resolves")
+}
+
 impl Theme {
     /// The look the app has always had on a bare terminal: default colors,
     /// bordered chrome, meaning carried by modifiers. This is byte-for-byte
@@ -280,14 +453,21 @@ impl Theme {
         self.text
     }
 
-    /// Section titles and emphasised labels.
+    /// Section titles and emphasised labels. Bold in every theme — weight is
+    /// how headings survive monochrome — but the ink is the theme's to pick.
     pub(crate) fn heading(self) -> Style {
-        self.text.add_modifier(Modifier::BOLD)
+        self.heading.add_modifier(Modifier::BOLD)
     }
 
     /// Secondary text: captions, units, "+k more", empty hints.
     pub(crate) fn muted(self) -> Style {
         self.muted.add_modifier(Modifier::DIM)
+    }
+
+    /// Placeholder text in empty inputs. Dim in every theme so a prompt never
+    /// reads as entered text.
+    pub(crate) fn placeholder(self) -> Style {
+        self.placeholder.add_modifier(Modifier::DIM)
     }
 
     // --- accents ---
@@ -381,12 +561,24 @@ impl Theme {
 
     /// A primary action button chip.
     pub(crate) fn button(self) -> Style {
-        self.selection
+        self.button
     }
 
     /// A keybinding chip/hint in the footer and dialogs.
     pub(crate) fn key_hint(self) -> Style {
         self.key_hint
+    }
+
+    /// The editor/input cursor while *not* selecting. The REVERSED block shown
+    /// during a selection stays code-enforced so a selection always reads.
+    pub(crate) fn cursor(self) -> Style {
+        self.cursor
+    }
+
+    /// The line under the cursor in the multi-line editor. Defaults to no
+    /// highlight; themes may add a subtle background tint.
+    pub(crate) fn cursor_line(self) -> Style {
+        self.cursor_line
     }
 
     /// The active tab in the tab strip while the panel is focused: accent+bold
@@ -440,6 +632,16 @@ impl Theme {
     /// card and panel borders read as present-but-quiet.
     pub(crate) fn card_border(self) -> Style {
         self.border
+    }
+
+    /// The scrollbar's draggable thumb.
+    pub(crate) fn scrollbar_thumb(self) -> Style {
+        self.scrollbar_thumb
+    }
+
+    /// The scrollbar's track behind the thumb.
+    pub(crate) fn scrollbar_track(self) -> Style {
+        self.scrollbar_track
     }
 
     // --- charts ---
@@ -497,6 +699,12 @@ impl Theme {
         self.md_heading
     }
 
+    /// Third-level markdown headings, for themes that fade deeper levels.
+    /// (H2 is body ink + bold by the renderer's design.)
+    pub(crate) fn md_heading3(self) -> Style {
+        self.md_heading3
+    }
+
     /// Markdown links.
     pub(crate) fn md_link(self) -> Style {
         self.md_link
@@ -510,6 +718,27 @@ impl Theme {
     /// Block quotes.
     pub(crate) fn md_blockquote(self) -> Style {
         self.md_blockquote
+    }
+
+    /// Syntax-highlight colors for fenced code blocks.
+    pub(crate) fn syntax(self) -> Syntax {
+        self.syntax
+    }
+
+    // --- glyphs ---
+
+    /// The theme's identity glyphs.
+    pub(crate) fn glyphs(self) -> Glyphs {
+        self.glyphs
+    }
+
+    /// The marker before a selected list row: the theme's glyph if set,
+    /// otherwise the chrome's built-in (`●` flat, `>` bordered).
+    pub(crate) fn selection_marker(self) -> char {
+        self.glyphs.selection_marker.unwrap_or(match self.chrome {
+            ChromeStyle::Flat => '●',
+            ChromeStyle::Bordered => '>',
+        })
     }
 
     // --- chrome ---
@@ -531,6 +760,8 @@ impl Theme {
         vec![
             ("text", self.text),
             ("muted", self.muted),
+            ("heading", self.heading),
+            ("placeholder", self.placeholder),
             ("primary", self.primary),
             ("secondary", self.secondary),
             ("accent", self.accent),
@@ -544,7 +775,12 @@ impl Theme {
             ("info", self.info),
             ("selection", self.selection),
             ("hover", self.hover),
+            ("button", self.button),
             ("key_hint", self.key_hint),
+            ("cursor", self.cursor),
+            ("cursor_line", self.cursor_line),
+            ("scrollbar_thumb", self.scrollbar_thumb),
+            ("scrollbar_track", self.scrollbar_track),
             ("chart_positive", self.chart_positive.style),
             ("chart_neutral", self.chart_neutral.style),
             ("chart_negative", self.chart_negative.style),
@@ -554,6 +790,7 @@ impl Theme {
             ("chart_baseline", self.chart_baseline),
             ("chart_label", self.chart_label),
             ("md_heading", self.md_heading),
+            ("md_heading3", self.md_heading3),
             ("md_link", self.md_link),
             ("md_code", self.md_code),
             ("md_blockquote", self.md_blockquote),
@@ -755,13 +992,7 @@ struct FillSpec {
 
 impl FillSpec {
     fn resolve(&self, mode: Mode, palette: &Palette, token: &str) -> Result<Fill> {
-        let mut chars = self.glyph.chars();
-        let (Some(glyph), None) = (chars.next(), chars.next()) else {
-            bail!(
-                "glyph for `{token}` must be exactly one character, got {:?}",
-                self.glyph
-            );
-        };
+        let glyph = parse_glyph(&self.glyph, token)?;
         let mut style = Style::default();
         if let Some(color) = &self.color {
             style = style.fg(color.resolve(mode, palette, token)?);
@@ -778,6 +1009,7 @@ struct ThemeFile {
     colors: ColorsSection,
     charts: ChartsSection,
     markdown: MarkdownSection,
+    glyphs: GlyphsSection,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -807,6 +1039,8 @@ struct ColorsSection {
     element: Option<ColorSpec>,
     text: Option<TokenSpec>,
     muted: Option<TokenSpec>,
+    heading: Option<TokenSpec>,
+    placeholder: Option<TokenSpec>,
     primary: Option<TokenSpec>,
     secondary: Option<TokenSpec>,
     accent: Option<TokenSpec>,
@@ -820,7 +1054,12 @@ struct ColorsSection {
     info: Option<TokenSpec>,
     selection: Option<StyleSpec>,
     hover: Option<StyleSpec>,
+    button: Option<StyleSpec>,
     key_hint: Option<StyleSpec>,
+    cursor: Option<StyleSpec>,
+    cursor_line: Option<StyleSpec>,
+    scrollbar_thumb: Option<TokenSpec>,
+    scrollbar_track: Option<TokenSpec>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -840,9 +1079,111 @@ struct ChartsSection {
 #[serde(default, deny_unknown_fields)]
 struct MarkdownSection {
     heading: Option<TokenSpec>,
+    heading3: Option<TokenSpec>,
     link: Option<TokenSpec>,
     code: Option<TokenSpec>,
     blockquote: Option<TokenSpec>,
+    syntax: SyntaxSection,
+}
+
+/// Syntax-highlight colors for fenced code blocks, one key per category the
+/// markdown renderer distinguishes. Omitted categories render as plain code —
+/// an empty table is exactly the classic un-highlighted look.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct SyntaxSection {
+    comment: Option<ColorSpec>,
+    keyword: Option<ColorSpec>,
+    string: Option<ColorSpec>,
+    string_escape: Option<ColorSpec>,
+    number: Option<ColorSpec>,
+    constant: Option<ColorSpec>,
+    function: Option<ColorSpec>,
+    r#type: Option<ColorSpec>,
+    variable: Option<ColorSpec>,
+    property: Option<ColorSpec>,
+    operator: Option<ColorSpec>,
+    punctuation: Option<ColorSpec>,
+    attribute: Option<ColorSpec>,
+    tag: Option<ColorSpec>,
+    label: Option<ColorSpec>,
+    error: Option<ColorSpec>,
+}
+
+impl SyntaxSection {
+    fn resolve(&self, mode: Mode, palette: &Palette) -> Result<Syntax> {
+        let color = |spec: &Option<ColorSpec>, token: &str| -> Result<Color> {
+            spec.as_ref()
+                .map_or(Ok(Color::Reset), |spec| spec.resolve(mode, palette, token))
+        };
+        Ok(Syntax {
+            comment: color(&self.comment, "markdown.syntax.comment")?,
+            keyword: color(&self.keyword, "markdown.syntax.keyword")?,
+            string: color(&self.string, "markdown.syntax.string")?,
+            string_escape: color(&self.string_escape, "markdown.syntax.string_escape")?,
+            number: color(&self.number, "markdown.syntax.number")?,
+            constant: color(&self.constant, "markdown.syntax.constant")?,
+            function: color(&self.function, "markdown.syntax.function")?,
+            r#type: color(&self.r#type, "markdown.syntax.type")?,
+            variable: color(&self.variable, "markdown.syntax.variable")?,
+            property: color(&self.property, "markdown.syntax.property")?,
+            operator: color(&self.operator, "markdown.syntax.operator")?,
+            punctuation: color(&self.punctuation, "markdown.syntax.punctuation")?,
+            attribute: color(&self.attribute, "markdown.syntax.attribute")?,
+            tag: color(&self.tag, "markdown.syntax.tag")?,
+            label: color(&self.label, "markdown.syntax.label")?,
+            error: color(&self.error, "markdown.syntax.error")?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct GlyphsSection {
+    selection_marker: Option<String>,
+    focus_stripe: Option<String>,
+    toast_edge: Option<String>,
+    tab_separator: Option<String>,
+    divider: Option<String>,
+    chart_baseline: Option<String>,
+    chart_groove: Option<String>,
+    bar_center: Option<String>,
+    mood_fill: Option<String>,
+    borders: Option<BorderGlyphs>,
+}
+
+/// A single-character glyph value.
+fn parse_glyph(spec: &str, token: &str) -> Result<char> {
+    let mut chars = spec.chars();
+    let (Some(glyph), None) = (chars.next(), chars.next()) else {
+        bail!("glyph for `{token}` must be exactly one character, got {spec:?}");
+    };
+    Ok(glyph)
+}
+
+impl GlyphsSection {
+    fn resolve(&self) -> Result<Glyphs> {
+        let glyph = |spec: &Option<String>, default: char, token: &str| -> Result<char> {
+            spec.as_deref()
+                .map_or(Ok(default), |spec| parse_glyph(spec, token))
+        };
+        Ok(Glyphs {
+            selection_marker: self
+                .selection_marker
+                .as_deref()
+                .map(|spec| parse_glyph(spec, "glyphs.selection_marker"))
+                .transpose()?,
+            focus_stripe: glyph(&self.focus_stripe, '┃', "glyphs.focus_stripe")?,
+            toast_edge: glyph(&self.toast_edge, '┃', "glyphs.toast_edge")?,
+            tab_separator: glyph(&self.tab_separator, '·', "glyphs.tab_separator")?,
+            divider: glyph(&self.divider, '━', "glyphs.divider")?,
+            chart_baseline: glyph(&self.chart_baseline, '┈', "glyphs.chart_baseline")?,
+            chart_groove: glyph(&self.chart_groove, '·', "glyphs.chart_groove")?,
+            bar_center: glyph(&self.bar_center, '│', "glyphs.bar_center")?,
+            mood_fill: glyph(&self.mood_fill, '─', "glyphs.mood_fill")?,
+            borders: self.borders.unwrap_or_default(),
+        })
+    }
 }
 
 impl ThemeFile {
@@ -884,6 +1225,8 @@ impl ThemeFile {
         let element = color(&colors.element, panel, "colors.element")?;
         let text = style(&colors.text, Style::default(), "colors.text")?;
         let muted = style(&colors.muted, Style::default(), "colors.muted")?;
+        let heading = style(&colors.heading, text, "colors.heading")?;
+        let placeholder = style(&colors.placeholder, muted, "colors.placeholder")?;
         let primary = style(
             &colors.primary,
             Style::default().fg(Color::Cyan),
@@ -911,6 +1254,18 @@ impl ThemeFile {
             Style::default(),
             "colors.border_inactive",
         )?;
+        // The thumb inherits the active-border hue (it marks the scrollable,
+        // interactable panel); the track stays terminal-default quiet.
+        let scrollbar_thumb = style(
+            &colors.scrollbar_thumb,
+            border_active,
+            "colors.scrollbar_thumb",
+        )?;
+        let scrollbar_track = style(
+            &colors.scrollbar_track,
+            Style::default(),
+            "colors.scrollbar_track",
+        )?;
 
         let selection = match &colors.selection {
             Some(spec) => {
@@ -934,9 +1289,33 @@ impl ThemeFile {
             Some(spec) => spec.resolve(mode, palette, "colors.hover")?,
             None => Style::default().bg(lift(element, mode)),
         };
+        // Buttons are selection-colored unless a theme splits them; the same
+        // readable-fill rule applies.
+        let button = match &colors.button {
+            Some(spec) => {
+                if spec.bg.is_some() && spec.fg.is_none() {
+                    bail!(
+                        "`colors.button` sets a bg without an fg; pick a readable \
+                         foreground explicitly"
+                    );
+                }
+                spec.resolve(mode, palette, "colors.button")?
+            }
+            None => selection,
+        };
         let key_hint = match &colors.key_hint {
             Some(spec) => spec.resolve(mode, palette, "colors.key_hint")?,
             None => Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD),
+        };
+        // Both default to "no styling": the terminal's own cursor shape and no
+        // cursor-line highlight, which is what the app always did.
+        let cursor = match &colors.cursor {
+            Some(spec) => spec.resolve(mode, palette, "colors.cursor")?,
+            None => Style::default(),
+        };
+        let cursor_line = match &colors.cursor_line {
+            Some(spec) => spec.resolve(mode, palette, "colors.cursor_line")?,
+            None => Style::default(),
         };
 
         let charts = &self.charts;
@@ -986,6 +1365,7 @@ impl ThemeFile {
 
         let markdown = &self.markdown;
         let md_heading = style(&markdown.heading, Style::default(), "markdown.heading")?;
+        let md_heading3 = style(&markdown.heading3, md_heading, "markdown.heading3")?;
         let md_link = style(
             &markdown.link,
             Style::default().add_modifier(Modifier::UNDERLINED),
@@ -1009,6 +1389,8 @@ impl ThemeFile {
             element,
             text,
             muted,
+            heading,
+            placeholder,
             primary,
             secondary,
             accent,
@@ -1038,7 +1420,12 @@ impl ThemeFile {
             )?,
             selection,
             hover,
+            button,
             key_hint,
+            cursor,
+            cursor_line,
+            scrollbar_thumb,
+            scrollbar_track,
             chart_positive,
             chart_neutral,
             chart_negative,
@@ -1048,9 +1435,12 @@ impl ThemeFile {
             chart_baseline,
             chart_label,
             md_heading,
+            md_heading3,
             md_link,
             md_code,
             md_blockquote,
+            syntax: markdown.syntax.resolve(mode, palette)?,
+            glyphs: self.glyphs.resolve()?,
             chrome: self.chrome.default,
             scrim: self.chrome.scrim,
         })
@@ -1109,6 +1499,138 @@ mod tests {
         )
         .unwrap();
         assert_eq!(light.hover().bg, Some(Color::Rgb(0xc9, 0xc9, 0xc9)));
+    }
+
+    #[test]
+    fn new_tokens_chain_to_their_parents() {
+        // Each new token inherits its parent when omitted, so themes written
+        // before the tokens existed keep rendering as they did.
+        let theme = parse(
+            "[colors]\n\
+             text = \"#aabbcc\"\n\
+             muted = \"#334455\"\n\
+             selection = { fg = \"#000000\", bg = \"#ffffff\" }\n\
+             border_active = \"#606060\"\n\
+             [markdown]\n\
+             heading = \"#56b6b0\"",
+            Mode::Dark,
+        )
+        .unwrap();
+        assert_eq!(
+            theme.heading(),
+            Style::default()
+                .fg(Color::Rgb(0xaa, 0xbb, 0xcc))
+                .add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(
+            theme.placeholder(),
+            Style::default()
+                .fg(Color::Rgb(0x33, 0x44, 0x55))
+                .add_modifier(Modifier::DIM)
+        );
+        assert_eq!(theme.button(), theme.selection());
+        assert_eq!(
+            theme.scrollbar_thumb(),
+            Style::default().fg(Color::Rgb(0x60, 0x60, 0x60))
+        );
+        assert_eq!(theme.scrollbar_track(), Style::default());
+        assert_eq!(theme.md_heading3(), theme.md_heading());
+        // The editor tokens default to "no styling".
+        assert_eq!(theme.cursor(), Style::default());
+        assert_eq!(theme.cursor_line(), Style::default());
+    }
+
+    #[test]
+    fn new_tokens_resolve_explicit_values() {
+        let theme = parse(
+            "[colors]\n\
+             heading = \"#112233\"\n\
+             placeholder = \"#445566\"\n\
+             button = { fg = \"#000000\", bg = \"#aabbcc\" }\n\
+             cursor = { reversed = true }\n\
+             cursor_line = { bg = \"#181818\" }\n\
+             scrollbar_thumb = \"#778899\"\n\
+             scrollbar_track = \"#223344\"\n\
+             [markdown]\n\
+             heading3 = \"#556677\"",
+            Mode::Dark,
+        )
+        .unwrap();
+        assert_eq!(theme.heading().fg, Some(Color::Rgb(0x11, 0x22, 0x33)));
+        assert_eq!(theme.placeholder().fg, Some(Color::Rgb(0x44, 0x55, 0x66)));
+        assert_eq!(theme.button().bg, Some(Color::Rgb(0xaa, 0xbb, 0xcc)));
+        assert!(theme.cursor().add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(theme.cursor_line().bg, Some(Color::Rgb(0x18, 0x18, 0x18)));
+        assert_eq!(
+            theme.scrollbar_thumb().fg,
+            Some(Color::Rgb(0x77, 0x88, 0x99))
+        );
+        assert_eq!(
+            theme.scrollbar_track().fg,
+            Some(Color::Rgb(0x22, 0x33, 0x44))
+        );
+        assert_eq!(theme.md_heading3().fg, Some(Color::Rgb(0x55, 0x66, 0x77)));
+    }
+
+    #[test]
+    fn button_rejects_bg_without_fg() {
+        let err = parse("[colors]\nbutton = { bg = \"#aabbcc\" }", Mode::Dark).unwrap_err();
+        assert!(err.to_string().contains("colors.button"), "{err:#}");
+    }
+
+    #[test]
+    fn glyphs_resolve_and_default() {
+        let theme = parse(
+            "[glyphs]\nselection_marker = \"▶\"\nfocus_stripe = \"█\"\nborders = \"rounded\"",
+            Mode::Dark,
+        )
+        .unwrap();
+        assert_eq!(theme.selection_marker(), '▶');
+        assert_eq!(theme.glyphs().focus_stripe, '█');
+        assert_eq!(theme.glyphs().borders, BorderGlyphs::Rounded);
+        // Defaults untouched by a partial section.
+        assert_eq!(theme.glyphs().toast_edge, '┃');
+        assert_eq!(theme.glyphs().divider, '━');
+
+        // With no marker set, the selection marker follows the chrome.
+        let default = Theme::terminal_default();
+        assert_eq!(default.glyphs().selection_marker, None);
+        assert_eq!(default.selection_marker(), '>');
+        let mut flat = default;
+        flat.chrome = ChromeStyle::Flat;
+        assert_eq!(flat.selection_marker(), '●');
+        assert_eq!(default.glyphs().borders, BorderGlyphs::Plain);
+    }
+
+    #[test]
+    fn glyph_tokens_must_be_one_character() {
+        let err = parse("[glyphs]\nfocus_stripe = \"ab\"", Mode::Dark).unwrap_err();
+        assert!(err.to_string().contains("glyphs.focus_stripe"), "{err:#}");
+    }
+
+    #[test]
+    fn border_glyph_sets_cover_focus_and_ascii() {
+        // A themed set thickens for focus; ascii has no thick variant, so a
+        // focused ascii panel keeps its own corners (focus rides on the style).
+        assert_eq!(BorderGlyphs::Rounded.block_set(false).top_left, "╭");
+        assert_eq!(BorderGlyphs::Rounded.block_set(true).top_left, "┏");
+        assert_eq!(BorderGlyphs::Ascii.block_set(false).top_left, "+");
+        assert_eq!(BorderGlyphs::Ascii.block_set(true).top_left, "+");
+        assert_eq!(BorderGlyphs::Ascii.line_set().cross, "+");
+    }
+
+    #[test]
+    fn syntax_colors_resolve_and_default_to_reset() {
+        let theme = parse(
+            "[markdown.syntax]\nkeyword = \"#fab283\"\nstring = \"green\"",
+            Mode::Dark,
+        )
+        .unwrap();
+        assert_eq!(theme.syntax().keyword, Color::Rgb(0xfa, 0xb2, 0x83));
+        assert_eq!(theme.syntax().string, Color::Green);
+        // Unset categories stay plain, so classic code blocks don't change.
+        assert_eq!(theme.syntax().comment, Color::Reset);
+        assert_eq!(Theme::terminal_default().syntax().keyword, Color::Reset);
     }
 
     #[test]
@@ -1249,6 +1771,22 @@ mod tests {
         // Hover inherits the element surface, which is the terminal default
         // here — an invisible hover, keeping the classic look inert.
         assert_eq!(theme.hover(), Style::default().bg(Color::Reset));
+        // The pass-2 tokens: buttons ride selection, headings ride text,
+        // placeholders ride muted, the editor and scrollbars stay unstyled —
+        // exactly the pre-token rendering.
+        assert_eq!(theme.button(), theme.selection());
+        assert_eq!(
+            theme.heading(),
+            Style::default().add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(
+            theme.placeholder(),
+            Style::default().add_modifier(Modifier::DIM)
+        );
+        assert_eq!(theme.cursor(), Style::default());
+        assert_eq!(theme.cursor_line(), Style::default());
+        assert_eq!(theme.scrollbar_thumb(), Style::default());
+        assert_eq!(theme.scrollbar_track(), Style::default());
         assert_eq!(theme.chrome(), ChromeStyle::Bordered);
         assert_eq!(theme.scrim_strength(), 0.0);
     }

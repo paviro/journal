@@ -86,6 +86,7 @@ pub(crate) fn draw_unlock(
     } else {
         Block::default()
             .borders(Borders::ALL)
+            .border_set(theme().glyphs().borders.border_set())
             .border_style(theme().muted())
             .padding(Padding::horizontal(1))
     };

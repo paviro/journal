@@ -22,6 +22,7 @@ border          = { dark = "#2b3a2b", light = "#c8d8bf" }
 border_subtle   = { dark = "#202c20", light = "#d8e4d0" }
 border_active   = { dark = "#48604a", light = "#93a889" }
 border_inactive = { dark = "#2b3a2b", light = "#c8d8bf" }
+scrollbar_track = { dark = "#202c20", light = "#d8e4d0" }
 
 success = { dark = "#8fbf7f", light = "#3d7a37" }
 warning = { dark = "#d9ae61", light = "#8a6420" }

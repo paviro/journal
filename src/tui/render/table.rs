@@ -20,9 +20,21 @@ pub(crate) fn faint_rule_style() -> Style {
     theme().faint_rule()
 }
 
-/// A dim `│` column border.
+/// A dim column border in the theme's line set.
 pub(crate) fn border() -> Span<'static> {
-    Span::styled("│", border_style())
+    Span::styled(theme().glyphs().borders.line_set().vertical, border_style())
+}
+
+/// Where a horizontal rule sits in the grid, deciding its corner and junction
+/// glyphs.
+#[derive(Clone, Copy)]
+pub(crate) enum RulePos {
+    Top,
+    Mid,
+    Bottom,
+    /// An inter-row rule: the column borders run straight through as plain
+    /// verticals (no junctions), so the vertical lines stay continuous.
+    Row,
 }
 
 /// Pad `text` to `width`, right-aligned for numeric columns and left otherwise.
@@ -42,27 +54,27 @@ pub(crate) fn push_cell(spans: &mut Vec<Span<'static>>, content: Span<'static>) 
     spans.push(border());
 }
 
-/// A horizontal border rule spanning `widths`, e.g. `┌────┬────┐`. The junction
-/// glyphs (which sit on the vertical column borders) take `junction` and the `─`
-/// fill takes `dash`; giving inter-row rules a fainter `dash` but a full-weight
-/// `junction` keeps the vertical column lines uniform instead of banding where the
-/// rules cross them.
-pub(crate) fn rule(
-    widths: &[usize],
-    left: char,
-    mid: char,
-    right: char,
-    junction: Style,
-    dash: Style,
-) -> Line<'static> {
-    let mut spans = vec![Span::styled(left.to_string(), junction)];
+/// A horizontal border rule spanning `widths`, e.g. `┌────┬────┐`, drawn in
+/// the theme's line set. The junction glyphs (which sit on the vertical column
+/// borders) take `junction` and the horizontal fill takes `dash`; giving
+/// inter-row rules a fainter `dash` but a full-weight `junction` keeps the
+/// vertical column lines uniform instead of banding where the rules cross them.
+pub(crate) fn rule(widths: &[usize], pos: RulePos, junction: Style, dash: Style) -> Line<'static> {
+    let set = theme().glyphs().borders.line_set();
+    let (left, mid, right) = match pos {
+        RulePos::Top => (set.top_left, set.horizontal_down, set.top_right),
+        RulePos::Mid => (set.vertical_right, set.cross, set.vertical_left),
+        RulePos::Bottom => (set.bottom_left, set.horizontal_up, set.bottom_right),
+        RulePos::Row => (set.vertical, set.vertical, set.vertical),
+    };
+    let mut spans = vec![Span::styled(left, junction)];
     for (i, w) in widths.iter().enumerate() {
         if i > 0 {
-            spans.push(Span::styled(mid.to_string(), junction));
+            spans.push(Span::styled(mid, junction));
         }
-        spans.push(Span::styled("─".repeat(w + 2), dash));
+        spans.push(Span::styled(set.horizontal.repeat(w + 2), dash));
     }
-    spans.push(Span::styled(right.to_string(), junction));
+    spans.push(Span::styled(right, junction));
     Line::from(spans)
 }
 

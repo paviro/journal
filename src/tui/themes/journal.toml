@@ -38,6 +38,8 @@ selection = { bg = { dark = "#56b6b0", light = "#157d76" }, fg = { dark = "#0a0a
 hover     = { bg = { dark = "#303030", light = "#d8d8d8" } }
 key_hint  = { fg = { dark = "#eeeeee", light = "#1c1c1c" }, bold = true }
 
+scrollbar_track = { dark = "#282828", light = "#e4e4e4" }
+
 [charts]
 positive = { glyph = "▓", color = { dark = "#8fbf7f", light = "#3d7a37" } }
 neutral  = { glyph = "▓", color = { dark = "#808080", light = "#8a8a8a" } }
@@ -51,3 +53,20 @@ heading    = { fg = { dark = "#56b6b0", light = "#157d76" }, bold = true }
 link       = { fg = { dark = "#7aa2f7", light = "#2f5fbf" }, underlined = true }
 code       = { dark = "#fab283", light = "#b05f14" }
 blockquote = { fg = { dark = "#808080", light = "#8a8a8a" } }
+
+# Fenced-code syntax highlighting; omitted categories render as plain code.
+[markdown.syntax]
+comment     = { dark = "#808080", light = "#8a8a8a" }
+keyword     = { dark = "#fab283", light = "#b05f14" }
+string      = { dark = "#8fbf7f", light = "#3d7a37" }
+string_escape = { dark = "#e0af68", light = "#a8660d" }
+number      = { dark = "#e0af68", light = "#a8660d" }
+constant    = { dark = "#e0af68", light = "#a8660d" }
+function    = { dark = "#56b6b0", light = "#157d76" }
+type        = { dark = "#7aa2f7", light = "#2f5fbf" }
+property    = { dark = "#7aa2f7", light = "#2f5fbf" }
+punctuation = { dark = "#808080", light = "#8a8a8a" }
+attribute   = { dark = "#e0af68", light = "#a8660d" }
+tag         = { dark = "#56b6b0", light = "#157d76" }
+label       = { dark = "#e06c75", light = "#b03540" }
+error       = { dark = "#e06c75", light = "#b03540" }

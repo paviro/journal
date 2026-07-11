@@ -600,10 +600,12 @@ pub(super) fn draw_theme_picker(
                 // The configured theme's row carries the active marker; a file
                 // that failed to parse renders in the error style so picking it
                 // (a no-op preview, a toast on Enter) isn't a surprise.
+                // The active-theme dot follows the theme's selection marker
+                // when one is set; the built-in `●` is chrome-agnostic here.
                 let marker = if entry.name == state.previous_name {
-                    "●"
+                    theme().glyphs().selection_marker.unwrap_or('●')
                 } else {
-                    " "
+                    ' '
                 };
                 let item = match entry.theme {
                     Some(_) => ListItem::new(Line::from(format!("{marker} {}", entry.name))),
@@ -710,17 +712,19 @@ fn render_search_field(
 ) {
     let hovered = hovered_field(hover, value);
     // Flat chrome marks the active field with an accent stripe, bordered with
-    // the classic `>`; both are one column wide so the field math is shared.
+    // the classic selection marker; both are one column wide so the field math
+    // is shared.
     let (marker, marker_style) = if focused {
         if flat_chrome() {
-            ("┃", theme().primary())
+            (theme().glyphs().focus_stripe, theme().primary())
         } else {
-            (">", Style::default())
+            (theme().selection_marker(), Style::default())
         }
     } else {
-        (" ", Style::default())
+        (' ', Style::default())
     };
-    let prefix_w = UnicodeWidthStr::width(marker) as u16 + UnicodeWidthStr::width(label) as u16;
+    let prefix_w = unicode_width::UnicodeWidthChar::width(marker).unwrap_or(1) as u16
+        + UnicodeWidthStr::width(label) as u16;
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(marker.to_string(), marker_style),

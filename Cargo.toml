@@ -45,7 +45,25 @@ notify = "7.0"
 ratatui = "0.30"
 ratatui_029 = { package = "ratatui", version = "0.29" }
 ratatui-image = { version = "11", default-features = false, features = ["crossterm", "image-defaults"] }
-ratatui-markdown = { version = "0.3.6", default-features = false, features = ["markdown", "mermaid"] }
+# highlight-lang-* gates one tree-sitter grammar each; add more as needed.
+ratatui-markdown = { version = "0.3.6", default-features = false, features = [
+    "markdown",
+    "mermaid",
+    "highlight",
+    "highlight-lang-bash",
+    "highlight-lang-css",
+    "highlight-lang-diff",
+    "highlight-lang-html",
+    "highlight-lang-javascript",
+    "highlight-lang-json",
+    "highlight-lang-python",
+    "highlight-lang-rust",
+    "highlight-lang-sql",
+    "highlight-lang-swift",
+    "highlight-lang-toml",
+    "highlight-lang-typescript",
+    "highlight-lang-yaml",
+] }
 ratatui-textarea = { version = "0.9", features = ["crossterm"] }
 rascii_art = "0.4.5"
 rayon = "1"

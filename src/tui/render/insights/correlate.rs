@@ -121,20 +121,20 @@ fn draw_table(
 
     let border = theme().muted();
     let mut lines: Vec<Line> = Vec::with_capacity(2 * viewport + 3);
-    lines.push(columns.rule('┌', '┬', '┐', border, border));
+    lines.push(columns.rule(table::RulePos::Top, border, border));
     lines.push(columns.header_row(feeling_header));
     // The header/body divider keeps the border weight; the grid lines *between*
-    // data rows fade their dashes and run the column borders straight through as
-    // plain `│` (no `┼` junctions), so the vertical lines stay continuous and
-    // uniform even though the faint dashes no longer connect to them.
-    lines.push(columns.rule('├', '┼', '┤', border, border));
+    // data rows fade their dashes and run the column borders straight through
+    // (no junctions), so the vertical lines stay continuous and uniform even
+    // though the faint dashes no longer connect to them.
+    lines.push(columns.rule(table::RulePos::Mid, border, border));
     for (row, correlate) in items[range.clone()].iter().enumerate() {
         if row > 0 {
-            lines.push(columns.rule('│', '│', '│', border, theme().faint_rule()));
+            lines.push(columns.rule(table::RulePos::Row, border, theme().faint_rule()));
         }
         lines.push(columns.data_row(correlate, max_abs));
     }
-    lines.push(columns.rule('└', '┴', '┘', border, border));
+    lines.push(columns.rule(table::RulePos::Bottom, border, border));
 
     frame.render_widget(Paragraph::new(lines), area);
     InsightsListMetrics {
@@ -210,15 +210,8 @@ impl Columns {
     }
 
     /// A horizontal border rule, e.g. `┌────┬────┐`, matching the column widths.
-    fn rule(
-        &self,
-        left: char,
-        mid: char,
-        right: char,
-        junction: Style,
-        dash: Style,
-    ) -> Line<'static> {
-        table::rule(&self.widths(), left, mid, right, junction, dash)
+    fn rule(&self, pos: table::RulePos, junction: Style, dash: Style) -> Line<'static> {
+        table::rule(&self.widths(), pos, junction, dash)
     }
 
     /// The dim header row, its labels padded to the column widths. `feeling_header`
@@ -367,7 +360,10 @@ fn delta_bar(delta: Option<f32>, max_abs: f32, width: usize) -> Line<'static> {
     for &on in &left {
         spans.push(cell_span(on, theme().negative()));
     }
-    spans.push(Span::styled("│", theme().muted()));
+    spans.push(Span::styled(
+        theme().glyphs().bar_center.to_string(),
+        theme().muted(),
+    ));
     for &on in &right {
         spans.push(cell_span(on, theme().positive()));
     }
@@ -380,7 +376,10 @@ fn cell_span(filled: bool, style: ratatui::style::Style) -> Span<'static> {
     if filled {
         Span::styled(theme().chart_bar().glyph.to_string(), style)
     } else {
-        Span::styled("·", theme().chart_track().style)
+        Span::styled(
+            theme().glyphs().chart_groove.to_string(),
+            theme().chart_track().style,
+        )
     }
 }
 
@@ -482,7 +481,7 @@ mod tests {
             let inner: usize = columns.widths().iter().map(|w| w + 3).sum::<usize>() + 1;
             assert_eq!(inner, panel, "columns should tile the panel width");
             assert_eq!(
-                width(columns.rule('┌', '┬', '┐', theme().muted(), theme().muted())),
+                width(columns.rule(table::RulePos::Top, theme().muted(), theme().muted())),
                 panel
             );
             assert_eq!(width(columns.header_row("Feelings")), panel);

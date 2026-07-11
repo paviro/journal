@@ -3,7 +3,6 @@ use std::time::Instant;
 
 use journal_core::Metadata;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
 use ratatui_textarea::{DataCursor, TextArea, WrapMode};
 
 use super::theme::theme;
@@ -157,9 +156,9 @@ impl EntryEditor {
 
 fn new_textarea(body: &str, placeholder: Option<&str>) -> TextArea<'static> {
     let mut textarea = TextArea::new(body.split('\n').map(str::to_string).collect());
-    // A plain caret, no full-width cursor-line highlight, keeps the journal body
-    // reading like the viewer rather than a code editor.
-    textarea.set_cursor_line_style(Style::default());
+    // The cursor line defaults to no highlight, keeping the journal body
+    // reading like the viewer rather than a code editor; themes may tint it.
+    textarea.set_cursor_line_style(theme().cursor_line());
     // Make selections visible (reversed video) so keyboard/mouse selection reads
     // clearly and can't silently swallow text.
     textarea.set_selection_style(theme().selection());
@@ -168,6 +167,9 @@ fn new_textarea(body: &str, placeholder: Option<&str>) -> TextArea<'static> {
     textarea.set_wrap_mode(WrapMode::WordOrGlyph);
     if let Some(text) = placeholder {
         textarea.set_placeholder_text(text.to_string());
+        // The widget's own default is a hardcoded dark gray; the theme's
+        // placeholder ink matches the single-line fields instead.
+        textarea.set_placeholder_style(theme().placeholder());
     }
     textarea
 }

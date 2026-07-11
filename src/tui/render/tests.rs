@@ -2591,6 +2591,126 @@ mod flat_chrome_tests {
     }
 
     #[test]
+    fn entry_body_cache_rebuilds_when_the_theme_changes() {
+        // The rendered body bakes in markdown colors, glyphs, and syntax
+        // highlighting; the picker's live preview swaps themes without
+        // touching the entry, so the memo key must notice.
+        theme::set_test_theme(theme::test_flat_theme());
+        let app = app_with_journals(&["alpha"]);
+        let builds = std::cell::Cell::new(0);
+        let build = || {
+            builds.set(builds.get() + 1);
+            (Vec::new(), Vec::new())
+        };
+        app.cached_entry_body(None, 80, build);
+        app.cached_entry_body(None, 80, build);
+        assert_eq!(builds.get(), 1, "same theme must hit the cache");
+        theme::set_test_theme(theme::test_eink_theme());
+        app.cached_entry_body(None, 80, build);
+        assert_eq!(builds.get(), 2, "a theme change must rebuild the body");
+    }
+
+    #[test]
+    fn bordered_key_chips_carry_the_key_hint_token() {
+        // Bordered chrome used to hardcode REVERSED|BOLD chips; the token's
+        // default is that same chip, so classic is a no-op — but a flat theme
+        // forced to bordered must keep its own key_hint ink.
+        theme::set_test_theme(theme::test_flat_theme());
+        theme::set_chrome_override(Some(crate::tui::theme::ChromeStyle::Bordered));
+        let theme = theme::test_flat_theme();
+        let app = app_with_journals(&["alpha"]);
+        let text = chrome::footer_lines(&app, 120);
+        let spans: Vec<_> = text
+            .lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .collect();
+        let label = spans
+            .iter()
+            .position(|span| span.content == " quit")
+            .expect("quit label in the browse footer");
+        let chip = spans[label - 1];
+        assert_eq!(chip.style, theme.key_hint(), "chip ignored the token");
+        theme::set_chrome_override(None);
+    }
+
+    #[test]
+    fn scrollbars_carry_the_scrollbar_tokens_on_both_chromes() {
+        use ratatui::widgets::ScrollbarState;
+        theme::set_test_theme(theme::test_flat_theme());
+        theme::set_chrome_override(Some(crate::tui::theme::ChromeStyle::Bordered));
+        let theme = theme::test_flat_theme();
+        let backend = render_backend(4, 12, |frame| {
+            let mut state = ScrollbarState::default()
+                .content_length(100)
+                .viewport_content_length(10)
+                .position(0);
+            chrome::render_vertical_scrollbar(frame, frame.area(), &mut state);
+        });
+        // The bar sits in the last column with a one-row vertical margin and
+        // an arrow on each end; the thumb hugs the top at position 0, the
+        // track fills the rest.
+        let thumb = &backend.buffer()[(3u16, 2u16)];
+        let track = &backend.buffer()[(3u16, 9u16)];
+        assert_eq!(thumb.fg, theme.scrollbar_thumb().fg.unwrap());
+        assert_eq!(track.fg, theme.scrollbar_track().fg.unwrap());
+        theme::set_chrome_override(None);
+    }
+
+    #[test]
+    fn themed_selection_marker_overrides_both_chromes() {
+        theme::set_test_theme(theme::test_theme_from_toml(
+            "[glyphs]\nselection_marker = \"▶\"",
+        ));
+        theme::set_chrome_override(Some(crate::tui::theme::ChromeStyle::Bordered));
+        assert_eq!(chrome::list_highlight_symbol(), "▶");
+        theme::set_chrome_override(Some(crate::tui::theme::ChromeStyle::Flat));
+        assert_eq!(chrome::list_highlight_symbol(), "▶ ");
+        theme::set_chrome_override(None);
+    }
+
+    #[test]
+    fn themed_border_set_draws_panels_cards_and_tables() {
+        theme::set_test_theme(theme::test_theme_from_toml(
+            "[glyphs]\nborders = \"rounded\"",
+        ));
+        let corner = |focused: bool| {
+            let backend = render_backend(20, 5, move |frame| {
+                frame.render_widget(chrome::panel_block("t", focused, None), frame.area());
+            });
+            backend.buffer()[(0u16, 0u16)].symbol().to_string()
+        };
+        assert_eq!(corner(false), "╭", "unfocused panel ignored the set");
+        assert_eq!(corner(true), "┏", "focus must stay thick");
+
+        theme::set_test_theme(theme::test_theme_from_toml("[glyphs]\nborders = \"ascii\""));
+        let text = |line: ratatui::text::Line| -> String {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect()
+        };
+        assert_eq!(
+            text(crate::tui::entry_rows::border_line(
+                crate::tui::entry_rows::BoxEdge::Top,
+                10,
+                None,
+                None,
+            )),
+            "+--------+"
+        );
+        assert_eq!(
+            text(table::rule(
+                &[3],
+                table::RulePos::Top,
+                ratatui::style::Style::default(),
+                ratatui::style::Style::default(),
+            )),
+            "+-----+"
+        );
+    }
+
+    #[test]
     fn bordered_chrome_styles_unfocused_panel_borders_with_the_theme() {
         // A flat-designed theme forced into bordered chrome must not draw
         // inactive panel borders in the terminal-default ink — that reads

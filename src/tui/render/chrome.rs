@@ -5,8 +5,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{
-        Block, BorderType, Borders, Clear, Padding, Paragraph, Scrollbar, ScrollbarOrientation,
-        ScrollbarState,
+        Block, Borders, Clear, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
     },
 };
 use unicode_width::UnicodeWidthStr;
@@ -119,16 +118,11 @@ fn key_chip_text(key: &str) -> String {
     format!(" {key} ")
 }
 
-/// The style for a hint's key chip. Bordered chrome always uses the classic
-/// inverted chip — the theme's `key_hint` colors belong to the flat look,
-/// where filled chips sit on layered surfaces; on drawn borders the inversion
-/// reads better and matches the pre-theme footer.
+/// The style for a hint's key chip. The token's default is the classic
+/// inverted chip, so themes that never touch `key_hint` keep the pre-theme
+/// footer on both chromes.
 fn key_chip_style() -> Style {
-    if flat_chrome() {
-        theme().key_hint()
-    } else {
-        Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
-    }
+    theme().key_hint()
 }
 
 #[derive(Debug, Clone)]
@@ -835,8 +829,9 @@ fn draw_toast(
         };
         frame.render_widget(Block::new().style(surface), area);
         for edge_x in [area.x, area.right().saturating_sub(1)] {
+            let edge = theme().glyphs().toast_edge.to_string();
             let stripe: Vec<Line<'static>> = (0..area.height)
-                .map(|_| Line::from(Span::styled("┃", accent)))
+                .map(|_| Line::from(Span::styled(edge.clone(), accent)))
                 .collect();
             frame.render_widget(
                 Paragraph::new(stripe),
@@ -932,6 +927,7 @@ pub(crate) fn draw_dialog_frame(
         // Classic resolves it through panel to the terminal default.
         let mut block = Block::default()
             .borders(Borders::ALL)
+            .border_set(theme().glyphs().borders.border_set())
             .border_style(theme().dialog_border())
             .style(Style::default().bg(theme().dialog_bg()));
         if !title.is_empty() {
@@ -942,10 +938,16 @@ pub(crate) fn draw_dialog_frame(
     dialog_inner(area)
 }
 
-/// The marker shown before a selected list row: a bullet on flat chrome, the
-/// classic `>` on bordered.
-pub(crate) fn list_highlight_symbol() -> &'static str {
-    if flat_chrome() { "● " } else { ">" }
+/// The marker shown before a selected list row: the theme's glyph (default a
+/// bullet on flat chrome, the classic `>` on bordered), padded to two cells on
+/// flat so the chip layout keeps its indent.
+pub(crate) fn list_highlight_symbol() -> String {
+    let marker = theme().selection_marker();
+    if flat_chrome() {
+        format!("{marker} ")
+    } else {
+        marker.to_string()
+    }
 }
 
 /// The style for the thin `─` rules that subdivide dialogs.
@@ -972,6 +974,7 @@ pub(crate) fn container_block(title: &str) -> Block<'static> {
     } else {
         Block::default()
             .borders(Borders::ALL)
+            .border_set(theme().glyphs().borders.border_set())
             .border_style(theme().dialog_border())
             .title_top(Line::from(format!(" {title} ")))
             .padding(Padding::new(2, 2, 1, 1))
@@ -985,8 +988,9 @@ pub(crate) fn panel_focus_stripe(frame: &mut Frame<'_>, area: Rect, focused: boo
     if !flat_chrome() || !focused || area.width == 0 {
         return;
     }
+    let glyph = theme().glyphs().focus_stripe.to_string();
     let stripe: Vec<Line<'static>> = (0..area.height)
-        .map(|_| Line::from(Span::styled("┃", theme().focus_border())))
+        .map(|_| Line::from(Span::styled(glyph.clone(), theme().focus_border())))
         .collect();
     frame.render_widget(Paragraph::new(stripe), Rect { width: 1, ..area });
 }
@@ -1011,12 +1015,11 @@ pub(crate) fn panel_block(
 
     let mut block = Block::default()
         .title(panel_title(title, focused))
-        .borders(Borders::ALL);
+        .borders(Borders::ALL)
+        .border_set(theme().glyphs().borders.block_set(focused));
 
     if focused {
-        block = block
-            .border_type(BorderType::Thick)
-            .border_style(theme().focus_border());
+        block = block.border_style(theme().focus_border());
     } else {
         block = block.border_style(theme().inactive_border());
     }
@@ -1456,18 +1459,19 @@ fn pad_display(text: &str, width: usize) -> String {
 /// merged cell rather than a stack of separately-ruled blanks.
 fn row_separator(widths: &[usize], row: &[String], muted: Style) -> Line<'static> {
     let faint = table::faint_rule_style();
-    let mut spans = vec![Span::styled("│".to_string(), muted)];
+    let set = theme().glyphs().borders.line_set();
+    let mut spans = vec![Span::styled(set.vertical, muted)];
     for (c, w) in widths.iter().enumerate() {
         if c > 0 {
-            spans.push(Span::styled("│".to_string(), muted));
+            spans.push(Span::styled(set.vertical, muted));
         }
         if row[c].is_empty() {
             spans.push(Span::raw(" ".repeat(w + 2)));
         } else {
-            spans.push(Span::styled("─".repeat(w + 2), faint));
+            spans.push(Span::styled(set.horizontal.repeat(w + 2), faint));
         }
     }
-    spans.push(Span::styled("│".to_string(), muted));
+    spans.push(Span::styled(set.vertical, muted));
     Line::from(spans)
 }
 
@@ -1478,7 +1482,7 @@ fn grid_table(headers: &[&str], rows: &[Vec<String>], key_col: usize) -> (Vec<Li
     let muted = table::border_style();
 
     let mut lines = Vec::with_capacity(2 * rows.len() + 4);
-    lines.push(table::rule(&widths, '┌', '┬', '┐', muted, muted));
+    lines.push(table::rule(&widths, table::RulePos::Top, muted, muted));
     let mut header = vec![table::border()];
     for (c, label) in headers.iter().enumerate() {
         table::push_cell_spans(
@@ -1487,7 +1491,7 @@ fn grid_table(headers: &[&str], rows: &[Vec<String>], key_col: usize) -> (Vec<Li
         );
     }
     lines.push(Line::from(header));
-    lines.push(table::rule(&widths, '├', '┼', '┤', muted, muted));
+    lines.push(table::rule(&widths, table::RulePos::Mid, muted, muted));
     for (r, row) in rows.iter().enumerate() {
         // A faint rule between rows, its column borders running straight through as
         // plain `│` so the verticals stay continuous — matching the insights table.
@@ -1502,7 +1506,7 @@ fn grid_table(headers: &[&str], rows: &[Vec<String>], key_col: usize) -> (Vec<Li
         }
         lines.push(Line::from(spans));
     }
-    lines.push(table::rule(&widths, '└', '┴', '┘', muted, muted));
+    lines.push(table::rule(&widths, table::RulePos::Bottom, muted, muted));
 
     // Each column renders as `│ <content> `; the last cell adds the closing `│`.
     let width = widths.iter().map(|w| w + 3).sum::<usize>() + 1;
@@ -1709,6 +1713,7 @@ fn draw_table_dialog(
             .title(format!(" {} ", dialog.title))
             .title_bottom(Line::from(format!(" {} ", metrics.footer)).centered())
             .borders(Borders::ALL)
+            .border_set(theme().glyphs().borders.border_set())
             .border_style(theme().dialog_border())
             .style(Style::default().bg(theme().dialog_bg()));
         frame.render_widget(block, metrics.area);
@@ -1771,6 +1776,7 @@ pub(crate) fn draw_modal_frame(frame: &mut Frame<'_>, title: &str, key_hint: &st
     frame.buffer_mut().set_style(area, base_style());
     let mut block = Block::default()
         .borders(Borders::ALL)
+        .border_set(theme().glyphs().borders.border_set())
         .border_style(theme().dialog_border())
         .title_top(Line::from(format!(" {title} ")));
     if !key_hint.is_empty() {
@@ -1813,12 +1819,9 @@ pub(crate) fn render_vertical_scrollbar(
     area: Rect,
     state: &mut ScrollbarState,
 ) {
-    let mut scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
-    if flat_chrome() {
-        scrollbar = scrollbar
-            .thumb_style(theme().focus_border())
-            .track_style(theme().faint_rule());
-    }
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .thumb_style(theme().scrollbar_thumb())
+        .track_style(theme().scrollbar_track());
     frame.render_stateful_widget(
         scrollbar,
         area.inner(Margin {

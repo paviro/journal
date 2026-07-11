@@ -12,7 +12,8 @@ use ratatui_029::{
     text::{Line as MarkdownLine, Span as MarkdownSpan},
 };
 use ratatui_markdown::{
-    markdown::{MarkdownBlock, MarkdownRenderer},
+    highlight::{HighlightHooks, TreeSitterHighlighter},
+    markdown::{MarkdownBlock, MarkdownRenderer, RenderHooks},
     theme::{CodeColors, ThemeConfig},
 };
 
@@ -122,12 +123,13 @@ pub(crate) fn draw_entry_editor(
 
     // While selecting, draw the reversed-block caret so the boundary character
     // reads as part of the selection (a thin bar can't fill that cell); otherwise
-    // hide the widget caret and use the native bar cursor placed below.
+    // the theme's cursor style — by default unstyled, leaving the native bar
+    // cursor placed below as the only caret.
     let selecting = editor.textarea.selection_range().is_some();
     editor.textarea.set_cursor_style(if selecting {
         theme().selection()
     } else {
-        Style::default()
+        theme().cursor()
     });
 
     editor.text_rect = text_rect;
@@ -221,7 +223,10 @@ fn draw_markdown_panel(
     // only scrolled, blinked, or ticked images reuses the rendered lines.
     let body = app.cached_entry_body(entry_path, width, || {
         let theme = markdown_theme();
-        let renderer = MarkdownRenderer::new(width);
+        let mut renderer = MarkdownRenderer::new(width);
+        if let Some(hooks) = highlight_hooks(width) {
+            renderer = renderer.with_render_hooks(hooks);
+        }
         build_body_lines(content, &renderer, &theme, entry_path)
     });
     let mut lines = body.0.clone();
@@ -699,7 +704,7 @@ impl Widget for MoodBar {
             let Some(cell) = buf.cell_mut((x, area.y)) else {
                 continue;
             };
-            cell.set_symbol(symbol);
+            cell.set_symbol(&symbol);
             cell.set_style(style);
         }
     }
@@ -712,7 +717,7 @@ fn mood_bar_spans(width: u16, score: i8) -> Vec<Span<'static>> {
         .collect()
 }
 
-fn mood_bar_cells(width: u16, score: i8) -> Vec<(&'static str, Style)> {
+fn mood_bar_cells(width: u16, score: i8) -> Vec<(String, Style)> {
     let width = width as usize;
     if width < 3 {
         return Vec::new();
@@ -738,24 +743,32 @@ fn mood_bar_cells(width: u16, score: i8) -> Vec<(&'static str, Style)> {
 
     let bold = theme().heading();
     let dim = theme().muted();
+    // The theme picks the light strokes; the heavy `┃`/`━` variants stay fixed
+    // because weight is the meaning (an exact zero, the filled span).
+    let center_glyph = theme().glyphs().bar_center.to_string();
+    let fill_glyph = theme().glyphs().mood_fill.to_string();
 
     let mut cells = Vec::with_capacity(width);
     for i in 0..width {
         if i == center {
-            cells.push((if score == 0 { "┃" } else { "│" }, Style::default()));
+            cells.push(if score == 0 {
+                ("┃".to_string(), Style::default())
+            } else {
+                (center_glyph.clone(), Style::default())
+            });
         } else if i < center {
             let dist = center - i;
             cells.push(if dist <= filled_left {
-                ("━", bold)
+                ("━".to_string(), bold)
             } else {
-                ("─", dim)
+                (fill_glyph.clone(), dim)
             });
         } else {
             let dist = i - center;
             cells.push(if dist <= filled_right {
-                ("━", bold)
+                ("━".to_string(), bold)
             } else {
-                ("─", dim)
+                (fill_glyph.clone(), dim)
             });
         }
     }
@@ -764,13 +777,15 @@ fn mood_bar_cells(width: u16, score: i8) -> Vec<(&'static str, Style)> {
 }
 
 /// The markdown renderer's colors, fed from the theme's markdown tokens. The
-/// crate couples elements to a handful of slots: `primary` colors headings and
-/// links, `secondary` the lower heading levels, `accent_yellow` inline code,
-/// `muted` the rules/prefixes. Tokens without a color resolve to `Reset`, so a
-/// theme with no `[markdown]` colors renders exactly the plain classic output.
+/// crate couples elements to a handful of slots: `primary` colors H1 headings
+/// and inline links, `secondary` H3, `accent_yellow` inline code, `muted` the
+/// rules/prefixes; the JSON-tree slots follow the closest `[markdown.syntax]`
+/// categories. Tokens without a color resolve to `Reset`, so a theme with no
+/// `[markdown]` colors renders exactly the plain classic output.
 pub(crate) fn markdown_theme() -> ThemeConfig {
     let theme = theme();
     let fg = |style: Style| adapt_color(style.fg);
+    let syntax = theme.syntax();
     let reset = MarkdownColor::Reset;
     ThemeConfig::builder()
         .with_text_color(fg(theme.text()))
@@ -779,15 +794,15 @@ pub(crate) fn markdown_theme() -> ThemeConfig {
         .with_popup_selected_background(reset)
         .with_border_color(reset)
         .with_focused_border_color(reset)
-        .with_secondary_color(fg(theme.md_heading()))
+        .with_secondary_color(fg(theme.md_heading3()))
         .with_info_color(fg(theme.md_link()))
-        .with_json_key_color(reset)
-        .with_json_string_color(reset)
-        .with_json_number_color(reset)
-        .with_json_bool_color(reset)
-        .with_json_null_color(reset)
+        .with_json_key_color(adapt_color(Some(syntax.property)))
+        .with_json_string_color(adapt_color(Some(syntax.string)))
+        .with_json_number_color(adapt_color(Some(syntax.number)))
+        .with_json_bool_color(adapt_color(Some(syntax.constant)))
+        .with_json_null_color(adapt_color(Some(syntax.constant)))
         .with_accent_yellow(fg(theme.md_code()))
-        .with_code_colors(reset_code_colors())
+        .with_code_colors(syntax_code_colors(syntax))
         .build()
 }
 
@@ -818,24 +833,43 @@ fn adapt_color(color: Option<Color>) -> MarkdownColor {
     }
 }
 
-fn reset_code_colors() -> CodeColors {
+/// Tree-sitter syntax highlighting for fenced code blocks, installed only when
+/// the theme colors at least one `[markdown.syntax]` category — plain themes
+/// keep the renderer's classic un-highlighted code blocks. Languages without a
+/// compiled grammar fall back to plain rendering per block.
+fn highlight_hooks(max_width: usize) -> Option<Box<dyn RenderHooks>> {
+    let syntax = theme().syntax();
+    if !syntax.any_color() {
+        return None;
+    }
+    let highlighter = TreeSitterHighlighter::new().with_code_colors(syntax_code_colors(syntax));
+    Some(Box::new(
+        HighlightHooks::new(std::sync::Arc::new(highlighter), max_width)
+            .with_border_color(adapt_color(theme().md_blockquote().fg)),
+    ))
+}
+
+/// The theme's `[markdown.syntax]` colors as the crate's code-block palette.
+/// Unset categories resolved to `Reset`, so an empty table highlights nothing.
+fn syntax_code_colors(syntax: crate::tui::theme::Syntax) -> CodeColors {
+    let color = |color| adapt_color(Some(color));
     CodeColors {
-        comment: MarkdownColor::Reset,
-        keyword: MarkdownColor::Reset,
-        string: MarkdownColor::Reset,
-        string_escape: MarkdownColor::Reset,
-        number: MarkdownColor::Reset,
-        constant: MarkdownColor::Reset,
-        function: MarkdownColor::Reset,
-        r#type: MarkdownColor::Reset,
-        variable: MarkdownColor::Reset,
-        property: MarkdownColor::Reset,
-        operator: MarkdownColor::Reset,
-        punctuation: MarkdownColor::Reset,
-        attribute: MarkdownColor::Reset,
-        tag: MarkdownColor::Reset,
-        label: MarkdownColor::Reset,
-        error: MarkdownColor::Reset,
+        comment: color(syntax.comment),
+        keyword: color(syntax.keyword),
+        string: color(syntax.string),
+        string_escape: color(syntax.string_escape),
+        number: color(syntax.number),
+        constant: color(syntax.constant),
+        function: color(syntax.function),
+        r#type: color(syntax.r#type),
+        variable: color(syntax.variable),
+        property: color(syntax.property),
+        operator: color(syntax.operator),
+        punctuation: color(syntax.punctuation),
+        attribute: color(syntax.attribute),
+        tag: color(syntax.tag),
+        label: color(syntax.label),
+        error: color(syntax.error),
     }
 }
 

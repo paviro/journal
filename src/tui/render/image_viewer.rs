@@ -29,6 +29,7 @@ pub(super) fn draw_image_viewer(
     let index = state.index.min(count.saturating_sub(1));
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_set(theme().glyphs().borders.border_set())
         .border_style(theme().dialog_border())
         .title_top(Line::from(" Image Viewer "))
         .title_bottom(Line::from(format!(" Image {} of {count} ", index + 1)))

@@ -481,16 +481,19 @@ pub(crate) fn draw_signed_columns(
         );
     }
 
-    // The dim zero baseline: a rule under each bar, a lighter tick across the gaps.
+    // The dim zero baseline: a solid rule under each bar, the theme's lighter
+    // tick across the gaps. The solid `─` stays fixed — the tick-vs-solid
+    // weight difference is what marks bar-versus-gap without color.
     let baseline = theme().chart_baseline();
-    let mut base = vec![Span::styled("┈".repeat(edge), baseline)];
+    let tick = theme().glyphs().chart_baseline.to_string();
+    let mut base = vec![Span::styled(tick.repeat(edge), baseline)];
     for i in 0..n {
         if i > 0 {
-            base.push(Span::styled("┈".repeat(gap), baseline));
+            base.push(Span::styled(tick.repeat(gap), baseline));
         }
         base.push(Span::styled("─".repeat(col_w(i)), baseline));
     }
-    base.push(Span::styled("┈".repeat(edge), baseline));
+    base.push(Span::styled(tick.repeat(edge), baseline));
     frame.render_widget(
         Paragraph::new(Line::from(base)),
         Rect {

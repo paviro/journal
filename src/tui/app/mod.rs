@@ -73,7 +73,7 @@ pub(crate) struct EntryTarget {
 /// key means the cached [`EntryRowCache`] can be reused. Notably excludes the
 /// scroll offset and selected index — those are applied when drawing, not baked
 /// into the rows.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq)]
 struct EntryRowKey {
     /// [`RenderCaches::rows_version`] — bumped whenever `entries` or
     /// `search.hits` change, since the rows are built from the hits in Search
@@ -82,9 +82,9 @@ struct EntryRowKey {
     mode: Mode,
     journal: Option<String>,
     text_width: u16,
-    /// Rows render as flat cards or bordered boxes depending on the theme, and
-    /// the theme picker live-previews across both — the key must notice.
-    chrome: crate::tui::theme::ChromeStyle,
+    /// The rows bake in the theme's chrome, glyphs, and colors, and the theme
+    /// picker live-previews across themes — the key must notice any change.
+    theme: crate::tui::theme::Theme,
 }
 
 /// Rendered entry-body lines plus the clickable `(body line, image index)` label
@@ -93,15 +93,19 @@ struct EntryRowKey {
 pub(crate) type RenderedEntryBody = (Vec<Line<'static>>, Vec<(usize, usize)>);
 
 /// Cache key for [`App::cached_entry_body`]: the rendered body is fully
-/// determined by which entry is shown (`path` + `version`) and the wrap width.
-/// The `version` is [`RenderCaches::entries_version`] — not the rows version —
-/// because the body depends only on entry content, not on which search hits are
-/// showing (a hit change that swaps the shown entry already changes `path`).
-#[derive(Clone, PartialEq, Eq)]
+/// determined by which entry is shown (`path` + `version`), the wrap width,
+/// and the theme (markdown colors, glyphs, and syntax highlighting are baked
+/// into the lines — the picker's live preview must rebuild them). The
+/// `version` is [`RenderCaches::entries_version`] — not the rows version —
+/// because the body depends only on entry content, not on which search hits
+/// are showing (a hit change that swaps the shown entry already changes
+/// `path`).
+#[derive(Clone, PartialEq)]
 struct EntryBodyKey {
     version: u64,
     path: Option<PathBuf>,
     width: usize,
+    theme: crate::tui::theme::Theme,
 }
 
 /// The per-frame render memo caches and the version counters that invalidate
@@ -679,7 +683,7 @@ impl App {
             mode: self.nav.mode.clone(),
             journal: self.selected_journal().map(|journal| journal.name.clone()),
             text_width,
-            chrome: crate::tui::theme::theme().chrome(),
+            theme: crate::tui::theme::theme(),
         };
         self.caches
             .rows(key, || build_entry_row_cache(self, text_width))
@@ -699,6 +703,7 @@ impl App {
             version: self.caches.entries_version,
             path: path.map(Path::to_path_buf),
             width,
+            theme: crate::tui::theme::theme(),
         };
         self.caches.body(key, build)
     }
