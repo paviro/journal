@@ -8,7 +8,7 @@ use crate::{
         theme,
     },
 };
-use journal_core::{Entry, EntryEncryptionState, SearchHit};
+use notema_core::{Entry, EntryEncryptionState, SearchHit};
 use ratatui::{Frame, Terminal, backend::TestBackend, layout::Rect, style::Modifier, text::Line};
 use std::fs;
 use std::path::PathBuf;
@@ -749,7 +749,7 @@ fn list_dialogs_keep_preferred_width_until_they_hit_edges() {
 #[test]
 fn feelings_dialog_folds_groups_and_marks_disclosure() {
     use crate::tui::app::EditFeelingState;
-    use journal_core::feelings::{Feeling, FeelingGroup};
+    use notema_core::feelings::{Feeling, FeelingGroup};
 
     static GROUPS: &[FeelingGroup] = &[
         FeelingGroup {
@@ -806,7 +806,7 @@ fn feelings_dialog_folds_groups_and_marks_disclosure() {
 #[test]
 fn feelings_dialog_shows_no_matches_when_filter_is_empty() {
     use crate::tui::app::EditFeelingState;
-    use journal_core::feelings::{Feeling, FeelingGroup};
+    use notema_core::feelings::{Feeling, FeelingGroup};
 
     static GROUPS: &[FeelingGroup] = &[FeelingGroup {
         name: "Peaceful",
@@ -1812,7 +1812,7 @@ fn plain_entry(created_at: Option<&str>, preview: &str) -> Entry {
         journal: "work".to_string(),
         path: PathBuf::from("id.md"),
         encryption_state: EntryEncryptionState::Plain,
-        created_at: created_at.map(journal_core::Timestamp::parse),
+        created_at: created_at.map(notema_core::Timestamp::parse),
         edited_at: None,
         preview: preview.to_string(),
         activities: Vec::new(),
@@ -1893,7 +1893,7 @@ fn entry_group_labels_use_created_timestamp() {
         journal: "work".to_string(),
         path: PathBuf::from("work/2026-01-01/id.md"),
         encryption_state: EntryEncryptionState::Plain,
-        created_at: Some(journal_core::Timestamp::parse("2026-07-01T10:23:00+02:00")),
+        created_at: Some(notema_core::Timestamp::parse("2026-07-01T10:23:00+02:00")),
         edited_at: None,
         preview: String::new(),
         activities: Vec::new(),
@@ -1960,7 +1960,7 @@ fn render_unlock_text(input: &str, error: Option<&str>) -> String {
 fn unlock_screen_masks_passphrase_and_draws_border() {
     let text = render_unlock_text("hunter2", None);
     // Bordered fullscreen chrome with the title and hint.
-    assert!(text.contains("Unlock Journal"));
+    assert!(text.contains("Unlock Notema"));
     assert!(text.contains("enter unlock"));
     assert!(text.contains("esc quit"));
     // The field sits in its own bordered box titled on the top-left.
@@ -2012,8 +2012,8 @@ fn render_pending_notice_text(device_name: &str, notice: &AccessNotice) -> Strin
 fn pending_notice_wraps_in_the_journal_chrome_frame() {
     let text =
         render_pending_notice_text("phone", &AccessNotice::NeedsEnroll { retired_key: false });
-    // Outer journal chrome frame with its dismiss hint, plus the inner state box.
-    assert!(text.contains("Journal"));
+    // Outer Notema chrome frame with its dismiss hint, plus the inner state box.
+    assert!(text.contains("Notema"));
     assert!(text.contains("any key to exit"));
     assert!(text.contains("Not authorized"));
     assert!(text.contains("Device 'phone'"));
@@ -2053,10 +2053,10 @@ fn disable_notice_renders_in_the_journal_chrome_frame() {
         .iter()
         .map(|cell| cell.symbol())
         .collect();
-    assert!(text.contains("Journal"));
+    assert!(text.contains("Notema"));
     assert!(text.contains("any key to continue"));
     assert!(text.contains("Encryption disabled"));
-    assert!(text.contains("journal encryption enable"));
+    assert!(text.contains("notema encryption enable"));
 }
 
 #[test]

@@ -1,5 +1,5 @@
 # cargo-about configuration for the third-party license report embedded in the
-# binary and shown by `journal licenses`.
+# binary and shown by `notema licenses`.
 
 accepted = [
     "0BSD",

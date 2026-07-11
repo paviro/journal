@@ -28,7 +28,7 @@ Entries live under the **journal root** (the folder you chose at setup, e.g.
 - Per-entry assets sit in a sibling directory named `<entry-stem>.assets/`.
 
 Per-device settings and this device's private key are **not** in the journal root
-— they live in the config directory (`~/.config/journal/`, see below) and are
+— they live in the config directory (`~/.config/notema/`, see below) and are
 never synced.
 
 ## Entry file
@@ -157,7 +157,7 @@ Values outside this list are silently dropped when an entry is read.
 ## Config and state files
 
 Both live in the config directory (`$XDG_CONFIG_HOME/journal/` or
-`~/.config/journal/`) and are never synced. Unknown keys are ignored, so new
+`~/.config/notema/`) and are never synced. Unknown keys are ignored, so new
 options stay backward-compatible.
 
 `config.toml` — user-authored settings:
@@ -200,12 +200,12 @@ When encryption is on, only ciphertext and public key material live in the synce
   label. Verified from the genesis on every read; a tampered or rolled-back log is
   rejected wholesale.
 - `.age/pending-<id>.toml` — a join request from a not-yet-approved device.
-- `~/.config/journal/identity.toml` — **this device's private keys** (never
+- `~/.config/notema/identity.toml` — **this device's private keys** (never
   synced). A TOML file holding `device_name` plus either `plain_keys` (mode-0600
   cleartext when no passphrase) or `encrypted_keys` (age ASCII armor when a
   passphrase is set). Inside is a small bundle: `x25519` (the age secret key) and
   `ed25519` (the signing seed, hex).
-- `~/.config/journal/devices-trust.toml` — this device's local trust pins
+- `~/.config/notema/devices-trust.toml` — this device's local trust pins
   (genesis + last-seen head hash), never synced.
 
 ## Emergency recovery with the `age` CLI

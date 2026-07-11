@@ -1,6 +1,6 @@
 use crate::AppResult;
 use anyhow::{Context, bail};
-use journal_storage::JournalStore;
+use notema_storage::JournalStore;
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
@@ -211,19 +211,19 @@ pub fn default_config_path() -> AppResult<PathBuf> {
     // An explicit XDG_CONFIG_HOME always wins, on every platform.
     if let Ok(config_home) = env::var("XDG_CONFIG_HOME") {
         return Ok(PathBuf::from(config_home)
-            .join("journal")
+            .join("notema")
             .join("config.toml"));
     }
 
     // macOS keeps app data under Application Support; other Unixes use ~/.config,
     // where the app name is already the namespace.
     #[cfg(target_os = "macos")]
-    let dir = journal_core::paths::macos_support_dir().context("HOME is not set")?;
+    let dir = notema_core::paths::macos_support_dir().context("HOME is not set")?;
     #[cfg(not(target_os = "macos"))]
     let dir = dirs::home_dir()
         .context("could not determine home directory")?
         .join(".config")
-        .join("journal");
+        .join("notema");
     Ok(dir.join("config.toml"))
 }
 
@@ -351,7 +351,7 @@ fn interactive_setup(config_path: &Path) -> AppResult<(Config, JournalStore)> {
         .map(|home| home.join("Journals"))
         .unwrap_or_else(|| PathBuf::from("Journals"));
 
-    writeln!(stdout, "Journal first-run setup")?;
+    writeln!(stdout, "Notema first-run setup")?;
     write!(
         stdout,
         "Journal root [{}]: ",
@@ -388,7 +388,7 @@ fn interactive_setup(config_path: &Path) -> AppResult<(Config, JournalStore)> {
         // deliberate later step rather than a first-run prompt.
         writeln!(
             stdout,
-            "Using existing journal at {}. Encryption is off; run `journal encryption enable` to turn it on.",
+            "Using existing journal at {}. Encryption is off; run `notema encryption enable` to turn it on.",
             config.journal.path.display()
         )?;
     }
@@ -399,7 +399,7 @@ fn interactive_setup(config_path: &Path) -> AppResult<(Config, JournalStore)> {
 
 /// First-run offers to enable encryption only for a brand-new, empty root — never
 /// for a journal that already has entries or is already encrypted. Those are just
-/// registered; encryption is managed with the `journal encryption …` commands.
+/// registered; encryption is managed with the `notema encryption …` commands.
 fn should_offer_encryption(store: &JournalStore) -> AppResult<bool> {
     Ok(!store.encryption_enabled() && store.list_journals()?.is_empty())
 }

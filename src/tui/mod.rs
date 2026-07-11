@@ -27,7 +27,7 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use journal_storage::{JournalStore, SecretString, StoreAccess};
+use notema_storage::{JournalStore, SecretString, StoreAccess};
 use ratatui::{Frame, Terminal, backend::CrosstermBackend};
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -59,7 +59,7 @@ pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResu
 }
 
 /// Launch straight into a fullscreen new-entry editor and quit once the entry is
-/// saved or discarded — the `journal log` no-body path. Never prompts for a
+/// saved or discarded — the `notema log` no-body path. Never prompts for a
 /// passphrase: a passphrase-less identity is unlocked silently so the metadata
 /// dialogs can suggest recently-used people/tags from existing entries, but an
 /// identity that *needs* a passphrase is left locked (writing a new entry needs
@@ -70,7 +70,7 @@ pub fn run_compose(
     config: Config,
     mut store: JournalStore,
     journal: String,
-    metadata: journal_core::Metadata,
+    metadata: notema_core::Metadata,
 ) -> AppResult<()> {
     store.ensure()?;
     theme::init_from_config(&config_path, &config.ui);

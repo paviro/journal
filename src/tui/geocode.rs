@@ -3,7 +3,7 @@
 //! one-request-per-second ceiling.
 
 use crate::tui::worker::Worker;
-use journal_context_provider::{DeviceFix, GeocodeHit, device_location, geocode, reverse_geocode};
+use notema_context_provider::{DeviceFix, GeocodeHit, device_location, geocode, reverse_geocode};
 
 /// How many forward-geocode candidates to request (Nominatim `limit`).
 const CANDIDATE_LIMIT: usize = 6;

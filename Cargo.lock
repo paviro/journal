@@ -2000,162 +2000,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "journal"
-version = "2026.7.1"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "crossterm 0.29.0",
- "dirs",
- "flate2",
- "image 0.24.9",
- "image 0.25.10",
- "indicatif",
- "journal-analytics",
- "journal-context-provider",
- "journal-core",
- "journal-fuse",
- "journal-import",
- "journal-seed",
- "journal-storage",
- "mimalloc",
- "notify",
- "rascii_art",
- "ratatui 0.29.0",
- "ratatui 0.30.2",
- "ratatui-image",
- "ratatui-markdown",
- "ratatui-textarea",
- "rayon",
- "rpassword",
- "serde",
- "serde_json",
- "tempfile",
- "terminal-colorsaurus",
- "toml 1.1.2+spec-1.1.0",
- "unicode-width 0.2.0",
- "zeroize",
-]
-
-[[package]]
-name = "journal-analytics"
-version = "2026.7.1"
-dependencies = [
- "chrono",
- "journal-core",
-]
-
-[[package]]
-name = "journal-context-provider"
-version = "2026.7.1"
-dependencies = [
- "anyhow",
- "chrono",
- "journal-core",
- "serde",
- "serde_json",
- "sunrise",
- "ureq",
- "zbus",
-]
-
-[[package]]
-name = "journal-core"
-version = "2026.7.1"
-dependencies = [
- "anyhow",
- "chrono",
- "nucleo",
- "serde",
-]
-
-[[package]]
-name = "journal-encryption"
-version = "2026.7.1"
-dependencies = [
- "age",
- "ed25519-dalek",
- "getrandom 0.2.17",
- "hex",
- "serde",
- "sha2",
- "tempfile",
- "thiserror 2.0.18",
- "toml 1.1.2+spec-1.1.0",
- "zeroize",
-]
-
-[[package]]
-name = "journal-fuse"
-version = "2026.7.1"
-dependencies = [
- "anyhow",
- "cc",
- "journal-core",
- "journal-storage",
- "libc",
- "pkg-config",
- "tempfile",
- "zeroize",
-]
-
-[[package]]
-name = "journal-import"
-version = "2026.7.1"
-dependencies = [
- "anyhow",
- "chrono",
- "chrono-tz",
- "journal-core",
- "journal-storage",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "journal-locate"
-version = "2026.7.1"
-dependencies = [
- "objc2",
- "objc2-core-location",
- "objc2-foundation",
-]
-
-[[package]]
-name = "journal-seed"
-version = "2026.7.1"
-dependencies = [
- "chrono",
- "journal-core",
- "journal-storage",
- "rand 0.9.4",
- "tempfile",
-]
-
-[[package]]
-name = "journal-storage"
-version = "2026.7.1"
-dependencies = [
- "anyhow",
- "chrono",
- "iana-time-zone",
- "image 0.25.10",
- "journal-core",
- "journal-encryption",
- "moxcms",
- "nanoid",
- "rayon",
- "serde",
- "tempfile",
- "thiserror 2.0.18",
- "toml 1.1.2+spec-1.1.0",
- "ureq",
-]
-
-[[package]]
 name = "jpeg-decoder"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2482,6 +2326,162 @@ name = "noop_proc_macro"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0676bb32a98c1a483ce53e500a81ad9c3d5b3f7c920c28c24e9cb0980d0b5bc8"
+
+[[package]]
+name = "notema"
+version = "2026.7.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "crossterm 0.29.0",
+ "dirs",
+ "flate2",
+ "image 0.24.9",
+ "image 0.25.10",
+ "indicatif",
+ "mimalloc",
+ "notema-analytics",
+ "notema-context-provider",
+ "notema-core",
+ "notema-fuse",
+ "notema-import",
+ "notema-seed",
+ "notema-storage",
+ "notify",
+ "rascii_art",
+ "ratatui 0.29.0",
+ "ratatui 0.30.2",
+ "ratatui-image",
+ "ratatui-markdown",
+ "ratatui-textarea",
+ "rayon",
+ "rpassword",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "terminal-colorsaurus",
+ "toml 1.1.2+spec-1.1.0",
+ "unicode-width 0.2.0",
+ "zeroize",
+]
+
+[[package]]
+name = "notema-analytics"
+version = "2026.7.1"
+dependencies = [
+ "chrono",
+ "notema-core",
+]
+
+[[package]]
+name = "notema-context-provider"
+version = "2026.7.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "notema-core",
+ "serde",
+ "serde_json",
+ "sunrise",
+ "ureq",
+ "zbus",
+]
+
+[[package]]
+name = "notema-core"
+version = "2026.7.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "nucleo",
+ "serde",
+]
+
+[[package]]
+name = "notema-encryption"
+version = "2026.7.1"
+dependencies = [
+ "age",
+ "ed25519-dalek",
+ "getrandom 0.2.17",
+ "hex",
+ "serde",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml 1.1.2+spec-1.1.0",
+ "zeroize",
+]
+
+[[package]]
+name = "notema-fuse"
+version = "2026.7.1"
+dependencies = [
+ "anyhow",
+ "cc",
+ "libc",
+ "notema-core",
+ "notema-storage",
+ "pkg-config",
+ "tempfile",
+ "zeroize",
+]
+
+[[package]]
+name = "notema-import"
+version = "2026.7.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "chrono-tz",
+ "notema-core",
+ "notema-storage",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "notema-locate"
+version = "2026.7.1"
+dependencies = [
+ "objc2",
+ "objc2-core-location",
+ "objc2-foundation",
+]
+
+[[package]]
+name = "notema-seed"
+version = "2026.7.1"
+dependencies = [
+ "chrono",
+ "notema-core",
+ "notema-storage",
+ "rand 0.9.4",
+ "tempfile",
+]
+
+[[package]]
+name = "notema-storage"
+version = "2026.7.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "iana-time-zone",
+ "image 0.25.10",
+ "moxcms",
+ "nanoid",
+ "notema-core",
+ "notema-encryption",
+ "rayon",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml 1.1.2+spec-1.1.0",
+ "ureq",
+]
 
 [[package]]
 name = "notify"

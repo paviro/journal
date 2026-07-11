@@ -1,9 +1,9 @@
 use crate::{AppResult, config, encryption_cli, prompts, tui};
 use anyhow::{Context, bail};
 use clap::{Args, Parser, Subcommand};
-use journal_core::feelings;
-use journal_core::{MOOD_RANGE, Metadata};
-use journal_storage::{JournalStore, SecretString};
+use notema_core::feelings;
+use notema_core::{MOOD_RANGE, Metadata};
+use notema_storage::{JournalStore, SecretString};
 use std::{
     io::{self, Read},
     path::{Path, PathBuf},
@@ -13,12 +13,12 @@ use std::{
 use std::os::unix::fs::FileTypeExt;
 
 #[derive(Debug, Parser)]
-#[command(name = "journal")]
+#[command(name = "notema")]
 #[command(about = "Markdown terminal journal")]
 struct Cli {
     /// Config directory holding config.toml and this device's encryption key;
-    /// defaults to $XDG_CONFIG_HOME/journal, else ~/.config/journal (macOS:
-    /// ~/Library/Application Support/de.paviro.journal). Global, so it works
+    /// defaults to $XDG_CONFIG_HOME/notema, else ~/.config/notema (macOS:
+    /// ~/Library/Application Support/de.paviro.notema). Global, so it works
     /// before or after a subcommand.
     #[arg(long, value_name = "DIR", global = true)]
     config: Option<PathBuf>,
@@ -232,7 +232,7 @@ pub fn run() -> AppResult<()> {
     }
 
     if stdin_is_pipe {
-        bail!("piped entry text requires `journal log`; run `journal log` with piped stdin");
+        bail!("piped entry text requires `notema log`; run `notema log` with piped stdin");
     }
 
     let config::Startup {
@@ -267,9 +267,9 @@ fn generate_sample_data(cli: &Cli, args: &SampleArgs) -> AppResult<()> {
     let store = JournalStore::for_config(&config_path, &config.journal.path)?;
     store.ensure()?;
 
-    let created = journal_seed::generate(
+    let created = notema_seed::generate(
         &store,
-        &journal_seed::GenConfig {
+        &notema_seed::GenConfig {
             journal: args.journal.clone(),
             count: args.count,
             days: args.days,
@@ -390,8 +390,8 @@ fn mount_command(cli: &Cli, mountpoint: Option<&Path>) -> AppResult<()> {
 
     if !store.encryption_enabled() {
         bail!(
-            "`journal mount` is only for encrypted journals; this journal is not encrypted. \
-             Enable encryption with `journal encryption enable`, or open the files directly."
+            "`notema mount` is only for encrypted journals; this journal is not encrypted. \
+             Enable encryption with `notema encryption enable`, or open the files directly."
         );
     }
     if !store.unlock_available() {
@@ -417,7 +417,7 @@ fn mount_command(cli: &Cli, mountpoint: Option<&Path>) -> AppResult<()> {
             (path.to_path_buf(), true)
         }
         None => {
-            let path = std::env::temp_dir().join(format!("journal-mount-{}", std::process::id()));
+            let path = std::env::temp_dir().join(format!("notema-mount-{}", std::process::id()));
             std::fs::create_dir_all(&path)
                 .with_context(|| format!("creating mount point {}", path.display()))?;
             (path, true)
@@ -436,7 +436,7 @@ fn mount_command(cli: &Cli, mountpoint: Option<&Path>) -> AppResult<()> {
         mount_path.display(),
         mount_path.display()
     );
-    journal_fuse::mount(store, &mount_path)?;
+    notema_fuse::mount(store, &mount_path)?;
     println!("Unmounted {}.", mount_path.display());
 
     // Best-effort cleanup after unmount, only for a directory we created (and
@@ -508,7 +508,7 @@ fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
     store.ensure()?;
     if !store.encryption_enabled() {
         bail!(
-            "this journal is not encrypted yet; run `journal encryption enable` to turn it on for this device"
+            "this journal is not encrypted yet; run `notema encryption enable` to turn it on for this device"
         );
     }
     if store.unlock_available() {
@@ -518,7 +518,7 @@ fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
             .unwrap_or_default();
         bail!(
             "this device already has an identity ('{name}') at {}.\n\
-             If you're waiting for approval, run `journal encryption device list` to see the \
+             If you're waiting for approval, run `notema encryption device list` to see the \
              request, or approve it from a device that can already read this journal.\n\
              To start over, delete that identity file and re-run enroll.",
             store.paths().keys.identity_file.display()
@@ -538,7 +538,7 @@ fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
         recipient.fingerprint()
     );
     println!(
-        "On a device that can already read this journal, approve it — this request\nappears in `journal encryption device list` and a modal at launch — then run there:"
+        "On a device that can already read this journal, approve it — this request\nappears in `notema encryption device list` and a modal at launch — then run there:"
     );
     println!("  {} {name}", crate::APPROVE_CMD);
     println!(
@@ -622,10 +622,10 @@ fn device_rename_command(cli: &Cli, old: &str, new: &str) -> AppResult<()> {
 /// name. `action` names the operation in the "how to select" error. Errors if
 /// nothing was selected or matched; the empty-queue case is handled by callers.
 fn select_requests(
-    pending: Vec<journal_storage::PendingRequest>,
+    pending: Vec<notema_storage::PendingRequest>,
     args: &RequestSelectionArgs,
     action: &str,
-) -> AppResult<Vec<journal_storage::PendingRequest>> {
+) -> AppResult<Vec<notema_storage::PendingRequest>> {
     let selected: Vec<_> = if args.all {
         pending
     } else if let Some(which) = &args.which {
@@ -684,7 +684,7 @@ fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {
         .journal
         .as_deref()
         .or(config.journal.default.as_deref())
-        .context("no journal specified; pass --journal or set one with `journal use <name>`")?;
+        .context("no journal specified; pass --journal or set one with `notema use <name>`")?;
     // Validate the name only — the importer creates the journal if it's missing.
     let journal = JournalStore::validate_journal_name(journal)?;
 
@@ -694,7 +694,7 @@ fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {
     // on an encrypted store requires the unlocked identity.
     unlock_if_encrypted(&mut store)?;
 
-    let report = journal_import::import_dayone(&store, &journal, &args.path, args.download_images)?;
+    let report = notema_import::import_dayone(&store, &journal, &args.path, args.download_images)?;
 
     println!(
         "{}",
@@ -707,7 +707,7 @@ fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {
 }
 
 fn import_report_summary(
-    report: &journal_import::ImportReport,
+    report: &notema_import::ImportReport,
     journal: &str,
     download_images: bool,
 ) -> String {
@@ -785,7 +785,7 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
         .journal
         .as_deref()
         .or(config.journal.default.as_deref())
-        .context("no journal specified; pass --journal or set one with `journal use <name>`")?;
+        .context("no journal specified; pass --journal or set one with `notema use <name>`")?;
     validate_existing_journal(&config.journal.path, journal)?;
     let tags = comma_separated_values(&args.tag);
     let people = comma_separated_values(&args.person);
@@ -837,8 +837,8 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
         body
     };
     let created = store.create_entry(
-        journal_storage::EntryDraft::new(journal, &body, &metadata),
-        journal_storage::EntryAssetOptions {
+        notema_storage::EntryDraft::new(journal, &body, &metadata),
+        notema_storage::EntryAssetOptions {
             download_remote: config.attachments.download_remote_images,
             replace_offline: false,
         },
@@ -850,7 +850,7 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
     Ok(())
 }
 
-fn asset_report_message(report: &journal_storage::AssetReport) -> String {
+fn asset_report_message(report: &notema_storage::AssetReport) -> String {
     let mut parts = Vec::new();
     if report.stored > 0 {
         parts.push(format!(
@@ -903,7 +903,7 @@ fn validate_existing_journal(root: &Path, journal: &str) -> AppResult<()> {
     let path = root.join(&journal);
     if !path.is_dir() {
         bail!(
-            "journal '{journal}' does not exist; create it or pick another with `journal use <name>`"
+            "journal '{journal}' does not exist; create it or pick another with `notema use <name>`"
         );
     }
     Ok(())

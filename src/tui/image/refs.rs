@@ -3,12 +3,12 @@
 //!
 //! Images live in the entry's sibling `<stem>.assets/` folder, referenced as a
 //! lone markdown image on its own line. Parsing is owned by the storage crate
-//! ([`journal_storage::sole_stored_image`]) so labels, viewer, and asset
+//! ([`notema_storage::sole_stored_image`]) so labels, viewer, and asset
 //! cleanup agree on what counts as an image — and thus on its `Image N` number.
 
 use std::path::Path;
 
-use journal_storage::sole_stored_image;
+use notema_storage::sole_stored_image;
 
 use super::ImageAsset;
 

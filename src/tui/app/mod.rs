@@ -2,11 +2,11 @@ use crate::{
     AppResult,
     config::{Config, State},
 };
-use journal_core::feelings::{FEELING_GROUPS, normalize_feeling};
-use journal_core::{
+use notema_core::feelings::{FEELING_GROUPS, normalize_feeling};
+use notema_core::{
     Entry, EntryEncryptionState, EntryPath, SearchHit, entry_group_date, search_loaded_entries,
 };
-use journal_storage::{Journal, JournalStore, entry_timestamp_label, is_entry_file};
+use notema_storage::{Journal, JournalStore, entry_timestamp_label, is_entry_file};
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
@@ -31,7 +31,7 @@ use crate::tui::entry_rows::{EntryRowCache, RowMeta, build_entry_row_cache};
 use crate::tui::image::{ImageAsset, ImageRuntime, entry_images, viewer_image_size};
 use crate::tui::render::insights::{InsightsScope, InsightsTab, InsightsTimeframe};
 use crate::tui::text_input::TextInput;
-use journal_analytics::{Analytics, Correlations, analyze, build_correlations};
+use notema_analytics::{Analytics, Correlations, analyze, build_correlations};
 
 pub(crate) const JOURNAL_LIST_WIDTH: u16 = 27;
 pub(crate) const ENTRY_LIST_INLINE_WIDTH: u16 = 47;
@@ -58,7 +58,7 @@ pub(crate) enum Mode {
     Search,
 }
 
-pub(crate) use journal_core::SearchScope;
+pub(crate) use notema_core::SearchScope;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EntryTarget {
@@ -390,7 +390,7 @@ pub(crate) struct App {
     /// floating a modal over it.
     pub(crate) editor: Option<EntryEditor>,
     /// One-shot compose mode: the app launched straight into a fullscreen new-entry
-    /// editor (`journal log` with no body) and quits once that entry is saved or
+    /// editor (`notema log` with no body) and quits once that entry is saved or
     /// discarded, rather than dropping back to the entry list.
     pub(crate) compose: bool,
     pub(crate) toasts: Toasts,

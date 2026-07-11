@@ -1,0 +1,20 @@
+[package]
+name = "notema-encryption"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+age = { version = "0.11.3", default-features = false, features = ["armor"] }
+ed25519-dalek = { version = "2", features = ["zeroize"] }
+getrandom = "0.2"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+thiserror = "2"
+toml = "1.1"
+zeroize = { version = "1", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -12,7 +12,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use journal_analytics::{Analytics, MoodAnalytics, Sentiment};
+use notema_analytics::{Analytics, MoodAnalytics, Sentiment};
 
 use super::correlate::{self, InsightsListMetrics};
 use super::widgets::{Section, draw_signed_columns, grid, heading, sentiment_segments, stack};

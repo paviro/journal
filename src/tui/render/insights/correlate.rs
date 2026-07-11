@@ -13,7 +13,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use journal_analytics::Correlate;
+use notema_analytics::Correlate;
 
 use super::signed;
 use crate::tui::entry_rows::truncate_ellipsis;

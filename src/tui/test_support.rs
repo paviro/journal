@@ -8,7 +8,7 @@ use tempfile::tempdir;
 
 use super::app::App;
 use crate::config::{Config, State};
-use journal_storage::JournalStore;
+use notema_storage::JournalStore;
 
 /// Build an `App` over the given config's journal root (no entries loaded yet).
 pub(crate) fn new_app(config: Config) -> App {

@@ -1,7 +1,7 @@
 //! Terminal-graphics backend: protocol detection and encoding a decoded image
 //! into a [`SlicedProtocol`] sized to fit the viewer.
 
-use journal_storage::JournalStore;
+use notema_storage::JournalStore;
 use ratatui::layout::Size;
 use ratatui_image::{
     picker::{Picker, ProtocolType},
@@ -63,7 +63,7 @@ pub(super) fn build_protocol(
     let max_height =
         (u32::from(key.height) * u32::from(font.height.max(1))).clamp(1, MAX_IMAGE_DIMENSION);
     let image =
-        journal_storage::decode_image_with_orientation(&bytes, Some((max_width, max_height)))
+        notema_storage::decode_image_with_orientation(&bytes, Some((max_width, max_height)))
             .ok()?;
     // `SlicedProtocol` fits the image into the area preserving aspect ratio,
     // downscaling the already-capped image to the cell footprint.

@@ -410,7 +410,7 @@ pub(crate) fn dispatch_action(
         }
     }
 
-    // One-shot compose (`journal log` with no body) quits as soon as its editor
+    // One-shot compose (`notema log` with no body) quits as soon as its editor
     // closes — whether the entry was saved or discarded.
     if app.compose && app.editor.is_none() {
         return Ok(true);

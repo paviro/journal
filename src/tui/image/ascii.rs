@@ -1,7 +1,7 @@
 //! ASCII fallback backend: render a decoded image into colored ASCII art (via
 //! `rascii_art`) and parse its ANSI output into ratatui [`Text`].
 
-use journal_storage::JournalStore;
+use notema_storage::JournalStore;
 use ratatui::{
     style::{Color, Style},
     text::{Line, Span, Text},
@@ -36,7 +36,7 @@ pub(super) fn build_ascii(store: &JournalStore, key: &CacheKey) -> Option<AsciiA
     let bytes = store
         .read_entry_asset_bytes(&key.entry_path, &key.file_name)
         .ok()??;
-    let image = journal_storage::decode_image_with_orientation(
+    let image = notema_storage::decode_image_with_orientation(
         &bytes,
         Some((ASCII_DECODE_CAP, ASCII_DECODE_CAP)),
     )

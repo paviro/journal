@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 
 use chrono::{DateTime, FixedOffset};
-use journal_context_provider::{compute_celestial, fetch_air_quality, fetch_weather};
-use journal_core::{AirQuality, Celestial, MetadataField, Weather};
+use notema_context_provider::{compute_celestial, fetch_air_quality, fetch_weather};
+use notema_core::{AirQuality, Celestial, MetadataField, Weather};
 
 use crate::tui::worker::Worker;
 

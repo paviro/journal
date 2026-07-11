@@ -54,7 +54,7 @@ impl FileWatcher {
 }
 
 /// Hidden-file filter, applied only to the path *below* the watch root — a
-/// root that itself lives under a dot directory (`~/.config/journal/themes`)
+/// root that itself lives under a dot directory (`~/.config/notema/themes`)
 /// must still report its children. A path outside the root (e.g. notify
 /// reporting a canonicalized form) falls back to the whole-path check rather
 /// than being dropped.
@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn dot_filter_applies_below_the_watch_root_only() {
-        let root = Path::new("/home/u/.config/journal/themes");
+        let root = Path::new("/home/u/.config/notema/themes");
         assert!(is_relevant(root, &root.join("journal.toml")));
         assert!(!is_relevant(root, &root.join(".journal.toml.swp")));
         assert!(!is_relevant(

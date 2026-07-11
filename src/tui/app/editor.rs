@@ -1,7 +1,7 @@
 use super::{App, Focus};
 use crate::tui::editor_state::{EditorTarget, EntryEditor};
 use crate::tui::state::{MetadataKind, ToastVariant};
-use journal_core::Metadata;
+use notema_core::Metadata;
 
 impl App {
     /// Open the internal editor on the selected entry, replacing the entry-view
@@ -50,7 +50,7 @@ impl App {
     }
 
     /// Enter one-shot compose mode: open a fullscreen new-entry editor for
-    /// `journal`, seeded with any metadata from the `journal log` flags, and mark
+    /// `journal`, seeded with any metadata from the `notema log` flags, and mark
     /// the app to quit once that entry is saved or discarded. No journal need be
     /// selected.
     pub(crate) fn begin_compose(&mut self, journal: String, metadata: Metadata) {
@@ -111,7 +111,7 @@ impl App {
 
     /// The location the location dialog should open with: the open editor's
     /// draft (empty for a new entry), else the selected entry's.
-    pub(crate) fn editing_location(&self) -> Option<journal_core::Location> {
+    pub(crate) fn editing_location(&self) -> Option<notema_core::Location> {
         match &self.editor {
             Some(editor) => editor.metadata.location.clone(),
             None => self
@@ -122,7 +122,7 @@ impl App {
 
     /// Write a location edit into the open editor's buffer (applied to the
     /// entry only on save). No-op when the editor is closed.
-    pub(crate) fn set_editor_location(&mut self, location: Option<journal_core::Location>) {
+    pub(crate) fn set_editor_location(&mut self, location: Option<notema_core::Location>) {
         let Some(editor) = self.editor.as_mut() else {
             return;
         };

@@ -1,7 +1,7 @@
 use crate::{AppResult, config::Config, prompts};
 use anyhow::bail;
 use indicatif::{ProgressBar, ProgressStyle};
-use journal_storage::JournalStore;
+use notema_storage::JournalStore;
 use std::path::Path;
 
 /// A progress sink for CLI migrations that drives an `indicatif` bar. A fresh
@@ -48,7 +48,7 @@ pub fn encrypt_store(
         // Encrypted entries but no roster to encrypt more against — reuse the
         // storage layer's own message rather than restating it here. anyhow
         // prints the typed error's Display, so route it through directly.
-        return Err(journal_storage::EncryptionError::RecipientsMissing {
+        return Err(notema_storage::EncryptionError::RecipientsMissing {
             path: store.paths().keys.devices_file.clone(),
         }
         .into());

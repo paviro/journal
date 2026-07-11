@@ -1,6 +1,6 @@
 use crate::AppResult;
-use journal_core::{Location, MetadataField};
-use journal_storage::EditOutcome;
+use notema_core::{Location, MetadataField};
+use notema_storage::EditOutcome;
 use std::path::{Path, PathBuf};
 
 use crate::tui::app::{App, EntryTarget, Focus};
@@ -33,7 +33,7 @@ pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
 }
 
 /// Build a save status message, appending image ingest details when relevant.
-fn save_status(base: &str, report: &journal_storage::AssetReport) -> String {
+fn save_status(base: &str, report: &notema_storage::AssetReport) -> String {
     if report.is_noop() {
         return base.to_string();
     }
@@ -60,7 +60,7 @@ fn save_status(base: &str, report: &journal_storage::AssetReport) -> String {
 
 /// A save toast's variant: a save that dropped images is a warning, not a
 /// clean success.
-fn save_variant(report: &journal_storage::AssetReport) -> ToastVariant {
+fn save_variant(report: &notema_storage::AssetReport) -> ToastVariant {
     if report.failed.is_empty() {
         ToastVariant::Success
     } else {
@@ -68,8 +68,8 @@ fn save_variant(report: &journal_storage::AssetReport) -> ToastVariant {
     }
 }
 
-fn asset_options(app: &App) -> journal_storage::EntryAssetOptions {
-    journal_storage::EntryAssetOptions {
+fn asset_options(app: &App) -> notema_storage::EntryAssetOptions {
+    notema_storage::EntryAssetOptions {
         download_remote: app.config.attachments.download_remote_images,
         replace_offline: false,
     }
@@ -93,7 +93,7 @@ fn finish_existing_edit(
     path: &Path,
     title: &str,
     outcome: EditOutcome,
-    report: &journal_storage::AssetReport,
+    report: &notema_storage::AssetReport,
 ) -> AppResult<()> {
     match outcome {
         EditOutcome::Unchanged => {
@@ -177,7 +177,7 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
             };
             let saved = app.store.save_entry_edit(
                 &path,
-                journal_storage::EntryEdit {
+                notema_storage::EntryEdit {
                     body: &text,
                     metadata: &metadata,
                     original_metadata: &original_metadata,
@@ -209,7 +209,7 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
                     .as_ref()
                     .and_then(|editor| editor.environment.clone())
                     .unwrap_or_default();
-                let mut draft = journal_storage::EntryDraft::new(&journal, &text, &metadata);
+                let mut draft = notema_storage::EntryDraft::new(&journal, &text, &metadata);
                 draft.weather = environment.weather.as_ref();
                 draft.celestial = environment.celestial.as_ref();
                 draft.air_quality = environment.air_quality.as_ref();
@@ -224,7 +224,7 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
                     );
                     let path = created.path;
                     refresh_entry_path(app, &path)?;
-                    if let Some(id) = journal_storage::entry_id(&path)
+                    if let Some(id) = notema_storage::entry_id(&path)
                         && app.select_entry_by_id(&id, true)
                     {
                         app.nav.focus = Focus::EntryView;
@@ -294,7 +294,7 @@ pub(super) fn delete_selected_journal(app: &mut App) -> AppResult<()> {
         .map(|e| (e.path.clone(), !e.body.trim().is_empty()))
         .collect();
 
-    let display = journal_storage::journal_display_name(&journal_name).to_string();
+    let display = notema_storage::journal_display_name(&journal_name).to_string();
     app.store
         .delete_journal(&journal_name, &journal_path, &entries)?;
     app.toast(ToastVariant::Success, format!("Deleted journal {display}"));
@@ -456,7 +456,7 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::tui::editor_state::EntryEditor;
-    use journal_storage::JournalStore;
+    use notema_storage::JournalStore;
     use std::fs;
     use tempfile::tempdir;
 
@@ -574,7 +574,7 @@ mod tests {
             target.path.clone(),
             target.title,
             "# Edited body",
-            journal_core::Metadata::default(),
+            notema_core::Metadata::default(),
         );
         editor.original = "# Original".to_string();
         app.editor = Some(editor);
@@ -607,7 +607,7 @@ mod tests {
             path.with_file_name("missing.md"),
             target.title,
             "# Edited body",
-            journal_core::Metadata::default(),
+            notema_core::Metadata::default(),
         );
         editor.original = "# Original".to_string();
         app.editor = Some(editor);
@@ -627,7 +627,7 @@ mod tests {
             target.path.clone(),
             target.title,
             "   \n  ",
-            journal_core::Metadata::default(),
+            notema_core::Metadata::default(),
         ));
         save_internal_editor(&mut app).unwrap();
 
@@ -661,8 +661,8 @@ mod tests {
     #[test]
     fn new_entry_attaches_prefetched_environment() {
         use crate::tui::environment::Environment;
-        use journal_context_provider::compute_celestial;
-        use journal_core::Location;
+        use notema_context_provider::compute_celestial;
+        use notema_core::Location;
 
         let (_dir, mut app, _path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
 
@@ -755,7 +755,7 @@ mod tests {
 
     #[test]
     fn backfill_dispatch_skips_entry_that_already_has_environment() {
-        use journal_context_provider::compute_celestial;
+        use notema_context_provider::compute_celestial;
         let body = "+++\n[location]\nlatitude = 52.52\nlongitude = 13.405\n+++\n\n# A\n";
         let (_dir, mut app, path) = app_with_entry(body);
         assert_eq!(app.backfill_queue.len(), 1);

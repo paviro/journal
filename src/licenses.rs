@@ -1,4 +1,4 @@
-//! The `journal licenses` command: the app's own license and the required
+//! The `notema licenses` command: the app's own license and the required
 //! attributions for the external data sources it queries, followed by the
 //! third-party dependency license report embedded at build time (see build.rs).
 
@@ -38,8 +38,8 @@ pub fn run(dependency: Option<String>) -> AppResult<()> {
 /// (CC BY 4.0) for weather and air quality, and OpenStreetMap/Nominatim (ODbL)
 /// for geocoding. Printed whenever the whole report is shown.
 fn print_data_sources() {
-    println!("journal {} — EUPL-1.2", env!("CARGO_PKG_VERSION"));
-    println!("https://github.com/paviro/journal");
+    println!("notema {} — EUPL-1.2", env!("CARGO_PKG_VERSION"));
+    println!("https://github.com/paviro/notema");
     println!();
     println!("Data sources:");
     println!("  Weather & air quality data from Open-Meteo (CC BY 4.0)");
@@ -99,7 +99,7 @@ fn print_summary(groups: &[LicenseGroup]) {
         }
         println!();
     }
-    println!("Use 'journal licenses <dependency>' to view the full license text.");
+    println!("Use 'notema licenses <dependency>' to view the full license text.");
 }
 
 /// Show the full license text for the crate matching `query`, preferring an

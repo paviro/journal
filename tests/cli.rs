@@ -1,5 +1,5 @@
-use journal_core::{Entry, Metadata};
-use journal_storage::{JournalStore, SecretString};
+use notema_core::{Entry, Metadata};
+use notema_storage::{JournalStore, SecretString};
 use std::{
     env, fs,
     io::Write,
@@ -9,13 +9,13 @@ use std::{
 use tempfile::tempdir;
 
 fn journal_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_journal")
+    env!("CARGO_BIN_EXE_notema")
 }
 
 fn write_config(path: &Path, root: &Path, default_journal: Option<&str>) {
-    let mut config = journal::config::Config::new(root.to_path_buf());
+    let mut config = notema::config::Config::new(root.to_path_buf());
     config.journal.default = default_journal.map(str::to_string);
-    journal::config::save_config(path, &config).unwrap();
+    notema::config::save_config(path, &config).unwrap();
 }
 
 fn scan_entries_for(root: &Path, journal: &str) -> Vec<Entry> {
@@ -36,8 +36,8 @@ fn generate_identity_store(config: &Path, root: &Path, passphrase: &str) -> (Jou
 fn create_entry(store: &JournalStore, journal: &str, body: &str) -> std::path::PathBuf {
     store
         .create_entry(
-            journal_storage::EntryDraft::new(journal, body, &Metadata::default()),
-            journal_storage::EntryAssetOptions::default(),
+            notema_storage::EntryDraft::new(journal, body, &Metadata::default()),
+            notema_storage::EntryAssetOptions::default(),
         )
         .unwrap()
         .path
@@ -111,7 +111,7 @@ fn log_command_ingests_local_image_asset() {
     assert!(output.status.success());
     let created = Path::new(std::str::from_utf8(&output.stdout).unwrap().trim());
     let content = fs::read_to_string(created).unwrap();
-    let stem = journal_storage::entry_id(created).unwrap();
+    let stem = notema_storage::entry_id(created).unwrap();
     let assets = created.parent().unwrap().join(format!("{stem}.assets"));
 
     assert!(content.contains(&format!("![]({stem}.assets/")));
@@ -315,7 +315,7 @@ fn piped_log_command_creates_entry_in_default_journal() {
     assert!(entries[0].body.contains("Line one\n\nLine three"));
 }
 
-// `journal log` with no body now opens the interactive fullscreen editor, which
+// `notema log` with no body now opens the interactive fullscreen editor, which
 // can't be driven from a headless subprocess, so that path is exercised by the
 // in-process editor tests in `src/tui/` rather than here.
 
@@ -362,7 +362,7 @@ fn bare_piped_stdin_requires_log_command() {
     let output = child.wait_with_output().unwrap();
 
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("journal log"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("notema log"));
     assert!(scan_entries_for(&root, "work").is_empty());
 }
 
@@ -409,7 +409,7 @@ fn set_default_journal_persists_to_config() {
         .unwrap();
 
     assert!(output.status.success());
-    let config = journal::config::load_config(&config_path).unwrap();
+    let config = notema::config::load_config(&config_path).unwrap();
     assert_eq!(config.journal.default.as_deref(), Some("work"));
 }
 
@@ -983,7 +983,7 @@ fn encrypt_decrypt_converts_assets_and_keeps_clean_links() {
     assert!(entry.path.to_string_lossy().ends_with(".md.age"));
 
     // The asset on disk is now `.age`, and the clean link still resolves+decrypts.
-    let stem = journal_storage::entry_id(&entry.path).unwrap();
+    let stem = notema_storage::entry_id(&entry.path).unwrap();
     let assets_dir = entry.path.parent().unwrap().join(format!("{stem}.assets"));
     let asset = fs::read_dir(&assets_dir).unwrap().next().unwrap().unwrap();
     let asset_name = asset.file_name().into_string().unwrap();
@@ -1003,7 +1003,7 @@ fn encrypt_decrypt_converts_assets_and_keeps_clean_links() {
     let dec = JournalStore::for_config(&config, &root).unwrap();
     let dec_entry = dec.scan_entries().unwrap().remove(0);
     assert_eq!(dec_entry.body, body);
-    let dec_stem = journal_storage::entry_id(&dec_entry.path).unwrap();
+    let dec_stem = notema_storage::entry_id(&dec_entry.path).unwrap();
     let dec_assets = dec_entry
         .path
         .parent()

@@ -11,7 +11,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use journal_analytics::{Analytics, MoodAnalytics};
+use notema_analytics::{Analytics, MoodAnalytics};
 
 use super::widgets::{Stat, columns_for, draw_stat_card};
 use crate::tui::render::{count_label, flat_chrome, render_centered_notice};
@@ -113,7 +113,7 @@ fn draw_title_box(
     frame: &mut Frame<'_>,
     area: Rect,
     title: &str,
-    cadence: &journal_analytics::Cadence,
+    cadence: &notema_analytics::Cadence,
 ) {
     let mut spans = vec![Span::styled(title.to_string(), theme().heading())];
     if let Some(span) = date_span(cadence.date_span) {

@@ -1,7 +1,7 @@
 //! Navigation state for the tabbed insights panel: which tab is showing, the
 //! rolling timeframe the mood-driver views window to, and whether the analytic
 //! tabs aggregate the selected journal or every journal. The aggregation itself
-//! lives in the `journal-analytics` crate; this file is only the UI-side enums
+//! lives in the `notema-analytics` crate; this file is only the UI-side enums
 //! that `insights/` renders and the event layer drives.
 
 use chrono::{Duration, NaiveDate};

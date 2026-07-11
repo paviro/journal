@@ -1,0 +1,15 @@
+[package]
+name = "notema-seed"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+chrono = "0.4"
+notema-core = { path = "../notema-core" }
+notema-storage = { path = "../notema-storage" }
+rand = "0.9"
+
+[dev-dependencies]
+tempfile = "3"

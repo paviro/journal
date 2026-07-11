@@ -861,7 +861,7 @@ fn confirm_delete_content(ctx: &DeleteContext) -> (u16, String) {
                 (t, 0) => format!("{t} entries moved to trash"),
                 (t, d) => format!("{t} entries → trash, {d} deleted"),
             };
-            let display = journal_storage::journal_display_name(name);
+            let display = notema_storage::journal_display_name(name);
             (
                 4 + dialog_frame_rows(),
                 format!("Delete journal '{display}'?\n{line2}"),

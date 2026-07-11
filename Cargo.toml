@@ -1,12 +1,12 @@
 [package]
-name = "journal"
+name = "notema"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [workspace]
-members = ["crates/journal-core", "crates/journal-encryption", "crates/journal-storage", "crates/journal-context-provider", "crates/journal-import", "crates/journal-analytics", "crates/journal-seed", "crates/journal-locate", "crates/journal-fuse"]
+members = ["crates/notema-core", "crates/notema-encryption", "crates/notema-storage", "crates/notema-context-provider", "crates/notema-import", "crates/notema-analytics", "crates/notema-seed", "crates/notema-locate", "crates/notema-fuse"]
 
 # One version for the whole workspace: the macOS location helper stamps this into
 # its bundle and the runtime checks it, so the crates must not drift apart.
@@ -14,7 +14,7 @@ members = ["crates/journal-core", "crates/journal-encryption", "crates/journal-s
 version = "2026.7.1"
 edition = "2024"
 license = "EUPL-1.2"
-authors = ["Paul-Vincent Roll <journal@paviro.de>"]
+authors = ["Paul-Vincent Roll <notema@paviro.de>"]
 
 [dependencies]
 anyhow = "1"
@@ -25,21 +25,21 @@ dirs = "6"
 # Decompress and parse the embedded third-party license report (see build.rs).
 flate2 = "1"
 # FUSE mount of a decrypted journal, behind the `fuse` feature. The crate drives
-# libfuse's own high-level API through a small C bridge (crates/journal-fuse/bridge.c),
+# libfuse's own high-level API through a small C bridge (crates/notema-fuse/bridge.c),
 # so a fuse-enabled binary needs the system libfuse3 (macFUSE or fuse-t on macOS)
 # present; the standard build leaves it out entirely. macOS + Linux only.
-journal-fuse = { path = "crates/journal-fuse", optional = true }
+notema-fuse = { path = "crates/notema-fuse", optional = true }
 image = { version = "0.25", default-features = false }
 indicatif = "0.17"
 # rascii_art still targets image 0.24; a second, decode-feature-free copy lets us
 # hand it images we already decoded on the 0.25 side (see `tui::image::to_rascii_image`).
 image_024 = { package = "image", version = "0.24", default-features = false }
-journal-analytics = { path = "crates/journal-analytics" }
-journal-context-provider = { path = "crates/journal-context-provider" }
-journal-core = { path = "crates/journal-core" }
-journal-import = { path = "crates/journal-import" }
-journal-seed = { path = "crates/journal-seed" }
-journal-storage = { path = "crates/journal-storage" }
+notema-analytics = { path = "crates/notema-analytics" }
+notema-context-provider = { path = "crates/notema-context-provider" }
+notema-core = { path = "crates/notema-core" }
+notema-import = { path = "crates/notema-import" }
+notema-seed = { path = "crates/notema-seed" }
+notema-storage = { path = "crates/notema-storage" }
 mimalloc = "0.1"
 notify = "7.0"
 ratatui = "0.30"
@@ -78,7 +78,7 @@ terminal-colorsaurus = "1.0.3"
 [features]
 # Off by default: the standard build has no FUSE dependency and runs everywhere.
 # Enable for the dedicated macOS/Linux "-fuse" release artifacts (see Makefile.toml).
-fuse = ["dep:journal-fuse"]
+fuse = ["dep:notema-fuse"]
 
 [build-dependencies]
 # build.rs shells out to cargo-about and embeds a gzipped JSON license report.

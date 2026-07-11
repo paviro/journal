@@ -26,7 +26,7 @@ use ratatui::{
     widgets::{Block, Borders, Padding},
 };
 
-use journal_storage::journal_display_name;
+use notema_storage::journal_display_name;
 
 use crate::tui::app::{App, InsightsScrollGeometry};
 use crate::tui::entry_rows::text_width;

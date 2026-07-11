@@ -1,4 +1,4 @@
-# Multi-target build tasks for journal
+# Multi-target build tasks for notema
 
 [config]
 default_to_workspace = false
@@ -111,7 +111,7 @@ command = "cargo"
 args = ["build", "--release", "--target", "x86_64-pc-windows-gnu"]
 
 # macOS targets
-# .env carries the Apple credentials journal-storage's build.rs reads to sign and
+# .env carries the Apple credentials notema-storage's build.rs reads to sign and
 # notarize the location helper. Missing .env falls back to ad-hoc signing.
 [tasks.build-macos-intel]
 description = "Build for Intel macOS"
@@ -131,9 +131,9 @@ dependencies = ["build-macos-intel", "build-macos-silicon"]
 script = '''
 mkdir -p target/universal-apple-darwin/release
 lipo -create \
-    target/x86_64-apple-darwin/release/journal \
-    target/aarch64-apple-darwin/release/journal \
-    -output target/universal-apple-darwin/release/journal
+    target/x86_64-apple-darwin/release/notema \
+    target/aarch64-apple-darwin/release/notema \
+    -output target/universal-apple-darwin/release/notema
 '''
 
 # Combined build tasks
@@ -203,7 +203,7 @@ mkdir -p release
 description = "Package native Termux ARM64 Android binary"
 dependencies = ["create-release-dir"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 TARGET="${TERMUX_TARGET:-aarch64-linux-android}"
 PLATFORM="android-aarch64-termux"
 cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
@@ -216,7 +216,7 @@ rm "${BINARY_NAME}"
 description = "Package ARM64 musl binary"
 dependencies = ["create-release-dir"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 TARGET="aarch64-unknown-linux-musl"
 PLATFORM="linux-musl-aarch64"
 cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
@@ -229,7 +229,7 @@ rm "${BINARY_NAME}"
 description = "Package ARM64 gnu binary"
 dependencies = ["create-release-dir"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 TARGET="aarch64-unknown-linux-gnu"
 PLATFORM="linux-gnu-aarch64"
 cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
@@ -242,7 +242,7 @@ rm "${BINARY_NAME}"
 description = "Package x86_64 gnu binary"
 dependencies = ["create-release-dir"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 TARGET="x86_64-unknown-linux-gnu"
 PLATFORM="linux-gnu-x86_64"
 cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
@@ -255,7 +255,7 @@ rm "${BINARY_NAME}"
 description = "Package x86_64 musl binary"
 dependencies = ["create-release-dir"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 TARGET="x86_64-unknown-linux-musl"
 PLATFORM="linux-musl-x86_64"
 cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
@@ -268,7 +268,7 @@ rm "${BINARY_NAME}"
 description = "Package Windows gnu binary"
 dependencies = ["create-release-dir"]
 script = '''
-BINARY_NAME="journal.exe"
+BINARY_NAME="notema.exe"
 TARGET="x86_64-pc-windows-gnu"
 PLATFORM="windows-gnu-x86_64"
 cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
@@ -281,7 +281,7 @@ rm "${BINARY_NAME}"
 description = "Package Intel macOS binary"
 dependencies = ["create-release-dir", "sign-macos-intel"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 TARGET="x86_64-apple-darwin"
 PLATFORM="apple-darwin-x86_64"
 cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
@@ -294,7 +294,7 @@ rm "${BINARY_NAME}"
 description = "Package Apple Silicon macOS binary"
 dependencies = ["create-release-dir", "sign-macos-silicon"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 TARGET="aarch64-apple-darwin"
 PLATFORM="apple-darwin-aarch64"
 cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
@@ -307,7 +307,7 @@ rm "${BINARY_NAME}"
 description = "Package Universal macOS binary"
 dependencies = ["create-release-dir", "sign-macos-universal"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 TARGET="universal-apple-darwin"
 PLATFORM="apple-darwin-universal"
 cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
@@ -378,7 +378,7 @@ dependencies = ["build-macos-intel"]
 env_files = ["./.env"]
 condition = { files_exist = ["./.env"] }
 script = '''
-BINARY_PATH="target/x86_64-apple-darwin/release/journal"
+BINARY_PATH="target/x86_64-apple-darwin/release/notema"
 if [ -z "$APPLE_DEVELOPER_ID" ]; then
     echo "APPLE_DEVELOPER_ID not set, cannot sign Intel macOS binary." >&2
     exit 1
@@ -392,7 +392,7 @@ dependencies = ["build-macos-silicon"]
 env_files = ["./.env"]
 condition = { files_exist = ["./.env"] }
 script = '''
-BINARY_PATH="target/aarch64-apple-darwin/release/journal"
+BINARY_PATH="target/aarch64-apple-darwin/release/notema"
 if [ -z "$APPLE_DEVELOPER_ID" ]; then
     echo "APPLE_DEVELOPER_ID not set, cannot sign Apple Silicon macOS binary." >&2
     exit 1
@@ -406,7 +406,7 @@ dependencies = ["build-macos-universal"]
 env_files = ["./.env"]
 condition = { files_exist = ["./.env"] }
 script = '''
-BINARY_PATH="target/universal-apple-darwin/release/journal"
+BINARY_PATH="target/universal-apple-darwin/release/notema"
 if [ -z "$APPLE_DEVELOPER_ID" ]; then
     echo "APPLE_DEVELOPER_ID not set, cannot sign Universal macOS binary." >&2
     exit 1
@@ -462,7 +462,7 @@ xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$AP
 # ------------------------------------------------------------------------------
 # macOS FUSE builds
 #
-# The same `journal` binary built with `--features fuse` (mounts an encrypted
+# The same `notema` binary built with `--features fuse` (mounts an encrypted
 # journal as a decrypted filesystem). Links libfuse3, so it needs macFUSE or
 # fuse-t installed to build and run. Zips are `<platform>-fuse.zip`; builds go to
 # `target/fuse/` so they don't clobber the standard artifacts.
@@ -488,9 +488,9 @@ dependencies = ["build-fuse-macos-intel", "build-fuse-macos-silicon"]
 script = '''
 mkdir -p target/fuse/universal-apple-darwin/release
 lipo -create \
-    target/fuse/x86_64-apple-darwin/release/journal \
-    target/fuse/aarch64-apple-darwin/release/journal \
-    -output target/fuse/universal-apple-darwin/release/journal
+    target/fuse/x86_64-apple-darwin/release/notema \
+    target/fuse/aarch64-apple-darwin/release/notema \
+    -output target/fuse/universal-apple-darwin/release/notema
 '''
 
 # macOS only: releases are built on a Mac, and the FUSE feature links libfuse3
@@ -504,7 +504,7 @@ dependencies = ["build-fuse-macos-intel"]
 env_files = ["./.env"]
 condition = { files_exist = ["./.env"] }
 script = '''
-BINARY_PATH="target/fuse/x86_64-apple-darwin/release/journal"
+BINARY_PATH="target/fuse/x86_64-apple-darwin/release/notema"
 if [ -z "$APPLE_DEVELOPER_ID" ]; then
     echo "APPLE_DEVELOPER_ID not set, cannot sign Intel macOS FUSE binary." >&2
     exit 1
@@ -518,7 +518,7 @@ dependencies = ["build-fuse-macos-silicon"]
 env_files = ["./.env"]
 condition = { files_exist = ["./.env"] }
 script = '''
-BINARY_PATH="target/fuse/aarch64-apple-darwin/release/journal"
+BINARY_PATH="target/fuse/aarch64-apple-darwin/release/notema"
 if [ -z "$APPLE_DEVELOPER_ID" ]; then
     echo "APPLE_DEVELOPER_ID not set, cannot sign Apple Silicon macOS FUSE binary." >&2
     exit 1
@@ -532,7 +532,7 @@ dependencies = ["build-fuse-macos-universal"]
 env_files = ["./.env"]
 condition = { files_exist = ["./.env"] }
 script = '''
-BINARY_PATH="target/fuse/universal-apple-darwin/release/journal"
+BINARY_PATH="target/fuse/universal-apple-darwin/release/notema"
 if [ -z "$APPLE_DEVELOPER_ID" ]; then
     echo "APPLE_DEVELOPER_ID not set, cannot sign Universal macOS FUSE binary." >&2
     exit 1
@@ -540,12 +540,12 @@ fi
 codesign --sign "$APPLE_DEVELOPER_ID" --timestamp --options runtime "$BINARY_PATH"
 '''
 
-# Packaging (FUSE): same `journal` binary, `<platform>-fuse.zip` name.
+# Packaging (FUSE): same `notema` binary, `<platform>-fuse.zip` name.
 [tasks.package-fuse-macos-intel]
 description = "Package Intel macOS FUSE binary"
 dependencies = ["create-release-dir", "sign-fuse-macos-intel"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 PLATFORM="apple-darwin-x86_64-fuse"
 cp "target/fuse/x86_64-apple-darwin/release/${BINARY_NAME}" "release/"
 cd release
@@ -557,7 +557,7 @@ rm "${BINARY_NAME}"
 description = "Package Apple Silicon macOS FUSE binary"
 dependencies = ["create-release-dir", "sign-fuse-macos-silicon"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 PLATFORM="apple-darwin-aarch64-fuse"
 cp "target/fuse/aarch64-apple-darwin/release/${BINARY_NAME}" "release/"
 cd release
@@ -569,7 +569,7 @@ rm "${BINARY_NAME}"
 description = "Package Universal macOS FUSE binary"
 dependencies = ["create-release-dir", "sign-fuse-macos-universal"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 PLATFORM="apple-darwin-universal-fuse"
 cp "target/fuse/universal-apple-darwin/release/${BINARY_NAME}" "release/"
 cd release
@@ -686,7 +686,7 @@ env = { CARGO_TARGET_DIR = "target/fuse" }
 description = "Package ARM64 musl Linux FUSE binary"
 dependencies = ["create-release-dir", "build-fuse-arm64-musl"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 PLATFORM="linux-musl-aarch64-fuse"
 cp "target/fuse/aarch64-unknown-linux-musl/release/${BINARY_NAME}" "release/"
 cd release
@@ -698,7 +698,7 @@ rm "${BINARY_NAME}"
 description = "Package ARM64 glibc Linux FUSE binary"
 dependencies = ["create-release-dir", "build-fuse-arm64-gnu"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 PLATFORM="linux-gnu-aarch64-fuse"
 cp "target/fuse/aarch64-unknown-linux-gnu/release/${BINARY_NAME}" "release/"
 cd release
@@ -710,7 +710,7 @@ rm "${BINARY_NAME}"
 description = "Package x86_64 glibc Linux FUSE binary"
 dependencies = ["create-release-dir", "build-fuse-x86-gnu"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 PLATFORM="linux-gnu-x86_64-fuse"
 cp "target/fuse/x86_64-unknown-linux-gnu/release/${BINARY_NAME}" "release/"
 cd release
@@ -722,7 +722,7 @@ rm "${BINARY_NAME}"
 description = "Package x86_64 musl Linux FUSE binary"
 dependencies = ["create-release-dir", "build-fuse-x86-musl"]
 script = '''
-BINARY_NAME="journal"
+BINARY_NAME="notema"
 PLATFORM="linux-musl-x86_64-fuse"
 cp "target/fuse/x86_64-unknown-linux-musl/release/${BINARY_NAME}" "release/"
 cd release

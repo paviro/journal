@@ -20,7 +20,7 @@ impl App {
         let mut active: BTreeMap<String, CasingCount> = BTreeMap::new();
         let mut archived: BTreeMap<String, CasingCount> = BTreeMap::new();
         for entry in &self.library.entries {
-            let target = if journal_storage::is_archived_name(&entry.journal) {
+            let target = if notema_storage::is_archived_name(&entry.journal) {
                 &mut archived
             } else {
                 &mut active

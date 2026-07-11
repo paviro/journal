@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Gauge, Paragraph, Wrap},
 };
 
-use journal_storage::PendingRequest;
+use notema_storage::PendingRequest;
 
 use crate::tui::entry_rows::wrap_text;
 use crate::tui::theme::theme;
@@ -117,7 +117,7 @@ pub(crate) enum AccessNotice {
 /// store — either awaiting approval of its join request, or holding no usable key
 /// and needing to enroll. See [`AccessNotice`].
 pub(crate) fn draw_pending_notice(frame: &mut Frame<'_>, device_name: &str, notice: &AccessNotice) {
-    let area = super::draw_modal_frame(frame, "Journal", "", "any key to exit");
+    let area = super::draw_modal_frame(frame, "Notema", "", "any key to exit");
     if area.height == 0 || area.width == 0 {
         return;
     }
@@ -191,7 +191,7 @@ pub(crate) fn draw_pending_notice(frame: &mut Frame<'_>, device_name: &str, noti
 /// device: this device fell back to plaintext and retired its key and trust pins
 /// (renamed aside, not deleted). Dismissed on any key.
 pub(crate) fn draw_disable_notice(frame: &mut Frame<'_>) {
-    let area = super::draw_modal_frame(frame, "Journal", "", "any key to continue");
+    let area = super::draw_modal_frame(frame, "Notema", "", "any key to continue");
     if area.height == 0 || area.width == 0 {
         return;
     }
@@ -223,7 +223,7 @@ pub(crate) fn draw_disable_notice(frame: &mut Frame<'_>) {
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::raw("To turn encryption back on, run "),
-        Span::styled("journal encryption enable", dim),
+        Span::styled("notema encryption enable", dim),
         Span::raw("."),
     ]));
 

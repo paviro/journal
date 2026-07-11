@@ -37,7 +37,7 @@ pub(crate) fn draw_unlock(
     input: &PassphraseInput,
     error: Option<&str>,
 ) -> Option<Rect> {
-    let inner = super::draw_modal_frame(frame, "Unlock Journal", "", "enter unlock · esc quit");
+    let inner = super::draw_modal_frame(frame, "Unlock Notema", "", "enter unlock · esc quit");
     if inner.height == 0 || inner.width == 0 {
         return None;
     }

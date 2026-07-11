@@ -1,6 +1,6 @@
 use super::*;
 use crate::tui::state::{ListNav, SelectableList};
-use journal_core::feelings::FeelingGroup;
+use notema_core::feelings::FeelingGroup;
 
 impl App {
     pub(crate) fn begin_edit_feelings(&mut self) {
@@ -28,7 +28,7 @@ pub(crate) enum FeelingRow {
 /// navigable list) changes as the user opens groups. A search box filters across
 /// every group into a flat list of matches.
 pub(crate) struct EditFeelingState {
-    /// The canonical vocabulary, borrowed from `journal_core::feelings::FEELING_GROUPS`.
+    /// The canonical vocabulary, borrowed from `notema_core::feelings::FEELING_GROUPS`.
     pub(crate) groups: &'static [FeelingGroup],
     /// Whether each group is expanded, parallel to `groups`. Groups start collapsed.
     pub(crate) expanded: Vec<bool>,
@@ -242,7 +242,7 @@ impl ListNav for EditFeelingState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use journal_core::feelings::Feeling;
+    use notema_core::feelings::Feeling;
 
     static FEELING_FIXTURE: &[FeelingGroup] = &[
         FeelingGroup {

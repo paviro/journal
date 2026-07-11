@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Wrapping .app for the notema-locate CoreLocation helper. A bare CLI
+	     can't get location on modern macOS; this bundle can. locationd remembers
+	     the grant by bundle id + code hash, so the identifier must stay stable. -->
+	<key>CFBundleIdentifier</key>
+	<string>de.paviro.notema.locate</string>
+	<key>CFBundleName</key>
+	<string>NotemaLocate</string>
+	<key>CFBundleExecutable</key>
+	<string>notema-locate</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>2026.7.1</string>
+	<!-- Background utility: no Dock icon, no window. -->
+	<key>LSUIElement</key>
+	<true/>
+	<!-- Shown in the Location Services permission prompt. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Notema tags entries with where you wrote them when you grab your current location.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>Notema tags entries with where you wrote them when you grab your current location.</string>
+</dict>
+</plist>

@@ -13,7 +13,7 @@ use crate::{
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use journal_storage::JournalStore;
+use notema_storage::JournalStore;
 use ratatui::layout::Rect;
 use std::fs;
 use tempfile::tempdir;
@@ -400,7 +400,7 @@ fn location_dialog_keys_route_by_focus() {
         let state = app.edit_location_state_mut().unwrap();
         state.presets.push(LocationPreset {
             label: "Berlin".to_string(),
-            location: journal_core::Location {
+            location: notema_core::Location {
                 city: Some("Berlin".to_string()),
                 ..Default::default()
             },
@@ -910,17 +910,17 @@ fn select_created_entry_path_opens_expanded_entry_view() {
     let store = JournalStore::for_config(&root.join("config.toml"), &root).unwrap();
     let created = store
         .create_entry(
-            journal_storage::EntryDraft::new(
+            notema_storage::EntryDraft::new(
                 "work",
                 "# Created\nBody\n",
-                &journal_core::Metadata::default(),
+                &notema_core::Metadata::default(),
             ),
-            journal_storage::EntryAssetOptions::default(),
+            notema_storage::EntryAssetOptions::default(),
         )
         .unwrap()
         .path;
     app.refresh().unwrap();
-    let created_id = journal_storage::entry_id(&created).unwrap();
+    let created_id = notema_storage::entry_id(&created).unwrap();
     assert!(app.select_entry_by_id(&created_id, true));
     app.nav.focus = Focus::EntryView;
 

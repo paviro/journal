@@ -2,8 +2,8 @@ use super::*;
 use crate::tui::geocode::{GeocodeQuery, GeocodeRequest};
 use crate::tui::state::{ListNav, SelectableList};
 use chrono::{DateTime, FixedOffset};
-use journal_context_provider::{DeviceFix, GeocodeHit};
-use journal_core::Location;
+use notema_context_provider::{DeviceFix, GeocodeHit};
+use notema_core::Location;
 use std::collections::HashMap;
 
 /// How many of the most-recent distinct places lead the preset list before it
@@ -48,7 +48,7 @@ impl App {
     pub(crate) fn location_presets(&self) -> Vec<LocationPreset> {
         let mut by_key: HashMap<String, PresetAgg> = HashMap::new();
         for entry in &self.library.entries {
-            if journal_storage::is_archived_name(&entry.journal) {
+            if notema_storage::is_archived_name(&entry.journal) {
                 continue;
             }
             let Some(location) = &entry.location else {
@@ -528,7 +528,7 @@ mod tests {
             latitude: lat,
             longitude: lon,
             accuracy_m: Some(12.0),
-            source: journal_context_provider::DeviceLocationSource::CoreLocation,
+            source: notema_context_provider::DeviceLocationSource::CoreLocation,
         }
     }
 

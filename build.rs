@@ -1,10 +1,10 @@
-//! Generates the third-party license report shown by `journal licenses`.
+//! Generates the third-party license report shown by `notema licenses`.
 //!
 //! Runs `cargo-about` over the dependency tree, groups crates by their license
 //! text, and writes a gzipped JSON blob into `OUT_DIR` that the binary embeds
 //! via `include_bytes!`. Set `JOURNAL_SKIP_LICENSE_GENERATION=1` to skip the
 //! `cargo-about` call (writing an empty report) when the tool isn't installed —
-//! the `journal licenses` command still prints the data-source attributions.
+//! the `notema licenses` command still prints the data-source attributions.
 
 use flate2::{Compression, write::GzEncoder};
 use serde::{Deserialize, Serialize};
@@ -63,7 +63,7 @@ fn main() {
     if env::var_os("JOURNAL_SKIP_LICENSE_GENERATION").is_some() {
         println!(
             "cargo:warning=Skipping third-party license generation \
-             (JOURNAL_SKIP_LICENSE_GENERATION set); `journal licenses` will list no dependencies."
+             (JOURNAL_SKIP_LICENSE_GENERATION set); `notema licenses` will list no dependencies."
         );
         write_gzipped(&output_path, b"[]");
         return;
@@ -124,7 +124,7 @@ fn main() {
 
 /// When building the `fuse` feature on macOS, embed an rpath to libfuse3's
 /// directory so the dynamically-linked library (macFUSE or fuse-t, installed
-/// under /usr/local/lib) is found at runtime. `journal-fuse` links the library,
+/// under /usr/local/lib) is found at runtime. `notema-fuse` links the library,
 /// but a dependency build script's link-args do not propagate to the final
 /// binary — so the rpath must be emitted here, by the binary crate.
 fn emit_macos_fuse_rpath() {

@@ -1,5 +1,5 @@
-use journal_core::{Entry, SearchHit, entry_group_date};
-use journal_storage::parse_entry_timestamp;
+use notema_core::{Entry, SearchHit, entry_group_date};
+use notema_storage::parse_entry_timestamp;
 use ratatui::{
     style::Style,
     text::{Line, Span},
@@ -146,13 +146,13 @@ fn search_hit_lines(hit: &SearchHit, text_width: u16) -> Vec<Line<'static>> {
     };
     // Archived journals still show up in search; flag them on the bottom-right and
     // show the plain (un-suffixed) journal name on the bottom-left.
-    let archived = journal_storage::is_archived_name(&hit.journal);
+    let archived = notema_storage::is_archived_name(&hit.journal);
     entry_box_lines(
         date.as_deref(),
         &time,
         &hit.preview,
         Some(&footer_left_label(
-            journal_storage::journal_display_name(&hit.journal).to_string(),
+            notema_storage::journal_display_name(&hit.journal).to_string(),
             hit.starred,
         )),
         archived.then_some("Archived"),

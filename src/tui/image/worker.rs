@@ -7,7 +7,7 @@ use std::{
     thread,
 };
 
-use journal_storage::JournalStore;
+use notema_storage::JournalStore;
 use ratatui_image::{picker::Picker, sliced::SlicedProtocol};
 
 use super::CacheKey;

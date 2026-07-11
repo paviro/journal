@@ -1,6 +1,8 @@
-# journal
+# Notema 間
 
-A terminal-first, markdown journaling app with a full TUI, optional end-to-end
+**Notema** (/noʊˈteɪmɑ/ — *note* + 間 *ma*, the Japanese sense of the meaningful
+interval: the pause and space between things, in time as much as on the page) is a
+terminal-first, markdown journaling app with a full TUI, optional end-to-end
 encryption, and multi-device sync over any file syncing tool you already use
 (Syncthing, Nextcloud, Dropbox, iCloud, …).
 
@@ -25,7 +27,7 @@ on light, dark, and monochrome/e-ink terminals.
   OpenStreetMap Nominatim). Located entries also capture weather and air quality
   from Open-Meteo. See [Location](#location).
 - **Built-in editor** — write and edit entries in a fullscreen editor, in the TUI
-  or straight from `journal log`.
+  or straight from `notema log`.
 - **Day One import** — import a Day One JSON export, photos included.
 - **End-to-end encryption** — per-device [age](https://age-encryption.org) keys,
   a signed device roster, and an approval flow for adding new devices. Private
@@ -40,7 +42,7 @@ Requires a Rust toolchain (edition 2024).
 ```bash
 cargo install --path .
 # or
-cargo build --release   # binary at target/release/journal
+cargo build --release   # binary at target/release/notema
 ```
 
 Cross-compilation targets (Termux/Android, musl, Windows, macOS universal, …)
@@ -54,24 +56,24 @@ Run `journal` with no arguments to start setup. It asks for:
   Point this at a synced folder if you want multi-device sync (see below).
 
 For a brand-new, empty root it also offers to enable encryption on the spot.
-Config is written to `~/.config/journal/config.toml` (on macOS,
-`~/Library/Application Support/de.paviro.journal/config.toml`), overridable with
+Config is written to `~/.config/notema/config.toml` (on macOS,
+`~/Library/Application Support/de.paviro.notema/config.toml`), overridable with
 `$XDG_CONFIG_HOME` or `--config`.
 
 ## Usage
 
 ```bash
-journal                       # launch the TUI
-journal log "Had a good day"  # quick entry from the command line
-journal log                   # compose an entry in the fullscreen editor
+notema                       # launch the TUI
+notema log "Had a good day"  # quick entry from the command line
+notema log                   # compose an entry in the fullscreen editor
 echo "note" | journal log     # entry from stdin
-journal use personal          # set the default journal for new entries via the cli
+notema use personal          # set the default journal for new entries via the cli
 ```
 
 Attach metadata when logging:
 
 ```bash
-journal log "Shipped the release" \
+notema log "Shipped the release" \
   --journal work \
   --tag project,milestone \
   --person Alice --activity coding \
@@ -98,17 +100,17 @@ IP-based fallback, so nothing new leaves the device beyond the Nominatim lookup:
   reconfigured backend (e.g. BeaconDB) will report "no location".
 - **macOS** — uses CoreLocation. Since Ventura a bare CLI can't get location, so
   `journal` embeds a small signed helper app, extracts it to
-  `~/Library/Application Support/de.paviro.journal/` on first use, and reads the
+  `~/Library/Application Support/de.paviro.notema/` on first use, and reads the
   fix from it. The helper is built, signed, and (for release builds) notarized by
-  `journal-storage`'s build script, so it is never a committed binary. Grant
+  `notema-storage`'s build script, so it is never a committed binary. Grant
   Location access when first prompted, or later in System Settings → Privacy &
   Security → Location Services.
 
 ### Import from Day One
 
 ```bash
-journal import dayone ./export/personal.json --journal personal
-journal import dayone ./export/personal.json --journal personal --download-images   # also fetch remote image links
+notema import dayone ./export/personal.json --journal personal
+notema import dayone ./export/personal.json --journal personal --download-images   # also fetch remote image links
 ```
 
 Already-imported entries are skipped on re-run. Audio/video/PDF attachments are
@@ -140,7 +142,7 @@ Markdown content here.
 ```
 
 Per-device settings and this device's private key live separately, in the config
-directory (`~/.config/journal/`, or `~/Library/Application Support/de.paviro.journal/`
+directory (`~/.config/notema/`, or `~/Library/Application Support/de.paviro.notema/`
 on macOS), and are **never** part of the journal folder.
 
 The complete on-disk format — every front-matter field, the config/state files,
@@ -187,7 +189,7 @@ Encryption here is deliberately scoped — it's a serverless, single-owner desig
 On the first device:
 
 ```bash
-journal encryption enable            # names the device, optionally sets a passphrase
+notema encryption enable            # names the device, optionally sets a passphrase
 ```
 
 This creates this device's key, records it as the first (genesis) entry in the
@@ -195,7 +197,7 @@ signed roster, and encrypts every existing plaintext entry. You'll be asked
 whether to protect the key with a passphrase; pass `--no-passphrase` to skip
 that prompt.
 
-> **Back up your key.** `~/.config/journal/identity.toml` is the only thing that
+> **Back up your key.** `~/.config/notema/identity.toml` is the only thing that
 > can decrypt this device's view of the journal. If you lose every trusted
 > device's key, encrypted entries are unrecoverable.
 
@@ -208,7 +210,7 @@ sync tool finish syncing first**.
 **1. On the new device — request access:**
 
 ```bash
-journal encryption device enroll     # prompts for a device name and optional passphrase
+notema encryption device enroll     # prompts for a device name and optional passphrase
 ```
 
 This generates the new device's keypair and drops a `pending-<id>.toml` request
@@ -243,7 +245,7 @@ if it set one.)
 To reject a request instead:
 
 ```bash
-journal encryption device reject <name>        # or: --all
+notema encryption device reject <name>        # or: --all
 ```
 
 #### Comparing fingerprints
@@ -255,10 +257,10 @@ nothing until a human approves it.
 
 Approve **only** when the two fingerprints match:
 
-- **On the new device**, the fingerprint is printed by `journal encryption
-  device enroll` (and again by `journal encryption device list` there).
+- **On the new device**, the fingerprint is printed by `notema encryption
+  device enroll` (and again by `notema encryption device list` there).
 - **On the approving device**, the same fingerprint appears in the TUI approval
-  modal and in `journal encryption device list`.
+  modal and in `notema encryption device list`.
 
 Confirm the two are identical **out-of-band** — read it aloud over a call,
 compare it in person, or send it over a channel you already trust. Don't rely on
@@ -269,26 +271,26 @@ request.
 ### Manage devices
 
 ```bash
-journal encryption device list                 # trusted devices + pending requests
-journal encryption device rename OLD NEW        # relabel a device (no re-encryption)
-journal encryption device revoke <name>         # revoke a device and re-encrypt without it
-journal encryption device rotate                # replace this device's key, retire the old one
-journal encryption device passphrase            # add / change this device's key passphrase
-journal encryption device passphrase --remove   # store the key unprotected
+notema encryption device list                 # trusted devices + pending requests
+notema encryption device rename OLD NEW        # relabel a device (no re-encryption)
+notema encryption device revoke <name>         # revoke a device and re-encrypt without it
+notema encryption device rotate                # replace this device's key, retire the old one
+notema encryption device passphrase            # add / change this device's key passphrase
+notema encryption device passphrase --remove   # store the key unprotected
 ```
 
 Revocation is **forward-only**: re-encryption excludes the revoked device from
 future entries, but any entries it already synced remain readable to it. Rotate
 a device's key (or revoke and re-enroll) if you suspect its key was exposed.
 
-If encryption is disabled on one device (`journal encryption disable`), the
+If encryption is disabled on one device (`notema encryption disable`), the
 other devices notice on next launch, retire their local key material, and fall
 back to reading the now-plaintext journal.
 
 ### Disable encryption
 
 ```bash
-journal encryption disable            # decrypts every entry and turns encryption off
+notema encryption disable            # decrypts every entry and turns encryption off
 ```
 
 Destructive encryption operations prompt for confirmation; pass `-y`/`--yes` to
@@ -302,7 +304,7 @@ store stays encrypted on disk. Plaintext only ever lives in memory; nothing
 decrypted is written to disk.
 
 ```bash
-journal mount ~/journal-mnt        # blocks until unmounted
+notema mount ~/journal-mnt        # blocks until unmounted
 umount ~/journal-mnt               # macOS: diskutil unmount ~/journal-mnt
 ```
 
@@ -344,7 +346,7 @@ fuse-t's own layer may lag a few seconds before external changes appear.
 
 ## Configuration
 
-`~/.config/journal/config.toml`:
+`~/.config/notema/config.toml`:
 
 ```toml
 [journal]
@@ -383,5 +385,5 @@ See [`LICENCE`](LICENCE) (EUPL v1.2).
   contributors, via [Nominatim](https://nominatim.org), under the
   [ODbL](https://opendatacommons.org/licenses/odbl/).
 
-Run `journal licenses` to print these credits together with the full license
+Run `notema licenses` to print these credits together with the full license
 texts of every third-party Rust dependency.

@@ -5,7 +5,7 @@
 //! [`super::correlate`] table, so it inherits the diverging lift/drain bar and
 //! scrolling.
 
-use journal_analytics::{
+use notema_analytics::{
     Correlate, Correlations,
     correlations::{by_mood_delta_asc, by_mood_delta_desc},
 };

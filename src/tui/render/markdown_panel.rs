@@ -17,7 +17,7 @@ use ratatui_markdown::{
     theme::{CodeColors, ThemeConfig},
 };
 
-use journal_core::{Entry, Metadata};
+use notema_core::{Entry, Metadata};
 use std::path::Path;
 
 use crate::tui::{

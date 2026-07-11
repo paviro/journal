@@ -1,7 +1,7 @@
 # Themes
 
 The TUI's look is defined by TOML theme files in `<config-dir>/themes/`
-(`~/.config/journal/themes/` by default, next to `config.toml`). The bundled
+(`~/.config/notema/themes/` by default, next to `config.toml`). The bundled
 themes are written there on first use and are never overwritten afterwards —
 edits to them survive upgrades. Any `.toml` file in the directory is a theme;
 the file stem is the theme name.

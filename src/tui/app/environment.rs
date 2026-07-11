@@ -2,7 +2,7 @@ use super::*;
 use crate::tui::editor_state::EditorTarget;
 use crate::tui::environment::{EnvironmentRequest, EnvironmentTarget, environment_fields, resolve};
 use chrono::{DateTime, FixedOffset, Local};
-use journal_core::{EntryEncryptionState, Location};
+use notema_core::{EntryEncryptionState, Location};
 
 /// Minimum gap between backfill dispatches — the Open-Meteo rate-limit knob.
 /// One entry per second (two calls) stays well under the free-tier ceiling.

@@ -3,7 +3,7 @@
 
 use ratatui::{Frame, layout::Rect};
 
-use journal_analytics::Analytics;
+use notema_analytics::Analytics;
 
 use super::widgets::{
     Bar, Section, Stat, TWO_COL_MIN_WIDTH, caption, draw_bars, draw_histogram, draw_stats, grid,

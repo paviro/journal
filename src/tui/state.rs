@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use journal_core::SearchHit;
+use notema_core::SearchHit;
 use ratatui::widgets::ListState;
 
 use super::app::{EditFeelingState, EditLocationState, EditMetadataState, SearchScope};
