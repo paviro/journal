@@ -57,7 +57,7 @@ pub struct UiSection {
     /// background, or are pinned to one variant.
     #[serde(default)]
     pub color_mode: ColorMode,
-    /// Chrome style: `default` uses each theme's own `chrome.default`; `flat`
+    /// Chrome style: `default` uses each theme's own `chrome.style`; `flat`
     /// or `bordered` force that chrome on every theme.
     #[serde(default)]
     pub chrome: ChromeMode,
@@ -92,7 +92,7 @@ pub enum ColorMode {
 }
 
 /// The `[ui] chrome` setting: `default` follows the active theme's
-/// `chrome.default`; `flat`/`bordered` force that chrome on every theme.
+/// `chrome.style`; `flat`/`bordered` force that chrome on every theme.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ChromeMode {

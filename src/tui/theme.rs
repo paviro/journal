@@ -1,5 +1,5 @@
 //! The UI's semantic style seam. Widgets ask the theme for *meaning*
-//! (`heading`, `positive`, `accent`, …) and get back a ratatui [`Style`], never
+//! (`heading`, `positive`, `primary`, …) and get back a ratatui [`Style`], never
 //! a bare [`Color`]. Themes are TOML files in `<config-dir>/themes/`; the
 //! bundled ones are materialized there on first launch and stay user-editable.
 //!
@@ -210,16 +210,16 @@ pub(crate) struct Glyphs {
     pub(crate) tab_separator: char,
     /// The rule of section dividers (month headers, "Archived").
     pub(crate) divider: char,
-    /// The zero-baseline decoration of column charts.
+    /// The zero-baseline decoration of column charts (`charts.baseline.glyph`).
     pub(crate) chart_baseline: char,
-    /// The groove marking an empty delta bar.
+    /// The groove marking an empty delta bar (`charts.groove`).
     pub(crate) chart_groove: char,
-    /// The center marker of delta/mood bars. The heavy variant shown at an
-    /// exact zero stays code-side (weight carries meaning).
+    /// The center marker of delta/mood bars (`charts.bar_center`). The heavy
+    /// variant shown at an exact zero stays code-side (weight carries meaning).
     pub(crate) bar_center: char,
-    /// The stroke of the mood bar's fill.
+    /// The stroke of the mood bar's fill (`charts.mood_stroke`).
     pub(crate) mood_fill: char,
-    /// The box-drawing set for borders, cards, and table grids.
+    /// The box-drawing set for borders, cards, and table grids (`borders.style`).
     pub(crate) borders: BorderGlyphs,
 }
 
@@ -235,8 +235,6 @@ pub(crate) struct Theme {
     heading: Style,
     placeholder: Style,
     primary: Style,
-    secondary: Style,
-    accent: Style,
     border: Style,
     border_subtle: Style,
     border_active: Style,
@@ -258,7 +256,6 @@ pub(crate) struct Theme {
     chart_negative: Fill,
     bar: Fill,
     track: Fill,
-    chart_axis: Style,
     chart_baseline: Style,
     chart_label: Style,
     md_heading: Style,
@@ -285,7 +282,7 @@ thread_local! {
 }
 
 /// The user's chrome override (`[ui] chrome = "flat"|"bordered"`), applied on
-/// top of whatever the active theme declares as its `chrome.default`. `None`
+/// top of whatever the active theme declares as its `chrome.style`. `None`
 /// (= `default`) follows the theme. Runtime-writable so the theme picker can
 /// cycle it with live preview.
 #[cfg(not(test))]
@@ -471,21 +468,6 @@ impl Theme {
     }
 
     // --- accents ---
-
-    /// The app's single accent — count bars, tags/feelings fills, series
-    /// glyphs. Colour is decoration here: bars already encode magnitude by
-    /// length.
-    #[allow(dead_code)] // token exists for theme authors; no in-app consumer yet
-    pub(crate) fn accent(self) -> Style {
-        self.accent
-    }
-
-    /// The secondary accent hue, for places that need contrast *with* the
-    /// primary accent.
-    #[allow(dead_code)] // token exists for theme authors; no in-app consumer yet
-    pub(crate) fn secondary(self) -> Style {
-        self.secondary
-    }
 
     /// The primary accent as a style: focused titles, current-item markers.
     pub(crate) fn primary(self) -> Style {
@@ -676,12 +658,6 @@ impl Theme {
         self.chart_negative
     }
 
-    /// Chart axis ticks and edges.
-    #[allow(dead_code)] // token exists for theme authors; no in-app consumer yet
-    pub(crate) fn chart_axis(self) -> Style {
-        self.chart_axis
-    }
-
     /// The zero baseline of signed column charts.
     pub(crate) fn chart_baseline(self) -> Style {
         self.chart_baseline
@@ -763,8 +739,6 @@ impl Theme {
             ("heading", self.heading),
             ("placeholder", self.placeholder),
             ("primary", self.primary),
-            ("secondary", self.secondary),
-            ("accent", self.accent),
             ("border", self.border),
             ("border_subtle", self.border_subtle),
             ("border_active", self.border_active),
@@ -786,7 +760,6 @@ impl Theme {
             ("chart_negative", self.chart_negative.style),
             ("bar", self.bar.style),
             ("track", self.track.style),
-            ("chart_axis", self.chart_axis),
             ("chart_baseline", self.chart_baseline),
             ("chart_label", self.chart_label),
             ("md_heading", self.md_heading),
@@ -1006,7 +979,13 @@ impl FillSpec {
 struct ThemeFile {
     chrome: ChromeSection,
     palette: Palette,
-    colors: ColorsSection,
+    surfaces: SurfacesSection,
+    text: TextSection,
+    accents: AccentsSection,
+    status: StatusSection,
+    borders: BordersSection,
+    interaction: InteractionSection,
+    scrollbar: ScrollbarSection,
     charts: ChartsSection,
     markdown: MarkdownSection,
     glyphs: GlyphsSection,
@@ -1015,51 +994,90 @@ struct ThemeFile {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ChromeSection {
-    /// The theme's preferred chrome. A *default* because the `[ui] chrome`
-    /// setting can force flat/bordered on any theme.
-    default: ChromeStyle,
+    /// The theme's preferred chrome — a preference, not a mandate, because the
+    /// `[ui] chrome` setting can force flat/bordered on any theme.
+    style: ChromeStyle,
     scrim: f32,
 }
 
 impl Default for ChromeSection {
     fn default() -> Self {
         Self {
-            default: ChromeStyle::Bordered,
+            style: ChromeStyle::Bordered,
             scrim: 0.0,
         }
     }
 }
 
+/// The background layers the UI is built from, base to top.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct ColorsSection {
-    bg: Option<ColorSpec>,
+struct SurfacesSection {
+    background: Option<ColorSpec>,
     panel: Option<ColorSpec>,
     dialog: Option<ColorSpec>,
     element: Option<ColorSpec>,
-    text: Option<TokenSpec>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct TextSection {
+    body: Option<TokenSpec>,
     muted: Option<TokenSpec>,
     heading: Option<TokenSpec>,
     placeholder: Option<TokenSpec>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct AccentsSection {
     primary: Option<TokenSpec>,
-    secondary: Option<TokenSpec>,
-    accent: Option<TokenSpec>,
-    border: Option<TokenSpec>,
-    border_subtle: Option<TokenSpec>,
-    border_active: Option<TokenSpec>,
-    border_inactive: Option<TokenSpec>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct StatusSection {
     success: Option<TokenSpec>,
     warning: Option<TokenSpec>,
     error: Option<TokenSpec>,
     info: Option<TokenSpec>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct BordersSection {
+    /// The box-drawing character set every border is drawn with.
+    style: Option<BorderGlyphs>,
+    normal: Option<TokenSpec>,
+    subtle: Option<TokenSpec>,
+    focused: Option<TokenSpec>,
+    unfocused: Option<TokenSpec>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct InteractionSection {
     selection: Option<StyleSpec>,
     hover: Option<StyleSpec>,
     button: Option<StyleSpec>,
     key_hint: Option<StyleSpec>,
     cursor: Option<StyleSpec>,
     cursor_line: Option<StyleSpec>,
-    scrollbar_thumb: Option<TokenSpec>,
-    scrollbar_track: Option<TokenSpec>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ScrollbarSection {
+    thumb: Option<TokenSpec>,
+    track: Option<TokenSpec>,
+}
+
+/// The zero baseline of signed column charts: glyph and color together.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct BaselineSpec {
+    glyph: Option<String>,
+    color: Option<ColorSpec>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -1070,9 +1088,11 @@ struct ChartsSection {
     negative: Option<FillSpec>,
     bar: Option<FillSpec>,
     track: Option<FillSpec>,
-    axis: Option<TokenSpec>,
-    baseline: Option<TokenSpec>,
+    baseline: BaselineSpec,
     label: Option<TokenSpec>,
+    groove: Option<String>,
+    bar_center: Option<String>,
+    mood_stroke: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -1137,6 +1157,8 @@ impl SyntaxSection {
     }
 }
 
+/// The theme's identity glyphs — the ones that aren't chart furniture (those
+/// live in `[charts]`) or the border set (`borders.style`).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct GlyphsSection {
@@ -1145,11 +1167,6 @@ struct GlyphsSection {
     toast_edge: Option<String>,
     tab_separator: Option<String>,
     divider: Option<String>,
-    chart_baseline: Option<String>,
-    chart_groove: Option<String>,
-    bar_center: Option<String>,
-    mood_fill: Option<String>,
-    borders: Option<BorderGlyphs>,
 }
 
 /// A single-character glyph value.
@@ -1159,31 +1176,6 @@ fn parse_glyph(spec: &str, token: &str) -> Result<char> {
         bail!("glyph for `{token}` must be exactly one character, got {spec:?}");
     };
     Ok(glyph)
-}
-
-impl GlyphsSection {
-    fn resolve(&self) -> Result<Glyphs> {
-        let glyph = |spec: &Option<String>, default: char, token: &str| -> Result<char> {
-            spec.as_deref()
-                .map_or(Ok(default), |spec| parse_glyph(spec, token))
-        };
-        Ok(Glyphs {
-            selection_marker: self
-                .selection_marker
-                .as_deref()
-                .map(|spec| parse_glyph(spec, "glyphs.selection_marker"))
-                .transpose()?,
-            focus_stripe: glyph(&self.focus_stripe, '┃', "glyphs.focus_stripe")?,
-            toast_edge: glyph(&self.toast_edge, '┃', "glyphs.toast_edge")?,
-            tab_separator: glyph(&self.tab_separator, '·', "glyphs.tab_separator")?,
-            divider: glyph(&self.divider, '━', "glyphs.divider")?,
-            chart_baseline: glyph(&self.chart_baseline, '┈', "glyphs.chart_baseline")?,
-            chart_groove: glyph(&self.chart_groove, '·', "glyphs.chart_groove")?,
-            bar_center: glyph(&self.bar_center, '│', "glyphs.bar_center")?,
-            mood_fill: glyph(&self.mood_fill, '─', "glyphs.mood_fill")?,
-            borders: self.borders.unwrap_or_default(),
-        })
-    }
 }
 
 impl ThemeFile {
@@ -1218,64 +1210,48 @@ impl ThemeFile {
             })
         };
 
-        let colors = &self.colors;
-        let bg = color(&colors.bg, Color::Reset, "colors.bg")?;
-        let panel = color(&colors.panel, bg, "colors.panel")?;
-        let dialog = color(&colors.dialog, panel, "colors.dialog")?;
-        let element = color(&colors.element, panel, "colors.element")?;
-        let text = style(&colors.text, Style::default(), "colors.text")?;
-        let muted = style(&colors.muted, Style::default(), "colors.muted")?;
-        let heading = style(&colors.heading, text, "colors.heading")?;
-        let placeholder = style(&colors.placeholder, muted, "colors.placeholder")?;
+        let surfaces = &self.surfaces;
+        let bg = color(&surfaces.background, Color::Reset, "surfaces.background")?;
+        let panel = color(&surfaces.panel, bg, "surfaces.panel")?;
+        let dialog = color(&surfaces.dialog, panel, "surfaces.dialog")?;
+        let element = color(&surfaces.element, panel, "surfaces.element")?;
+        let text = style(&self.text.body, Style::default(), "text.body")?;
+        let muted = style(&self.text.muted, Style::default(), "text.muted")?;
+        let heading = style(&self.text.heading, text, "text.heading")?;
+        let placeholder = style(&self.text.placeholder, muted, "text.placeholder")?;
         let primary = style(
-            &colors.primary,
+            &self.accents.primary,
             Style::default().fg(Color::Cyan),
-            "colors.primary",
+            "accents.primary",
         )?;
-        let secondary = style(&colors.secondary, primary, "colors.secondary")?;
-        let accent = style(&colors.accent, primary, "colors.accent")?;
+        let borders = &self.borders;
         let border = style(
-            &colors.border,
+            &borders.normal,
             Style::default().fg(Color::Indexed(244)),
-            "colors.border",
+            "borders.normal",
         )?;
         let border_subtle = style(
-            &colors.border_subtle,
+            &borders.subtle,
             Style::default().fg(Color::Indexed(240)),
-            "colors.border_subtle",
+            "borders.subtle",
         )?;
-        let border_active = style(
-            &colors.border_active,
-            Style::default(),
-            "colors.border_active",
-        )?;
-        let border_inactive = style(
-            &colors.border_inactive,
-            Style::default(),
-            "colors.border_inactive",
-        )?;
-        // The thumb inherits the active-border hue (it marks the scrollable,
+        let border_active = style(&borders.focused, Style::default(), "borders.focused")?;
+        let border_inactive = style(&borders.unfocused, Style::default(), "borders.unfocused")?;
+        // The thumb inherits the focused-border hue (it marks the scrollable,
         // interactable panel); the track stays terminal-default quiet.
-        let scrollbar_thumb = style(
-            &colors.scrollbar_thumb,
-            border_active,
-            "colors.scrollbar_thumb",
-        )?;
-        let scrollbar_track = style(
-            &colors.scrollbar_track,
-            Style::default(),
-            "colors.scrollbar_track",
-        )?;
+        let scrollbar_thumb = style(&self.scrollbar.thumb, border_active, "scrollbar.thumb")?;
+        let scrollbar_track = style(&self.scrollbar.track, Style::default(), "scrollbar.track")?;
 
-        let selection = match &colors.selection {
+        let interaction = &self.interaction;
+        let selection = match &interaction.selection {
             Some(spec) => {
                 if spec.bg.is_some() && spec.fg.is_none() {
                     bail!(
-                        "`colors.selection` sets a bg without an fg; pick a readable \
+                        "`interaction.selection` sets a bg without an fg; pick a readable \
                          foreground explicitly"
                     );
                 }
-                spec.resolve(mode, palette, "colors.selection")?
+                spec.resolve(mode, palette, "interaction.selection")?
             }
             None => Style::default().add_modifier(Modifier::REVERSED),
         };
@@ -1285,36 +1261,36 @@ impl ThemeFile {
         // cards/chips already sit on, so a same-color hover would be invisible
         // exactly where hover matters most — and theme files written before
         // the token existed (never overwritten on upgrade) hit this default.
-        let hover = match &colors.hover {
-            Some(spec) => spec.resolve(mode, palette, "colors.hover")?,
+        let hover = match &interaction.hover {
+            Some(spec) => spec.resolve(mode, palette, "interaction.hover")?,
             None => Style::default().bg(lift(element, mode)),
         };
         // Buttons are selection-colored unless a theme splits them; the same
         // readable-fill rule applies.
-        let button = match &colors.button {
+        let button = match &interaction.button {
             Some(spec) => {
                 if spec.bg.is_some() && spec.fg.is_none() {
                     bail!(
-                        "`colors.button` sets a bg without an fg; pick a readable \
+                        "`interaction.button` sets a bg without an fg; pick a readable \
                          foreground explicitly"
                     );
                 }
-                spec.resolve(mode, palette, "colors.button")?
+                spec.resolve(mode, palette, "interaction.button")?
             }
             None => selection,
         };
-        let key_hint = match &colors.key_hint {
-            Some(spec) => spec.resolve(mode, palette, "colors.key_hint")?,
+        let key_hint = match &interaction.key_hint {
+            Some(spec) => spec.resolve(mode, palette, "interaction.key_hint")?,
             None => Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD),
         };
         // Both default to "no styling": the terminal's own cursor shape and no
         // cursor-line highlight, which is what the app always did.
-        let cursor = match &colors.cursor {
-            Some(spec) => spec.resolve(mode, palette, "colors.cursor")?,
+        let cursor = match &interaction.cursor {
+            Some(spec) => spec.resolve(mode, palette, "interaction.cursor")?,
             None => Style::default(),
         };
-        let cursor_line = match &colors.cursor_line {
-            Some(spec) => spec.resolve(mode, palette, "colors.cursor_line")?,
+        let cursor_line = match &interaction.cursor_line {
+            Some(spec) => spec.resolve(mode, palette, "interaction.cursor_line")?,
             None => Style::default(),
         };
 
@@ -1356,11 +1332,15 @@ impl ThemeFile {
             Modifier::DIM,
             "charts.track",
         )?;
-        // Axis furniture defaults to the muted ink so charts read as they
+        // Chart furniture defaults to the muted ink so charts read as they
         // always have when a theme doesn't restyle them.
         let chart_furniture = muted.add_modifier(Modifier::DIM);
-        let chart_axis = style(&charts.axis, chart_furniture, "charts.axis")?;
-        let chart_baseline = style(&charts.baseline, chart_furniture, "charts.baseline")?;
+        let chart_baseline = match &charts.baseline.color {
+            Some(spec) => {
+                Style::default().fg(spec.resolve(mode, palette, "charts.baseline.color")?)
+            }
+            None => chart_furniture,
+        };
         let chart_label = style(&charts.label, chart_furniture, "charts.label")?;
 
         let markdown = &self.markdown;
@@ -1382,6 +1362,29 @@ impl ThemeFile {
             bail!("`chrome.scrim` must be between 0.0 and 1.0");
         }
 
+        let glyph = |spec: &Option<String>, default: char, token: &str| -> Result<char> {
+            spec.as_deref()
+                .map_or(Ok(default), |spec| parse_glyph(spec, token))
+        };
+        let glyphs = Glyphs {
+            selection_marker: self
+                .glyphs
+                .selection_marker
+                .as_deref()
+                .map(|spec| parse_glyph(spec, "glyphs.selection_marker"))
+                .transpose()?,
+            focus_stripe: glyph(&self.glyphs.focus_stripe, '┃', "glyphs.focus_stripe")?,
+            toast_edge: glyph(&self.glyphs.toast_edge, '┃', "glyphs.toast_edge")?,
+            tab_separator: glyph(&self.glyphs.tab_separator, '·', "glyphs.tab_separator")?,
+            divider: glyph(&self.glyphs.divider, '━', "glyphs.divider")?,
+            chart_baseline: glyph(&charts.baseline.glyph, '┈', "charts.baseline.glyph")?,
+            chart_groove: glyph(&charts.groove, '·', "charts.groove")?,
+            bar_center: glyph(&charts.bar_center, '│', "charts.bar_center")?,
+            mood_fill: glyph(&charts.mood_stroke, '─', "charts.mood_stroke")?,
+            borders: borders.style.unwrap_or_default(),
+        };
+
+        let status = &self.status;
         Ok(Theme {
             bg,
             panel,
@@ -1392,31 +1395,29 @@ impl ThemeFile {
             heading,
             placeholder,
             primary,
-            secondary,
-            accent,
             border,
             border_subtle,
             border_active,
             border_inactive,
             success: style(
-                &colors.success,
+                &status.success,
                 Style::default().fg(Color::Green),
-                "colors.success",
+                "status.success",
             )?,
             warning: style(
-                &colors.warning,
+                &status.warning,
                 Style::default().fg(Color::Yellow),
-                "colors.warning",
+                "status.warning",
             )?,
             error: style(
-                &colors.error,
+                &status.error,
                 Style::default().fg(Color::Red),
-                "colors.error",
+                "status.error",
             )?,
             info: style(
-                &colors.info,
+                &status.info,
                 Style::default().fg(Color::Blue),
-                "colors.info",
+                "status.info",
             )?,
             selection,
             hover,
@@ -1431,7 +1432,6 @@ impl ThemeFile {
             chart_negative,
             bar,
             track,
-            chart_axis,
             chart_baseline,
             chart_label,
             md_heading,
@@ -1440,8 +1440,8 @@ impl ThemeFile {
             md_code,
             md_blockquote,
             syntax: markdown.syntax.resolve(mode, palette)?,
-            glyphs: self.glyphs.resolve()?,
-            chrome: self.chrome.default,
+            glyphs,
+            chrome: self.chrome.style,
             scrim: self.chrome.scrim,
         })
     }
@@ -1490,11 +1490,12 @@ mod tests {
         // Theme files written before the hover token existed (materialized
         // copies are never overwritten) must still get a visible hover: the
         // default nudges element toward white (dark) / black (light).
-        let text = "[colors]\nbg = \"#101010\"\npanel = \"#181818\"\nelement = \"#202020\"";
+        let text =
+            "[surfaces]\nbackground = \"#101010\"\npanel = \"#181818\"\nelement = \"#202020\"";
         let dark = parse(text, Mode::Dark).unwrap();
         assert_eq!(dark.hover().bg, Some(Color::Rgb(0x36, 0x36, 0x36)));
         let light = parse(
-            "[colors]\nbg = \"#f0f0f0\"\npanel = \"#e8e8e8\"\nelement = \"#e0e0e0\"",
+            "[surfaces]\nbackground = \"#f0f0f0\"\npanel = \"#e8e8e8\"\nelement = \"#e0e0e0\"",
             Mode::Light,
         )
         .unwrap();
@@ -1506,11 +1507,13 @@ mod tests {
         // Each new token inherits its parent when omitted, so themes written
         // before the tokens existed keep rendering as they did.
         let theme = parse(
-            "[colors]\n\
-             text = \"#aabbcc\"\n\
+            "[text]\n\
+             body = \"#aabbcc\"\n\
              muted = \"#334455\"\n\
+             [interaction]\n\
              selection = { fg = \"#000000\", bg = \"#ffffff\" }\n\
-             border_active = \"#606060\"\n\
+             [borders]\n\
+             focused = \"#606060\"\n\
              [markdown]\n\
              heading = \"#56b6b0\"",
             Mode::Dark,
@@ -1543,14 +1546,16 @@ mod tests {
     #[test]
     fn new_tokens_resolve_explicit_values() {
         let theme = parse(
-            "[colors]\n\
+            "[text]\n\
              heading = \"#112233\"\n\
              placeholder = \"#445566\"\n\
+             [interaction]\n\
              button = { fg = \"#000000\", bg = \"#aabbcc\" }\n\
              cursor = { reversed = true }\n\
              cursor_line = { bg = \"#181818\" }\n\
-             scrollbar_thumb = \"#778899\"\n\
-             scrollbar_track = \"#223344\"\n\
+             [scrollbar]\n\
+             thumb = \"#778899\"\n\
+             track = \"#223344\"\n\
              [markdown]\n\
              heading3 = \"#556677\"",
             Mode::Dark,
@@ -1574,14 +1579,14 @@ mod tests {
 
     #[test]
     fn button_rejects_bg_without_fg() {
-        let err = parse("[colors]\nbutton = { bg = \"#aabbcc\" }", Mode::Dark).unwrap_err();
-        assert!(err.to_string().contains("colors.button"), "{err:#}");
+        let err = parse("[interaction]\nbutton = { bg = \"#aabbcc\" }", Mode::Dark).unwrap_err();
+        assert!(err.to_string().contains("interaction.button"), "{err:#}");
     }
 
     #[test]
     fn glyphs_resolve_and_default() {
         let theme = parse(
-            "[glyphs]\nselection_marker = \"▶\"\nfocus_stripe = \"█\"\nborders = \"rounded\"",
+            "[borders]\nstyle = \"rounded\"\n[glyphs]\nselection_marker = \"▶\"\nfocus_stripe = \"█\"",
             Mode::Dark,
         )
         .unwrap();
@@ -1606,6 +1611,50 @@ mod tests {
     fn glyph_tokens_must_be_one_character() {
         let err = parse("[glyphs]\nfocus_stripe = \"ab\"", Mode::Dark).unwrap_err();
         assert!(err.to_string().contains("glyphs.focus_stripe"), "{err:#}");
+    }
+
+    #[test]
+    fn chart_baseline_merges_glyph_and_color() {
+        let theme = parse(
+            "[charts]\nbaseline = { glyph = \"╌\", color = \"#123456\" }",
+            Mode::Dark,
+        )
+        .unwrap();
+        assert_eq!(theme.glyphs().chart_baseline, '╌');
+        assert_eq!(
+            theme.chart_baseline(),
+            Style::default().fg(Color::Rgb(0x12, 0x34, 0x56))
+        );
+        // Each half keeps its default when the other is set alone.
+        let glyph_only = parse("[charts]\nbaseline = { glyph = \"╌\" }", Mode::Dark).unwrap();
+        assert_eq!(glyph_only.glyphs().chart_baseline, '╌');
+        assert_eq!(
+            glyph_only.chart_baseline(),
+            Style::default().add_modifier(Modifier::DIM)
+        );
+        let color_only = parse("[charts]\nbaseline = { color = \"#123456\" }", Mode::Dark).unwrap();
+        assert_eq!(color_only.glyphs().chart_baseline, '┈');
+        assert_eq!(
+            color_only.chart_baseline().fg,
+            Some(Color::Rgb(0x12, 0x34, 0x56))
+        );
+    }
+
+    #[test]
+    fn chart_glyphs_live_in_the_charts_section() {
+        let theme = parse(
+            "[charts]\ngroove = \"‥\"\nbar_center = \"┋\"\nmood_stroke = \"═\"",
+            Mode::Dark,
+        )
+        .unwrap();
+        assert_eq!(theme.glyphs().chart_groove, '‥');
+        assert_eq!(theme.glyphs().bar_center, '┋');
+        assert_eq!(theme.glyphs().mood_fill, '═');
+        // Defaults untouched by a partial section.
+        let bare = parse("", Mode::Dark).unwrap();
+        assert_eq!(bare.glyphs().chart_groove, '·');
+        assert_eq!(bare.glyphs().bar_center, '│');
+        assert_eq!(bare.glyphs().mood_fill, '─');
     }
 
     #[test]
@@ -1635,7 +1684,7 @@ mod tests {
 
     #[test]
     fn border_inactive_resolves_and_defaults_to_terminal_ink() {
-        let themed = parse("[colors]\nborder_inactive = \"#3c3c3c\"", Mode::Dark).unwrap();
+        let themed = parse("[borders]\nunfocused = \"#3c3c3c\"", Mode::Dark).unwrap();
         assert_eq!(
             themed.inactive_border(),
             Style::default().fg(Color::Rgb(0x3c, 0x3c, 0x3c))
@@ -1648,7 +1697,7 @@ mod tests {
     #[test]
     fn dialog_defaults_to_panel_for_existing_theme_files() {
         let theme = parse(
-            "[colors]\nbg = \"#101010\"\npanel = \"#181818\"",
+            "[surfaces]\nbackground = \"#101010\"\npanel = \"#181818\"",
             Mode::Dark,
         )
         .unwrap();
@@ -1722,7 +1771,7 @@ mod tests {
             Style::default().add_modifier(Modifier::BOLD)
         );
         assert_eq!(theme.muted(), Style::default().add_modifier(Modifier::DIM));
-        assert_eq!(theme.accent(), Style::default().fg(Color::Cyan));
+        assert_eq!(theme.primary(), Style::default().fg(Color::Cyan));
         assert_eq!(theme.bar_fill(), Style::default().fg(Color::Cyan));
         assert_eq!(
             theme.positive(),
@@ -1867,15 +1916,17 @@ mod tests {
             splash = { dark = "#102030", light = "#e0e0e0" }
             flat = "#445566"
 
-            [colors]
+            [accents]
             primary = "splash"
-            secondary = "flat"
+
+            [status]
+            info = "flat"
             "##,
             Mode::Light,
         )
         .unwrap();
         assert_eq!(theme.primary.fg, Some(Color::Rgb(0xe0, 0xe0, 0xe0)));
-        assert_eq!(theme.secondary.fg, Some(Color::Rgb(0x44, 0x55, 0x66)));
+        assert_eq!(theme.info.fg, Some(Color::Rgb(0x44, 0x55, 0x66)));
     }
 
     #[test]
@@ -1892,7 +1943,11 @@ mod tests {
 
     #[test]
     fn selection_bg_without_fg_is_rejected() {
-        let err = parse("[colors]\nselection = { bg = \"#ff0000\" }\n", Mode::Dark).unwrap_err();
+        let err = parse(
+            "[interaction]\nselection = { bg = \"#ff0000\" }\n",
+            Mode::Dark,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("selection"), "{err:#}");
     }
 
@@ -1911,7 +1966,9 @@ mod tests {
 
     #[test]
     fn unknown_keys_are_rejected() {
-        assert!(parse("[colors]\nprimry = \"cyan\"\n", Mode::Dark).is_err());
+        assert!(parse("[accents]\nprimry = \"cyan\"\n", Mode::Dark).is_err());
+        // The pre-restructure grab-bag section must error, not silently no-op.
+        assert!(parse("[colors]\nprimary = \"cyan\"\n", Mode::Dark).is_err());
     }
 
     #[test]
@@ -1941,7 +1998,7 @@ mod tests {
         let config_path = dir.path().join("config.toml");
         let themes = themes_dir(&config_path);
         fs::create_dir_all(&themes).unwrap();
-        fs::write(themes.join("broken.toml"), "colors = 12\n").unwrap();
+        fs::write(themes.join("broken.toml"), "surfaces = 12\n").unwrap();
 
         let theme = load(&config_path, "broken", Mode::Dark);
         assert_eq!(theme, builtin(DEFAULT_THEME, Mode::Dark).unwrap());

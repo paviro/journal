@@ -3,35 +3,41 @@
 # See journal.toml for the accepted color/style forms.
 
 [chrome]
-default = "flat"
+style = "flat"
 scrim = 0.45
 
-[colors]
-bg      = { dark = "#191724", light = "#faf4ed" }
-panel   = { dark = "#1f1d2e", light = "#f2e9e1" }
-dialog  = { dark = "#232034", light = "#ede5dd" }
-element = { dark = "#26233a", light = "#e8e0d8" }
+[surfaces]
+background = { dark = "#191724", light = "#faf4ed" }
+panel      = { dark = "#1f1d2e", light = "#f2e9e1" }
+dialog     = { dark = "#232034", light = "#ede5dd" }
+element    = { dark = "#26233a", light = "#e8e0d8" }
 
-text  = { dark = "#e0def4", light = "#575279" }
+[text]
+body  = { dark = "#e0def4", light = "#575279" }
 muted = { dark = "#908caa", light = "#797593" }
 
-primary   = { dark = "#ebbcba", light = "#d7827e" }
-secondary = { dark = "#c4a7e7", light = "#907aa9" }
+[accents]
+primary = { dark = "#ebbcba", light = "#d7827e" }
 
-border          = { dark = "#403d52", light = "#dfdad9" }
-border_subtle   = { dark = "#26233a", light = "#ece5dd" }
-border_active   = { dark = "#524f67", light = "#9893a5" }
-border_inactive = { dark = "#403d52", light = "#dfdad9" }
-scrollbar_track = { dark = "#26233a", light = "#ece5dd" }
-
+[status]
 success = { dark = "#9ccfd8", light = "#56949f" }
 warning = { dark = "#f6c177", light = "#ea9d34" }
 error   = { dark = "#eb6f92", light = "#b4637a" }
 info    = { dark = "#3e8fb0", light = "#286983" }
 
+[borders]
+normal    = { dark = "#403d52", light = "#dfdad9" }
+subtle    = { dark = "#26233a", light = "#ece5dd" }
+focused   = { dark = "#524f67", light = "#9893a5" }
+unfocused = { dark = "#403d52", light = "#dfdad9" }
+
+[interaction]
 selection = { bg = { dark = "#ebbcba", light = "#d7827e" }, fg = { dark = "#191724", light = "#ffffff" }, bold = true }
 hover     = { bg = { dark = "#524f67", light = "#cecacd" } }
 key_hint  = { fg = { dark = "#e0def4", light = "#575279" }, bold = true }
+
+[scrollbar]
+track = { dark = "#26233a", light = "#ece5dd" }
 
 [charts]
 positive = { glyph = "▓", color = { dark = "#9ccfd8", light = "#56949f" } }
@@ -39,7 +45,7 @@ neutral  = { glyph = "▓", color = { dark = "#908caa", light = "#797593" } }
 negative = { glyph = "▓", color = { dark = "#eb6f92", light = "#b4637a" } }
 bar      = { glyph = "▓", color = { dark = "#ebbcba", light = "#d7827e" } }
 track    = { glyph = "░", color = { dark = "#403d52", light = "#dfdad9" } }
-baseline = { dark = "#403d52", light = "#dfdad9" }
+baseline = { color = { dark = "#403d52", light = "#dfdad9" } }
 
 [markdown]
 heading    = { fg = { dark = "#ebbcba", light = "#d7827e" }, bold = true }

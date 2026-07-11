@@ -2219,7 +2219,7 @@ fn theme_picker_renders_broken_rows_in_the_error_style() {
     let mut app = app_with_journals(&["work"]);
     let themes = crate::tui::theme::themes_dir(&app.config_path);
     fs::create_dir_all(&themes).unwrap();
-    fs::write(themes.join("busted.toml"), "colors = 12\n").unwrap();
+    fs::write(themes.join("busted.toml"), "surfaces = 12\n").unwrap();
     app.open_theme_picker();
     let len = app.theme_picker_state().unwrap().entries.len();
 
@@ -2672,7 +2672,7 @@ mod flat_chrome_tests {
     #[test]
     fn themed_border_set_draws_panels_cards_and_tables() {
         theme::set_test_theme(theme::test_theme_from_toml(
-            "[glyphs]\nborders = \"rounded\"",
+            "[borders]\nstyle = \"rounded\"",
         ));
         let corner = |focused: bool| {
             let backend = render_backend(20, 5, move |frame| {
@@ -2683,7 +2683,7 @@ mod flat_chrome_tests {
         assert_eq!(corner(false), "╭", "unfocused panel ignored the set");
         assert_eq!(corner(true), "┏", "focus must stay thick");
 
-        theme::set_test_theme(theme::test_theme_from_toml("[glyphs]\nborders = \"ascii\""));
+        theme::set_test_theme(theme::test_theme_from_toml("[borders]\nstyle = \"ascii\""));
         let text = |line: ratatui::text::Line| -> String {
             line.spans
                 .iter()

@@ -834,7 +834,7 @@ fn theme_picker_confirm_on_a_broken_theme_toasts_and_stays_open() {
     let mut app = app_with_journals(&["work"]);
     let themes = crate::tui::theme::themes_dir(&app.config_path);
     fs::create_dir_all(&themes).unwrap();
-    fs::write(themes.join("busted.toml"), "colors = 12\n").unwrap();
+    fs::write(themes.join("busted.toml"), "surfaces = 12\n").unwrap();
     app.open_theme_picker();
     let busted = app
         .theme_picker_state()

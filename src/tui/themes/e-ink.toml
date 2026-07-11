@@ -6,35 +6,39 @@
 # See journal.toml for the accepted color/style forms.
 
 [chrome]
-default = "bordered"
+style = "bordered"
 scrim = 0.0
 
 [palette]
 ink   = { dark = "#ffffff", light = "#000000" }
 paper = { dark = "#000000", light = "#ffffff" }
 
-[colors]
-bg      = "paper"
-panel   = "paper"
-dialog  = { dark = "#1a1a1a", light = "#f2f2f2" }
-element = "paper"
+[surfaces]
+background = "paper"
+panel      = "paper"
+dialog     = { dark = "#1a1a1a", light = "#f2f2f2" }
+element    = "paper"
 
-text  = "ink"
+[text]
+body  = "ink"
 muted = "ink"
 
-primary   = "ink"
-secondary = "ink"
+[accents]
+primary = "ink"
 
-border          = "ink"
-border_subtle   = "ink"
-border_active   = "ink"
-border_inactive = "ink"
-
+[status]
 success = "ink"
 warning = "ink"
 error   = "ink"
 info    = "ink"
 
+[borders]
+normal    = "ink"
+subtle    = "ink"
+focused   = "ink"
+unfocused = "ink"
+
+[interaction]
 selection = { bg = "ink", fg = "paper", bold = true }
 # No hover on e-ink: a gray lift would break the monochrome contract, and
 # hover states are pointless on a display this slow.

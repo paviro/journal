@@ -5,30 +5,34 @@
 # See journal.toml for the accepted color/style forms.
 
 [chrome]
-default = "bordered"
+style = "bordered"
 scrim = 0.0        # 0 falls back to dimming (no color blend)
 
-[colors]
-bg      = "none"   # terminal default
-panel   = "none"
-element = "none"
+[surfaces]
+background = "none"   # terminal default
+panel      = "none"
+element    = "none"
 
-text  = {}         # terminal foreground; bold/dim come from the UI itself
+[text]
+body  = {}         # terminal foreground; bold/dim come from the UI itself
 muted = {}
 
-primary   = "cyan"
-secondary = "cyan"
+[accents]
+primary = "cyan"
 
-border          = "244"
-border_subtle   = "240"
-border_active   = {}
-border_inactive = {}
-
+[status]
 success = "green"
 warning = "yellow"
 error   = "red"
 info    = "blue"
 
+[borders]
+normal    = "244"
+subtle    = "240"
+focused   = {}
+unfocused = {}
+
+[interaction]
 selection = { reversed = true }
 key_hint  = { reversed = true, bold = true }
 
