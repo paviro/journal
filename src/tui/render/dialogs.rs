@@ -66,9 +66,10 @@ pub(crate) fn feelings_selected_line_count(selected: &[String]) -> usize {
     feelings_selected_rows(selected).len().max(1)
 }
 
-/// The picker's hint row, with the chrome hint's label reflecting the live
-/// `[ui] chrome` override so cycling it reads back immediately.
-pub(crate) fn theme_picker_hints() -> [Hint; 3] {
+/// The picker's hint row, with the chrome and mode hints' labels reflecting
+/// the live `[ui]` settings so cycling them reads back immediately.
+pub(crate) fn theme_picker_hints() -> [Hint; 4] {
+    use crate::config::ColorMode;
     use crate::tui::theme::ChromeStyle;
     let chrome = match crate::tui::theme::chrome_override() {
         None => Hint::new("chrome: default", "b", HintId::ThemePickerChrome),
@@ -77,9 +78,15 @@ pub(crate) fn theme_picker_hints() -> [Hint; 3] {
             Hint::new("chrome: bordered", "b", HintId::ThemePickerChrome)
         }
     };
+    let mode = match crate::tui::theme::color_mode() {
+        ColorMode::Auto => Hint::new("mode: auto", "m", HintId::ThemePickerMode),
+        ColorMode::Dark => Hint::new("mode: dark", "m", HintId::ThemePickerMode),
+        ColorMode::Light => Hint::new("mode: light", "m", HintId::ThemePickerMode),
+    };
     [
         Hint::new("apply", "enter", HintId::ThemePickerApply),
         chrome,
+        mode,
         Hint::new("revert", "esc", HintId::ThemePickerRevert),
     ]
 }

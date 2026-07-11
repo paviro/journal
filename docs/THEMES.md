@@ -23,8 +23,8 @@ color_mode = "auto"      # auto | dark | light — picks the { dark, light } var
 chrome = "default"       # default | flat | bordered — default follows the theme
 ```
 
-- `color_mode = "auto"` queries the terminal background (OSC 10/11) once at
-  startup; an unknown answer counts as dark.
+- `color_mode = "auto"` uses the terminal background, queried (OSC 10/11) once
+  at startup; an unknown answer counts as dark.
 - `chrome` forces flat or bordered chrome on every theme; `default` uses each
   theme's own `chrome.default_style`.
 
@@ -32,9 +32,9 @@ chrome = "default"       # default | flat | bordered — default follows the the
 
 `,` opens the settings menu; `t` (or Enter) opens the theme picker. Up/Down
 previews the highlighted theme live, `b` cycles the chrome override
-(default → flat → bordered), Enter applies and saves to `config.toml`, Esc
-reverts both theme and chrome. Broken theme files are listed but can't be
-applied.
+(default → flat → bordered), `m` cycles the color mode
+(auto → dark → light), Enter applies and saves to `config.toml`, Esc reverts
+theme, chrome, and mode. Broken theme files are listed but can't be applied.
 
 Edits to the **active** theme's file hot-reload (debounced ~400 ms). A broken
 edit shows an error toast and keeps the current theme; the next valid save

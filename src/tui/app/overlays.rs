@@ -227,6 +227,7 @@ impl App {
             previous: crate::tui::theme::theme(),
             previous_name: self.config.ui.theme.clone(),
             previous_chrome: crate::tui::theme::chrome_override(),
+            previous_color_mode: crate::tui::theme::color_mode(),
         };
         let active = state
             .entries
@@ -284,6 +285,28 @@ impl App {
         });
     }
 
+    /// Cycle the color mode (auto → dark → light → auto), previewing live.
+    /// Unlike the chrome override, a mode change invalidates every resolved
+    /// theme (variants are flattened at load), so the picker's rows re-resolve
+    /// and the highlighted one re-installs.
+    pub(crate) fn theme_picker_cycle_mode(&mut self) {
+        use crate::config::ColorMode;
+        crate::tui::theme::set_color_mode(match crate::tui::theme::color_mode() {
+            ColorMode::Auto => ColorMode::Dark,
+            ColorMode::Dark => ColorMode::Light,
+            ColorMode::Light => ColorMode::Auto,
+        });
+        let dir = crate::tui::theme::themes_dir(&self.config_path);
+        let mode = crate::tui::theme::mode();
+        if let Some(state) = self.theme_picker_state_mut() {
+            for entry in &mut state.entries {
+                let path = dir.join(format!("{}.toml", entry.name));
+                entry.theme = crate::tui::theme::load_file(&path, mode).ok();
+            }
+        }
+        self.theme_picker_preview();
+    }
+
     /// Confirm the highlighted theme: persist it to the config and close. A
     /// broken row or a failed save toasts and keeps the picker open.
     pub(crate) fn theme_picker_confirm(&mut self) {
@@ -303,6 +326,7 @@ impl App {
         };
         crate::tui::theme::install(theme);
         self.config.ui.theme = name.clone();
+        self.config.ui.color_mode = crate::tui::theme::color_mode();
         self.config.ui.chrome = match crate::tui::theme::chrome_override() {
             None => crate::config::ChromeMode::Default,
             Some(crate::tui::theme::ChromeStyle::Flat) => crate::config::ChromeMode::Flat,
@@ -319,10 +343,11 @@ impl App {
         self.close_overlay();
     }
 
-    /// Cancel the picker: restore the theme and chrome override from open
-    /// time; the config was never touched.
+    /// Cancel the picker: restore the theme, chrome override, and color mode
+    /// from open time; the config was never touched.
     pub(crate) fn theme_picker_cancel(&mut self) {
         if let Some(state) = self.theme_picker_state() {
+            crate::tui::theme::set_color_mode(state.previous_color_mode);
             crate::tui::theme::set_chrome_override(state.previous_chrome);
             crate::tui::theme::install(state.previous);
         }

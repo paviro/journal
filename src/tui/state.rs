@@ -368,6 +368,9 @@ pub(crate) struct ThemePickerState {
     /// The chrome override at open, restored on cancel (the picker cycles it
     /// live for preview).
     pub(crate) previous_chrome: Option<crate::tui::theme::ChromeStyle>,
+    /// The color mode at open, restored on cancel (the picker cycles it live
+    /// for preview).
+    pub(crate) previous_color_mode: crate::config::ColorMode,
 }
 
 impl ThemePickerState {

@@ -1614,3 +1614,54 @@ fn theme_picker_confirm_persists_the_chrome_override() {
     let loaded = crate::config::load_config(&app.config_path).unwrap();
     assert_eq!(loaded.ui.chrome, crate::config::ChromeMode::Flat);
 }
+
+#[test]
+fn theme_picker_cycles_color_mode_and_cancel_restores_it() {
+    use crate::config::ColorMode;
+    use crate::tui::theme::{Mode, color_mode, mode};
+    let mut app = app_with_journals(&["work"]);
+    app.open_theme_picker();
+    assert_eq!(color_mode(), ColorMode::Auto);
+
+    assert_eq!(
+        keyboard::key_to_action(&app, key(KeyCode::Char('m')), true),
+        Some(Action::ThemePickerCycleMode)
+    );
+
+    // auto → dark → light → auto, previewing live; the resolved mode follows
+    // (auto falls back to dark with no detected terminal background).
+    app.theme_picker_cycle_mode();
+    assert_eq!(color_mode(), ColorMode::Dark);
+    app.theme_picker_cycle_mode();
+    assert_eq!(color_mode(), ColorMode::Light);
+    assert_eq!(mode(), Mode::Light);
+
+    // A mode change re-resolves the picker rows against the new variant.
+    let journal_light = app
+        .theme_picker_state()
+        .and_then(|state| state.entries.iter().find(|entry| entry.name == "journal"))
+        .and_then(|entry| entry.theme)
+        .expect("bundled journal theme resolves");
+    assert_eq!(
+        journal_light.bg(),
+        ratatui::style::Color::Rgb(0xfc, 0xfc, 0xfc),
+        "journal rows must re-resolve to the light variant"
+    );
+
+    // Cancel restores the mode from open time along with the theme.
+    app.theme_picker_cancel();
+    assert_eq!(color_mode(), ColorMode::Auto);
+}
+
+#[test]
+fn theme_picker_confirm_persists_the_color_mode() {
+    use crate::config::ColorMode;
+    let mut app = app_with_journals(&["work"]);
+    app.open_theme_picker();
+    app.theme_picker_cycle_mode();
+    app.theme_picker_confirm();
+    assert_eq!(app.config.ui.color_mode, ColorMode::Dark);
+    // The saved config round-trips the setting.
+    let loaded = crate::config::load_config(&app.config_path).unwrap();
+    assert_eq!(loaded.ui.color_mode, ColorMode::Dark);
+}

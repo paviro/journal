@@ -1353,6 +1353,7 @@ pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action>
         render::HintId::ThemePickerApply => Some(Action::ThemePickerConfirm),
         render::HintId::ThemePickerRevert => Some(Action::ThemePickerCancel),
         render::HintId::ThemePickerChrome => Some(Action::ThemePickerCycleChrome),
+        render::HintId::ThemePickerMode => Some(Action::ThemePickerCycleMode),
         render::HintId::HintsToggle => Some(Action::ToggleHints),
         render::HintId::ToggleJournals => Some(Action::ToggleJournals),
         // Clicking the tabs hint steps forward through the tabs (Right); scope

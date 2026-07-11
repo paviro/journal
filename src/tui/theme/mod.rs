@@ -322,6 +322,8 @@ thread_local! {
     static THEME_SLOT: std::cell::Cell<Option<Theme>> = const { std::cell::Cell::new(None) };
     static CHROME_SLOT: std::cell::Cell<Option<ChromeStyle>> =
         const { std::cell::Cell::new(None) };
+    static COLOR_MODE_SLOT: std::cell::Cell<Option<crate::config::ColorMode>> =
+        const { std::cell::Cell::new(None) };
 }
 
 /// The installed theme. `None` until [`install`] runs; readers fall back to
@@ -368,40 +370,58 @@ pub(crate) fn install(theme: Theme) {
     THEME.set(Some(theme));
 }
 
-/// The dark/light mode resolved at startup, cached so live reload and the
-/// theme picker resolve theme files against the same variant. `Dark` until
+/// The session's color-mode setting (`[ui] color_mode`). Runtime-writable so
+/// the theme picker can cycle auto/dark/light with live preview; `Auto` until
 /// [`init_from_config`] runs.
-static MODE: std::sync::OnceLock<Mode> = std::sync::OnceLock::new();
+#[cfg(not(test))]
+static COLOR_MODE: SessionCell<crate::config::ColorMode> = SessionCell::new();
+#[cfg(test)]
+static COLOR_MODE: SessionCell<crate::config::ColorMode> = SessionCell::new(&COLOR_MODE_SLOT);
 
-/// The session's resolved dark/light mode.
+/// The terminal background detected at startup, which is what `auto` resolves
+/// to. Detection must happen before raw mode / the alternate screen (it talks
+/// OSC to the normal screen), so mid-session mode switches reuse this answer.
+static DETECTED: std::sync::OnceLock<Mode> = std::sync::OnceLock::new();
+
+/// The session's color-mode setting.
+pub(crate) fn color_mode() -> crate::config::ColorMode {
+    COLOR_MODE.get().unwrap_or_default()
+}
+
+/// Switch the session's color mode. Callers re-resolve and re-[`install`] the
+/// active theme themselves — a resolved [`Theme`] has no variants left to swap.
+pub(crate) fn set_color_mode(color_mode: crate::config::ColorMode) {
+    COLOR_MODE.set(Some(color_mode));
+}
+
+/// The dark/light mode theme files resolve against: the explicit setting, or
+/// the detected terminal background for `auto` (dark when unknown).
 pub(crate) fn mode() -> Mode {
-    MODE.get().copied().unwrap_or(Mode::Dark)
-}
-
-/// Detect the mode, then load and install the configured theme. Must run
-/// before the terminal enters raw mode / the alternate screen: the `auto`
-/// detection talks OSC to the normal screen.
-pub(crate) fn init_from_config(config_path: &Path, ui: &crate::config::UiSection) {
-    let mode = detect_mode(ui.color_mode);
-    let _ = MODE.set(mode);
-    set_chrome_override(ui.chrome.forced_style());
-    install(load(config_path, &ui.theme, mode));
-}
-
-/// Resolve the configured color mode: an explicit setting wins; `auto` asks
-/// the terminal for its background (OSC 10/11, with the library's own support
-/// heuristic and timeout) and falls back to dark when the answer is unknown.
-fn detect_mode(color_mode: crate::config::ColorMode) -> Mode {
     use crate::config::ColorMode;
-    match color_mode {
+    match color_mode() {
         ColorMode::Dark => Mode::Dark,
         ColorMode::Light => Mode::Light,
-        ColorMode::Auto => {
-            match terminal_colorsaurus::theme_mode(terminal_colorsaurus::QueryOptions::default()) {
-                Ok(terminal_colorsaurus::ThemeMode::Light) => Mode::Light,
-                Ok(terminal_colorsaurus::ThemeMode::Dark) | Err(_) => Mode::Dark,
-            }
-        }
+        ColorMode::Auto => DETECTED.get().copied().unwrap_or(Mode::Dark),
+    }
+}
+
+/// Detect the terminal background, then load and install the configured theme.
+/// Must run before the terminal enters raw mode / the alternate screen: the
+/// detection talks OSC to the normal screen. Detection always runs (not just
+/// on `auto`) so the picker can switch to `auto` mid-session.
+pub(crate) fn init_from_config(config_path: &Path, ui: &crate::config::UiSection) {
+    let _ = DETECTED.set(detect_terminal_background());
+    set_color_mode(ui.color_mode);
+    set_chrome_override(ui.chrome.forced_style());
+    install(load(config_path, &ui.theme, mode()));
+}
+
+/// Ask the terminal for its background (OSC 10/11, with the library's own
+/// support heuristic and timeout); unknown counts as dark.
+fn detect_terminal_background() -> Mode {
+    match terminal_colorsaurus::theme_mode(terminal_colorsaurus::QueryOptions::default()) {
+        Ok(terminal_colorsaurus::ThemeMode::Light) => Mode::Light,
+        Ok(terminal_colorsaurus::ThemeMode::Dark) | Err(_) => Mode::Dark,
     }
 }
 
