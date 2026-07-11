@@ -388,13 +388,19 @@ impl Theme {
         self.key_hint
     }
 
-    /// The active tab in the tab strip: selection-styled while the panel is
-    /// focused so it reads even without colour, otherwise just bold.
+    /// The active tab in the tab strip while the panel is focused: accent+bold
+    /// on flat chrome (matching focused panel titles — the strip sits in the
+    /// title row), selection-styled on bordered chrome so it reads even
+    /// without colour. Unfocused it's just bold either way, so it still stands
+    /// apart from the muted inactive tabs.
     pub(crate) fn active_tab(self, focused: bool) -> Style {
-        if focused {
-            self.selection.add_modifier(Modifier::BOLD)
+        if !focused {
+            return Style::default().add_modifier(Modifier::BOLD);
+        }
+        if self.chrome == ChromeStyle::Flat {
+            self.primary.add_modifier(Modifier::BOLD)
         } else {
-            Style::default().add_modifier(Modifier::BOLD)
+            self.selection.add_modifier(Modifier::BOLD)
         }
     }
 

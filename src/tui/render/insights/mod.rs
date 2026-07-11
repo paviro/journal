@@ -222,7 +222,8 @@ fn tab_strip_segments(width: u16) -> Vec<(InsightsTab, Range<u16>)> {
 }
 
 /// The tab bar as a border title: `Overview · Writing · Mood / Feelings · Drivers`
-/// (short labels when they won't fit). The active tab is inverted while focused,
+/// (short labels when they won't fit). The active tab carries the focused-tab
+/// style while focused (accent on flat chrome, inverted on bordered),
 /// otherwise just bold; the rest stay dim.
 fn tabs_title_line(
     active: InsightsTab,

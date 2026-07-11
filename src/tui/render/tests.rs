@@ -2500,6 +2500,27 @@ mod flat_chrome_tests {
     }
 
     #[test]
+    fn focused_insights_active_tab_uses_the_accent_title_style_not_a_fill() {
+        pin_flat();
+        let theme = theme::test_flat_theme();
+        let mut app = app_with_entry();
+        focus_insights(&mut app, insights::InsightsTab::Overview);
+        let layout = tui_layout(Rect::new(0, 0, 140, 30), &app);
+        let insights = layout.insights.expect("insights panel");
+        let col = (insights.area.x..insights.area.x + insights.area.width)
+            .find(|col| {
+                insights_tab_at(insights.area, *col, insights.area.y)
+                    == Some(insights::InsightsTab::Overview)
+            })
+            .expect("overview tab");
+
+        let backend = render_app(app, 140, 30);
+        let cell = &backend.buffer()[(col, insights.area.y)];
+        assert_eq!(cell.fg, theme.primary().fg.unwrap());
+        assert_ne!(cell.bg, theme.selection().bg.unwrap());
+    }
+
+    #[test]
     fn entry_cards_embed_the_border_labels_inside_padding() {
         pin_flat();
         let flat = rendered_lines(&entry_box_lines(
