@@ -134,7 +134,25 @@ impl EditMetadataState {
             focus: EditMetadataFocus::List,
         };
         state.normalize_list_state();
+        state.focus_sole_selection();
         state
+    }
+
+    /// When exactly one value is already selected, open with the cursor on it so
+    /// the dialog lands on the current choice (the event layer then scrolls it into
+    /// view). With none or several selected there's no single value to focus, so the
+    /// cursor stays at the top.
+    fn focus_sole_selection(&mut self) {
+        let [only] = self.selected.as_slice() else {
+            return;
+        };
+        if let Some(pos) = self
+            .filtered
+            .iter()
+            .position(|&i| self.all_values[i].0.eq_ignore_ascii_case(only))
+        {
+            self.select_index(pos);
+        }
     }
 
     pub(crate) fn rebuild_filter(&mut self) {
@@ -256,6 +274,46 @@ mod tests {
 
         assert_eq!(state.selected_index(), Some(4));
         assert_eq!(state.offset(), 4);
+    }
+
+    #[test]
+    fn opening_focuses_the_sole_selected_value() {
+        let all_values: Vec<(String, usize)> = (0..10)
+            .map(|index| (format!("tag-{index:02}"), index))
+            .collect();
+        let filtered: Vec<usize> = (0..10).collect();
+        let state = EditMetadataState::new(
+            MetadataKind::Tags,
+            all_values,
+            filtered,
+            vec!["tag-07".to_string()],
+            10,
+        );
+        // A single existing value opens with the cursor on it, so the event layer
+        // can scroll it into view instead of stranding it off-screen.
+        assert_eq!(state.selected_index(), Some(7));
+    }
+
+    #[test]
+    fn opening_stays_at_top_with_zero_or_many_selected() {
+        let all_values: Vec<(String, usize)> = (0..10)
+            .map(|index| (format!("tag-{index:02}"), index))
+            .collect();
+        let filtered: Vec<usize> = (0..10).collect();
+
+        // Several selected: no single "current" value, so start at the top.
+        let many = EditMetadataState::new(
+            MetadataKind::Tags,
+            all_values.clone(),
+            filtered.clone(),
+            vec!["tag-05".to_string(), "tag-08".to_string()],
+            10,
+        );
+        assert_eq!(many.selected_index(), Some(0));
+
+        // None selected: likewise start at the top.
+        let none = EditMetadataState::new(MetadataKind::Tags, all_values, filtered, Vec::new(), 10);
+        assert_eq!(none.selected_index(), Some(0));
     }
 
     #[test]

@@ -165,17 +165,22 @@ pub(crate) fn dispatch_action(
         Action::BeginEditTags => {
             set_editor_prompt(app, EditorPrompt::None);
             app.begin_edit_tags();
+            reveal_open_dialog_selection(terminal, app)?;
         }
         Action::BeginEditPeople => {
             set_editor_prompt(app, EditorPrompt::None);
             app.begin_edit_people();
+            reveal_open_dialog_selection(terminal, app)?;
         }
         Action::BeginEditActivities => {
             set_editor_prompt(app, EditorPrompt::None);
             app.begin_edit_activities();
+            reveal_open_dialog_selection(terminal, app)?;
         }
         Action::BeginEditFeelings => {
             set_editor_prompt(app, EditorPrompt::None);
+            // No open-scroll to the selection here: feelings groups are collapsible,
+            // so there's no stable single row to reveal.
             app.begin_edit_feelings();
         }
         Action::BeginEditMood => {
@@ -321,6 +326,8 @@ pub(crate) fn dispatch_action(
         }
 
         Action::BeginEditLocation => {
+            // No open-scroll here: the dialog opens focused on the query field, so
+            // its preset list draws no selection to reveal.
             set_editor_prompt(app, EditorPrompt::None);
             app.begin_edit_location();
         }
@@ -363,7 +370,10 @@ pub(crate) fn dispatch_action(
         }
 
         Action::OpenSettingsMenu => app.open_settings_menu(),
-        Action::OpenThemePicker => app.open_theme_picker(),
+        Action::OpenThemePicker => {
+            app.open_theme_picker();
+            reveal_open_dialog_selection(terminal, app)?;
+        }
         Action::ThemePickerMoveUp => {
             navigate_open_dialog(terminal, app, |list| list.move_up())?;
             app.theme_picker_preview();
@@ -634,6 +644,21 @@ fn navigate_open_dialog(
     let list_height = open_dialog_list_height(terminal, app)?;
     if let Some(list) = open_dialog_list_mut(app) {
         nav(list);
+        list.ensure_selected_visible(list_height);
+    }
+    Ok(())
+}
+
+/// Scroll a just-opened dialog's list so its initial selection is on screen. A
+/// dialog can open with the cursor well below the top — the theme picker seeds it
+/// on the active theme — and the offset defaults to zero, so without this the
+/// selection would sit off-screen until the first keypress.
+fn reveal_open_dialog_selection(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+) -> AppResult<()> {
+    let list_height = open_dialog_list_height(terminal, app)?;
+    if let Some(list) = open_dialog_list_mut(app) {
         list.ensure_selected_visible(list_height);
     }
     Ok(())
