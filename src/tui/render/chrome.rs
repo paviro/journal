@@ -183,11 +183,7 @@ fn styled_hint_line(rendered: &RenderedHintLine, hovered: Option<HintId>) -> Lin
     Line::from(spans)
 }
 
-pub(crate) fn hint_lines(hints: &[Hint], width: u16) -> Vec<Line<'static>> {
-    hint_lines_hovered(hints, width, None)
-}
-
-pub(crate) fn hint_lines_hovered(
+pub(crate) fn hint_lines(
     hints: &[Hint],
     width: u16,
     hovered: Option<HintId>,
@@ -430,7 +426,7 @@ pub(crate) fn expanded_footer_lines(app: &App, width: u16) -> Text<'static> {
     if !app.state.ui.show_hints {
         return Text::default();
     }
-    Text::from(hint_lines_hovered(
+    Text::from(hint_lines(
         &expanded_footer_hints(app),
         width.saturating_sub(1),
         hovered,

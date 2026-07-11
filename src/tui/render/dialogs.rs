@@ -21,7 +21,7 @@ use crate::tui::theme::theme;
 use super::{
     chrome::{
         Hint, HintId, centered_rect_fixed_size, dialog_inner, draw_dialog_frame, flat_chrome,
-        hint_height, hint_lines_hovered, list_highlight_symbol, render_confirm_buttons,
+        hint_height, hint_lines, list_highlight_symbol, render_confirm_buttons,
         render_scrollbar_if_needed, separator_style,
     },
     list_state_for_render,
@@ -774,7 +774,7 @@ fn hint_content_area(area: Rect) -> Rect {
 fn render_hint_line(frame: &mut Frame<'_>, hints: &[Hint], area: Rect, hover: HoverTarget) {
     let content = hint_content_area(area);
     frame.render_widget(
-        Paragraph::new(hint_lines_hovered(
+        Paragraph::new(hint_lines(
             hints,
             content.width,
             hovered_hint(hover),
