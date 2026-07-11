@@ -82,6 +82,9 @@ struct EntryRowKey {
     mode: Mode,
     journal: Option<String>,
     text_width: u16,
+    /// Rows render as flat cards or bordered boxes depending on the theme, and
+    /// the theme picker live-previews across both — the key must notice.
+    chrome: crate::tui::theme::ChromeStyle,
 }
 
 /// Rendered entry-body lines plus the clickable `(body line, image index)` label
@@ -676,6 +679,7 @@ impl App {
             mode: self.nav.mode.clone(),
             journal: self.selected_journal().map(|journal| journal.name.clone()),
             text_width,
+            chrome: crate::tui::theme::theme().chrome(),
         };
         self.caches
             .rows(key, || build_entry_row_cache(self, text_width))

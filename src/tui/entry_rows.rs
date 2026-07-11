@@ -507,12 +507,74 @@ pub(crate) fn entry_box_lines(
     let box_width = inner_width + 4;
 
     let time = (!time.is_empty()).then_some(time);
+    if crate::tui::render::flat_chrome() {
+        // Flat card, same line count as the bordered box so heights (and with
+        // them the cache, scroll, and hit-test math) are chrome-agnostic: the
+        // border rows become text rows carrying the same labels — day and time
+        // in the header, word count / journal flags in the footer.
+        let mut lines = vec![card_edge_line(
+            box_width,
+            date_label.map(|label| (label, theme().heading())),
+            time.map(|label| (label, theme().muted())),
+        )];
+        for text in wrap_text(preview, inner_width, ENTRY_BOX_PREVIEW_LINES) {
+            lines.push(card_inner_line(text, inner_width));
+        }
+        lines.push(card_edge_line(
+            box_width,
+            footer_left.map(|label| (label, theme().muted())),
+            footer_right.map(|label| (label, theme().muted())),
+        ));
+        return lines;
+    }
+
     let mut lines = vec![border_line('┌', '┐', box_width, date_label, time)];
     for text in wrap_text(preview, inner_width, ENTRY_BOX_PREVIEW_LINES) {
         lines.push(box_inner_line(text, inner_width));
     }
     lines.push(border_line('└', '┘', box_width, footer_left, footer_right));
     lines
+}
+
+/// A flat card's header/footer row: `left` at the card's two-cell inset,
+/// `right` pinned to the far edge, each with its own style — no border glyphs.
+fn card_edge_line(
+    box_width: usize,
+    left: Option<(&str, Style)>,
+    right: Option<(&str, Style)>,
+) -> Line<'static> {
+    let left = left.filter(|(label, _)| !label.is_empty());
+    let right = right.filter(|(label, _)| !label.is_empty());
+    let left_width = left.map_or(0, |(label, _)| text_width(label));
+    let right_width = right.map_or(0, |(label, _)| text_width(label));
+    if box_width < left_width + right_width + 4 {
+        return Line::from(String::new());
+    }
+
+    let mut spans = vec![Span::raw("  ")];
+    if let Some((label, style)) = left {
+        spans.push(Span::styled(label.to_string(), style));
+    }
+    spans.push(Span::raw(
+        " ".repeat(box_width - 4 - left_width - right_width),
+    ));
+    if let Some((label, style)) = right {
+        spans.push(Span::styled(label.to_string(), style));
+    }
+    spans.push(Span::raw("  "));
+    Line::from(spans)
+}
+
+/// A flat card's preview row: the bordered box's `│ text │` with the border
+/// ink replaced by plain padding, so columns line up across chrome styles.
+fn card_inner_line(text: String, inner_width: usize) -> Line<'static> {
+    let (content, used) = take_width(&text, inner_width);
+    let pad = inner_width - used;
+    Line::from(vec![
+        Span::raw("  "),
+        Span::raw(content),
+        Span::raw(format!("{}  ", " ".repeat(pad))),
+    ])
 }
 
 fn border_style() -> Style {

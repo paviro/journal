@@ -2449,6 +2449,46 @@ mod flat_chrome_tests {
     }
 
     #[test]
+    fn entry_cards_embed_the_border_labels_and_keep_box_heights() {
+        pin_flat();
+        let flat = rendered_lines(&entry_box_lines(
+            Some("Sunday 05"),
+            "14:30",
+            "hello world",
+            Some("2 words ★"),
+            Some("Archived"),
+            40,
+        ));
+        crate::tui::theme::set_test_theme(crate::tui::theme::Theme::terminal_default());
+        let bordered = rendered_lines(&entry_box_lines(
+            Some("Sunday 05"),
+            "14:30",
+            "hello world",
+            Some("2 words ★"),
+            Some("Archived"),
+            40,
+        ));
+
+        // Same height in both chromes: the cache/scroll/hit-test math must be
+        // chrome-agnostic.
+        assert_eq!(flat.len(), bordered.len());
+
+        // No border glyphs anywhere in the card.
+        for line in &flat {
+            assert!(
+                !line.contains(['┌', '┐', '└', '┘', '│', '─']),
+                "border glyph left in flat card line {line:?}"
+            );
+        }
+        // The border labels move into the header and footer rows.
+        assert!(flat[0].starts_with("  Sunday 05"));
+        assert!(flat[0].trim_end().ends_with("14:30"));
+        let footer = flat.last().unwrap();
+        assert!(footer.starts_with("  2 words ★"));
+        assert!(footer.trim_end().ends_with("Archived"));
+    }
+
+    #[test]
     fn hovered_footer_hint_label_lifts_out_of_the_muted_row() {
         pin_flat();
         let theme = theme::test_flat_theme();
