@@ -514,10 +514,11 @@ pub(crate) fn entry_box_lines(
         // Flat card, same line count as the bordered box so heights (and with
         // them the cache, scroll, and hit-test math) are chrome-agnostic: the
         // border rows become text rows carrying the same labels — day and time
-        // in the header, word count / journal flags in the footer.
+        // in the header, word count / journal flags in the footer, all muted
+        // so the metadata frames the preview without competing with it.
         let mut lines = vec![card_edge_line(
             box_width,
-            date_label.map(|label| (label, theme().heading())),
+            date_label.map(|label| (label, theme().muted())),
             time.map(|label| (label, theme().muted())),
         )];
         for text in wrap_text(preview, inner_width, ENTRY_BOX_PREVIEW_LINES) {
