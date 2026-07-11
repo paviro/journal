@@ -874,11 +874,12 @@ fn draw_toast(
 }
 
 /// Rows a dialog's frame consumes above and below its content: the two border
-/// rows when bordered; flat trades them for a blank padding row plus the
-/// title row on top and a blank padding row below, so nothing sits on the
-/// card's edge. Sizing helpers add this to their content rows.
+/// rows when bordered; flat trades them for a padding row, the title row, and
+/// a blank row below the title on top, plus a padding row below the content —
+/// so nothing sits on the card's edge and the title breathes. Sizing helpers
+/// add this to their content rows.
 pub(crate) fn dialog_frame_rows() -> u16 {
-    if flat_chrome() { 3 } else { 2 }
+    if flat_chrome() { 4 } else { 2 }
 }
 
 /// A dialog's content rect within its outer `area`. Draw functions and mouse
@@ -889,7 +890,7 @@ pub(crate) fn dialog_frame_rows() -> u16 {
 pub(crate) fn dialog_inner(area: Rect) -> Rect {
     // Saturating per-axis (unlike `Rect::inner`, which zeroes the whole rect):
     // sizing helpers probe with height-1 rects and still need the real width.
-    let (horizontal, top) = if flat_chrome() { (2, 2) } else { (1, 1) };
+    let (horizontal, top) = if flat_chrome() { (2, 3) } else { (1, 1) };
     Rect {
         x: area.x.saturating_add(horizontal),
         y: area.y.saturating_add(top),

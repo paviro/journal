@@ -2604,6 +2604,7 @@ mod flat_chrome_tests {
         };
         assert_eq!(row_text(area.y).trim(), "", "top padding row not blank");
         assert!(row_text(area.y + 1).contains("Edit Tags"));
+        assert_eq!(row_text(area.y + 2).trim(), "", "no blank row under the title");
         assert_eq!(
             row_text(area.y + area.height - 1).trim(),
             "",
@@ -2627,11 +2628,11 @@ mod flat_chrome_tests {
     #[test]
     fn dialog_inner_widens_margins_in_flat_chrome() {
         pin_flat();
-        // Two columns each side; a padding row + the title row above, one
+        // Two columns each side; padding + title + blank rows above, one
         // padding row below.
         assert_eq!(
             chrome::dialog_inner(Rect::new(10, 5, 44, 20)),
-            Rect::new(12, 7, 40, 17)
+            Rect::new(12, 8, 40, 16)
         );
     }
 
