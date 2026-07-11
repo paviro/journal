@@ -23,8 +23,10 @@ use serde::Deserialize;
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::RwLock,
 };
+
+#[cfg(not(test))]
+use std::sync::RwLock;
 
 /// The bundled themes, embedded so the binary can materialize and fall back to
 /// them without touching the network or the repo.
@@ -272,66 +274,86 @@ pub(crate) struct Theme {
     scrim: f32,
 }
 
-/// The installed theme. `None` until [`install`] runs; readers fall back to
-/// [`Theme::terminal_default`], which is what every test exercises.
-static THEME: RwLock<Option<Theme>> = RwLock::new(None);
+/// One session-scoped state slot: a process-global `RwLock` in production, a
+/// per-thread `Cell` under test so parallel tests can't restyle each other
+/// (each `#[test]` runs on its own thread, so a set value never leaks into
+/// another test). Thread-locals can't be generic, so test mode injects a
+/// `&'static LocalKey` declared alongside the static.
+struct SessionCell<T: Copy + 'static> {
+    #[cfg(not(test))]
+    slot: RwLock<Option<T>>,
+    #[cfg(test)]
+    slot: &'static std::thread::LocalKey<std::cell::Cell<Option<T>>>,
+}
+
+impl<T: Copy + 'static> SessionCell<T> {
+    #[cfg(not(test))]
+    const fn new() -> Self {
+        Self {
+            slot: RwLock::new(None),
+        }
+    }
+
+    #[cfg(test)]
+    const fn new(slot: &'static std::thread::LocalKey<std::cell::Cell<Option<T>>>) -> Self {
+        Self { slot }
+    }
+
+    fn get(&self) -> Option<T> {
+        #[cfg(test)]
+        return self.slot.with(std::cell::Cell::get);
+        #[cfg(not(test))]
+        *self.slot.read().expect("session cell lock")
+    }
+
+    fn set(&self, value: Option<T>) {
+        #[cfg(test)]
+        self.slot.with(|cell| cell.set(value));
+        #[cfg(not(test))]
+        {
+            *self.slot.write().expect("session cell lock") = value;
+        }
+    }
+}
 
 #[cfg(test)]
 thread_local! {
-    /// Per-thread override so parallel tests can pin a theme without racing
-    /// the process-global. Each `#[test]` runs on its own thread, so a set
-    /// value never leaks into another test.
-    static TEST_THEME: std::cell::Cell<Option<Theme>> = const { std::cell::Cell::new(None) };
+    static THEME_SLOT: std::cell::Cell<Option<Theme>> = const { std::cell::Cell::new(None) };
+    static CHROME_SLOT: std::cell::Cell<Option<ChromeStyle>> =
+        const { std::cell::Cell::new(None) };
 }
+
+/// The installed theme. `None` until [`install`] runs; readers fall back to
+/// [`Theme::terminal_default`], which is what every test exercises.
+#[cfg(not(test))]
+static THEME: SessionCell<Theme> = SessionCell::new();
+#[cfg(test)]
+static THEME: SessionCell<Theme> = SessionCell::new(&THEME_SLOT);
 
 /// The user's chrome override (`[ui] chrome = "flat"|"bordered"`), applied on
 /// top of whatever the active theme declares as its `chrome.style`. `None`
 /// (= `default`) follows the theme. Runtime-writable so the theme picker can
 /// cycle it with live preview.
 #[cfg(not(test))]
-static CHROME_OVERRIDE: RwLock<Option<ChromeStyle>> = RwLock::new(None);
-
+static CHROME_OVERRIDE: SessionCell<ChromeStyle> = SessionCell::new();
 #[cfg(test)]
-thread_local! {
-    /// Per-thread override so parallel tests can pin a chrome without racing
-    /// the process-global (mirrors [`TEST_THEME`]).
-    static TEST_CHROME_OVERRIDE: std::cell::Cell<Option<ChromeStyle>> =
-        const { std::cell::Cell::new(None) };
-}
+static CHROME_OVERRIDE: SessionCell<ChromeStyle> = SessionCell::new(&CHROME_SLOT);
 
 /// The forced chrome style, or `None` when following the theme (`default`).
 pub(crate) fn chrome_override() -> Option<ChromeStyle> {
-    #[cfg(test)]
-    return TEST_CHROME_OVERRIDE.with(std::cell::Cell::get);
-    #[cfg(not(test))]
-    *CHROME_OVERRIDE.read().expect("chrome override lock")
+    CHROME_OVERRIDE.get()
 }
 
 /// Force a chrome style on every theme (`None` = follow the theme). The next
 /// frame repaints with it — `theme()` applies it on read.
 pub(crate) fn set_chrome_override(style: Option<ChromeStyle>) {
-    #[cfg(test)]
-    TEST_CHROME_OVERRIDE.with(|cell| cell.set(style));
-    #[cfg(not(test))]
-    {
-        *CHROME_OVERRIDE.write().expect("chrome override lock") = style;
-    }
+    CHROME_OVERRIDE.set(style);
 }
 
 /// The current theme, with the chrome override applied. Cheap to call
 /// everywhere: `Theme` is `Copy`.
 pub(crate) fn theme() -> Theme {
-    #[cfg(test)]
-    if let Some(mut theme) = TEST_THEME.with(std::cell::Cell::get) {
-        if let Some(style) = chrome_override() {
-            theme.chrome = style;
-        }
-        return theme;
-    }
-    let mut theme = THEME
-        .read()
-        .expect("theme lock")
-        .unwrap_or_else(Theme::terminal_default);
+    let mut theme = THEME.get().unwrap_or_else(Theme::terminal_default);
     if let Some(style) = chrome_override() {
         theme.chrome = style;
     }
@@ -339,15 +361,10 @@ pub(crate) fn theme() -> Theme {
 }
 
 /// Swap the active theme; the next frame repaints with it. Used at startup,
-/// by live reload, and by the theme picker's preview. Under test it swaps the
-/// per-thread override instead, so parallel tests can't restyle each other.
+/// by live reload, and by the theme picker's preview. Under test it swaps a
+/// per-thread slot instead, so parallel tests can't restyle each other.
 pub(crate) fn install(theme: Theme) {
-    #[cfg(test)]
-    TEST_THEME.with(|cell| cell.set(Some(theme)));
-    #[cfg(not(test))]
-    {
-        *THEME.write().expect("theme lock") = Some(theme);
-    }
+    THEME.set(Some(theme));
 }
 
 /// The dark/light mode resolved at startup, cached so live reload and the
@@ -390,7 +407,7 @@ fn detect_mode(color_mode: crate::config::ColorMode) -> Mode {
 /// Pin the theme seen by `theme()` on this test thread.
 #[cfg(test)]
 pub(crate) fn set_test_theme(theme: Theme) {
-    TEST_THEME.with(|cell| cell.set(Some(theme)));
+    install(theme);
 }
 
 /// The resolved bundled default (flat-chrome) theme, for render tests that
