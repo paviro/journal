@@ -90,6 +90,21 @@ fn new_tokens_chain_to_their_parents() {
     // The editor tokens default to "no styling".
     assert_eq!(theme.cursor(), Style::default());
     assert_eq!(theme.cursor_line(), Style::default());
+    // Accents: secondary chains to primary (here still the cyan default).
+    assert_eq!(theme.secondary(), theme.primary());
+    // Structural furniture keeps the ink it has always used.
+    assert_eq!(theme.divider_style(), theme.muted());
+    assert_eq!(theme.tab_separator_style(), theme.muted());
+    assert_eq!(
+        theme.card_border(),
+        Style::default().fg(Color::Indexed(244))
+    );
+    // Interaction polish defaults preserve the old hardcoded behavior.
+    assert_eq!(
+        theme.button_hover(),
+        Style::default().add_modifier(Modifier::UNDERLINED)
+    );
+    assert_eq!(theme.scrollbar_arrow(), theme.scrollbar_thumb());
 }
 
 #[test]
@@ -98,13 +113,22 @@ fn new_tokens_resolve_explicit_values() {
         "[text]\n\
          heading = \"#112233\"\n\
          placeholder = \"#445566\"\n\
+         [accents]\n\
+         secondary = \"#2de2e6\"\n\
          [interaction]\n\
          button = { fg = \"#000000\", bg = \"#aabbcc\" }\n\
+         button_hover = { bold = true }\n\
          cursor = { reversed = true }\n\
          cursor_line = { bg = \"#181818\" }\n\
+         [borders]\n\
+         divider_style = \"#101010\"\n\
+         card = \"#202020\"\n\
+         [tabs]\n\
+         separator_style = \"#303030\"\n\
          [scrollbar]\n\
          thumb = \"#778899\"\n\
          track = \"#223344\"\n\
+         arrow = \"#404040\"\n\
          [markdown]\n\
          heading3 = \"#556677\"",
         Mode::Dark,
@@ -112,9 +136,17 @@ fn new_tokens_resolve_explicit_values() {
     .unwrap();
     assert_eq!(theme.heading().fg, Some(Color::Rgb(0x11, 0x22, 0x33)));
     assert_eq!(theme.placeholder().fg, Some(Color::Rgb(0x44, 0x55, 0x66)));
+    assert_eq!(theme.secondary().fg, Some(Color::Rgb(0x2d, 0xe2, 0xe6)));
     assert_eq!(theme.button().bg, Some(Color::Rgb(0xaa, 0xbb, 0xcc)));
+    assert!(theme.button_hover().add_modifier.contains(Modifier::BOLD));
     assert!(theme.cursor().add_modifier.contains(Modifier::REVERSED));
     assert_eq!(theme.cursor_line().bg, Some(Color::Rgb(0x18, 0x18, 0x18)));
+    assert_eq!(theme.divider_style().fg, Some(Color::Rgb(0x10, 0x10, 0x10)));
+    assert_eq!(theme.card_border().fg, Some(Color::Rgb(0x20, 0x20, 0x20)));
+    assert_eq!(
+        theme.tab_separator_style().fg,
+        Some(Color::Rgb(0x30, 0x30, 0x30))
+    );
     assert_eq!(
         theme.scrollbar_thumb().fg,
         Some(Color::Rgb(0x77, 0x88, 0x99))
@@ -123,7 +155,51 @@ fn new_tokens_resolve_explicit_values() {
         theme.scrollbar_track().fg,
         Some(Color::Rgb(0x22, 0x33, 0x44))
     );
+    assert_eq!(theme.scrollbar_arrow().fg, Some(Color::Rgb(0x40, 0x40, 0x40)));
     assert_eq!(theme.md_heading3().fg, Some(Color::Rgb(0x55, 0x66, 0x77)));
+}
+
+#[test]
+fn accents_are_referenceable_by_name_in_any_token() {
+    // The three accents are seeded as palette names, so any color token can
+    // ride a hero hue without redeclaring it. tertiary has no dedicated render
+    // site but is still nameable.
+    let theme = parse(
+        "[accents]\n\
+         primary = \"#ff2f92\"\n\
+         secondary = \"#2de2e6\"\n\
+         tertiary = \"#a06bff\"\n\
+         [borders]\n\
+         divider_style = \"secondary\"\n\
+         [tabs]\n\
+         separator_style = \"tertiary\"\n\
+         [text]\n\
+         heading = \"primary\"",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(theme.divider_style().fg, Some(Color::Rgb(0x2d, 0xe2, 0xe6)));
+    assert_eq!(
+        theme.tab_separator_style().fg,
+        Some(Color::Rgb(0xa0, 0x6b, 0xff))
+    );
+    assert_eq!(theme.heading().fg, Some(Color::Rgb(0xff, 0x2f, 0x92)));
+
+    // A theme's own [palette] entry of the same name wins over the seed.
+    let overridden = parse(
+        "[palette]\n\
+         secondary = \"#010203\"\n\
+         [accents]\n\
+         secondary = \"#2de2e6\"\n\
+         [borders]\n\
+         divider_style = \"secondary\"",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(
+        overridden.divider_style().fg,
+        Some(Color::Rgb(0x01, 0x02, 0x03))
+    );
 }
 
 #[test]
@@ -135,12 +211,14 @@ fn button_rejects_bg_without_fg() {
 #[test]
 fn glyphs_resolve_and_default() {
     let theme = parse(
-        "[borders]\nstyle = \"rounded\"\nfocus_stripe = \"█\"\n[interaction]\nselection_marker = \"▶\"",
+        "[borders]\nstyle = \"rounded\"\n[borders.glyphs]\nfocus_stripe = \"█\"\n[interaction.glyphs]\nselection_marker = \"▶\"",
         Mode::Dark,
     )
     .unwrap();
     assert_eq!(theme.selection_marker(), '▶');
     assert_eq!(theme.glyphs().focus_stripe, '█');
+    // A furniture-only [borders.glyphs] keeps the named base style (and its
+    // thick focus-promotion), not a collapsed custom set.
     assert_eq!(theme.glyphs().borders, BorderGlyphs::Rounded);
     // Defaults untouched by a partial section.
     assert_eq!(theme.glyphs().toast_edge, '┃');
@@ -158,8 +236,8 @@ fn glyphs_resolve_and_default() {
 
 #[test]
 fn glyph_tokens_must_be_one_character() {
-    let err = parse("[borders]\nfocus_stripe = \"ab\"", Mode::Dark).unwrap_err();
-    assert!(err.to_string().contains("borders.focus_stripe"), "{err:#}");
+    let err = parse("[borders.glyphs]\nfocus_stripe = \"ab\"", Mode::Dark).unwrap_err();
+    assert!(err.to_string().contains("borders.glyphs.focus_stripe"), "{err:#}");
 }
 
 #[test]
@@ -192,7 +270,7 @@ fn chart_baseline_merges_glyph_and_color() {
 #[test]
 fn chart_glyphs_live_in_the_charts_section() {
     let theme = parse(
-        "[charts]\ngroove = \"‥\"\nbar_center = \"┋\"\nmood_stroke = \"═\"",
+        "[charts.glyphs]\ngroove = \"‥\"\nbar_center = \"┋\"\nmood_stroke = \"═\"",
         Mode::Dark,
     )
     .unwrap();

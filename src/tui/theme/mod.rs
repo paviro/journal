@@ -290,10 +290,14 @@ pub(crate) struct Theme {
     heading: Style,
     placeholder: Style,
     primary: Style,
+    secondary: Style,
     border: Style,
     border_subtle: Style,
     border_active: Style,
     border_inactive: Style,
+    divider_style: Style,
+    card_border: Style,
+    tab_separator_style: Style,
     success: Style,
     warning: Style,
     error: Style,
@@ -301,11 +305,13 @@ pub(crate) struct Theme {
     selection: Style,
     hover: Style,
     button: Style,
+    button_hover: Style,
     key_hint: Style,
     cursor: Style,
     cursor_line: Style,
     scrollbar_thumb: Style,
     scrollbar_track: Style,
+    scrollbar_arrow: Style,
     chart_positive: Fill,
     chart_neutral: Fill,
     chart_negative: Fill,
@@ -564,6 +570,15 @@ impl Theme {
         self.primary
     }
 
+    /// The second accent hue: the active tab, and anywhere a theme wants a hero
+    /// color distinct from `primary`. Defaults to `primary` when a theme sets no
+    /// `accents.secondary`, so single-accent themes are unaffected. A third hue,
+    /// `accents.tertiary`, has no dedicated render site but is seeded as a
+    /// palette name (`fg = "tertiary"`) alongside `primary`/`secondary`.
+    pub(crate) fn secondary(self) -> Style {
+        self.secondary
+    }
+
     // --- signed / status values ---
 
     /// A positive/above-zero value. Bold in every theme so it survives
@@ -636,6 +651,12 @@ impl Theme {
         self.button
     }
 
+    /// The style patched onto a button chip under the mouse. Defaults to an
+    /// underline; a theme can restyle it via `interaction.button_hover`.
+    pub(crate) fn button_hover(self) -> Style {
+        self.button_hover
+    }
+
     /// A keybinding chip/hint in the footer and dialogs.
     pub(crate) fn key_hint(self) -> Style {
         self.key_hint
@@ -653,17 +674,17 @@ impl Theme {
         self.cursor_line
     }
 
-    /// The active tab in the tab strip while the panel is focused: accent+bold
-    /// on flat chrome (matching focused panel titles — the strip sits in the
-    /// title row), selection-styled on bordered chrome so it reads even
-    /// without colour. Unfocused it's just bold either way, so it still stands
-    /// apart from the muted inactive tabs.
+    /// The active tab in the tab strip while the panel is focused: the secondary
+    /// accent + bold on flat chrome (a theme can split it from the primary hue
+    /// its titles use; it falls back to primary), selection-styled on bordered
+    /// chrome so it reads even without colour. Unfocused it's just bold either
+    /// way, so it still stands apart from the muted inactive tabs.
     pub(crate) fn active_tab(self, focused: bool) -> Style {
         if !focused {
             return Style::default().add_modifier(Modifier::BOLD);
         }
         if self.chrome == ChromeStyle::Flat {
-            self.primary.add_modifier(Modifier::BOLD)
+            self.secondary().add_modifier(Modifier::BOLD)
         } else {
             self.selection.add_modifier(Modifier::BOLD)
         }
@@ -672,6 +693,12 @@ impl Theme {
     /// A non-active tab.
     pub(crate) fn inactive_tab(self) -> Style {
         self.muted()
+    }
+
+    /// The ink of the separator glyph between tab labels. Defaults to the muted
+    /// ink unless a theme sets `tabs.separator_style`.
+    pub(crate) fn tab_separator_style(self) -> Style {
+        self.tab_separator_style
     }
 
     // --- borders ---
@@ -700,10 +727,18 @@ impl Theme {
         self.border_subtle
     }
 
+    /// The rule of a section divider (month headers, the "Archived" break).
+    /// Defaults to the muted ink; a theme can give it a hue via
+    /// `borders.divider_style`.
+    pub(crate) fn divider_style(self) -> Style {
+        self.divider_style
+    }
+
     /// A recessed box outline — a touch brighter than [`Self::faint_rule`] so
-    /// card and panel borders read as present-but-quiet.
+    /// card and panel borders read as present-but-quiet. Defaults to the normal
+    /// border unless a theme sets `borders.card`.
     pub(crate) fn card_border(self) -> Style {
-        self.border
+        self.card_border
     }
 
     /// The scrollbar's draggable thumb.
@@ -714,6 +749,12 @@ impl Theme {
     /// The scrollbar's track behind the thumb.
     pub(crate) fn scrollbar_track(self) -> Style {
         self.scrollbar_track
+    }
+
+    /// The scrollbar's up/down arrow caps. Defaults to the thumb hue unless a
+    /// theme sets `scrollbar.arrow`.
+    pub(crate) fn scrollbar_arrow(self) -> Style {
+        self.scrollbar_arrow
     }
 
     // --- charts ---

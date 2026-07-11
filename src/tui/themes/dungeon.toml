@@ -29,17 +29,21 @@ info    = { dark = "#7a94bd", light = "#43608c" }
 [borders]
 style = "double"
 focused_style = "thick"
-divider = "═"
 normal    = { dark = "#5c4a2e", light = "#b5a273" }
 subtle    = { dark = "#3a2f1e", light = "#cfc09a" }
 focused   = { dark = "#d9a821", light = "#8a6d0d" }
 unfocused = { dark = "#5c4a2e", light = "#b5a273" }
 
+[borders.glyphs]
+divider = "═"
+
 [interaction]
 selection = { bg = { dark = "#d9a821", light = "#8a6d0d" }, fg = { dark = "#140f08", light = "#f7efdb" }, bold = true }
-selection_marker = "⚔"
 hover     = { bg = { dark = "#2b2115", light = "#e2d4ac" } }
 key_hint  = { fg = { dark = "#e6d3a3", light = "#3b2f1b" }, bold = true }
+
+[interaction.glyphs]
+selection_marker = "⚔"
 
 [scrollbar]
 track = { dark = "#3a2f1e", light = "#cfc09a" }

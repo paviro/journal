@@ -2687,7 +2687,7 @@ mod flat_chrome_tests {
     #[test]
     fn themed_selection_marker_overrides_both_chromes() {
         theme::set_test_theme(theme::test_theme_from_toml(
-            "[interaction]\nselection_marker = \"▶\"",
+            "[interaction.glyphs]\nselection_marker = \"▶\"",
         ));
         theme::set_chrome_override(Some(crate::tui::theme::ChromeStyle::Bordered));
         assert_eq!(chrome::list_highlight_symbol(), "▶");

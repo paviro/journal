@@ -7,16 +7,17 @@
 #
 # Sections: [chrome] how the UI is drawn · [surfaces] background layers ·
 # [text] ink · [accents] highlight hues · [status] feedback colors ·
-# [borders] line style, colors, stripe and divider glyphs · [interaction]
-# selection/hover/cursor · [scrollbar] colors and glyphs · [charts] insight
-# graphs · [markdown] entry rendering · [toast] · [tabs]. Every key is
-# optional, and each element's glyphs live in its own section.
+# [borders] line style and colors · [interaction] selection/hover/cursor ·
+# [scrollbar] colors and glyphs · [charts] insight graphs · [markdown] entry
+# rendering · [toast] · [tabs]. Every key is optional, and each element's
+# glyphs live in a [<section>.glyphs] table of its own.
 #
 # Borders take `style = "plain"|"rounded"|"double"|"thick"|"ascii"`, plus
 # optional per-character overrides in [borders.glyphs] (top_left, top_right,
-# bottom_left, bottom_right, horizontal, vertical). `focused_style` and
-# [borders.focused_glyphs] restyle focused panels (default: thick). See
-# synthwave.toml and vaporwave.toml for examples.
+# bottom_left, bottom_right, horizontal, vertical), and the standalone
+# focus_stripe and divider glyphs. `focused_style` and [borders.focused_glyphs]
+# restyle focused panels (default: thick). See synthwave.toml and vaporwave.toml
+# for examples.
 #
 # This file is yours to edit. Delete it to restore the bundled version on the
 # next launch.

@@ -290,9 +290,10 @@ pub(crate) fn section_divider(box_width: usize, label: &str, align: DividerAlign
         .to_string()
         .repeat(box_width.saturating_sub(text_width(label) + 1));
     let label = Span::styled(label.to_string(), theme().heading());
+    let rule = theme().divider_style();
     let spans = match align {
-        DividerAlign::Left => vec![label, Span::styled(format!(" {fill}"), border_style())],
-        DividerAlign::Right => vec![Span::styled(format!("{fill} "), border_style()), label],
+        DividerAlign::Left => vec![label, Span::styled(format!(" {fill}"), rule)],
+        DividerAlign::Right => vec![Span::styled(format!("{fill} "), rule), label],
     };
     Line::from(spans)
 }

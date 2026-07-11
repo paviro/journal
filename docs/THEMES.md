@@ -7,9 +7,11 @@ edits to them survive upgrades. Any `.toml` file in the directory is a theme;
 the file stem is the theme name.
 
 Bundled themes: `blossom` (default), `journal`, `classic`, `e-ink`, `fjord`,
-`grove`, `matcha`, `tokyonight`, `catppuccin`, `rose-pine`. `classic` is the
-terminal-default look the app has without any theme; `e-ink` is pure
-black-and-white for monochrome displays.
+`grove`, `matcha`, `tokyonight`, `catppuccin`, `rose-pine`, `dungeon`,
+`synthwave`, `crt`, `cyberpunk`, `vaporwave`. `classic` is the terminal-default
+look the app has without any theme; `e-ink` is pure black-and-white for
+monochrome displays; the last five are bold, high-color looks that lean on the
+accent, structural, and glyph tokens below.
 
 A missing or broken configured theme falls back to the built-in `blossom` with
 a warning on stderr — the app always starts.
@@ -64,6 +66,9 @@ doing nothing.
 
 All sections and keys are optional; omitted keys keep the classic
 terminal-default look. `←` marks a key that inherits from another when omitted.
+Every glyph a section owns lives in a `[<section>.glyphs]` table of its own
+(`[borders.glyphs]`, `[interaction.glyphs]`, `[scrollbar.glyphs]`,
+`[charts.glyphs]`, `[toast.glyphs]`, `[tabs.glyphs]`).
 
 ### `[chrome]`
 
@@ -73,8 +78,10 @@ terminal-default look. `←` marks a key that inherits from another when omitted
 | `scrim` | `0.0`–`1.0` | `0.0` |
 
 `flat` separates surfaces by background layers; `bordered` draws boxes.
-`scrim` dims the screen behind dialogs; `0.0` uses the classic DIM-modifier
-fallback. Requires RGB surface colors to blend.
+`scrim` blends the screen toward black behind dialogs and requires RGB surface
+colors. On non-RGB (monochrome) terminals it falls back to a DIM modifier; that
+fallback is applied in code and is deliberately not themeable — it is part of
+the monochrome contract below.
 
 ### `[surfaces]` — background layers, base to top
 
@@ -102,8 +109,16 @@ under dialogs and modals, `element` under inputs and interactive chips.
 | Key | Default |
 |---|---|
 | `primary` | `cyan` |
+| `secondary` | ← `primary` |
+| `tertiary` | ← `secondary` |
 
-Focused titles, current-item markers, the flat focus stripe.
+`primary` styles focused titles, current-item markers, and the flat focus
+stripe. `secondary` styles the active tab (so a theme can split it from the
+primary hue its titles use). `tertiary` has no dedicated render site.
+
+All three are also seeded as palette names, so any color token can ride a hero
+hue by name — `fg = "secondary"`, `bg = "tertiary"` — without redeclaring it. A
+theme's own `[palette]` entry of the same name wins.
 
 ### `[status]`
 
@@ -121,33 +136,40 @@ Focused titles, current-item markers, the flat focus stripe.
 | `subtle` | token | ANSI `240` |
 | `focused` | token | terminal ink (rendered BOLD) |
 | `unfocused` | token | terminal ink |
-| `focus_stripe` | glyph | `┃` (flat-chrome focused edge, drawn in `focused`) |
-| `divider` | glyph | `━` (month headers, "Archived") |
+| `divider_style` | token | ← `text.muted` dimmed (the divider rule's ink) |
+| `card` | token | ← `normal` (entry/stat card outlines) |
 
 `style` picks the box-drawing set for panels, cards, and table grids. Focused
 panels also thicken their border (except `ascii` and custom sets, which carry
 focus on weight alone); `focused_style` replaces that promotion with a set of
-your choosing. `normal` outlines cards, `subtle` draws inter-row table rules.
+your choosing. `subtle` draws inter-row table rules.
 
 ### `[borders.glyphs]` / `[borders.focused_glyphs]` — custom sets
 
 Per-character overrides on `style` (and on the focused set): `top_left`,
 `top_right`, `bottom_left`, `bottom_right`, `horizontal`, `vertical`. Omitted
 keys inherit the base style's character; table junctions (`├ ┤ ┬ ┴ ┼`) always
-do. See `synthwave.toml` (✦ corners on heavy lines) and `vaporwave.toml`
-(dotted edges, rounded corners).
+do. The two standalone furniture glyphs live here too: `focus_stripe` (`┃`, the
+flat-chrome focused edge, drawn in the `focused` color) and `divider` (`━`, the
+rule of month headers and "Archived", drawn in `divider_style`). A section that
+sets only those keeps the base `style` (and its thick focus-promotion); it takes
+a real box glyph to switch to a custom set. See `synthwave.toml` (✦ corners on
+heavy lines) and `vaporwave.toml` (dotted edges, rounded corners).
 
 ### `[interaction]`
 
 | Key | Default | Notes |
 |---|---|---|
 | `selection` | inverted (REVERSED) | a `bg` requires an explicit `fg` |
-| `selection_marker` | follows the chrome: `●` flat, `>` bordered | the glyph before a selected row |
 | `hover` | `element` lifted one step | `bg`-only is fine — it layers under the row's ink |
 | `button` | ← `selection` | a `bg` requires an explicit `fg` |
+| `button_hover` | underline | patched onto a button chip under the mouse |
 | `key_hint` | inverted + bold | the footer/dialog key chips |
 | `cursor` | terminal cursor | editor/input cursor while not selecting |
 | `cursor_line` | none | line highlight under the editor cursor |
+
+`[interaction.glyphs]` holds `selection_marker` — the glyph before a selected
+row, defaulting to the chrome (`●` flat, `>` bordered).
 
 ### `[scrollbar]`
 
@@ -155,6 +177,7 @@ do. See `synthwave.toml` (✦ corners on heavy lines) and `vaporwave.toml`
 |---|---|
 | `thumb` | ← `borders.focused` |
 | `track` | terminal default |
+| `arrow` | ← `thumb` (the up/down caps) |
 
 `[scrollbar.glyphs]` sets the characters: `thumb` (`█`), `track` (`║`),
 `up` (`▲`), `down` (`▼`).
@@ -170,9 +193,11 @@ do. See `synthwave.toml` (✦ corners on heavy lines) and `vaporwave.toml`
 | `track` | fill | `░` (rendered DIM) |
 | `baseline` | `{ glyph, color }` | `┈`, ← `text.muted` dimmed |
 | `label` | token | ← `text.muted` dimmed |
-| `groove` | glyph | `·` (empty delta bar) |
-| `bar_center` | glyph | `│` (delta/mood bar center) |
-| `mood_stroke` | glyph | `─` (mood bar fill) |
+
+`[charts.glyphs]` sets the chart furniture characters: `groove` (`·`, empty
+delta bar), `bar_center` (`│`, delta/mood bar center), `mood_stroke` (`─`, mood
+bar fill). The zero baseline pairs its glyph and color, so it stays on
+`[charts]` as `baseline = { glyph, color }`.
 
 ### `[markdown]`
 
@@ -196,15 +221,15 @@ entirely (the classic look).
 
 ### `[toast]`
 
-| Key | Default |
-|---|---|
-| `edge` | `┃` (toast card accents, flat chrome) |
+`[toast.glyphs]` holds `edge` (`┃`, the toast card accents on flat chrome).
 
 ### `[tabs]`
 
 | Key | Default |
 |---|---|
-| `separator` | `·` (between tab labels) |
+| `separator_style` | ← `text.muted` dimmed (the separator glyph's ink) |
+
+`[tabs.glyphs]` holds `separator` (`·`, between tab labels).
 
 ## The monochrome contract
 

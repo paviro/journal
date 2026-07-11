@@ -4,7 +4,7 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Margin, Rect},
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
@@ -132,7 +132,7 @@ pub(crate) fn render_confirm_buttons(
             (format!("[ {label} ]"), key_chip_style())
         };
         if hovered == Some(is_yes) {
-            style = style.add_modifier(Modifier::UNDERLINED);
+            style = style.patch(theme().button_hover());
         }
         frame.render_widget(
             Paragraph::new(Span::styled(text, style)).alignment(Alignment::Center),

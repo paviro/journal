@@ -34,17 +34,21 @@ info    = "phosphor"
 
 [borders]
 style = "ascii"
-divider = "╌"
 normal    = "dim"
 subtle    = "dim"
 focused   = "phosphor"
 unfocused = "dim"
 
+[borders.glyphs]
+divider = "╌"
+
 [interaction]
 selection = { bg = "phosphor", fg = "glass", bold = true }
-selection_marker = ">"
 hover     = { bg = { dark = "#0b2112", light = "#d5e8d5" } }
 key_hint  = { bg = "phosphor", fg = "glass", bold = true }
+
+[interaction.glyphs]
+selection_marker = ">"
 
 [scrollbar]
 track = "dim"
@@ -69,5 +73,5 @@ link       = { fg = "phosphor", underlined = true }
 code       = { fg = "phosphor", bold = true }
 blockquote = "dim"
 
-[tabs]
+[tabs.glyphs]
 separator = "/"

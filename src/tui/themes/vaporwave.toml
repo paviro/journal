@@ -18,7 +18,9 @@ body  = { dark = "#f0e0f5", light = "#5a3d66" }
 muted = { dark = "#9384ad", light = "#a58ab0" }
 
 [accents]
-primary = { dark = "#ff9de2", light = "#b04f96" }
+primary   = { dark = "#ff9de2", light = "#b04f96" }
+secondary = { dark = "#8ae8ff", light = "#2a7f99" }
+tertiary  = { dark = "#c9b1ff", light = "#7857b8" }
 
 [status]
 success = { dark = "#9ff5c8", light = "#2e8a63" }
@@ -27,11 +29,11 @@ error   = { dark = "#ff9eb3", light = "#c04a67" }
 info    = { dark = "#8ae8ff", light = "#2a7f99" }
 
 [borders]
-divider = "┄"
-normal    = { dark = "#4a3f70", light = "#d5bcd8" }
-subtle    = { dark = "#2e2750", light = "#e8d8e8" }
-focused   = { dark = "#ff9de2", light = "#b04f96" }
-unfocused = { dark = "#4a3f70", light = "#d5bcd8" }
+normal        = { dark = "#4a3f70", light = "#d5bcd8" }
+subtle        = { dark = "#2e2750", light = "#e8d8e8" }
+focused       = { dark = "#ff9de2", light = "#b04f96" }
+unfocused     = { dark = "#4a3f70", light = "#d5bcd8" }
+divider_style = "tertiary"
 
 [borders.glyphs]
 top_left     = "╭"
@@ -40,12 +42,15 @@ bottom_left  = "╰"
 bottom_right = "╯"
 horizontal   = "┄"
 vertical     = "┆"
+divider      = "┄"
 
 [interaction]
 selection = { bg = { dark = "#ff9de2", light = "#b04f96" }, fg = { dark = "#171225", light = "#ffffff" }, bold = true }
-selection_marker = "◦"
 hover     = { bg = { dark = "#3a3260", light = "#dccae0" } }
 key_hint  = { fg = { dark = "#f0e0f5", light = "#5a3d66" }, bold = true }
+
+[interaction.glyphs]
+selection_marker = "◦"
 
 [scrollbar]
 track = { dark = "#2e2750", light = "#e8d8e8" }
@@ -84,3 +89,6 @@ attribute   = { dark = "#ffcf9e", light = "#ad6b1f" }
 tag         = { dark = "#ff9de2", light = "#b04f96" }
 label       = { dark = "#ff9eb3", light = "#c04a67" }
 error       = { dark = "#ff9eb3", light = "#c04a67" }
+
+[tabs]
+separator_style = "secondary"

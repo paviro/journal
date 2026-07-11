@@ -18,7 +18,9 @@ body  = { dark = "#e8e3d5", light = "#26221a" }
 muted = { dark = "#877f93", light = "#847d6d" }
 
 [accents]
-primary = { dark = "#fcee0a", light = "#7a6f00" }
+primary   = { dark = "#fcee0a", light = "#7a6f00" }
+secondary = { dark = "#00f0ff", light = "#00707d" }
+tertiary  = { dark = "#ff5ea0", light = "#b02565" }
 
 [status]
 success = { dark = "#9dff00", light = "#4d7a00" }
@@ -27,11 +29,11 @@ error   = { dark = "#ff003c", light = "#c40030" }
 info    = { dark = "#00f0ff", light = "#00707d" }
 
 [borders]
-focus_stripe = "▌"
-normal    = { dark = "#453d57", light = "#c3bba3" }
-subtle    = { dark = "#2a2536", light = "#d9d3c0" }
-focused   = { dark = "#fcee0a", light = "#7a6f00" }
-unfocused = { dark = "#453d57", light = "#c3bba3" }
+normal        = { dark = "#453d57", light = "#c3bba3" }
+subtle        = { dark = "#2a2536", light = "#d9d3c0" }
+focused       = { dark = "#fcee0a", light = "#7a6f00" }
+unfocused     = { dark = "#453d57", light = "#c3bba3" }
+divider_style = "tertiary"
 
 [borders.glyphs]
 top_left     = "▛"
@@ -40,12 +42,15 @@ bottom_left  = "▙"
 bottom_right = "▟"
 horizontal   = "━"
 vertical     = "┃"
+focus_stripe = "▌"
 
 [interaction]
 selection = { bg = { dark = "#fcee0a", light = "#7a6f00" }, fg = { dark = "#0d0c0f", light = "#f7f4e8" }, bold = true }
-selection_marker = "▶"
 hover     = { bg = { dark = "#2d2739", light = "#cdc7b0" } }
 key_hint  = { fg = { dark = "#00f0ff", light = "#00707d" }, bold = true }
+
+[interaction.glyphs]
+selection_marker = "▶"
 
 [scrollbar]
 thumb = { dark = "#fcee0a", light = "#7a6f00" }
@@ -85,8 +90,11 @@ tag         = { dark = "#ff003c", light = "#c40030" }
 label       = { dark = "#ff003c", light = "#c40030" }
 error       = { dark = "#ff003c", light = "#c40030" }
 
-[toast]
+[toast.glyphs]
 edge = "▌"
 
 [tabs]
+separator_style = "secondary"
+
+[tabs.glyphs]
 separator = "/"

@@ -232,7 +232,9 @@ pub(crate) fn render_vertical_scrollbar(
         .track_symbol(Some(&track))
         .track_style(theme().scrollbar_track())
         .begin_symbol(Some(&up))
-        .end_symbol(Some(&down));
+        .begin_style(theme().scrollbar_arrow())
+        .end_symbol(Some(&down))
+        .end_style(theme().scrollbar_arrow());
     frame.render_stateful_widget(
         scrollbar,
         area.inner(Margin {

@@ -208,6 +208,8 @@ struct TextSection {
 #[serde(default, deny_unknown_fields)]
 struct AccentsSection {
     primary: Option<TokenSpec>,
+    secondary: Option<TokenSpec>,
+    tertiary: Option<TokenSpec>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -236,16 +238,17 @@ struct BordersSection {
     subtle: Option<TokenSpec>,
     focused: Option<TokenSpec>,
     unfocused: Option<TokenSpec>,
-    /// The stripe down a focused panel's left edge — the flat-chrome stand-in
-    /// for the focused border, drawn in the `focused` color.
-    focus_stripe: Option<String>,
-    /// The rule of section dividers (month headers, "Archived").
-    divider: Option<String>,
+    /// The rule of section dividers (month headers, "Archived"). Defaults to the
+    /// muted ink the divider has always used.
+    divider_style: Option<TokenSpec>,
+    /// The outline of entry/journal/stat cards. Defaults to `normal`.
+    card: Option<TokenSpec>,
 }
 
-/// A custom border character set: corners plus edges. Junction characters
-/// (tees, cross) always inherit from the base style — tables need them, but
-/// six keys cover what a box is made of.
+/// A custom border character set: corners plus edges, alongside the two
+/// standalone furniture glyphs that live with the border look. Junction
+/// characters (tees, cross) always inherit from the base style — tables need
+/// them, but six keys cover what a box is made of.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct BorderGlyphsSection {
@@ -255,6 +258,13 @@ struct BorderGlyphsSection {
     bottom_right: Option<String>,
     horizontal: Option<String>,
     vertical: Option<String>,
+    /// The stripe down a focused panel's left edge — the flat-chrome stand-in
+    /// for the focused border, drawn in the `focused` color. Read directly by
+    /// `resolve`, not part of the box-set overlay below.
+    focus_stripe: Option<String>,
+    /// The rule of section dividers (month headers, "Archived"). Read directly
+    /// by `resolve`, not part of the box-set overlay.
+    divider: Option<String>,
 }
 
 /// ratatui border sets hold `&'static str`, so parsed glyphs are interned
@@ -273,6 +283,19 @@ fn intern_glyph(glyph: char) -> &'static str {
 }
 
 impl BorderGlyphsSection {
+    /// Whether any box-drawing glyph is overridden. `focus_stripe`/`divider` are
+    /// furniture, not box glyphs — a section with only those keeps the base
+    /// style (so its thick focus-promotion survives) instead of collapsing to a
+    /// custom set that has no thick variant.
+    fn has_box_overrides(&self) -> bool {
+        self.top_left.is_some()
+            || self.top_right.is_some()
+            || self.bottom_left.is_some()
+            || self.bottom_right.is_some()
+            || self.horizontal.is_some()
+            || self.vertical.is_some()
+    }
+
     /// Overlay this section's glyphs on `base`, producing a custom set.
     fn resolve(&self, base: BorderGlyphs, token: &str) -> Result<BorderGlyphs> {
         let mut border = base.border_set();
@@ -336,14 +359,24 @@ fn intern_border_set(set: CustomBorderSet) -> &'static CustomBorderSet {
 #[serde(default, deny_unknown_fields)]
 struct InteractionSection {
     selection: Option<StyleSpec>,
-    /// The marker before a selected list row; omitted follows the chrome
-    /// (`●` flat, `>` bordered).
-    selection_marker: Option<String>,
     hover: Option<StyleSpec>,
     button: Option<StyleSpec>,
+    /// The style layered onto a button chip under the mouse. Defaults to an
+    /// underline, patched over the button style, so a theme can pick a different
+    /// hover treatment (bold, a bg lift) without losing the chip's own colors.
+    button_hover: Option<StyleSpec>,
     key_hint: Option<StyleSpec>,
     cursor: Option<StyleSpec>,
     cursor_line: Option<StyleSpec>,
+    glyphs: InteractionGlyphsSection,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct InteractionGlyphsSection {
+    /// The marker before a selected list row; omitted follows the chrome
+    /// (`●` flat, `>` bordered).
+    selection_marker: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -351,6 +384,9 @@ struct InteractionSection {
 struct ScrollbarSection {
     thumb: Option<TokenSpec>,
     track: Option<TokenSpec>,
+    /// The up/down arrow caps. Defaults to the thumb hue so they read as part
+    /// of the handle.
+    arrow: Option<TokenSpec>,
     glyphs: ScrollbarGlyphsSection,
 }
 
@@ -382,6 +418,12 @@ struct ChartsSection {
     track: Option<FillSpec>,
     baseline: BaselineSpec,
     label: Option<TokenSpec>,
+    glyphs: ChartsGlyphsSection,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ChartsGlyphsSection {
     groove: Option<String>,
     bar_center: Option<String>,
     mood_stroke: Option<String>,
@@ -452,6 +494,12 @@ impl SyntaxSection {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ToastSection {
+    glyphs: ToastGlyphsSection,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ToastGlyphsSection {
     /// The accent edges of a toast card (flat chrome).
     edge: Option<String>,
 }
@@ -459,6 +507,14 @@ struct ToastSection {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct TabsSection {
+    /// The separator glyph's ink between tab labels. Defaults to the muted ink.
+    separator_style: Option<TokenSpec>,
+    glyphs: TabsGlyphsSection,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct TabsGlyphsSection {
     /// The separator between tab labels; always rendered with a space each
     /// side so the strip's width math stays fixed.
     separator: Option<String>,
@@ -477,7 +533,29 @@ impl ThemeFile {
     /// Flatten the file into a [`Theme`] for one [`Mode`]. Omitted tokens fall
     /// back to the classic look, so an empty file *is* `classic.toml`.
     pub(super) fn resolve(&self, mode: Mode) -> Result<Theme> {
-        let palette = &self.palette;
+        // Seed the palette with the three accents so any color token can name
+        // them (`fg = "secondary"`). A theme's own [palette] entry of the same
+        // name wins; the defaults chain secondary → primary → cyan and
+        // tertiary → secondary, so a theme that sets only `primary` still gets
+        // coherent hues for free.
+        let accent_colorspec = |spec: &Option<TokenSpec>| -> Option<ColorSpec> {
+            match spec {
+                Some(TokenSpec::Color(cs)) => Some(cs.clone()),
+                Some(TokenSpec::Style(ss)) => ss.fg.clone(),
+                None => None,
+            }
+        };
+        let primary_cs = accent_colorspec(&self.accents.primary)
+            .unwrap_or_else(|| ColorSpec::Single("cyan".into()));
+        let secondary_cs =
+            accent_colorspec(&self.accents.secondary).unwrap_or_else(|| primary_cs.clone());
+        let tertiary_cs =
+            accent_colorspec(&self.accents.tertiary).unwrap_or_else(|| secondary_cs.clone());
+        let mut seeded = self.palette.clone();
+        seeded.entry("primary".into()).or_insert(primary_cs);
+        seeded.entry("secondary".into()).or_insert(secondary_cs);
+        seeded.entry("tertiary".into()).or_insert(tertiary_cs);
+        let palette = &seeded;
         let color = |spec: &Option<ColorSpec>, default: Color, token: &str| -> Result<Color> {
             spec.as_ref()
                 .map_or(Ok(default), |spec| spec.resolve(mode, palette, token))
@@ -519,6 +597,7 @@ impl ThemeFile {
             Style::default().fg(Color::Cyan),
             "accents.primary",
         )?;
+        let secondary = style(&self.accents.secondary, primary, "accents.secondary")?;
         let borders = &self.borders;
         let border = style(
             &borders.normal,
@@ -532,10 +611,20 @@ impl ThemeFile {
         )?;
         let border_active = style(&borders.focused, Style::default(), "borders.focused")?;
         let border_inactive = style(&borders.unfocused, Style::default(), "borders.unfocused")?;
+        // Structural furniture: the divider rule and the tab separator have
+        // always ridden the muted ink (dim included, as `Theme::muted` applies);
+        // cards have used the normal border. Each is now a token that keeps that
+        // default.
+        let muted_ink = muted.add_modifier(Modifier::DIM);
+        let divider_style = style(&borders.divider_style, muted_ink, "borders.divider_style")?;
+        let card_border = style(&borders.card, border, "borders.card")?;
+        let tab_separator_style =
+            style(&self.tabs.separator_style, muted_ink, "tabs.separator_style")?;
         // The thumb inherits the focused-border hue (it marks the scrollable,
         // interactable panel); the track stays terminal-default quiet.
         let scrollbar_thumb = style(&self.scrollbar.thumb, border_active, "scrollbar.thumb")?;
         let scrollbar_track = style(&self.scrollbar.track, Style::default(), "scrollbar.track")?;
+        let scrollbar_arrow = style(&self.scrollbar.arrow, scrollbar_thumb, "scrollbar.arrow")?;
 
         let interaction = &self.interaction;
         // Selection and buttons fill their whole row/chip, so a bg that
@@ -569,6 +658,12 @@ impl ThemeFile {
         };
         // Buttons are selection-colored unless a theme splits them.
         let button = readable_fill(&interaction.button, selection, "interaction.button")?;
+        // The hover treatment is patched over the button chip, so its default is
+        // a bare underline (matching the long-standing hardcoded behavior).
+        let button_hover = match &interaction.button_hover {
+            Some(spec) => spec.resolve(mode, palette, "interaction.button_hover")?,
+            None => Style::default().add_modifier(Modifier::UNDERLINED),
+        };
         let key_hint = match &interaction.key_hint {
             Some(spec) => spec.resolve(mode, palette, "interaction.key_hint")?,
             None => Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD),
@@ -658,31 +753,46 @@ impl ThemeFile {
         };
         let base_borders = borders.style.unwrap_or_default();
         let border_glyphs = match &borders.glyphs {
-            Some(section) => section.resolve(base_borders, "borders.glyphs")?,
-            None => base_borders,
+            Some(section) if section.has_box_overrides() => {
+                section.resolve(base_borders, "borders.glyphs")?
+            }
+            _ => base_borders,
         };
         let focused_borders = match &borders.focused_glyphs {
-            Some(section) => Some(section.resolve(
+            Some(section) if section.has_box_overrides() => Some(section.resolve(
                 borders.focused_style.unwrap_or(border_glyphs),
                 "borders.focused_glyphs",
             )?),
-            None => borders.focused_style,
+            _ => borders.focused_style,
         };
         let scrollbar_glyphs = &self.scrollbar.glyphs;
+        // `focus_stripe` and `divider` live under `[borders.glyphs]` but resolve
+        // out-of-band — they are standalone furniture, not part of the box set
+        // the `[borders.glyphs]` overlay assembles.
+        let border_furniture = borders.glyphs.as_ref();
         let glyphs = Glyphs {
             selection_marker: interaction
+                .glyphs
                 .selection_marker
                 .as_deref()
-                .map(|spec| parse_glyph(spec, "interaction.selection_marker"))
+                .map(|spec| parse_glyph(spec, "interaction.glyphs.selection_marker"))
                 .transpose()?,
-            focus_stripe: glyph(&borders.focus_stripe, '┃', "borders.focus_stripe")?,
-            toast_edge: glyph(&self.toast.edge, '┃', "toast.edge")?,
-            tab_separator: glyph(&self.tabs.separator, '·', "tabs.separator")?,
-            divider: glyph(&borders.divider, '━', "borders.divider")?,
+            focus_stripe: glyph(
+                &border_furniture.and_then(|g| g.focus_stripe.clone()),
+                '┃',
+                "borders.glyphs.focus_stripe",
+            )?,
+            toast_edge: glyph(&self.toast.glyphs.edge, '┃', "toast.glyphs.edge")?,
+            tab_separator: glyph(&self.tabs.glyphs.separator, '·', "tabs.glyphs.separator")?,
+            divider: glyph(
+                &border_furniture.and_then(|g| g.divider.clone()),
+                '━',
+                "borders.glyphs.divider",
+            )?,
             chart_baseline: glyph(&charts.baseline.glyph, '┈', "charts.baseline.glyph")?,
-            chart_groove: glyph(&charts.groove, '·', "charts.groove")?,
-            bar_center: glyph(&charts.bar_center, '│', "charts.bar_center")?,
-            mood_fill: glyph(&charts.mood_stroke, '─', "charts.mood_stroke")?,
+            chart_groove: glyph(&charts.glyphs.groove, '·', "charts.glyphs.groove")?,
+            bar_center: glyph(&charts.glyphs.bar_center, '│', "charts.glyphs.bar_center")?,
+            mood_fill: glyph(&charts.glyphs.mood_stroke, '─', "charts.glyphs.mood_stroke")?,
             scrollbar_thumb: glyph(&scrollbar_glyphs.thumb, '█', "scrollbar.glyphs.thumb")?,
             scrollbar_track: glyph(&scrollbar_glyphs.track, '║', "scrollbar.glyphs.track")?,
             scrollbar_up: glyph(&scrollbar_glyphs.up, '▲', "scrollbar.glyphs.up")?,
@@ -702,8 +812,12 @@ impl ThemeFile {
             heading,
             placeholder,
             primary,
+            secondary,
             border,
             border_subtle,
+            divider_style,
+            card_border,
+            tab_separator_style,
             border_active,
             border_inactive,
             success: style(
@@ -729,10 +843,12 @@ impl ThemeFile {
             selection,
             hover,
             button,
+            button_hover,
             key_hint,
             cursor,
             cursor_line,
             scrollbar_thumb,
+            scrollbar_arrow,
             scrollbar_track,
             chart_positive,
             chart_neutral,
