@@ -369,15 +369,6 @@ struct InteractionSection {
     key_hint: Option<StyleSpec>,
     cursor: Option<StyleSpec>,
     cursor_line: Option<StyleSpec>,
-    glyphs: InteractionGlyphsSection,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct InteractionGlyphsSection {
-    /// The marker before a selected list row; omitted follows the chrome
-    /// (`●` flat, `>` bordered).
-    selection_marker: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -776,12 +767,6 @@ impl ThemeFile {
         // the `[borders.glyphs]` overlay assembles.
         let border_furniture = borders.glyphs.as_ref();
         let glyphs = Glyphs {
-            selection_marker: interaction
-                .glyphs
-                .selection_marker
-                .as_deref()
-                .map(|spec| parse_glyph(spec, "interaction.glyphs.selection_marker"))
-                .transpose()?,
             focus_stripe: glyph(
                 &border_furniture.and_then(|g| g.focus_stripe.clone()),
                 '┃',

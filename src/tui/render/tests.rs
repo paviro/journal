@@ -869,7 +869,7 @@ fn edit_tags_dialog_keeps_help_visible_below_spacer() {
         20,
     );
 
-    assert!(rendered.contains(">[ ] tag-00 (0)"));
+    assert!(rendered.contains("[ ] tag-00 (0)"));
     assert!(rendered.contains("space  toggle"));
     assert!(rendered.contains("tab  input"));
     assert!(rendered.contains("enter  save"));
@@ -2341,7 +2341,7 @@ mod flat_chrome_tests {
     }
 
     #[test]
-    fn selection_is_a_bg_fill_with_bullet_not_reversed() {
+    fn selection_is_a_bg_fill_not_reversed() {
         pin_flat();
         let selection = theme::test_flat_theme().selection();
         let layout = metadata_dialog_layout(Rect::new(0, 0, 80, 24), 2);
@@ -2352,13 +2352,6 @@ mod flat_chrome_tests {
                 crate::tui::state::HoverTarget::None,
             )
         });
-        let rendered: String = backend
-            .buffer()
-            .content()
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
-        assert!(rendered.contains('●'), "selected row bullet missing");
         let row = layout.list.y;
         let cell = &backend.buffer()[(layout.list.x + 3, row)];
         assert_eq!(cell.bg, selection.bg.unwrap());
@@ -2729,18 +2722,6 @@ mod flat_chrome_tests {
             assert_eq!(thumb.fg, theme.scrollbar_thumb().fg.unwrap());
             assert_eq!(track.fg, theme.scrollbar_track().fg.unwrap());
         }
-        theme::set_chrome_override(None);
-    }
-
-    #[test]
-    fn themed_selection_marker_overrides_both_chromes() {
-        theme::set_test_theme(theme::test_theme_from_toml(
-            "[interaction.glyphs]\nselection_marker = \"▶\"",
-        ));
-        theme::set_chrome_override(Some(crate::tui::theme::ChromeStyle::Bordered));
-        assert_eq!(chrome::list_highlight_symbol(), "▶");
-        theme::set_chrome_override(Some(crate::tui::theme::ChromeStyle::Flat));
-        assert_eq!(chrome::list_highlight_symbol(), "▶ ");
         theme::set_chrome_override(None);
     }
 

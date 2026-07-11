@@ -49,9 +49,6 @@ selection = { bg = { dark = "#ff2e97", light = "#c4157a" }, fg = { dark = "#0d07
 hover     = { bg = { dark = "#31205a", light = "#d0bce6" } }
 key_hint  = { fg = { dark = "#00e5ff", light = "#0086a8" }, bold = true }
 
-[interaction.glyphs]
-selection_marker = "▸"
-
 [scrollbar]
 track = { dark = "#2b1a47", light = "#d8c6ea" }
 

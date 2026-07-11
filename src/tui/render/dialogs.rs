@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span},
-    widgets::{HighlightSpacing, List, ListItem, Paragraph},
+    widgets::{List, ListItem, Paragraph},
 };
 
 use unicode_width::UnicodeWidthStr;
@@ -20,8 +20,7 @@ use crate::tui::theme::theme;
 
 use super::{
     chrome::{
-        centered_rect_fixed_size, flat_chrome, list_highlight_symbol, render_scrollbar_if_needed,
-        separator_style,
+        centered_rect_fixed_size, flat_chrome, render_scrollbar_if_needed, separator_style,
     },
     footer::{Hint, HintId, hint_height, hint_lines},
     frames::{dialog_frame_rows, dialog_inner, draw_dialog_frame, render_confirm_buttons},
@@ -164,10 +163,9 @@ const LOCATION_LIST_MAX_ITEM_LINES: usize = 3;
 
 /// Wrap a list label into its display lines (at least one).
 fn location_row_lines(label: &str, list_width: u16) -> Vec<String> {
-    let marker_width = UnicodeWidthStr::width(list_highlight_symbol().as_str()) as u16;
     let lines = wrap_text(
         label,
-        list_width.saturating_sub(marker_width).max(1) as usize,
+        list_width.max(1) as usize,
         LOCATION_LIST_MAX_ITEM_LINES,
     );
     if lines.is_empty() {
@@ -615,13 +613,13 @@ pub(super) fn draw_theme_picker(
             .iter()
             .enumerate()
             .map(|(index, entry)| {
-                // The configured theme's row carries the active marker; a file
-                // that failed to parse renders in the error style so picking it
-                // (a no-op preview, a toast on Enter) isn't a surprise.
-                // The active-theme dot follows the theme's selection marker
-                // when one is set; the built-in `●` is chrome-agnostic here.
+                // The configured theme's row carries the active-theme dot; a
+                // file that failed to parse renders in the error style so
+                // picking it (a no-op preview, a toast on Enter) isn't a
+                // surprise. The dot marks which theme is applied, distinct from
+                // the cursor (which the selection color already conveys).
                 let marker = if entry.name == state.previous_name {
-                    theme().glyphs().selection_marker.unwrap_or('●')
+                    '●'
                 } else {
                     ' '
                 };
@@ -645,9 +643,7 @@ pub(super) fn draw_theme_picker(
 
     draw_dialog_frame(frame, layout.area, "Theme", true);
     let list = List::new(items)
-        .highlight_style(theme().selection())
-        .highlight_symbol(list_highlight_symbol())
-        .highlight_spacing(HighlightSpacing::Always);
+        .highlight_style(theme().selection());
     let mut render_state =
         list_state_for_render(state.selected_index(), scroll, layout.list.height, len > 0);
     frame.render_stateful_widget(list, layout.list, &mut render_state);
@@ -734,14 +730,13 @@ fn render_search_field(
     hover: HoverTarget,
 ) {
     let hovered = hovered_field(hover, value);
-    // Flat chrome marks the active field with an accent stripe, bordered with
-    // the classic selection marker; both are one column wide so the field math
-    // is shared.
+    // Flat chrome marks the active field with an accent stripe, bordered with a
+    // `>` caret; both are one column wide so the field math is shared.
     let (marker, marker_style) = if focused {
         if flat_chrome() {
             (theme().glyphs().focus_stripe, theme().primary())
         } else {
-            (theme().selection_marker(), Style::default())
+            ('>', Style::default())
         }
     } else {
         (' ', Style::default())
@@ -1005,9 +1000,7 @@ pub(super) fn draw_edit_metadata_dialog(
     );
     render_separator(frame, layout.list_top_separator);
     let list = List::new(items)
-        .highlight_style(theme().selection())
-        .highlight_symbol(list_highlight_symbol())
-        .highlight_spacing(HighlightSpacing::Always);
+        .highlight_style(theme().selection());
     let mut render_state = list_state_for_render(
         state.selected_index(),
         scroll,
@@ -1213,9 +1206,7 @@ pub(super) fn draw_edit_location_dialog(
     };
 
     let list = List::new(items)
-        .highlight_style(theme().selection())
-        .highlight_symbol(list_highlight_symbol())
-        .highlight_spacing(HighlightSpacing::Always);
+        .highlight_style(theme().selection());
     let mut render_state = list_state_for_render(
         state.selected_index(),
         scroll,
@@ -1309,9 +1300,7 @@ pub(super) fn draw_edit_feelings_dialog(
     );
     render_separator(frame, layout.list_top_separator);
     let list = List::new(items)
-        .highlight_style(theme().selection())
-        .highlight_symbol(list_highlight_symbol())
-        .highlight_spacing(HighlightSpacing::Always);
+        .highlight_style(theme().selection());
     let mut render_state = list_state_for_render(
         state.selected_index(),
         scroll,

@@ -82,18 +82,6 @@ pub(crate) fn scrim(buf: &mut Buffer, area: Rect) {
 
 // ── Toasts ────────────────────────────────────────────────────────────────────
 
-/// The marker shown before a selected list row: the theme's glyph (default a
-/// bullet on flat chrome, the classic `>` on bordered), padded to two cells on
-/// flat so the chip layout keeps its indent.
-pub(crate) fn list_highlight_symbol() -> String {
-    let marker = theme().selection_marker();
-    if flat_chrome() {
-        format!("{marker} ")
-    } else {
-        marker.to_string()
-    }
-}
-
 /// The style for the thin `─` rules that subdivide dialogs.
 pub(crate) fn separator_style() -> Style {
     if flat_chrome() {

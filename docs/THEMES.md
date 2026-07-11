@@ -67,8 +67,8 @@ doing nothing.
 All sections and keys are optional; omitted keys keep the classic
 terminal-default look. `←` marks a key that inherits from another when omitted.
 Every glyph a section owns lives in a `[<section>.glyphs]` table of its own
-(`[borders.glyphs]`, `[interaction.glyphs]`, `[scrollbar.glyphs]`,
-`[charts.glyphs]`, `[toast.glyphs]`, `[tabs.glyphs]`).
+(`[borders.glyphs]`, `[scrollbar.glyphs]`, `[charts.glyphs]`,
+`[toast.glyphs]`, `[tabs.glyphs]`).
 
 ### `[chrome]`
 
@@ -171,8 +171,7 @@ heavy lines) and `vaporwave.toml` (dotted edges, rounded corners).
 | `cursor` | terminal cursor | editor/input cursor while not selecting |
 | `cursor_line` | none | line highlight under the editor cursor |
 
-`[interaction.glyphs]` holds `selection_marker` — the glyph before a selected
-row, defaulting to the chrome (`●` flat, `>` bordered).
+The selected row is shown by the `selection` color alone — no marker glyph.
 
 ### `[scrollbar]`
 

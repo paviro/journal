@@ -47,9 +47,6 @@ selection = { bg = "phosphor", fg = "glass", bold = true }
 hover     = { bg = { dark = "#0b2112", light = "#d5e8d5" } }
 key_hint  = { bg = "phosphor", fg = "glass", bold = true }
 
-[interaction.glyphs]
-selection_marker = ">"
-
 [scrollbar]
 track = "dim"
 

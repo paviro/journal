@@ -214,11 +214,10 @@ fn button_rejects_bg_without_fg() {
 #[test]
 fn glyphs_resolve_and_default() {
     let theme = parse(
-        "[borders]\nstyle = \"rounded\"\n[borders.glyphs]\nfocus_stripe = \"█\"\n[interaction.glyphs]\nselection_marker = \"▶\"",
+        "[borders]\nstyle = \"rounded\"\n[borders.glyphs]\nfocus_stripe = \"█\"",
         Mode::Dark,
     )
     .unwrap();
-    assert_eq!(theme.selection_marker(), '▶');
     assert_eq!(theme.glyphs().focus_stripe, '█');
     // A furniture-only [borders.glyphs] keeps the named base style (and its
     // thick focus-promotion), not a collapsed custom set.
@@ -227,13 +226,7 @@ fn glyphs_resolve_and_default() {
     assert_eq!(theme.glyphs().toast_edge, '┃');
     assert_eq!(theme.glyphs().divider, '━');
 
-    // With no marker set, the selection marker follows the chrome.
     let default = Theme::terminal_default();
-    assert_eq!(default.glyphs().selection_marker, None);
-    assert_eq!(default.selection_marker(), '>');
-    let mut flat = default;
-    flat.chrome = ChromeStyle::Flat;
-    assert_eq!(flat.selection_marker(), '●');
     assert_eq!(default.glyphs().borders, BorderGlyphs::Plain);
 }
 

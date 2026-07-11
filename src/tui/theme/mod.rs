@@ -230,9 +230,6 @@ impl Syntax {
 /// chart-series glyphs) stays in code and [`Fill`]s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Glyphs {
-    /// The marker before a selected list row. `None` follows the chrome
-    /// (`●` flat, `>` bordered); resolved by [`Theme::selection_marker`].
-    pub(crate) selection_marker: Option<char>,
     /// The stripe down a focused panel's left edge (flat chrome).
     pub(crate) focus_stripe: char,
     /// The accent edges of a toast card (flat chrome).
@@ -841,15 +838,6 @@ impl Theme {
     /// The theme's identity glyphs.
     pub(crate) fn glyphs(self) -> Glyphs {
         self.glyphs
-    }
-
-    /// The marker before a selected list row: the theme's glyph if set,
-    /// otherwise the chrome's built-in (`●` flat, `>` bordered).
-    pub(crate) fn selection_marker(self) -> char {
-        self.glyphs.selection_marker.unwrap_or(match self.chrome {
-            ChromeStyle::Flat => '●',
-            ChromeStyle::Bordered => '>',
-        })
     }
 
     // --- chrome ---
