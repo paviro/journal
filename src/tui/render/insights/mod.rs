@@ -64,6 +64,8 @@ pub(crate) fn draw_journal_insights(frame: &mut Frame<'_>, area: Rect, app: &mut
             block = block
                 .border_type(BorderType::Thick)
                 .border_style(theme().focus_border());
+        } else {
+            block = block.border_style(theme().inactive_border());
         }
         block
     };

@@ -8,6 +8,7 @@ use ratatui::{
 use crate::tui::{
     image::{ImageRuntime, ImageStatus, viewer_image_size},
     state::ImageViewerState,
+    theme::theme,
 };
 
 /// Draw the fullscreen image viewer. The image number is 1-based to match the
@@ -28,6 +29,7 @@ pub(super) fn draw_image_viewer(
     let index = state.index.min(count.saturating_sub(1));
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_style(theme().dialog_border())
         .title_top(Line::from(" Image Viewer "))
         .title_bottom(Line::from(format!(" Image {} of {count} ", index + 1)))
         .title_bottom(Line::from(" ←/→ navigate · esc close ").right_aligned());

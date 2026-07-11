@@ -81,6 +81,7 @@ pub(crate) struct Theme {
     border: Style,
     border_subtle: Style,
     border_active: Style,
+    border_inactive: Style,
     success: Style,
     warning: Style,
     error: Style,
@@ -417,6 +418,17 @@ impl Theme {
         self.border_active.add_modifier(Modifier::BOLD)
     }
 
+    /// The border of an unfocused panel; pairs with [`Self::focus_border`].
+    pub(crate) fn inactive_border(self) -> Style {
+        self.border_inactive
+    }
+
+    /// The frame of a dialog or full-screen modal: the active surface's hue
+    /// without the focused panel's bold weight.
+    pub(crate) fn dialog_border(self) -> Style {
+        self.border_active
+    }
+
     /// The inter-row grid lines of a table, drawn fainter than the outer
     /// borders and header rule so the rows separate without the grid competing
     /// with the data.
@@ -525,6 +537,7 @@ impl Theme {
             ("border", self.border),
             ("border_subtle", self.border_subtle),
             ("border_active", self.border_active),
+            ("border_inactive", self.border_inactive),
             ("success", self.success),
             ("warning", self.warning),
             ("error", self.error),
@@ -802,6 +815,7 @@ struct ColorsSection {
     border: Option<TokenSpec>,
     border_subtle: Option<TokenSpec>,
     border_active: Option<TokenSpec>,
+    border_inactive: Option<TokenSpec>,
     success: Option<TokenSpec>,
     warning: Option<TokenSpec>,
     error: Option<TokenSpec>,
@@ -893,6 +907,11 @@ impl ThemeFile {
             &colors.border_active,
             Style::default(),
             "colors.border_active",
+        )?;
+        let border_inactive = style(
+            &colors.border_inactive,
+            Style::default(),
+            "colors.border_inactive",
         )?;
 
         let selection = match &colors.selection {
@@ -998,6 +1017,7 @@ impl ThemeFile {
             border,
             border_subtle,
             border_active,
+            border_inactive,
             success: style(
                 &colors.success,
                 Style::default().fg(Color::Green),
@@ -1108,6 +1128,18 @@ mod tests {
     }
 
     #[test]
+    fn border_inactive_resolves_and_defaults_to_terminal_ink() {
+        let themed = parse("[colors]\nborder_inactive = \"#3c3c3c\"", Mode::Dark).unwrap();
+        assert_eq!(
+            themed.inactive_border(),
+            Style::default().fg(Color::Rgb(0x3c, 0x3c, 0x3c))
+        );
+        // Theme files from before the token existed keep the classic look.
+        let bare = parse("", Mode::Dark).unwrap();
+        assert_eq!(bare.inactive_border(), Style::default());
+    }
+
+    #[test]
     fn dialog_defaults_to_panel_for_existing_theme_files() {
         let theme = parse(
             "[colors]\nbg = \"#101010\"\npanel = \"#181818\"",
@@ -1213,6 +1245,10 @@ mod tests {
             theme.focus_border(),
             Style::default().add_modifier(Modifier::BOLD)
         );
+        // Unfocused panels and dialog frames keep the terminal-default ink the
+        // app always drew them with.
+        assert_eq!(theme.inactive_border(), Style::default());
+        assert_eq!(theme.dialog_border(), Style::default());
         assert_eq!(theme.faint_rule(), Style::default().fg(Color::Indexed(240)));
         assert_eq!(
             theme.card_border(),

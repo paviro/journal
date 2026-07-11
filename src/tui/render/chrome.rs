@@ -932,6 +932,7 @@ pub(crate) fn draw_dialog_frame(
         // Classic resolves it through panel to the terminal default.
         let mut block = Block::default()
             .borders(Borders::ALL)
+            .border_style(theme().dialog_border())
             .style(Style::default().bg(theme().dialog_bg()));
         if !title.is_empty() {
             block = block.title(format!(" {title} "));
@@ -971,6 +972,7 @@ pub(crate) fn container_block(title: &str) -> Block<'static> {
     } else {
         Block::default()
             .borders(Borders::ALL)
+            .border_style(theme().dialog_border())
             .title_top(Line::from(format!(" {title} ")))
             .padding(Padding::new(2, 2, 1, 1))
     }
@@ -1015,6 +1017,8 @@ pub(crate) fn panel_block(
         block = block
             .border_type(BorderType::Thick)
             .border_style(theme().focus_border());
+    } else {
+        block = block.border_style(theme().inactive_border());
     }
 
     if let Some(label) = footer_label {
@@ -1705,6 +1709,7 @@ fn draw_table_dialog(
             .title(format!(" {} ", dialog.title))
             .title_bottom(Line::from(format!(" {} ", metrics.footer)).centered())
             .borders(Borders::ALL)
+            .border_style(theme().dialog_border())
             .style(Style::default().bg(theme().dialog_bg()));
         frame.render_widget(block, metrics.area);
     }
@@ -1766,6 +1771,7 @@ pub(crate) fn draw_modal_frame(frame: &mut Frame<'_>, title: &str, key_hint: &st
     frame.buffer_mut().set_style(area, base_style());
     let mut block = Block::default()
         .borders(Borders::ALL)
+        .border_style(theme().dialog_border())
         .title_top(Line::from(format!(" {title} ")));
     if !key_hint.is_empty() {
         block = block.title_bottom(Line::from(format!(" {key_hint} ")).right_aligned());

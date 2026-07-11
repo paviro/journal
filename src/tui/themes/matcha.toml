@@ -18,9 +18,10 @@ muted = { dark = "#928374", light = "#7c6f64" }
 primary   = { dark = "#8ec07c", light = "#427b58" }
 secondary = { dark = "#fe8019", light = "#af3a03" }
 
-border        = { dark = "#504945", light = "#d5c4a1" }
-border_subtle = { dark = "#3c3836", light = "#ebdbb2" }
-border_active = { dark = "#665c54", light = "#bdae93" }
+border          = { dark = "#504945", light = "#d5c4a1" }
+border_subtle   = { dark = "#3c3836", light = "#ebdbb2" }
+border_active   = { dark = "#665c54", light = "#bdae93" }
+border_inactive = { dark = "#504945", light = "#d5c4a1" }
 
 success = { dark = "#b8bb26", light = "#79740e" }
 warning = { dark = "#fabd2f", light = "#b57614" }

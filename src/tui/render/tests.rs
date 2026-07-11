@@ -2581,8 +2581,33 @@ mod flat_chrome_tests {
         let area = metadata_dialog_layout(Rect::new(0, 0, 80, 24), 2).area;
         let border = &backend.buffer()[(area.x, area.y)];
         assert_eq!(border.symbol(), "┌", "chrome override not applied");
+        assert_eq!(
+            border.fg,
+            theme::test_flat_theme().dialog_border().fg.unwrap(),
+            "dialog frame fell back to terminal-default ink"
+        );
         let interior = &backend.buffer()[(area.x + 1, area.y + 1)];
         assert_eq!(interior.bg, dialog_bg);
+    }
+
+    #[test]
+    fn bordered_chrome_styles_unfocused_panel_borders_with_the_theme() {
+        // A flat-designed theme forced into bordered chrome must not draw
+        // inactive panel borders in the terminal-default ink — that reads
+        // *brighter* than the focused border on a muted palette. Classic is
+        // unaffected: its `border_inactive` is the terminal default.
+        theme::set_test_theme(theme::test_flat_theme());
+        theme::set_chrome_override(Some(crate::tui::theme::ChromeStyle::Bordered));
+        let theme = theme::test_flat_theme();
+        let corner = |focused: bool| {
+            let backend = render_backend(20, 5, move |frame| {
+                frame.render_widget(chrome::panel_block("t", focused, None), frame.area());
+            });
+            backend.buffer()[(0u16, 0u16)].clone()
+        };
+        assert_eq!(corner(false).fg, theme.inactive_border().fg.unwrap());
+        assert_eq!(corner(true).fg, theme.focus_border().fg.unwrap());
+        theme::set_chrome_override(None);
     }
 
     #[test]

@@ -25,9 +25,10 @@ muted = "ink"
 primary   = "ink"
 secondary = "ink"
 
-border        = "ink"
-border_subtle = "ink"
-border_active = "ink"
+border          = "ink"
+border_subtle   = "ink"
+border_active   = "ink"
+border_inactive = "ink"
 
 success = "ink"
 warning = "ink"
