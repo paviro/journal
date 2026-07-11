@@ -6,11 +6,13 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
 
 use crate::tui::entry_rows::{DividerAlign, section_divider, text_width, truncate_ellipsis};
+use crate::tui::render::flat_chrome;
 use crate::tui::theme::theme;
 
 /// Intra-panel composition breakpoints, measured from the content `Rect` (not
@@ -208,7 +210,17 @@ pub(crate) fn draw_stats(frame: &mut Frame<'_>, area: Rect, stats: &[Stat]) {
     }
     let cols = columns_for(area).min(stats.len());
     let rows = stats.len().div_ceil(cols);
-    for (cell, stat) in grid(area, cols, rows).into_iter().zip(stats) {
+    // Flat cards have no borders, so the contiguous grid cells would abut. Trim a
+    // gutter off the trailing edge of every interior cell — 2 columns between
+    // columns, 1 row between rows — matching the Overview grid's flat spacing.
+    let (hgap, vgap) = if flat_chrome() { (2, 1) } else { (0, 0) };
+    for (index, (mut cell, stat)) in grid(area, cols, rows).into_iter().zip(stats).enumerate() {
+        if index % cols < cols - 1 {
+            cell.width = cell.width.saturating_sub(hgap);
+        }
+        if index / cols < rows - 1 {
+            cell.height = cell.height.saturating_sub(vgap);
+        }
         draw_stat_card(frame, cell, stat);
     }
 }
@@ -226,10 +238,10 @@ fn stat_row_line(stat: &Stat) -> Line<'static> {
     Line::from(spans)
 }
 
-/// One metric as a bordered card: value centered and bold, label dim above,
-/// optional sub-line below. Falls back to a single centered line if the cell is
-/// too short to box. The caller sizes the card — keep it compact so the tile hugs
-/// its content rather than boxing empty space.
+/// One metric as a bordered card: value centered and bold, label dim above. Falls
+/// back to a single centered line if the cell is too short to box. The caller sizes
+/// the card — keep it compact so the tile hugs its content rather than boxing empty
+/// space.
 pub(crate) fn draw_stat_card(frame: &mut Frame<'_>, area: Rect, stat: &Stat) {
     if area.height < 3 || area.width < 4 {
         frame.render_widget(
@@ -238,27 +250,35 @@ pub(crate) fn draw_stat_card(frame: &mut Frame<'_>, area: Rect, stat: &Stat) {
         );
         return;
     }
-    let mut lines = vec![
+    let lines = vec![
         Line::from(Span::styled(stat.label.clone(), theme().muted())),
         Line::from(Span::styled(stat.value.clone(), stat.value_style)),
     ];
-    if let Some(sub) = &stat.sub {
-        lines.push(Line::from(sub.clone()));
-    }
-    // Vertically centre the block inside the card. Pad against a fixed three-line
-    // slot (label / value / sub) so every card's label and value land on the same
-    // rows whether or not it carries a sub-line; round the pad up so the block
-    // never hugs the top border on an even inner height.
-    let inner_height = area.height.saturating_sub(2) as usize;
-    let pad_top = inner_height.saturating_sub(3).div_ceil(2);
+    // Flat mode drops the border and fills the tile with the card surface colour;
+    // bordered mode keeps the drawn box. The inner height loses the two border rows
+    // only when a border is drawn.
+    let flat = flat_chrome();
+    let block = if flat {
+        Block::new().style(Style::default().bg(theme().element_bg()))
+    } else {
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme().card_border())
+    };
+    // Vertically centre the two lines (label / value) in the card; round the pad up
+    // so the block never hugs the top edge on an even inner height.
+    let inner_height = if flat {
+        area.height
+    } else {
+        area.height.saturating_sub(2)
+    } as usize;
+    let pad_top = inner_height.saturating_sub(2).div_ceil(2);
     let lines = std::iter::repeat_n(Line::default(), pad_top)
         .chain(lines)
         .collect::<Vec<_>>();
-    let card = Paragraph::new(lines).alignment(Alignment::Center).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(theme().card_border()),
-    );
+    let card = Paragraph::new(lines)
+        .alignment(Alignment::Center)
+        .block(block);
     frame.render_widget(card, area);
 }
 
