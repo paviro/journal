@@ -599,6 +599,21 @@ impl ColorSpec {
 
 type Palette = BTreeMap<String, ColorSpec>;
 
+/// A color nudged one visual step off the background it sits on — toward
+/// white on dark backgrounds, toward black on light. Non-RGB colors can't
+/// blend and pass through unchanged (the terminal-default look stays inert).
+fn lift(color: Color, mode: Mode) -> Color {
+    let Color::Rgb(r, g, b) = color else {
+        return color;
+    };
+    let toward: f32 = match mode {
+        Mode::Dark => 255.0,
+        Mode::Light => 0.0,
+    };
+    let blend = |c: u8| (f32::from(c) + (toward - f32::from(c)) * 0.10) as u8;
+    Color::Rgb(blend(r), blend(g), blend(b))
+}
+
 fn parse_color(name: &str) -> Result<Color> {
     if name.eq_ignore_ascii_case("none") {
         return Ok(Color::Reset);
@@ -836,10 +851,14 @@ impl ThemeFile {
             None => Style::default().add_modifier(Modifier::REVERSED),
         };
         // Unlike selection, a bg-only hover is fine: it layers under the
-        // row's existing foreground instead of replacing it.
+        // row's existing foreground instead of replacing it. The default
+        // *lifts* the element surface rather than reusing it: element is what
+        // cards/chips already sit on, so a same-color hover would be invisible
+        // exactly where hover matters most — and theme files written before
+        // the token existed (never overwritten on upgrade) hit this default.
         let hover = match &colors.hover {
             Some(spec) => spec.resolve(mode, palette, "colors.hover")?,
-            None => Style::default().bg(element),
+            None => Style::default().bg(lift(element, mode)),
         };
         let key_hint = match &colors.key_hint {
             Some(spec) => spec.resolve(mode, palette, "colors.key_hint")?,
@@ -984,6 +1003,22 @@ mod tests {
                 });
             }
         }
+    }
+
+    #[test]
+    fn default_hover_lifts_the_element_surface() {
+        // Theme files written before the hover token existed (materialized
+        // copies are never overwritten) must still get a visible hover: the
+        // default nudges element toward white (dark) / black (light).
+        let text = "[colors]\nbg = \"#101010\"\npanel = \"#181818\"\nelement = \"#202020\"";
+        let dark = parse(text, Mode::Dark).unwrap();
+        assert_eq!(dark.hover().bg, Some(Color::Rgb(0x36, 0x36, 0x36)));
+        let light = parse(
+            "[colors]\nbg = \"#f0f0f0\"\npanel = \"#e8e8e8\"\nelement = \"#e0e0e0\"",
+            Mode::Light,
+        )
+        .unwrap();
+        assert_eq!(light.hover().bg, Some(Color::Rgb(0xc9, 0xc9, 0xc9)));
     }
 
     #[test]

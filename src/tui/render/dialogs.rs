@@ -694,7 +694,9 @@ fn render_search_field(
     label: &str,
     value: &mut TextInput,
     focused: bool,
+    hover: HoverTarget,
 ) {
+    let hovered = hovered_field(hover, value);
     // Flat chrome marks the active field with an accent stripe, bordered with
     // the classic `>`; both are one column wide so the field math is shared.
     let (marker, marker_style) = if focused {
@@ -722,7 +724,13 @@ fn render_search_field(
         width: rect.width.saturating_sub(prefix_w).saturating_sub(1),
         ..rect
     };
-    value.render_in(frame, field, focused);
+    value.render_in(frame, field, focused, hovered);
+}
+
+/// Whether `hover` targets this field — matched by the rect it was last drawn
+/// into, the only identity a field carries.
+fn hovered_field(hover: HoverTarget, field: &TextInput) -> bool {
+    matches!(hover, HoverTarget::TextField(rect) if rect == field.last_area())
 }
 
 fn render_lines_in_area<'a>(
@@ -892,7 +900,8 @@ pub(super) fn draw_new_journal_input(frame: &mut Frame<'_>, input: &mut TextInpu
         width: inner.width.saturating_sub(label.len() as u16),
         height: 1,
     };
-    input.render_in(frame, field, true);
+    // Always focused while the dialog is open, so hover has nothing to add.
+    input.render_in(frame, field, true, false);
 
     let hint = Rect {
         y: inner.y + 2,
@@ -975,6 +984,7 @@ pub(super) fn draw_edit_metadata_dialog(
         "Search / new: ",
         &mut state.input,
         input_focused,
+        hover,
     );
     render_hint_line(
         frame,
@@ -1085,8 +1095,9 @@ pub(super) fn draw_edit_location_dialog(
         "Place / address / coords: ",
         &mut state.query,
         query_focused,
+        hover,
     );
-    render_search_field(frame, layout.name, "Name: ", &mut state.name, name_focused);
+    render_search_field(frame, layout.name, "Name: ", &mut state.name, name_focused, hover);
 
     // Status line: reflects the in-flight/last lookup, or the resolved value.
     let status_line = match &state.status {
@@ -1265,6 +1276,7 @@ pub(super) fn draw_edit_feelings_dialog(
         "Search: ",
         &mut state.input,
         input_focused,
+        hover,
     );
 
     // The summary lines get a leading pad space; the "Selected:" label is bold and

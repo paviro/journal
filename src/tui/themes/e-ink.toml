@@ -34,6 +34,9 @@ error   = "ink"
 info    = "ink"
 
 selection = { bg = "ink", fg = "paper", bold = true }
+# No hover on e-ink: a gray lift would break the monochrome contract, and
+# hover states are pointless on a display this slow.
+hover     = { bg = "paper" }
 key_hint  = { bg = "ink", fg = "paper", bold = true }
 
 [charts]

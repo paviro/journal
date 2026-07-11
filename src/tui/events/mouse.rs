@@ -649,6 +649,12 @@ fn hover_target_at(app: &App, col: u16, row: u16, area: Rect) -> HoverTarget {
         return HoverTarget::None;
     }
 
+    // The search query field rides the entries panel's border, so it wins
+    // over the panel probe below.
+    if let Some(target) = text_field_hover_at(app, col, row) {
+        return target;
+    }
+
     let layout = render::tui_layout(area, app);
     if app.nav.mode == Mode::Browse
         && let Some(panel) = layout.journals
@@ -683,9 +689,30 @@ fn hover_target_at(app: &App, col: u16, row: u16, area: Rect) -> HoverTarget {
     HoverTarget::None
 }
 
+/// The text field under `(col, row)`, identified by its last-drawn rect —
+/// the read-only sibling of [`focus_text_field_at`], probing the same fields.
+fn text_field_hover_at(app: &App, col: u16, row: u16) -> Option<HoverTarget> {
+    let field = |input: &crate::tui::text_input::TextInput| {
+        input
+            .hit_col(col, row)
+            .map(|_| HoverTarget::TextField(input.last_area()))
+    };
+    match &app.overlay {
+        Overlay::NewJournal(input) => field(input),
+        Overlay::EditMetadata(state) => field(&state.input),
+        Overlay::EditFeelings(state) => field(&state.input),
+        Overlay::EditLocation(state) => field(&state.query).or_else(|| field(&state.name)),
+        Overlay::None if app.nav.mode == Mode::Search => field(&app.search.query),
+        _ => None,
+    }
+}
+
 /// The hover target inside the open overlay, mirroring [`overlay_left_click`]'s
 /// per-dialog geometry: list/menu rows, confirm buttons, and hint chips.
 fn overlay_hover_target(app: &App, col: u16, row: u16, area: Rect) -> HoverTarget {
+    if let Some(target) = text_field_hover_at(app, col, row) {
+        return target;
+    }
     let hint = |hints_area: Rect, hints: &[render::Hint]| -> Option<HoverTarget> {
         render::point_in_rect(hints_area, col, row)
             .then(|| {

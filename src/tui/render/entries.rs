@@ -133,7 +133,11 @@ fn draw_search_field(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     };
     frame.render_widget(Clear, pad);
     let focused = app.is_search_input_active() && !app.has_overlay() && app.editor.is_none();
-    app.search.query.render_in(frame, rect, focused);
+    let hovered = matches!(
+        app.hover,
+        crate::tui::state::HoverTarget::TextField(r) if r == app.search.query.last_area()
+    );
+    app.search.query.render_in(frame, rect, focused, hovered);
 }
 
 /// The month label to pin on the panel border. The first month rides the border

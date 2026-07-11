@@ -137,7 +137,13 @@ impl TextInput {
     /// or a placeholder — would otherwise drop the form-field look. While the
     /// field is empty the whole line dims to match the placeholder, switching
     /// to full intensity once the user types.
-    pub(crate) fn render_in(&mut self, frame: &mut Frame<'_>, rect: Rect, focused: bool) {
+    pub(crate) fn render_in(
+        &mut self,
+        frame: &mut Frame<'_>,
+        rect: Rect,
+        focused: bool,
+        hovered: bool,
+    ) {
         self.last_area = rect;
         if rect.width == 0 || rect.height == 0 {
             return;
@@ -157,6 +163,11 @@ impl TextInput {
         let mut style = self.textarea.style();
         if self.is_empty() {
             style = style.add_modifier(Modifier::DIM);
+        }
+        // A hovered unfocused field lifts its surface — the click-to-focus
+        // affordance. The focused field already shows the caret.
+        if hovered && !focused {
+            style = style.patch(theme().hover());
         }
         frame.buffer_mut().set_style(rect, style);
         frame.render_widget(&self.textarea, rect);

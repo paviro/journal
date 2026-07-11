@@ -57,6 +57,9 @@ pub(crate) enum HoverTarget {
     DialogRow(usize),
     /// A confirm dialog's yes (`true`) / no (`false`) button.
     ConfirmButton(bool),
+    /// A single-line text field, identified by the rect it was last drawn
+    /// into (fields carry no other identity; only one can be hovered).
+    TextField(ratatui::layout::Rect),
     Toast(usize),
 }
 
