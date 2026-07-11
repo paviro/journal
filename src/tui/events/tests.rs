@@ -676,7 +676,8 @@ fn wheel_over_journals_scrolls_without_changing_selection() {
     );
 
     assert_eq!(app.selected_journal_index(), 0);
-    assert_eq!(app.nav.journal_list.offset(), 1);
+    // Pixel-row lists scroll two rows per notch (their items are several rows tall).
+    assert_eq!(app.nav.journal_list.offset(), 2);
     assert_eq!(app.nav.focus, Focus::Entries);
 }
 
@@ -695,7 +696,8 @@ fn wheel_over_entries_scrolls_without_changing_selection() {
     );
 
     assert_eq!(app.nav.selected_entry_index, Some(0));
-    assert_eq!(app.nav.entry_list.offset(), 1);
+    // Pixel-row lists scroll two rows per notch (their items are several rows tall).
+    assert_eq!(app.nav.entry_list.offset(), 2);
     assert_eq!(app.nav.focus, Focus::Journals);
 }
 
@@ -1463,4 +1465,49 @@ fn settings_menu_hover_targets_its_rows() {
         .expect("settings menu has a hoverable row");
     assert!(mouse::update_hover(&mut app, point.0, point.1, area));
     assert_eq!(app.hover, HoverTarget::SettingsRow(0));
+}
+
+// ── Toast interaction ─────────────────────────────────────────────────────────
+
+#[test]
+fn clicking_a_toast_dismisses_it() {
+    let mut app = app_with_journals(&["work"]);
+    app.toast(crate::tui::state::ToastVariant::Info, "First");
+    app.toast(crate::tui::state::ToastVariant::Error, "Second");
+    let area = Rect::new(0, 0, 120, 30);
+    let rects = render::toast_rects(&app, area);
+    assert_eq!(rects.len(), 2);
+
+    // Click the second toast: only it disappears.
+    let target = rects[1];
+    mouse_in_area(
+        &mut app,
+        mouse(down(), target.x + 1, target.y + 1),
+        120,
+        30,
+    );
+    let remaining: Vec<_> = app
+        .toasts
+        .items()
+        .iter()
+        .map(|toast| toast.message.clone())
+        .collect();
+    assert_eq!(remaining, vec!["First".to_string()]);
+
+    // A click outside any toast is not swallowed by the dismiss probe.
+    mouse_in_area(&mut app, mouse(down(), 0, area.height - 1), 120, 30);
+    assert_eq!(app.toasts.items().len(), 1);
+}
+
+#[test]
+fn hovering_a_toast_targets_it_over_everything() {
+    let mut app = app_with_journals(&["work"]);
+    app.open_theme_picker();
+    app.toast(crate::tui::state::ToastVariant::Info, "Saved");
+    let area = Rect::new(0, 0, 120, 30);
+    let rect = render::toast_rects(&app, area)[0];
+
+    assert!(mouse::update_hover(&mut app, rect.x + 1, rect.y + 1, area));
+    // Even with the picker open, the topmost toast wins the probe.
+    assert_eq!(app.hover, HoverTarget::Toast(0));
 }

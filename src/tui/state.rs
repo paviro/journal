@@ -52,6 +52,7 @@ pub(crate) enum HoverTarget {
     FooterHint(crate::tui::render::HintId),
     ThemePickerRow(usize),
     SettingsRow(usize),
+    Toast(usize),
 }
 
 /// The kind of event a toast reports, driving its accent color.
@@ -101,6 +102,13 @@ impl Toasts {
             .iter()
             .map(|toast| toast.deadline.saturating_duration_since(Instant::now()))
             .min()
+    }
+
+    /// Remove the toast at `index` — a click dismissed it early.
+    pub(crate) fn dismiss(&mut self, index: usize) {
+        if index < self.items.len() {
+            self.items.remove(index);
+        }
     }
 
     /// Drop expired toasts, reporting whether any were removed (so the event

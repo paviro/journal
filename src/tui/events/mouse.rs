@@ -101,6 +101,10 @@ pub(crate) fn handle_mouse(
 ) -> AppResult<bool> {
     let area = super::terminal_area(terminal)?;
 
+    if try_toast_dismiss(app, mouse, area) {
+        return Ok(false);
+    }
+
     if app.has_overlay() {
         handle_overlay_mouse(Some(terminal), app, mouse, area)?;
         return Ok(false);
@@ -138,7 +142,24 @@ pub(crate) fn handle_mouse(
     Ok(false)
 }
 
+/// A left press on a toast dismisses it. Probed before everything else —
+/// toasts render topmost, so they must win the hit-test.
+fn try_toast_dismiss(app: &mut App, mouse: MouseEvent, area: Rect) -> bool {
+    if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+        return false;
+    }
+    let Some(index) = render::toast_at_point(app, area, mouse.column, mouse.row) else {
+        return false;
+    };
+    app.toasts.dismiss(index);
+    app.hover = HoverTarget::None;
+    true
+}
+
 pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
+    if try_toast_dismiss(app, mouse, area) {
+        return Ok(());
+    }
     if app.has_overlay() {
         handle_overlay_mouse(None, app, mouse, area)?;
         return Ok(());
@@ -529,6 +550,11 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
     Ok(())
 }
 
+/// Pixel-row lists (entry list, journal column) scroll this many rows per
+/// wheel notch: their items are 3-5 rows tall, so the 1-row step that suits
+/// line-granular panes reads as a crawl there.
+const WHEEL_PIXELS_PER_NOTCH: i16 = 2;
+
 fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, delta: i16) {
     // Probed first, and via the rendered geometry rather than a layout slot, so it
     // also catches the insights shown in the preview column when no entry is selected.
@@ -550,7 +576,11 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
         && render::point_in_rect(area.panel.area, mouse.column, mouse.row)
     {
         let cache = app.entry_rows(area.text_width);
-        app.scroll_entry_list(delta, cache.total_height, area.viewport_height);
+        app.scroll_entry_list(
+            delta.saturating_mul(WHEEL_PIXELS_PER_NOTCH),
+            cache.total_height,
+            area.viewport_height,
+        );
         return;
     }
 
@@ -560,7 +590,11 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
     {
         let (_, meta, list_area) = app.journal_rows(area.content);
         let total_height = crate::tui::entry_rows::total_row_height(&meta);
-        app.scroll_journal_list(delta, total_height, list_area.height);
+        app.scroll_journal_list(
+            delta.saturating_mul(WHEEL_PIXELS_PER_NOTCH),
+            total_height,
+            list_area.height,
+        );
     }
 }
 
@@ -588,6 +622,11 @@ pub(crate) fn update_hover(app: &mut App, col: u16, row: u16, area: Rect) -> boo
 /// order and through the same geometry helpers, so hover and click can never
 /// disagree about what's under the cursor.
 fn hover_target_at(app: &App, col: u16, row: u16, area: Rect) -> HoverTarget {
+    // Toasts render topmost, so they win the probe like they win clicks.
+    if let Some(index) = render::toast_at_point(app, area, col, row) {
+        return HoverTarget::Toast(index);
+    }
+
     if app.has_overlay() {
         if matches!(app.overlay, Overlay::SettingsMenu) {
             if let Some(index) = render::settings_menu_row_at_point(area, col, row) {

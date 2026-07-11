@@ -748,18 +748,18 @@ fn toast_style(variant: ToastVariant) -> Style {
     }
 }
 
-/// Draw the toast stack in the top-right corner, oldest at the top with a blank
-/// row between toasts. Runs at the very end of the frame — after overlays and
-/// the scrim — so notifications stay readable over everything. Stacking stops
-/// once a toast no longer fits the remaining height.
-pub(crate) fn draw_toasts(frame: &mut Frame<'_>, app: &App) {
-    let area = frame.area();
+/// The on-screen rect of each visible toast, oldest first. The draw and the
+/// mouse hit-test both derive from this one geometry, so a click or hover can
+/// never miss what's painted. Stacking stops once a toast no longer fits the
+/// remaining height.
+pub(crate) fn toast_rects(app: &App, area: Rect) -> Vec<Rect> {
     let width = TOAST_MAX_WIDTH.min(area.width.saturating_sub(6));
     if width <= 4 {
-        return;
+        return Vec::new();
     }
     let x = area.right().saturating_sub(TOAST_RIGHT_INSET + width);
     let mut y = area.y + 1;
+    let mut rects = Vec::new();
     for toast in app.toasts.items() {
         let lines = crate::tui::entry_rows::wrap_text(
             &toast.message,
@@ -770,16 +770,53 @@ pub(crate) fn draw_toasts(frame: &mut Frame<'_>, app: &App) {
         if y + height > area.bottom() {
             break;
         }
-        draw_toast(frame, Rect::new(x, y, width, height), toast.variant, &lines);
+        rects.push(Rect::new(x, y, width, height));
         y += height + 1;
+    }
+    rects
+}
+
+/// The index of the toast under `(col, row)`, if any.
+pub(crate) fn toast_at_point(app: &App, area: Rect, col: u16, row: u16) -> Option<usize> {
+    toast_rects(app, area)
+        .into_iter()
+        .position(|rect| point_in_rect(rect, col, row))
+}
+
+/// Draw the toast stack in the top-right corner, oldest at the top with a blank
+/// row between toasts. Runs at the very end of the frame — after overlays and
+/// the scrim — so notifications stay readable over everything.
+pub(crate) fn draw_toasts(frame: &mut Frame<'_>, app: &App) {
+    let area = frame.area();
+    for (index, (toast, rect)) in app
+        .toasts
+        .items()
+        .iter()
+        .zip(toast_rects(app, area))
+        .enumerate()
+    {
+        let lines = crate::tui::entry_rows::wrap_text(
+            &toast.message,
+            rect.width.saturating_sub(4) as usize,
+            TOAST_MAX_LINES,
+        );
+        let hovered = app.hover == crate::tui::state::HoverTarget::Toast(index);
+        draw_toast(frame, rect, toast.variant, &lines, hovered);
     }
 }
 
 /// One toast box. Flat chrome paints a panel-colored card with thick `┃` edge
 /// columns in the variant's hue; bordered chrome draws a plain box with the
 /// variant-colored border. Both keep one padding column inside the edges and
-/// one padding row above and below the text.
-fn draw_toast(frame: &mut Frame<'_>, area: Rect, variant: ToastVariant, lines: &[String]) {
+/// one padding row above and below the text. A hovered toast lifts to the
+/// hover surface as the click-to-dismiss affordance.
+fn draw_toast(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    variant: ToastVariant,
+    lines: &[String],
+    hovered: bool,
+) {
     frame.render_widget(Clear, area);
     let accent = toast_style(variant);
     let text: Vec<Line<'static>> = lines
@@ -793,10 +830,12 @@ fn draw_toast(frame: &mut Frame<'_>, area: Rect, variant: ToastVariant, lines: &
         height: area.height.saturating_sub(2),
     };
     if flat_chrome() {
-        frame.render_widget(
-            Block::new().style(Style::default().bg(theme().panel_bg())),
-            area,
-        );
+        let surface = if hovered {
+            theme().hover()
+        } else {
+            Style::default().bg(theme().panel_bg())
+        };
+        frame.render_widget(Block::new().style(surface), area);
         for edge_x in [area.x, area.right().saturating_sub(1)] {
             let stripe: Vec<Line<'static>> = (0..area.height)
                 .map(|_| Line::from(Span::styled("┃", accent)))
