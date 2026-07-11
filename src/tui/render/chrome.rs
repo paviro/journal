@@ -119,9 +119,16 @@ fn key_chip_text(key: &str) -> String {
     format!(" {key} ")
 }
 
-/// The style for a hint's key chip.
+/// The style for a hint's key chip. Bordered chrome always uses the classic
+/// inverted chip — the theme's `key_hint` colors belong to the flat look,
+/// where filled chips sit on layered surfaces; on drawn borders the inversion
+/// reads better and matches the pre-theme footer.
 fn key_chip_style() -> Style {
-    theme().key_hint()
+    if flat_chrome() {
+        theme().key_hint()
+    } else {
+        Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    }
 }
 
 #[derive(Debug, Clone)]
