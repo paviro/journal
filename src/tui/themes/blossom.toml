@@ -8,7 +8,7 @@ scrim = 0.45
 
 [surfaces]
 base    = { dark = "#181014", light = "#fdf2f7" }
-content = { dark = "#221721", light = "#f9e4ee" }
+content = { dark = "#1d141c", light = "#f9e4ee" }
 dialog  = { dark = "#281b26", light = "#f6dce9" }
 element = { dark = "#2d1e2b", light = "#f3d3e3" }
 
