@@ -41,7 +41,6 @@ pub(crate) use chrome::{
     Hint, HintId, MetadataChoice, MetadataMenuMode, SettingsChoice, centered_rect_fixed_size,
     confirm_button_at, container_block, count_label, draw_editor_discard_confirm,
     draw_editor_shortcuts, draw_metadata_menu, draw_modal_frame, draw_toasts, toast_at_point,
-    toast_rects,
     editor_discard_choice_at_point, editor_shortcut_close_at_point, editor_shortcut_hint_at_point,
     expanded_footer_height, expanded_footer_hint_id_at_point, expanded_footer_lines, flat_chrome,
     footer_hint_id_at_point, footer_lines, hint_id_at_wrapped, metadata_menu_choice_at_point,
@@ -52,7 +51,7 @@ pub(crate) use chrome::{
 #[cfg(test)]
 pub(crate) use chrome::{
     expanded_footer_text, footer_height, footer_hint_id_at, footer_text, hint_grid_text,
-    hint_height,
+    hint_height, toast_rects,
 };
 pub(crate) use dialogs::{
     confirm_delete_inner, feelings_dialog_hints, feelings_dialog_layout,

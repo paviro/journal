@@ -1,0 +1,45 @@
+# Nord — the official Polar Night / Snow Storm / Frost / Aurora palette.
+#
+# See journal.toml for the accepted color/style forms.
+
+[chrome]
+style = "flat"
+scrim = 0.45
+
+[colors]
+bg      = { dark = "#2e3440", light = "#eceff4" }
+panel   = { dark = "#3b4252", light = "#e5e9f0" }
+element = { dark = "#434c5e", light = "#d8dee9" }
+
+text  = { dark = "#d8dee9", light = "#2e3440" }
+muted = { dark = "#7b88a1", light = "#6d7789" }
+
+primary   = { dark = "#88c0d0", light = "#5e81ac" }
+secondary = { dark = "#b48ead", light = "#8a5f83" }
+
+border        = { dark = "#4c566a", light = "#c2c9d6" }
+border_subtle = { dark = "#434c5e", light = "#d8dee9" }
+border_active = { dark = "#616e88", light = "#8792a8" }
+
+success = { dark = "#a3be8c", light = "#4f6b3a" }
+warning = { dark = "#ebcb8b", light = "#8f6a12" }
+error   = { dark = "#bf616a", light = "#99333d" }
+info    = { dark = "#81a1c1", light = "#39537d" }
+
+selection = { bg = { dark = "#88c0d0", light = "#5e81ac" }, fg = { dark = "#2e3440", light = "#ffffff" }, bold = true }
+hover     = { bg = { dark = "#4c566a", light = "#c9d1dd" } }
+key_hint  = { fg = { dark = "#d8dee9", light = "#2e3440" }, bold = true }
+
+[charts]
+positive = { glyph = "▓", color = { dark = "#a3be8c", light = "#4f6b3a" } }
+neutral  = { glyph = "▓", color = { dark = "#7b88a1", light = "#6d7789" } }
+negative = { glyph = "▓", color = { dark = "#bf616a", light = "#99333d" } }
+bar      = { glyph = "▓", color = { dark = "#88c0d0", light = "#5e81ac" } }
+track    = { glyph = "░", color = { dark = "#4c566a", light = "#c2c9d6" } }
+baseline = { dark = "#4c566a", light = "#c2c9d6" }
+
+[markdown]
+heading    = { fg = { dark = "#88c0d0", light = "#5e81ac" }, bold = true }
+link       = { fg = { dark = "#81a1c1", light = "#39537d" }, underlined = true }
+code       = { dark = "#b48ead", light = "#8a5f83" }
+blockquote = { fg = { dark = "#7b88a1", light = "#6d7789" } }

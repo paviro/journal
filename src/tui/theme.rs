@@ -25,13 +25,21 @@ use std::{
 
 /// The bundled themes, embedded so the binary can materialize and fall back to
 /// them without touching the network or the repo.
-const BUNDLED: [(&str, &str); 6] = [
+const BUNDLED: [(&str, &str); 14] = [
     ("journal", include_str!("themes/journal.toml")),
     ("classic", include_str!("themes/classic.toml")),
     ("e-ink", include_str!("themes/e-ink.toml")),
     ("blossom", include_str!("themes/blossom.toml")),
     ("fjord", include_str!("themes/fjord.toml")),
     ("grove", include_str!("themes/grove.toml")),
+    ("tokyonight", include_str!("themes/tokyonight.toml")),
+    ("catppuccin", include_str!("themes/catppuccin.toml")),
+    ("gruvbox", include_str!("themes/gruvbox.toml")),
+    ("nord", include_str!("themes/nord.toml")),
+    ("rose-pine", include_str!("themes/rose-pine.toml")),
+    ("dracula", include_str!("themes/dracula.toml")),
+    ("one-dark", include_str!("themes/one-dark.toml")),
+    ("solarized", include_str!("themes/solarized.toml")),
 ];
 
 /// The theme `load` falls back to when the configured one is missing or broken.
@@ -974,6 +982,32 @@ mod tests {
                 parse(text, mode).unwrap_or_else(|err| {
                     panic!("bundled theme '{name}' failed to resolve ({mode:?}): {err:#}")
                 });
+            }
+        }
+    }
+
+    #[test]
+    fn every_bundled_theme_clears_the_contrast_floor() {
+        // A cheap "renders acceptably in both modes" floor: selection must
+        // never smear same-on-same, and body text must never dissolve into
+        // the background.
+        for (name, text) in BUNDLED {
+            for mode in [Mode::Dark, Mode::Light] {
+                let theme = parse(text, mode).unwrap();
+                match (theme.selection.fg, theme.selection.bg) {
+                    (Some(fg), Some(bg)) => assert_ne!(
+                        fg, bg,
+                        "'{name}' selection is same-on-same ({mode:?})"
+                    ),
+                    // Without pinned colors the inversion must carry contrast.
+                    _ => assert!(
+                        theme.selection.add_modifier.contains(Modifier::REVERSED),
+                        "'{name}' selection has neither contrast colors nor inversion ({mode:?})"
+                    ),
+                }
+                if let Some(fg) = theme.text.fg {
+                    assert_ne!(fg, theme.bg, "'{name}' text matches its bg ({mode:?})");
+                }
             }
         }
     }

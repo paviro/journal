@@ -1,0 +1,45 @@
+# One Dark — Atom's One Dark / One Light.
+#
+# See journal.toml for the accepted color/style forms.
+
+[chrome]
+style = "flat"
+scrim = 0.45
+
+[colors]
+bg      = { dark = "#21252b", light = "#fafafa" }
+panel   = { dark = "#282c34", light = "#f0f0f1" }
+element = { dark = "#2c313a", light = "#e5e5e6" }
+
+text  = { dark = "#abb2bf", light = "#383a42" }
+muted = { dark = "#5c6370", light = "#a0a1a7" }
+
+primary   = { dark = "#61afef", light = "#4078f2" }
+secondary = { dark = "#c678dd", light = "#a626a4" }
+
+border        = { dark = "#3e4451", light = "#dbdbdc" }
+border_subtle = { dark = "#2c313a", light = "#e5e5e6" }
+border_active = { dark = "#5c6370", light = "#a0a1a7" }
+
+success = { dark = "#98c379", light = "#50a14f" }
+warning = { dark = "#e5c07b", light = "#c18401" }
+error   = { dark = "#e06c75", light = "#e45649" }
+info    = { dark = "#56b6c2", light = "#0184bc" }
+
+selection = { bg = { dark = "#61afef", light = "#4078f2" }, fg = { dark = "#21252b", light = "#ffffff" }, bold = true }
+hover     = { bg = { dark = "#3e4451", light = "#dbdbdc" } }
+key_hint  = { fg = { dark = "#abb2bf", light = "#383a42" }, bold = true }
+
+[charts]
+positive = { glyph = "▓", color = { dark = "#98c379", light = "#50a14f" } }
+neutral  = { glyph = "▓", color = { dark = "#5c6370", light = "#a0a1a7" } }
+negative = { glyph = "▓", color = { dark = "#e06c75", light = "#e45649" } }
+bar      = { glyph = "▓", color = { dark = "#61afef", light = "#4078f2" } }
+track    = { glyph = "░", color = { dark = "#3e4451", light = "#dbdbdc" } }
+baseline = { dark = "#3e4451", light = "#dbdbdc" }
+
+[markdown]
+heading    = { fg = { dark = "#61afef", light = "#4078f2" }, bold = true }
+link       = { fg = { dark = "#56b6c2", light = "#0184bc" }, underlined = true }
+code       = { dark = "#c678dd", light = "#a626a4" }
+blockquote = { fg = { dark = "#5c6370", light = "#a0a1a7" } }

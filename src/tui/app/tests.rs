@@ -750,7 +750,22 @@ fn theme_picker_opens_on_the_active_theme_with_bundled_entries() {
     let names: Vec<&str> = state.entries.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(
         names,
-        vec!["blossom", "classic", "e-ink", "fjord", "grove", "journal"]
+        vec![
+            "blossom",
+            "catppuccin",
+            "classic",
+            "dracula",
+            "e-ink",
+            "fjord",
+            "grove",
+            "gruvbox",
+            "journal",
+            "nord",
+            "one-dark",
+            "rose-pine",
+            "solarized",
+            "tokyonight",
+        ]
     );
     assert!(state.entries.iter().all(|entry| entry.theme.is_some()));
     // Selection seeds on the configured theme.

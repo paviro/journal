@@ -1,0 +1,45 @@
+# Dracula — the official dark palette / Alucard (light).
+#
+# See journal.toml for the accepted color/style forms.
+
+[chrome]
+style = "flat"
+scrim = 0.45
+
+[colors]
+bg      = { dark = "#21222c", light = "#fffbeb" }
+panel   = { dark = "#282a36", light = "#f7f2e2" }
+element = { dark = "#343746", light = "#eee8d5" }
+
+text  = { dark = "#f8f8f2", light = "#1f1f1f" }
+muted = { dark = "#6272a4", light = "#6e6c7e" }
+
+primary   = { dark = "#bd93f9", light = "#644ac9" }
+secondary = { dark = "#ff79c6", light = "#a3144d" }
+
+border        = { dark = "#44475a", light = "#ddd7c4" }
+border_subtle = { dark = "#343746", light = "#eee8d5" }
+border_active = { dark = "#6272a4", light = "#a8a291" }
+
+success = { dark = "#50fa7b", light = "#14710a" }
+warning = { dark = "#f1fa8c", light = "#846e15" }
+error   = { dark = "#ff5555", light = "#cb3a2a" }
+info    = { dark = "#8be9fd", light = "#036a96" }
+
+selection = { bg = { dark = "#bd93f9", light = "#644ac9" }, fg = { dark = "#21222c", light = "#ffffff" }, bold = true }
+hover     = { bg = { dark = "#44475a", light = "#e5dfcc" } }
+key_hint  = { fg = { dark = "#f8f8f2", light = "#1f1f1f" }, bold = true }
+
+[charts]
+positive = { glyph = "▓", color = { dark = "#50fa7b", light = "#14710a" } }
+neutral  = { glyph = "▓", color = { dark = "#6272a4", light = "#6e6c7e" } }
+negative = { glyph = "▓", color = { dark = "#ff5555", light = "#cb3a2a" } }
+bar      = { glyph = "▓", color = { dark = "#bd93f9", light = "#644ac9" } }
+track    = { glyph = "░", color = { dark = "#44475a", light = "#ddd7c4" } }
+baseline = { dark = "#44475a", light = "#ddd7c4" }
+
+[markdown]
+heading    = { fg = { dark = "#bd93f9", light = "#644ac9" }, bold = true }
+link       = { fg = { dark = "#8be9fd", light = "#036a96" }, underlined = true }
+code       = { dark = "#ff79c6", light = "#a3144d" }
+blockquote = { fg = { dark = "#6272a4", light = "#6e6c7e" } }

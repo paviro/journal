@@ -1,0 +1,47 @@
+# Solarized — Ethan Schoonover's precision palette (Dark / Light).
+# The accent hues are designed to read on both backgrounds, so most carry a
+# single value instead of a { dark, light } pair.
+#
+# See journal.toml for the accepted color/style forms.
+
+[chrome]
+style = "flat"
+scrim = 0.45
+
+[colors]
+bg      = { dark = "#002b36", light = "#fdf6e3" }
+panel   = { dark = "#073642", light = "#eee8d5" }
+element = { dark = "#0e4653", light = "#e4ddc8" }
+
+text  = { dark = "#93a1a1", light = "#586e75" }
+muted = { dark = "#586e75", light = "#93a1a1" }
+
+primary   = "#268bd2"
+secondary = "#6c71c4"
+
+border        = { dark = "#155463", light = "#d8d1bc" }
+border_subtle = { dark = "#073642", light = "#eee8d5" }
+border_active = { dark = "#586e75", light = "#93a1a1" }
+
+success = { dark = "#859900", light = "#6c7a00" }
+warning = "#b58900"
+error   = "#dc322f"
+info    = "#2aa198"
+
+selection = { bg = "#268bd2", fg = { dark = "#002b36", light = "#ffffff" }, bold = true }
+hover     = { bg = { dark = "#155463", light = "#d8d1bc" } }
+key_hint  = { fg = { dark = "#93a1a1", light = "#586e75" }, bold = true }
+
+[charts]
+positive = { glyph = "▓", color = { dark = "#859900", light = "#6c7a00" } }
+neutral  = { glyph = "▓", color = { dark = "#586e75", light = "#93a1a1" } }
+negative = { glyph = "▓", color = "#dc322f" }
+bar      = { glyph = "▓", color = "#268bd2" }
+track    = { glyph = "░", color = { dark = "#155463", light = "#d8d1bc" } }
+baseline = { dark = "#155463", light = "#d8d1bc" }
+
+[markdown]
+heading    = { fg = "#268bd2", bold = true }
+link       = { fg = "#2aa198", underlined = true }
+code       = "#6c71c4"
+blockquote = { fg = { dark = "#586e75", light = "#93a1a1" } }
