@@ -211,7 +211,7 @@ fn draw_overlays(frame: &mut Frame<'_>, app: &mut App) {
     }
 
     if let Some(input) = app.new_journal_input_mut() {
-        draw_new_journal_input(frame, input);
+        draw_new_journal_input(frame, input, hover);
     }
 
     if let Some(state) = app.edit_metadata_state_mut() {

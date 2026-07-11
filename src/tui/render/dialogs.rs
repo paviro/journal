@@ -888,7 +888,11 @@ pub(super) fn draw_confirm_delete(frame: &mut Frame<'_>, ctx: &DeleteContext, ho
     render_confirm_buttons(frame, inner, "Delete (y)", "Cancel (n)", hovered_button);
 }
 
-pub(super) fn draw_new_journal_input(frame: &mut Frame<'_>, input: &mut TextInput) {
+pub(super) fn draw_new_journal_input(
+    frame: &mut Frame<'_>,
+    input: &mut TextInput,
+    hover: HoverTarget,
+) {
     let area = super::centered_rect_fixed_size(NEW_JOURNAL_DIALOG_WIDTH, 5, frame.area());
     let inner = draw_dialog_frame(frame, area, "New Journal", true);
 
@@ -900,8 +904,8 @@ pub(super) fn draw_new_journal_input(frame: &mut Frame<'_>, input: &mut TextInpu
         width: inner.width.saturating_sub(label.len() as u16),
         height: 1,
     };
-    // Always focused while the dialog is open, so hover has nothing to add.
-    input.render_in(frame, field, true, false);
+    let hovered = hovered_field(hover, input);
+    input.render_in(frame, field, true, hovered);
 
     let hint = Rect {
         y: inner.y + 2,
@@ -938,6 +942,10 @@ pub(super) fn draw_edit_metadata_dialog(
         vec![ListItem::new(Line::from(text))]
     } else {
         let hovered_row = hovered_dialog_row(hover);
+        // The hover lift defers only to a selection that's actually drawn —
+        // with the input focused, the highlight is hidden and the selected
+        // row must still respond to the mouse.
+        let shown_selection = state.selected_index().filter(|_| list_focused);
         state
             .filtered
             .iter()
@@ -947,7 +955,7 @@ pub(super) fn draw_edit_metadata_dialog(
                 let checked = state.selected.iter().any(|t| t.eq_ignore_ascii_case(tag));
                 let marker = if checked { "[x]" } else { "[ ]" };
                 let item = ListItem::new(Line::from(format!("{marker} {tag} ({freq})")));
-                if Some(index) == hovered_row && Some(index) != state.selected_index() {
+                if Some(index) == hovered_row && Some(index) != shown_selection {
                     item.style(theme().hover())
                 } else {
                     item
@@ -1146,6 +1154,9 @@ pub(super) fn draw_edit_location_dialog(
         vec![ListItem::new(Line::from(text))]
     } else {
         let hovered_row = hovered_dialog_row(hover);
+        // Defer only to a drawn selection: with a text field focused, the
+        // highlight is hidden and the selected row must still hover.
+        let shown_selection = state.selected_index().filter(|_| list_focused);
         labels
             .iter()
             .enumerate()
@@ -1155,7 +1166,7 @@ pub(super) fn draw_edit_location_dialog(
                     .map(|line| Line::from(format!(" {line}")))
                     .collect();
                 let item = ListItem::new(lines);
-                if Some(index) == hovered_row && Some(index) != state.selected_index() {
+                if Some(index) == hovered_row && Some(index) != shown_selection {
                     item.style(theme().hover())
                 } else {
                     item
@@ -1205,6 +1216,9 @@ pub(super) fn draw_edit_feelings_dialog(
     state.list.set_offset(scroll);
 
     let hovered_row = hovered_dialog_row(hover);
+    // Defer only to a drawn selection: with the search field focused, the
+    // highlight is hidden and the selected row must still hover.
+    let shown_selection = state.selected_index().filter(|_| list_focused);
     let items: Vec<ListItem<'_>> = if rows.is_empty() {
         vec![ListItem::new(Line::from(" (no matches)"))]
     } else {
@@ -1242,7 +1256,7 @@ pub(super) fn draw_edit_feelings_dialog(
                         ListItem::new(Line::from(text))
                     }
                 };
-                if Some(index) == hovered_row && Some(index) != state.selected_index() {
+                if Some(index) == hovered_row && Some(index) != shown_selection {
                     item.style(theme().hover())
                 } else {
                     item

@@ -164,9 +164,9 @@ impl TextInput {
         if self.is_empty() {
             style = style.add_modifier(Modifier::DIM);
         }
-        // A hovered unfocused field lifts its surface — the click-to-focus
-        // affordance. The focused field already shows the caret.
-        if hovered && !focused {
+        // A hovered field lifts its surface — the click-to-focus/place-caret
+        // affordance.
+        if hovered {
             style = style.patch(theme().hover());
         }
         frame.buffer_mut().set_style(rect, style);

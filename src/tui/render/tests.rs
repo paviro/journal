@@ -2490,6 +2490,26 @@ mod flat_chrome_tests {
     }
 
     #[test]
+    fn hovered_dialog_row_lifts_even_when_it_is_the_hidden_selection() {
+        pin_flat();
+        let theme = theme::test_flat_theme();
+        // Focus on the input: the list's selection highlight is hidden, so the
+        // selected row (index 0, the default) must still respond to hover.
+        let mut state = tags_state();
+        state.focus = crate::tui::app::EditMetadataFocus::Input;
+        let layout = metadata_dialog_layout(Rect::new(0, 0, 80, 24), 2);
+        let backend = render_backend(80, 24, |frame| {
+            dialogs::draw_edit_metadata_dialog(
+                frame,
+                &mut state,
+                crate::tui::state::HoverTarget::DialogRow(0),
+            )
+        });
+        let cell = &backend.buffer()[(layout.list.x + 3, layout.list.y)];
+        assert_eq!(cell.bg, theme.hover().bg.unwrap());
+    }
+
+    #[test]
     fn hovered_footer_hint_label_lifts_out_of_the_muted_row() {
         pin_flat();
         let theme = theme::test_flat_theme();
