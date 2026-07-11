@@ -755,20 +755,35 @@ impl Theme {
         self.card_border
     }
 
-    /// The scrollbar's draggable thumb.
-    pub(crate) fn scrollbar_thumb(self) -> Style {
-        self.scrollbar_thumb
+    /// The scrollbar's draggable thumb. Recedes when its panel is unfocused,
+    /// mirroring how the border quiets — so a background panel's bar doesn't
+    /// compete with the focused one.
+    pub(crate) fn scrollbar_thumb(self, focused: bool) -> Style {
+        Self::recede_scrollbar(self.scrollbar_thumb, focused)
     }
 
     /// The scrollbar's track behind the thumb.
-    pub(crate) fn scrollbar_track(self) -> Style {
-        self.scrollbar_track
+    pub(crate) fn scrollbar_track(self, focused: bool) -> Style {
+        Self::recede_scrollbar(self.scrollbar_track, focused)
     }
 
     /// The scrollbar's up/down arrow caps. Defaults to the thumb hue unless a
     /// theme sets `scrollbar.arrow`.
-    pub(crate) fn scrollbar_arrow(self) -> Style {
-        self.scrollbar_arrow
+    pub(crate) fn scrollbar_arrow(self, focused: bool) -> Style {
+        Self::recede_scrollbar(self.scrollbar_arrow, focused)
+    }
+
+    /// Dim a scrollbar style for an unfocused panel. Drops any bold weight and
+    /// adds `DIM` so the bar visibly recedes even under the terminal-default
+    /// theme, where the parts carry no colour of their own.
+    fn recede_scrollbar(style: Style, focused: bool) -> Style {
+        if focused {
+            style
+        } else {
+            style
+                .remove_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::DIM)
+        }
     }
 
     // --- charts ---

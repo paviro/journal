@@ -82,10 +82,10 @@ fn new_tokens_chain_to_their_parents() {
     );
     assert_eq!(theme.button(), theme.selection());
     assert_eq!(
-        theme.scrollbar_thumb(),
+        theme.scrollbar_thumb(true),
         Style::default().fg(Color::Rgb(0x60, 0x60, 0x60))
     );
-    assert_eq!(theme.scrollbar_track(), Style::default());
+    assert_eq!(theme.scrollbar_track(true), Style::default());
     assert_eq!(theme.md_heading3(), theme.md_heading());
     // The editor tokens default to "no styling".
     assert_eq!(theme.cursor(), Style::default());
@@ -104,7 +104,30 @@ fn new_tokens_chain_to_their_parents() {
         theme.button_hover(),
         Style::default().add_modifier(Modifier::UNDERLINED)
     );
-    assert_eq!(theme.scrollbar_arrow(), theme.scrollbar_thumb());
+    assert_eq!(theme.scrollbar_arrow(true), theme.scrollbar_thumb(true));
+    // Unfocused, the scrollbar recedes with DIM the way the border quiets —
+    // visible even though the default parts carry no colour of their own.
+    assert_eq!(
+        theme.scrollbar_thumb(false),
+        theme
+            .scrollbar_thumb(true)
+            .remove_modifier(Modifier::BOLD)
+            .add_modifier(Modifier::DIM)
+    );
+    assert_eq!(
+        theme.scrollbar_track(false),
+        theme
+            .scrollbar_track(true)
+            .remove_modifier(Modifier::BOLD)
+            .add_modifier(Modifier::DIM)
+    );
+    assert_eq!(
+        theme.scrollbar_arrow(false),
+        theme
+            .scrollbar_arrow(true)
+            .remove_modifier(Modifier::BOLD)
+            .add_modifier(Modifier::DIM)
+    );
 }
 
 #[test]
@@ -148,15 +171,15 @@ fn new_tokens_resolve_explicit_values() {
         Some(Color::Rgb(0x30, 0x30, 0x30))
     );
     assert_eq!(
-        theme.scrollbar_thumb().fg,
+        theme.scrollbar_thumb(true).fg,
         Some(Color::Rgb(0x77, 0x88, 0x99))
     );
     assert_eq!(
-        theme.scrollbar_track().fg,
+        theme.scrollbar_track(true).fg,
         Some(Color::Rgb(0x22, 0x33, 0x44))
     );
     assert_eq!(
-        theme.scrollbar_arrow().fg,
+        theme.scrollbar_arrow(true).fg,
         Some(Color::Rgb(0x40, 0x40, 0x40))
     );
     assert_eq!(theme.md_heading3().fg, Some(Color::Rgb(0x55, 0x66, 0x77)));
@@ -539,8 +562,8 @@ fn terminal_default_matches_the_original_styles() {
     );
     assert_eq!(theme.cursor(), Style::default());
     assert_eq!(theme.cursor_line(), Style::default());
-    assert_eq!(theme.scrollbar_thumb(), Style::default());
-    assert_eq!(theme.scrollbar_track(), Style::default());
+    assert_eq!(theme.scrollbar_thumb(true), Style::default());
+    assert_eq!(theme.scrollbar_track(true), Style::default());
     assert_eq!(theme.chrome(), ChromeStyle::Bordered);
     assert_eq!(theme.scrim_strength(), 0.0);
 }

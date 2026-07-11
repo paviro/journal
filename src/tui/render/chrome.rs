@@ -218,6 +218,7 @@ pub(crate) fn render_vertical_scrollbar(
     frame: &mut Frame<'_>,
     area: Rect,
     state: &mut ScrollbarState,
+    focused: bool,
 ) {
     let glyphs = theme().glyphs();
     let thumb = glyphs.scrollbar_thumb.to_string();
@@ -226,13 +227,13 @@ pub(crate) fn render_vertical_scrollbar(
     let down = glyphs.scrollbar_down.to_string();
     let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
         .thumb_symbol(&thumb)
-        .thumb_style(theme().scrollbar_thumb())
+        .thumb_style(theme().scrollbar_thumb(focused))
         .track_symbol(Some(&track))
-        .track_style(theme().scrollbar_track())
+        .track_style(theme().scrollbar_track(focused))
         .begin_symbol(Some(&up))
-        .begin_style(theme().scrollbar_arrow())
+        .begin_style(theme().scrollbar_arrow(focused))
         .end_symbol(Some(&down))
-        .end_style(theme().scrollbar_arrow());
+        .end_style(theme().scrollbar_arrow(focused));
     frame.render_stateful_widget(scrollbar, scrollbar_bar_rect(area), state);
 }
 
@@ -242,6 +243,7 @@ pub(crate) fn render_scrollbar_if_needed(
     total_height: usize,
     viewport_height: u16,
     scroll: usize,
+    focused: bool,
 ) {
     if total_height > viewport_height as usize {
         let mut state = ScrollbarState::default()
@@ -252,7 +254,7 @@ pub(crate) fn render_scrollbar_if_needed(
                 total_height,
                 viewport_height,
             ));
-        render_vertical_scrollbar(frame, area, &mut state);
+        render_vertical_scrollbar(frame, area, &mut state, focused);
     }
 }
 

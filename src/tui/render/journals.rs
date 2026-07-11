@@ -115,5 +115,6 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
         total_height,
         viewport_height,
         pixel_offset,
+        focused,
     );
 }

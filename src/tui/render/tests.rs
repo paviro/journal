@@ -2713,14 +2713,14 @@ mod flat_chrome_tests {
                     .content_length(100)
                     .viewport_content_length(10)
                     .position(0);
-                chrome::render_vertical_scrollbar(frame, frame.area(), &mut state);
+                chrome::render_vertical_scrollbar(frame, frame.area(), &mut state, true);
             });
             // One vertical margin row and an arrow on each end; the thumb hugs
             // the top at position 0 and the track fills the rest.
             let thumb = &backend.buffer()[(scrollbar_x, 2u16)];
             let track = &backend.buffer()[(scrollbar_x, 9u16)];
-            assert_eq!(thumb.fg, theme.scrollbar_thumb().fg.unwrap());
-            assert_eq!(track.fg, theme.scrollbar_track().fg.unwrap());
+            assert_eq!(thumb.fg, theme.scrollbar_thumb(true).fg.unwrap());
+            assert_eq!(track.fg, theme.scrollbar_track(true).fg.unwrap());
         }
         theme::set_chrome_override(None);
     }

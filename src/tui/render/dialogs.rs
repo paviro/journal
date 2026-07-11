@@ -653,7 +653,7 @@ pub(super) fn draw_theme_picker(
         layout.hints,
         hover,
     );
-    render_scrollbar_if_needed(frame, layout.area, len, max_visible, scroll);
+    render_scrollbar_if_needed(frame, layout.area, len, max_visible, scroll, true);
 }
 
 #[derive(Clone, Copy)]
@@ -1023,7 +1023,7 @@ pub(super) fn draw_edit_metadata_dialog(
         layout.hints,
         hover,
     );
-    render_scrollbar_if_needed(frame, layout.area, list_lines, max_visible, scroll);
+    render_scrollbar_if_needed(frame, layout.area, list_lines, max_visible, scroll, true);
 }
 
 pub(super) fn draw_edit_mood_dialog(
@@ -1221,7 +1221,7 @@ pub(super) fn draw_edit_location_dialog(
         layout.hints,
         hover,
     );
-    render_scrollbar_if_needed(frame, layout.area, item_count, max_visible, scroll);
+    render_scrollbar_if_needed(frame, layout.area, item_count, max_visible, scroll, true);
 }
 
 pub(super) fn draw_edit_feelings_dialog(
@@ -1354,7 +1354,7 @@ pub(super) fn draw_edit_feelings_dialog(
         layout.hints,
         hover,
     );
-    render_scrollbar_if_needed(frame, layout.area, list_lines, max_visible, scroll);
+    render_scrollbar_if_needed(frame, layout.area, list_lines, max_visible, scroll, true);
 }
 
 #[cfg(test)]

@@ -603,5 +603,6 @@ fn draw_table_dialog(
         metrics.total as usize,
         metrics.content.height,
         metrics.scroll as usize,
+        true,
     );
 }

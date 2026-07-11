@@ -109,6 +109,7 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
         total_height,
         viewport_height,
         pixel_offset,
+        focused,
     );
 
     // An empty list in search mode — whether the query is blank or simply

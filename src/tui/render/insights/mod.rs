@@ -147,6 +147,7 @@ fn draw_scrollable(
     app: &mut App,
     draw: impl FnOnce(&mut Frame<'_>, &mut u16) -> correlate::InsightsListMetrics,
 ) {
+    let focused = app.insights_panel_focused();
     let mut scroll = app.nav.scroll.insights;
     let metrics = draw(frame, &mut scroll);
     app.nav.scroll.insights = scroll;
@@ -156,6 +157,7 @@ fn draw_scrollable(
         metrics.total,
         metrics.viewport as u16,
         scroll as usize,
+        focused,
     );
     app.insights_scroll = InsightsScrollGeometry {
         area: panel,

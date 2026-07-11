@@ -159,6 +159,8 @@ pub(crate) fn draw_entry_editor(
         editor.textarea.screen_line_count(),
         text_rect.height,
         editor.textarea.scroll_offset() as usize,
+        // The editor is always the active surface while shown.
+        true,
     );
 
     if let Some(layout) = layout {
@@ -267,7 +269,14 @@ fn draw_markdown_panel(
         draw_metadata_section(frame, layout, &metadata);
     }
 
-    render_scrollbar_if_needed(frame, area, line_count, body_rect.height, scroll as usize);
+    render_scrollbar_if_needed(
+        frame,
+        area,
+        line_count,
+        body_rect.height,
+        scroll as usize,
+        focused,
+    );
 
     (scroll, labels, body_rect, line_count)
 }
