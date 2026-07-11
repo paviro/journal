@@ -1,6 +1,7 @@
 use ratatui::{
     Frame,
     layout::Rect,
+    style::Style,
     text::Line,
     widgets::{Clear, HighlightSpacing, List},
 };
@@ -56,19 +57,27 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
         highlight_active,
     );
 
-    // Lift the hovered entry's box; the selected row keeps its highlight.
+    // Style the entry cards: in flat chrome every card sits on the element
+    // surface (like the journal cards — spacer and divider rows stay on the
+    // panel, keeping the blocks distinct), the hovered card lifts to the
+    // hover surface, and the selected card keeps its List highlight, which
+    // patches over the item style. Bordered chrome keeps plain boxes with
+    // only the hover lift.
     let hovered = match app.hover {
         crate::tui::state::HoverTarget::Entry(index) => Some(index),
         _ => None,
     };
     let selected = app.nav.selected_entry_index.filter(|_| highlight_active);
-    let items: Vec<_> = if hovered.is_some() && hovered != selected {
+    let flat = super::flat_chrome();
+    let items: Vec<_> = if flat || (hovered.is_some() && hovered != selected) {
         items
             .into_iter()
             .zip(&item_indices)
             .map(|(item, index)| {
-                if *index == hovered {
+                if index.is_some() && *index == hovered && *index != selected {
                     item.style(theme().hover())
+                } else if flat && index.is_some() {
+                    item.style(Style::default().bg(theme().element_bg()))
                 } else {
                     item
                 }

@@ -4,7 +4,7 @@ use crate::{
     tui::{
         app::{EditMetadataFocus, EditMetadataState, Focus, INLINE_ENTRY_VIEW_MIN_WIDTH, Mode},
         state::MetadataKind,
-        test_support::{app_with_entry, app_with_journals, new_app},
+        test_support::{app_with_entries, app_with_entry, app_with_journals, new_app},
     },
 };
 use journal_core::{Entry, EntryEncryptionState, SearchHit};
@@ -2430,6 +2430,25 @@ mod flat_chrome_tests {
         // The selected card keeps its selection background.
         let selected = &buffer[(list.x + 2, list.y + 1)];
         assert_eq!(selected.bg, theme.selection().bg.unwrap());
+    }
+
+    #[test]
+    fn entry_cards_sit_on_the_element_surface_with_plain_spacers() {
+        pin_flat();
+        let theme = theme::test_flat_theme();
+        let mut app = app_with_entries(2);
+        app.nav.selected_entry_index = None;
+        let layout = tui_layout(Rect::new(0, 0, 120, 30), &app);
+        let content = layout.entries.unwrap().panel.content;
+        let backend = render_app(app, 120, 30);
+        let buffer = backend.buffer();
+
+        // Row 0 is the leading blank; the first card starts on row 1.
+        let card = &buffer[(content.x + 1, content.y + 1)];
+        assert_eq!(card.bg, theme.element_bg());
+        // Spacer rows keep the panel surface so the cards read as blocks.
+        let spacer = &buffer[(content.x + 1, content.y)];
+        assert_ne!(spacer.bg, theme.element_bg());
     }
 
     #[test]
