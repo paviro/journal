@@ -156,8 +156,7 @@ fn placement_at(placements: &[(u16, Hint)], origin_x: u16, col: u16) -> Option<H
 /// Render a laid-out hint row as styled spans: the gaps stay plain and each key
 /// chip is drawn reversed + bold. Columns match [`RenderedHintLine::text`]
 /// exactly, so the visual output lines up with hit-testing. The hovered hint's
-/// label lifts out of the muted/plain row (underlined in bordered chrome so it
-/// reads without color) as the click affordance.
+/// label lifts out of the muted row as the click affordance.
 fn styled_hint_line(rendered: &RenderedHintLine, hovered: Option<HintId>) -> Line<'static> {
     if rendered.placements.is_empty() {
         return Line::from(rendered.text.clone());
@@ -174,18 +173,10 @@ fn styled_hint_line(rendered: &RenderedHintLine, hovered: Option<HintId>) -> Lin
         spans.push(Span::styled(chip, key_chip_style()));
         let label = format!(" {}", hint.label);
         col += clamp_u16(UnicodeWidthStr::width(label.as_str()));
-        // Flat chrome mutes the labels so the key chips carry the row, like a
-        // status bar; bordered keeps the classic plain labels.
         spans.push(if hovered == Some(hint.id) {
-            if flat_chrome() {
-                Span::styled(label, theme().text())
-            } else {
-                Span::styled(label, Style::default().add_modifier(Modifier::UNDERLINED))
-            }
-        } else if flat_chrome() {
-            Span::styled(label, theme().muted())
+            Span::styled(label, theme().text())
         } else {
-            Span::raw(label)
+            Span::styled(label, theme().muted())
         });
     }
     Line::from(spans)

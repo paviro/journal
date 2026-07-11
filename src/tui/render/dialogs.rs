@@ -21,8 +21,7 @@ use crate::tui::theme::theme;
 use super::{
     chrome::{
         Hint, HintId, centered_rect_fixed_size, dialog_frame_rows, dialog_inner, draw_dialog_frame,
-        flat_chrome,
-        hint_height, hint_lines, list_highlight_symbol, render_confirm_buttons,
+        flat_chrome, hint_height, hint_lines, list_highlight_symbol, render_confirm_buttons,
         render_scrollbar_if_needed, separator_style,
     },
     list_state_for_render,
@@ -267,8 +266,9 @@ pub(crate) fn feelings_dialog_area(
     // Clamp to at least one row so the "(no matches)" line has somewhere to render
     // when a filter matches nothing, matching the metadata dialog.
     let visible = (all_len as u16).clamp(1, FEELINGS_DIALOG_MAX_VISIBLE_ROWS);
-    let h = (dialog_frame_rows() + feelings_dialog_chrome_height(frame_area, selected_lines) + visible)
-        .min(frame_area.height.saturating_sub(2));
+    let h =
+        (dialog_frame_rows() + feelings_dialog_chrome_height(frame_area, selected_lines) + visible)
+            .min(frame_area.height.saturating_sub(2));
     super::centered_rect_fixed_size(LIST_DIALOG_WIDTH, h, frame_area)
 }
 
@@ -330,7 +330,7 @@ pub(crate) fn location_dialog_area(frame_area: Rect, list_rows: usize) -> Rect {
         + LOCATION_DIALOG_HINTS_SPACER
         + hint_height
         + visible)
-            .min(frame_area.height.saturating_sub(2));
+        .min(frame_area.height.saturating_sub(2));
     super::centered_rect_fixed_size(LOCATION_DIALOG_WIDTH, h, frame_area)
 }
 
@@ -536,8 +536,8 @@ fn theme_picker_area(frame_area: Rect, len: usize) -> Rect {
     let hint_height = theme_picker_hint_height(frame_area);
     let visible = (len as u16).clamp(1, THEME_PICKER_MAX_VISIBLE_ROWS);
     // The frame + the list + a blank spacer + the hint block.
-    let h = (dialog_frame_rows() + 1 + visible + hint_height)
-        .min(frame_area.height.saturating_sub(2));
+    let h =
+        (dialog_frame_rows() + 1 + visible + hint_height).min(frame_area.height.saturating_sub(2));
     super::centered_rect_fixed_size(LIST_DIALOG_WIDTH, h, frame_area)
 }
 
@@ -794,11 +794,7 @@ fn hint_content_area(area: Rect) -> Rect {
 fn render_hint_line(frame: &mut Frame<'_>, hints: &[Hint], area: Rect, hover: HoverTarget) {
     let content = hint_content_area(area);
     frame.render_widget(
-        Paragraph::new(hint_lines(
-            hints,
-            content.width,
-            hovered_hint(hover),
-        )),
+        Paragraph::new(hint_lines(hints, content.width, hovered_hint(hover))),
         content,
     );
 }
@@ -843,10 +839,9 @@ pub(super) fn draw_fetching_environment(frame: &mut Frame<'_>, started: Instant)
 /// centered at the top; the Delete/Cancel buttons occupy the last inner row.
 fn confirm_delete_content(ctx: &DeleteContext) -> (u16, String) {
     match ctx {
-        DeleteContext::Entry { has_body: true } => (
-            3 + dialog_frame_rows(),
-            "Move entry to trash?".to_string(),
-        ),
+        DeleteContext::Entry { has_body: true } => {
+            (3 + dialog_frame_rows(), "Move entry to trash?".to_string())
+        }
         DeleteContext::Entry { has_body: false } => (
             3 + dialog_frame_rows(),
             "Permanently delete entry?".to_string(),
@@ -914,8 +909,11 @@ pub(super) fn draw_new_journal_input(
     input: &mut TextInput,
     hover: HoverTarget,
 ) {
-    let area =
-        super::centered_rect_fixed_size(NEW_JOURNAL_DIALOG_WIDTH, 3 + dialog_frame_rows(), frame.area());
+    let area = super::centered_rect_fixed_size(
+        NEW_JOURNAL_DIALOG_WIDTH,
+        3 + dialog_frame_rows(),
+        frame.area(),
+    );
     let inner = draw_dialog_frame(frame, area, "New Journal", true);
 
     let label = "Name: ";
@@ -1127,7 +1125,14 @@ pub(super) fn draw_edit_location_dialog(
         query_focused,
         hover,
     );
-    render_search_field(frame, layout.name, "Name: ", &mut state.name, name_focused, hover);
+    render_search_field(
+        frame,
+        layout.name,
+        "Name: ",
+        &mut state.name,
+        name_focused,
+        hover,
+    );
 
     // Status line: reflects the in-flight/last lookup, or the resolved value.
     let status_line = match &state.status {

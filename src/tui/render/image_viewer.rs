@@ -20,7 +20,9 @@ pub(super) fn draw_image_viewer(
     let area = frame.area();
     frame.render_widget(Clear, area);
     // The theme's background layer, not `Clear`'s terminal default.
-    frame.buffer_mut().set_style(area, super::chrome::base_style());
+    frame
+        .buffer_mut()
+        .set_style(area, super::chrome::base_style());
 
     let count = state.assets.len();
     let index = state.index.min(count.saturating_sub(1));

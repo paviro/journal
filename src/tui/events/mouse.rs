@@ -656,6 +656,13 @@ fn hover_target_at(app: &App, col: u16, row: u16, area: Rect) -> HoverTarget {
     }
 
     let layout = render::tui_layout(area, app);
+    if let Some(panel) = layout.insights
+        && render::point_in_rect(panel.area, col, row)
+        && let Some(tab) = render::insights_tab_at(panel.area, col, row)
+    {
+        return HoverTarget::InsightsTab(tab);
+    }
+
     if app.nav.mode == Mode::Browse
         && let Some(panel) = layout.journals
         && render::point_in_rect(panel.area, col, row)
@@ -765,7 +772,8 @@ fn overlay_hover_target(app: &App, col: u16, row: u16, area: Rect) -> HoverTarge
     if let Some(state) = app.edit_metadata_state() {
         let layout = render::metadata_dialog_layout(area, state.filtered.len());
         if render::point_in_rect(layout.list, col, row)
-            && let Some(index) = list_row_at(layout.list, col, row, state.offset(), state.filtered.len())
+            && let Some(index) =
+                list_row_at(layout.list, col, row, state.offset(), state.filtered.len())
         {
             return HoverTarget::DialogRow(index);
         }
@@ -781,7 +789,8 @@ fn overlay_hover_target(app: &App, col: u16, row: u16, area: Rect) -> HoverTarge
             render::feelings_selected_line_count(&state.selected),
         );
         if render::point_in_rect(layout.list, col, row)
-            && let Some(index) = list_row_at(layout.list, col, row, state.offset(), state.item_count())
+            && let Some(index) =
+                list_row_at(layout.list, col, row, state.offset(), state.item_count())
         {
             return HoverTarget::DialogRow(index);
         }

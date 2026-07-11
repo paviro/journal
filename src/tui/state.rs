@@ -49,6 +49,7 @@ pub(crate) enum HoverTarget {
     None,
     Journal(usize),
     Entry(usize),
+    InsightsTab(crate::tui::render::insights::InsightsTab),
     FooterHint(crate::tui::render::HintId),
     ThemePickerRow(usize),
     /// A row in whichever list/menu dialog is open (settings menu, metadata

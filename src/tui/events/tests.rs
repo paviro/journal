@@ -1425,6 +1425,27 @@ fn hover_finds_footer_hints() {
 }
 
 #[test]
+fn hover_tracks_insights_tabs_without_switching_tabs() {
+    let mut app = app_with_entries(1);
+    app.nav.selected_entry_index = None;
+    app.nav.insights_tab = InsightsTab::Overview;
+    let area = Rect::new(0, 0, 140, 20);
+    let insights = render::tui_layout(area, &app)
+        .insights
+        .expect("insights panel");
+    let col = (insights.area.x..insights.area.x + insights.area.width)
+        .find(|col| {
+            render::insights_tab_at(insights.area, *col, insights.area.y)
+                == Some(InsightsTab::Writing)
+        })
+        .expect("writing tab");
+
+    assert!(mouse::update_hover(&mut app, col, insights.area.y, area));
+    assert_eq!(app.hover, HoverTarget::InsightsTab(InsightsTab::Writing));
+    assert_eq!(app.nav.insights_tab, InsightsTab::Overview);
+}
+
+#[test]
 fn theme_picker_hover_moves_selection_for_live_preview() {
     let mut app = app_with_journals(&["work"]);
     app.open_theme_picker();
@@ -1585,7 +1606,10 @@ fn theme_picker_confirm_persists_the_chrome_override() {
     app.theme_picker_cycle_chrome();
     app.theme_picker_confirm();
     assert_eq!(app.config.ui.chrome, crate::config::ChromeMode::Flat);
-    assert_eq!(crate::tui::theme::chrome_override(), Some(ChromeStyle::Flat));
+    assert_eq!(
+        crate::tui::theme::chrome_override(),
+        Some(ChromeStyle::Flat)
+    );
     // The saved config round-trips the setting.
     let loaded = crate::config::load_config(&app.config_path).unwrap();
     assert_eq!(loaded.ui.chrome, crate::config::ChromeMode::Flat);

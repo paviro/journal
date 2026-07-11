@@ -31,6 +31,7 @@ use journal_storage::journal_display_name;
 use crate::tui::app::{App, InsightsScrollGeometry};
 use crate::tui::entry_rows::text_width;
 use crate::tui::render::{render_centered_notice, render_scrollbar_if_needed};
+use crate::tui::state::HoverTarget;
 use crate::tui::surface::panel_content_inner;
 use crate::tui::theme::theme;
 
@@ -40,6 +41,10 @@ pub(crate) fn draw_journal_insights(frame: &mut Frame<'_>, area: Rect, app: &mut
     app.insights_scroll = InsightsScrollGeometry::default();
     let focused = app.insights_panel_focused();
     let tab = app.nav.insights_tab;
+    let hovered_tab = match app.hover {
+        HoverTarget::InsightsTab(tab) => Some(tab),
+        _ => None,
+    };
     // The tabs live in the panel's top border. Scope only differentiates the
     // analytic tabs, so Overview leaves the bottom border unlabeled.
     let inner_width = area.width.saturating_sub(2);
@@ -50,10 +55,10 @@ pub(crate) fn draw_journal_insights(frame: &mut Frame<'_>, area: Rect, app: &mut
         Block::new()
             .style(Style::default().bg(theme().panel_bg()))
             .padding(Padding::uniform(1))
-            .title(tabs_title_line(tab, focused, inner_width))
+            .title(tabs_title_line(tab, focused, hovered_tab, inner_width))
     } else {
         let mut block = Block::default()
-            .title(tabs_title_line(tab, focused, inner_width))
+            .title(tabs_title_line(tab, focused, hovered_tab, inner_width))
             .borders(Borders::ALL);
         if focused {
             block = block
@@ -219,20 +224,32 @@ fn tab_strip_segments(width: u16) -> Vec<(InsightsTab, Range<u16>)> {
 /// The tab bar as a border title: `Overview · Writing · Mood / Feelings · Drivers`
 /// (short labels when they won't fit). The active tab is inverted while focused,
 /// otherwise just bold; the rest stay dim.
-fn tabs_title_line(active: InsightsTab, focused: bool, width: u16) -> Line<'static> {
+fn tabs_title_line(
+    active: InsightsTab,
+    focused: bool,
+    hovered: Option<InsightsTab>,
+    width: u16,
+) -> Line<'static> {
     let mut spans = vec![Span::raw(" ")];
     for (index, tab) in InsightsTab::ALL.iter().enumerate() {
         if index > 0 {
             spans.push(Span::styled(" · ", theme().muted()));
         }
-        let style = if *tab == active {
+        let mut style = if *tab == active {
             theme().active_tab(focused)
         } else {
             theme().inactive_tab()
         };
+        if hovered == Some(*tab) && *tab != active {
+            style = tab_hover_style();
+        }
         spans.push(Span::styled(tab_label(*tab, width).to_string(), style));
     }
     Line::from(spans)
+}
+
+fn tab_hover_style() -> Style {
+    theme().text()
 }
 
 /// The tab whose border-title label covers `(column, row)`, or `None`. The strip

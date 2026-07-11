@@ -45,9 +45,8 @@ pub(crate) use chrome::{
     expanded_footer_height, expanded_footer_hint_id_at_point, expanded_footer_lines, flat_chrome,
     footer_hint_id_at_point, footer_lines, hint_id_at_wrapped, metadata_menu_choice_at_point,
     metadata_menu_close_at_point, metadata_menu_row_at_point, panel_block, panel_focus_stripe,
-    render_centered_notice,
-    render_scrollbar_if_needed, settings_menu_choice_at_point, settings_menu_close_at_point,
-    settings_menu_row_at_point, toast_at_point,
+    render_centered_notice, render_scrollbar_if_needed, settings_menu_choice_at_point,
+    settings_menu_close_at_point, settings_menu_row_at_point, toast_at_point,
 };
 #[cfg(test)]
 pub(crate) use chrome::{

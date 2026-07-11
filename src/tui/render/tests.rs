@@ -2248,11 +2248,12 @@ fn theme_picker_renders_broken_rows_in_the_error_style() {
 
 mod flat_chrome_tests {
     use super::*;
-    use crate::tui::state::MetadataKind;
+    use crate::tui::state::{HoverTarget, MetadataKind};
     use crate::tui::theme;
 
     fn pin_flat() {
         theme::set_test_theme(theme::test_flat_theme());
+        theme::set_chrome_override(None);
     }
 
     fn tags_state() -> EditMetadataState {
@@ -2477,6 +2478,28 @@ mod flat_chrome_tests {
     }
 
     #[test]
+    fn hovered_insights_tab_uses_hint_style_text_without_hover_background() {
+        pin_flat();
+        let theme = theme::test_flat_theme();
+        let mut app = app_with_entry();
+        focus_insights(&mut app, insights::InsightsTab::Overview);
+        app.hover = HoverTarget::InsightsTab(insights::InsightsTab::Writing);
+        let layout = tui_layout(Rect::new(0, 0, 140, 30), &app);
+        let insights = layout.insights.expect("insights panel");
+        let col = (insights.area.x..insights.area.x + insights.area.width)
+            .find(|col| {
+                insights_tab_at(insights.area, *col, insights.area.y)
+                    == Some(insights::InsightsTab::Writing)
+            })
+            .expect("writing tab");
+
+        let backend = render_app(app, 140, 30);
+        let cell = &backend.buffer()[(col, insights.area.y)];
+        assert_eq!(cell.fg, theme.text().fg.unwrap());
+        assert_ne!(cell.bg, theme.hover().bg.unwrap());
+    }
+
+    #[test]
     fn entry_cards_embed_the_border_labels_inside_padding() {
         pin_flat();
         let flat = rendered_lines(&entry_box_lines(
@@ -2575,6 +2598,28 @@ mod flat_chrome_tests {
             .find(|span| span.content == " quit")
             .expect("quit label in the browse footer");
         assert_eq!(label.style, theme.text(), "hovered label still muted");
+    }
+
+    #[test]
+    fn bordered_footer_hint_labels_keep_flat_text_styles() {
+        pin_flat();
+        theme::set_chrome_override(Some(crate::tui::theme::ChromeStyle::Bordered));
+        let theme = theme::test_flat_theme();
+        let mut app = app_with_journals(&["alpha"]);
+        let label_style = |app: &App| {
+            chrome::footer_lines(app, 120)
+                .lines
+                .iter()
+                .flat_map(|line| line.spans.iter())
+                .find(|span| span.content == " quit")
+                .expect("quit label in the browse footer")
+                .style
+        };
+
+        assert_eq!(label_style(&app), theme.muted());
+        app.hover = crate::tui::state::HoverTarget::FooterHint(chrome::HintId::Quit);
+        assert_eq!(label_style(&app), theme.text());
+        theme::set_chrome_override(None);
     }
 
     #[test]
