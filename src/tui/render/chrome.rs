@@ -873,19 +873,30 @@ fn draw_toast(
     frame.render_widget(Paragraph::new(text), content);
 }
 
+/// Rows a dialog's frame consumes above and below its content: the two border
+/// rows in bordered chrome; the title row, a padding row under it, and the
+/// bottom margin row in flat chrome — flat titles are text, so content flush
+/// against them reads cramped. Dialog height computations add this to their
+/// content rows so the inner rect from [`dialog_inner`] always fits.
+pub(crate) fn dialog_frame_rows() -> u16 {
+    if flat_chrome() { 3 } else { 2 }
+}
+
 /// A dialog's content rect within its outer `area`. Draw functions and mouse
 /// hit-tests both derive geometry from this one place, so they can never
 /// drift apart. Bordered chrome insets by the border; flat chrome trades the
-/// side borders for a wider breathing margin.
+/// side borders for a wider breathing margin and pads one row under the
+/// title (see [`dialog_frame_rows`]).
 pub(crate) fn dialog_inner(area: Rect) -> Rect {
     // Saturating per-axis (unlike `Rect::inner`, which zeroes the whole rect):
     // sizing helpers probe with height-1 rects and still need the real width.
     let horizontal = if flat_chrome() { 2 } else { 1 };
+    let top = if flat_chrome() { 2 } else { 1 };
     Rect {
         x: area.x.saturating_add(horizontal),
-        y: area.y.saturating_add(1),
+        y: area.y.saturating_add(top),
         width: area.width.saturating_sub(horizontal * 2),
-        height: area.height.saturating_sub(2),
+        height: area.height.saturating_sub(top + 1),
     }
 }
 
@@ -1128,7 +1139,8 @@ pub(crate) fn draw_editor_discard_confirm(frame: &mut Frame<'_>, hovered_button:
 }
 
 pub(crate) fn editor_discard_confirm_area(frame_area: Rect) -> Rect {
-    centered_rect_fixed_size(42, 5, frame_area)
+    // Frame + the message row, a blank row, and the buttons row.
+    centered_rect_fixed_size(42, dialog_frame_rows() + 3, frame_area)
 }
 
 pub(crate) fn editor_discard_choice_at_point(frame_area: Rect, col: u16, row: u16) -> Option<bool> {
@@ -1568,8 +1580,8 @@ fn table_dialog_metrics(frame_area: Rect, dialog: &TableDialog, scroll: u16) -> 
         (compact_lines, compact_w, false)
     };
     let total = lines.len() as u16;
-    let outer_h = (total + 2).min(avail_h);
-    let footer = if total > outer_h.saturating_sub(2) {
+    let outer_h = (total + dialog_frame_rows()).min(avail_h);
+    let footer = if total > outer_h.saturating_sub(dialog_frame_rows()) {
         format!("↑↓ scroll · {}", dialog.footer)
     } else {
         dialog.footer.to_string()

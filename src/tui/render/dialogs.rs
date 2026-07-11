@@ -20,9 +20,9 @@ use crate::tui::theme::theme;
 
 use super::{
     chrome::{
-        Hint, HintId, centered_rect_fixed_size, dialog_inner, draw_dialog_frame, flat_chrome,
-        hint_height, hint_lines, list_highlight_symbol, render_confirm_buttons,
-        render_scrollbar_if_needed, separator_style,
+        Hint, HintId, centered_rect_fixed_size, dialog_frame_rows, dialog_inner,
+        draw_dialog_frame, flat_chrome, hint_height, hint_lines, list_highlight_symbol,
+        render_confirm_buttons, render_scrollbar_if_needed, separator_style,
     },
     list_state_for_render,
     markdown_panel::MoodBar,
@@ -242,10 +242,12 @@ pub(crate) fn metadata_dialog_hints(
 // ── Dialog area helpers (re-used by the mouse handler for hit-testing) ───────
 
 pub(crate) fn metadata_dialog_area(frame_area: Rect, filtered_len: usize) -> Rect {
-    const FIXED: u16 = 7;
+    // Title, two separators, the search input, and a spacer before the hints.
+    const FIXED: u16 = 5;
     let hint_height = tag_dialog_hint_height(frame_area);
     let visible = (filtered_len as u16).clamp(1, METADATA_DIALOG_MAX_VISIBLE_ROWS);
-    let h = (FIXED + hint_height + visible).min(frame_area.height.saturating_sub(2));
+    let h = (dialog_frame_rows() + FIXED + hint_height + visible)
+        .min(frame_area.height.saturating_sub(2));
     super::centered_rect_fixed_size(LIST_DIALOG_WIDTH, h, frame_area)
 }
 
@@ -266,14 +268,15 @@ pub(crate) fn feelings_dialog_area(
     // Clamp to at least one row so the "(no matches)" line has somewhere to render
     // when a filter matches nothing, matching the metadata dialog.
     let visible = (all_len as u16).clamp(1, FEELINGS_DIALOG_MAX_VISIBLE_ROWS);
-    const BORDERS: u16 = 2;
-    let h = (BORDERS + feelings_dialog_chrome_height(frame_area, selected_lines) + visible)
+    let h = (dialog_frame_rows() + feelings_dialog_chrome_height(frame_area, selected_lines)
+        + visible)
         .min(frame_area.height.saturating_sub(2));
     super::centered_rect_fixed_size(LIST_DIALOG_WIDTH, h, frame_area)
 }
 
 pub(crate) fn mood_dialog_area(frame_area: Rect) -> Rect {
-    let h = 7 + mood_dialog_hint_height(frame_area);
+    // Spacer, bar, value, and two spacer rows around the hints.
+    let h = dialog_frame_rows() + 5 + mood_dialog_hint_height(frame_area);
     super::centered_rect_fixed_size(
         MOOD_DIALOG_WIDTH,
         h.min(frame_area.height.saturating_sub(2)),
@@ -323,12 +326,14 @@ const LOCATION_DIALOG_CHROME: u16 = 8;
 const LOCATION_DIALOG_HINTS_SPACER: u16 = 1;
 
 pub(crate) fn location_dialog_area(frame_area: Rect, list_rows: usize) -> Rect {
-    const BORDERS: u16 = 2;
     let hint_height = location_dialog_hint_height(frame_area);
     let visible = (list_rows as u16).clamp(1, LOCATION_DIALOG_MAX_VISIBLE_ROWS);
-    let h =
-        (BORDERS + LOCATION_DIALOG_CHROME + LOCATION_DIALOG_HINTS_SPACER + hint_height + visible)
-            .min(frame_area.height.saturating_sub(2));
+    let h = (dialog_frame_rows()
+        + LOCATION_DIALOG_CHROME
+        + LOCATION_DIALOG_HINTS_SPACER
+        + hint_height
+        + visible)
+        .min(frame_area.height.saturating_sub(2));
     super::centered_rect_fixed_size(LOCATION_DIALOG_WIDTH, h, frame_area)
 }
 
@@ -533,8 +538,9 @@ fn theme_picker_hint_height(frame_area: Rect) -> u16 {
 fn theme_picker_area(frame_area: Rect, len: usize) -> Rect {
     let hint_height = theme_picker_hint_height(frame_area);
     let visible = (len as u16).clamp(1, THEME_PICKER_MAX_VISIBLE_ROWS);
-    // Borders (2) + the list + a blank spacer + the hint block.
-    let h = (3 + visible + hint_height).min(frame_area.height.saturating_sub(2));
+    // The frame + the list + a blank spacer + the hint block.
+    let h = (dialog_frame_rows() + 1 + visible + hint_height)
+        .min(frame_area.height.saturating_sub(2));
     super::centered_rect_fixed_size(LIST_DIALOG_WIDTH, h, frame_area)
 }
 
@@ -831,7 +837,7 @@ pub(super) fn draw_fetching_environment(frame: &mut Frame<'_>, started: Instant)
     );
     // Border (2) + a space of padding each side (2) around the fixed-width text.
     let width = message.width() as u16 + 4;
-    let area = centered_rect_fixed_size(width, 3, frame.area());
+    let area = centered_rect_fixed_size(width, dialog_frame_rows() + 1, frame.area());
     let inner = draw_dialog_frame(frame, area, "", false);
     frame.render_widget(Paragraph::new(message).alignment(Alignment::Center), inner);
 }
@@ -839,9 +845,13 @@ pub(super) fn draw_fetching_environment(frame: &mut Frame<'_>, started: Instant)
 /// The `(height, message)` a confirm-delete dialog needs for `ctx`. The message is
 /// centered at the top; the Delete/Cancel buttons occupy the last inner row.
 fn confirm_delete_content(ctx: &DeleteContext) -> (u16, String) {
+    // The frame + the message line(s), a blank row, and the buttons row.
+    let height = |message_lines: u16| dialog_frame_rows() + message_lines + 2;
     match ctx {
-        DeleteContext::Entry { has_body: true } => (5, "Move entry to trash?".to_string()),
-        DeleteContext::Entry { has_body: false } => (5, "Permanently delete entry?".to_string()),
+        DeleteContext::Entry { has_body: true } => (height(1), "Move entry to trash?".to_string()),
+        DeleteContext::Entry { has_body: false } => {
+            (height(1), "Permanently delete entry?".to_string())
+        }
         DeleteContext::Journal {
             name,
             trash_count,
@@ -853,7 +863,7 @@ fn confirm_delete_content(ctx: &DeleteContext) -> (u16, String) {
                 (t, d) => format!("{t} entries → trash, {d} deleted"),
             };
             let display = journal_storage::journal_display_name(name);
-            (6, format!("Delete journal '{display}'?\n{line2}"))
+            (height(2), format!("Delete journal '{display}'?\n{line2}"))
         }
     }
 }
@@ -902,7 +912,12 @@ pub(super) fn draw_new_journal_input(
     input: &mut TextInput,
     hover: HoverTarget,
 ) {
-    let area = super::centered_rect_fixed_size(NEW_JOURNAL_DIALOG_WIDTH, 5, frame.area());
+    // The frame + the input row, a blank row, and the hint row.
+    let area = super::centered_rect_fixed_size(
+        NEW_JOURNAL_DIALOG_WIDTH,
+        dialog_frame_rows() + 3,
+        frame.area(),
+    );
     let inner = draw_dialog_frame(frame, area, "New Journal", true);
 
     let label = "Name: ";

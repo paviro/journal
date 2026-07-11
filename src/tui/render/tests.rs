@@ -2586,11 +2586,13 @@ mod flat_chrome_tests {
     }
 
     #[test]
-    fn dialog_inner_widens_margins_in_flat_chrome() {
+    fn dialog_inner_widens_margins_and_pads_below_the_title_in_flat_chrome() {
         pin_flat();
+        // Two columns of side margin; the top loses the title row plus one
+        // padding row, the bottom keeps its single margin row.
         assert_eq!(
             chrome::dialog_inner(Rect::new(10, 5, 44, 20)),
-            Rect::new(12, 6, 40, 18)
+            Rect::new(12, 7, 40, 17)
         );
     }
 
