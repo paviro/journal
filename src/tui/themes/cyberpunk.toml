@@ -8,10 +8,10 @@ default_style = "flat"
 scrim = 0.6
 
 [surfaces]
-background = { dark = "#0d0c0f", light = "#f2efe4" }
-panel      = { dark = "#14121a", light = "#e9e5d6" }
-dialog     = { dark = "#1a1721", light = "#e0dbc8" }
-element    = { dark = "#211d2b", light = "#d7d2bd" }
+base    = { dark = "#0d0c0f", light = "#f2efe4" }
+content = { dark = "#14121a", light = "#e9e5d6" }
+dialog  = { dark = "#1a1721", light = "#e0dbc8" }
+element = { dark = "#211d2b", light = "#d7d2bd" }
 
 [text]
 body  = { dark = "#e8e3d5", light = "#26221a" }

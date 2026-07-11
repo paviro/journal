@@ -195,7 +195,7 @@ pub(crate) fn draw_modal_frame(
     key_hint: &str,
 ) -> Rect {
     let area = frame.area();
-    clear_surface(frame, area, theme().bg());
+    clear_surface(frame, area, theme().base_bg());
 
     if flat_chrome() {
         // No outer border: the screen name and hints sit on full-width

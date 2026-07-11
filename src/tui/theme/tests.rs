@@ -40,11 +40,11 @@ fn default_hover_lifts_the_element_surface() {
     // Theme files written before the hover token existed (materialized
     // copies are never overwritten) must still get a visible hover: the
     // default nudges element toward white (dark) / black (light).
-    let text = "[surfaces]\nbackground = \"#101010\"\npanel = \"#181818\"\nelement = \"#202020\"";
+    let text = "[surfaces]\nbase = \"#101010\"\ncontent = \"#181818\"\nelement = \"#202020\"";
     let dark = parse(text, Mode::Dark).unwrap();
     assert_eq!(dark.hover().bg, Some(Color::Rgb(0x36, 0x36, 0x36)));
     let light = parse(
-        "[surfaces]\nbackground = \"#f0f0f0\"\npanel = \"#e8e8e8\"\nelement = \"#e0e0e0\"",
+        "[surfaces]\nbase = \"#f0f0f0\"\ncontent = \"#e8e8e8\"\nelement = \"#e0e0e0\"",
         Mode::Light,
     )
     .unwrap();
@@ -376,24 +376,24 @@ fn border_inactive_resolves_and_defaults_to_terminal_ink() {
 }
 
 #[test]
-fn dialog_defaults_to_panel_for_existing_theme_files() {
+fn dialog_defaults_to_content_for_existing_theme_files() {
     let theme = parse(
-        "[surfaces]\nbackground = \"#101010\"\npanel = \"#181818\"",
+        "[surfaces]\nbase = \"#101010\"\ncontent = \"#181818\"",
         Mode::Dark,
     )
     .unwrap();
-    assert_eq!(theme.dialog, theme.panel);
+    assert_eq!(theme.dialog, theme.content);
 }
 
 #[test]
-fn flat_bundled_themes_split_dialogs_from_panels() {
+fn flat_bundled_themes_split_dialogs_from_content() {
     for (name, text) in BUNDLED {
         for mode in [Mode::Dark, Mode::Light] {
             let theme = parse(text, mode).unwrap();
             if theme.chrome == ChromeStyle::Flat {
                 assert_ne!(
-                    theme.dialog, theme.panel,
-                    "'{name}' dialog matches panel ({mode:?})"
+                    theme.dialog, theme.content,
+                    "'{name}' dialog matches content ({mode:?})"
                 );
                 assert_ne!(
                     theme.dialog, theme.element,
@@ -423,7 +423,7 @@ fn every_bundled_theme_clears_the_contrast_floor() {
                 ),
             }
             if let Some(fg) = theme.text.fg {
-                assert_ne!(fg, theme.bg, "'{name}' text matches its bg ({mode:?})");
+                assert_ne!(fg, theme.base, "'{name}' text matches its base ({mode:?})");
             }
         }
     }
@@ -541,12 +541,12 @@ fn eink_is_monochrome_high_contrast_in_both_modes() {
                 );
             }
         }
-        for color in [theme.bg, theme.panel, theme.element] {
+        for color in [theme.base, theme.content, theme.element, theme.footer] {
             assert!(ink_or_paper(color), "e-ink surface {color:?} ({mode:?})");
         }
         assert_ne!(
-            theme.dialog, theme.bg,
-            "e-ink dialog should lift off the main background ({mode:?})"
+            theme.dialog, theme.base,
+            "e-ink dialog should lift off the base surface ({mode:?})"
         );
         assert_eq!(
             theme.dialog,
@@ -581,8 +581,8 @@ fn eink_is_monochrome_high_contrast_in_both_modes() {
 fn journal_resolves_variants_by_mode() {
     let dark = parse(bundled("journal"), Mode::Dark).unwrap();
     let light = parse(bundled("journal"), Mode::Light).unwrap();
-    assert_eq!(dark.bg, Color::Rgb(0x0a, 0x0a, 0x0a));
-    assert_eq!(light.bg, Color::Rgb(0xfc, 0xfc, 0xfc));
+    assert_eq!(dark.base, Color::Rgb(0x0a, 0x0a, 0x0a));
+    assert_eq!(light.base, Color::Rgb(0xfc, 0xfc, 0xfc));
     assert_eq!(dark.primary.fg, Some(Color::Rgb(0x56, 0xb6, 0xb0)));
     assert_eq!(light.primary.fg, Some(Color::Rgb(0x15, 0x7d, 0x76)));
     assert_eq!(dark.chrome, ChromeStyle::Flat);

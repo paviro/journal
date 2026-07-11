@@ -1642,7 +1642,7 @@ fn theme_picker_cycles_color_mode_and_cancel_restores_it() {
         .and_then(|entry| entry.theme)
         .expect("bundled journal theme resolves");
     assert_eq!(
-        journal_light.bg(),
+        journal_light.base_bg(),
         ratatui::style::Color::Rgb(0xfc, 0xfc, 0xfc),
         "journal rows must re-resolve to the light variant"
     );

@@ -9,9 +9,9 @@ default_style = "bordered"
 scrim = 0.0        # 0 falls back to dimming (no color blend)
 
 [surfaces]
-background = "none"   # terminal default
-panel      = "none"
-element    = "none"
+base    = "none"   # terminal default
+content = "none"
+element = "none"
 
 [text]
 body  = {}         # terminal foreground; bold/dim come from the UI itself

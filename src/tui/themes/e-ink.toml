@@ -14,10 +14,10 @@ ink   = { dark = "#ffffff", light = "#000000" }
 paper = { dark = "#000000", light = "#ffffff" }
 
 [surfaces]
-background = "paper"
-panel      = "paper"
-dialog     = { dark = "#1a1a1a", light = "#f2f2f2" }
-element    = "paper"
+base    = "paper"
+content = "paper"
+dialog  = { dark = "#1a1a1a", light = "#f2f2f2" }
+element = "paper"
 
 [text]
 body  = "ink"

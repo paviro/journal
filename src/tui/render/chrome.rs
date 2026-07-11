@@ -22,7 +22,14 @@ pub(crate) fn flat_chrome() -> bool {
 /// text color, so spans without an explicit fg stay readable on it. A no-op
 /// under terminal-default themes (both components are `Reset`/absent).
 pub(crate) fn base_style() -> Style {
-    surface_style(theme().bg())
+    surface_style(theme().base_bg())
+}
+
+/// The surface painted under the hint/footer bar. Defaults to the base surface,
+/// so the footer sits flush with the backdrop unless a theme tints
+/// `surfaces.footer`.
+pub(crate) fn footer_style() -> Style {
+    surface_style(theme().footer_bg())
 }
 
 /// A surface fill: the given background plus the theme's text color, so spans
@@ -102,7 +109,7 @@ pub(crate) fn separator_style() -> Style {
 pub(crate) fn container_block(title: &str) -> Block<'static> {
     if flat_chrome() {
         Block::new()
-            .style(Style::default().bg(theme().panel_bg()))
+            .style(Style::default().bg(theme().content_bg()))
             .padding(Padding::new(3, 3, 2, 2))
             .title_top(Line::from(Span::styled(
                 format!(" {title} "),
@@ -139,7 +146,7 @@ pub(crate) fn panel_block(
 ) -> Block<'static> {
     if flat_chrome() {
         let mut block = Block::new()
-            .style(Style::default().bg(theme().panel_bg()))
+            .style(Style::default().bg(theme().content_bg()))
             .padding(Padding::uniform(1))
             .title(panel_title(title, focused));
         if let Some(label) = footer_label {

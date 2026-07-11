@@ -8,10 +8,10 @@ default_style = "bordered"
 scrim = 0.3
 
 [surfaces]
-background = { dark = "#140f08", light = "#f0e6cc" }
-panel      = { dark = "#140f08", light = "#f0e6cc" }
-dialog     = { dark = "#1d1610", light = "#e6d9b8" }
-element    = { dark = "#241c12", light = "#ddcfa9" }
+base    = { dark = "#140f08", light = "#f0e6cc" }
+content = { dark = "#140f08", light = "#f0e6cc" }
+dialog  = { dark = "#1d1610", light = "#e6d9b8" }
+element = { dark = "#241c12", light = "#ddcfa9" }
 
 [text]
 body  = { dark = "#e6d3a3", light = "#3b2f1b" }

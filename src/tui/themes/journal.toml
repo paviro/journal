@@ -27,10 +27,10 @@ default_style = "flat"   # "flat" separates surfaces by background, "bordered" d
 scrim = 0.45     # how much the screen dims behind dialogs (0 = classic dim)
 
 [surfaces]
-background = { dark = "#0a0a0a", light = "#fcfcfc" }
-panel      = { dark = "#141414", light = "#f3f3f3" }
-dialog     = { dark = "#191919", light = "#eeeeee" }
-element    = { dark = "#1e1e1e", light = "#e9e9e9" }
+base    = { dark = "#0a0a0a", light = "#fcfcfc" }
+content = { dark = "#141414", light = "#f3f3f3" }
+dialog  = { dark = "#191919", light = "#eeeeee" }
+element = { dark = "#1e1e1e", light = "#e9e9e9" }
 
 [text]
 body  = { dark = "#eeeeee", light = "#1c1c1c" }

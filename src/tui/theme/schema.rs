@@ -185,14 +185,15 @@ impl Default for ChromeSection {
     }
 }
 
-/// The background layers the UI is built from, base to top.
+/// The surface layers the UI is built from, base to top.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct SurfacesSection {
-    background: Option<ColorSpec>,
-    panel: Option<ColorSpec>,
+    base: Option<ColorSpec>,
+    content: Option<ColorSpec>,
     dialog: Option<ColorSpec>,
     element: Option<ColorSpec>,
+    footer: Option<ColorSpec>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -584,10 +585,11 @@ impl ThemeFile {
         };
 
         let surfaces = &self.surfaces;
-        let bg = color(&surfaces.background, Color::Reset, "surfaces.background")?;
-        let panel = color(&surfaces.panel, bg, "surfaces.panel")?;
-        let dialog = color(&surfaces.dialog, panel, "surfaces.dialog")?;
-        let element = color(&surfaces.element, panel, "surfaces.element")?;
+        let base = color(&surfaces.base, Color::Reset, "surfaces.base")?;
+        let content = color(&surfaces.content, base, "surfaces.content")?;
+        let dialog = color(&surfaces.dialog, content, "surfaces.dialog")?;
+        let element = color(&surfaces.element, content, "surfaces.element")?;
+        let footer = color(&surfaces.footer, base, "surfaces.footer")?;
         let text = style(&self.text.body, Style::default(), "text.body")?;
         let muted = style(&self.text.muted, Style::default(), "text.muted")?;
         let heading = style(&self.text.heading, text, "text.heading")?;
@@ -806,10 +808,11 @@ impl ThemeFile {
 
         let status = &self.status;
         Ok(Theme {
-            bg,
-            panel,
+            base,
+            content,
             dialog,
             element,
+            footer,
             text,
             muted,
             heading,

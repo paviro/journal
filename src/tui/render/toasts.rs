@@ -116,8 +116,8 @@ fn draw_toast(
         height: area.height.saturating_sub(2),
     };
     if flat_chrome() {
-        // The element surface, not the panel one: toasts float over panels
-        // that already carry `panel_bg`, so on the same color only the edge
+        // The element surface, not the content one: toasts float over panels
+        // that already carry `content_bg`, so on the same color only the edge
         // stripes would separate them.
         clear_surface(frame, area, theme().element_bg());
         if hovered {
@@ -138,7 +138,7 @@ fn draw_toast(
             );
         }
     } else {
-        clear_surface(frame, area, theme().panel_bg());
+        clear_surface(frame, area, theme().content_bg());
         if hovered {
             frame.buffer_mut().set_style(area, theme().hover());
         }

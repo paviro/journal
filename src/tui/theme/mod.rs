@@ -281,10 +281,11 @@ impl Glyphs {
 /// A fully resolved theme: plain styles and colors, no variants left.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Theme {
-    bg: Color,
-    panel: Color,
+    base: Color,
+    content: Color,
     dialog: Color,
     element: Color,
+    footer: Color,
     text: Style,
     muted: Style,
     heading: Style,
@@ -519,24 +520,32 @@ impl Theme {
 
     // --- surfaces ---
 
-    /// The application background, painted under every frame.
-    pub(crate) fn bg(self) -> Color {
-        self.bg
+    /// The bottom surface layer, painted under every frame: app margins,
+    /// full-screen modal screens, and the footer's default.
+    pub(crate) fn base_bg(self) -> Color {
+        self.base
     }
 
-    /// Elevated surfaces: panels, dialogs, notices, toasts.
-    pub(crate) fn panel_bg(self) -> Color {
-        self.panel
+    /// The main content panels (entries, journals, insights, the entry viewer),
+    /// and toasts on bordered chrome. Defaults to the base surface.
+    pub(crate) fn content_bg(self) -> Color {
+        self.content
     }
 
-    /// Dialog surfaces, defaulting to the panel surface unless a theme splits them.
+    /// Dialog surfaces, defaulting to the content surface unless a theme splits them.
     pub(crate) fn dialog_bg(self) -> Color {
         self.dialog
     }
 
-    /// Interactive surfaces sitting on a panel: inputs, active controls.
+    /// Raised items sitting on a panel: inputs, cards, list rows, status bars.
     pub(crate) fn element_bg(self) -> Color {
         self.element
+    }
+
+    /// The hint/footer bar. Defaults to the base surface, so a theme can tint
+    /// the footer separately or leave it flush with the backdrop.
+    pub(crate) fn footer_bg(self) -> Color {
+        self.footer
     }
 
     // --- text ---

@@ -83,17 +83,20 @@ colors. On non-RGB (monochrome) terminals it falls back to a DIM modifier; that
 fallback is applied in code and is deliberately not themeable — it is part of
 the monochrome contract below.
 
-### `[surfaces]` — background layers, base to top
+### `[surfaces]` — surface layers, base to top
 
 | Key | Default |
 |---|---|
-| `background` | terminal default |
-| `panel` | ← `background` |
-| `dialog` | ← `panel` |
-| `element` | ← `panel` |
+| `base` | terminal default |
+| `content` | ← `base` |
+| `dialog` | ← `content` |
+| `element` | ← `content` |
+| `footer` | ← `base` |
 
-`background` sits under every frame, `panel` under panels and toasts, `dialog`
-under dialogs and modals, `element` under inputs and interactive chips.
+`base` sits under every frame and fills full-screen modal screens (unlock,
+device access), `content` under the main panels and toasts, `dialog` under
+dialogs and modals, `element` under inputs, cards, and interactive chips, and
+`footer` under the hint bar — flush with `base` unless a theme tints it.
 
 ### `[text]`
 
@@ -242,7 +245,7 @@ distinguished by three distinct fill glyphs instead of hue.
 
 ## Chrome styles
 
-- **Flat** — surfaces separate by background layer (`background` → `panel` →
+- **Flat** — surfaces separate by background layer (`base` → `content` →
   `dialog`/`element`), focused panels get a `focus_stripe` down the left edge,
   and the selection marker is `●`. Needs a theme with real surface colors.
 - **Bordered** — the classic drawn borders; focus reads through thick + bold

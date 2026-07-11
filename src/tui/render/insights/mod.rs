@@ -53,7 +53,7 @@ pub(crate) fn draw_journal_insights(frame: &mut Frame<'_>, area: Rect, app: &mut
         // Flat chrome: the tab strip sits on the top padding row instead of
         // the border; focus is carried by the tabs and the left stripe.
         Block::new()
-            .style(Style::default().bg(theme().panel_bg()))
+            .style(Style::default().bg(theme().content_bg()))
             .padding(Padding::uniform(1))
             .title(tabs_title_line(tab, focused, hovered_tab, inner_width))
     } else {

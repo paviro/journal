@@ -142,6 +142,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
             draw_selected_entry_view(frame, chunks[0], app);
         }
         let footer_area = chunks[1];
+        frame.buffer_mut().set_style(footer_area, chrome::footer_style());
         let footer_text_area = ratatui::layout::Rect {
             x: footer_area.x.saturating_add(1),
             width: footer_area.width.saturating_sub(1),
@@ -177,6 +178,9 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
         }
     }
 
+    frame
+        .buffer_mut()
+        .set_style(layout.footer, chrome::footer_style());
     let footer = Paragraph::new(footer_lines(app, layout.footer.width));
     frame.render_widget(footer, layout.footer);
 

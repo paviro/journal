@@ -14,10 +14,10 @@ dim      = { dark = "#1d9944", light = "#4e8b62" }
 glass    = { dark = "#020a04", light = "#eef7ee" }
 
 [surfaces]
-background = "glass"
-panel      = "glass"
-dialog     = { dark = "#07160c", light = "#e0efe0" }
-element    = { dark = "#0b2112", light = "#d5e8d5" }
+base    = "glass"
+content = "glass"
+dialog  = { dark = "#07160c", light = "#e0efe0" }
+element = { dark = "#0b2112", light = "#d5e8d5" }
 
 [text]
 body  = "phosphor"
