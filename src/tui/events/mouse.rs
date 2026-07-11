@@ -759,7 +759,7 @@ fn overlay_hover_target(app: &App, col: u16, row: u16, area: Rect) -> HoverTarge
         {
             return HoverTarget::ThemePickerRow(index);
         }
-        return hint(layout.hints, render::theme_picker_hints()).unwrap_or_default();
+        return hint(layout.hints, &render::theme_picker_hints()).unwrap_or_default();
     }
 
     if let Some(state) = app.edit_metadata_state() {
@@ -1031,7 +1031,7 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
         let offset = state.offset();
         let layout = render::theme_picker_layout(area, len);
         if let Some(action) =
-            dialog_hint_action(app, layout.hints, render::theme_picker_hints(), col, row)
+            dialog_hint_action(app, layout.hints, &render::theme_picker_hints(), col, row)
         {
             return Some(action);
         }
@@ -1343,6 +1343,7 @@ pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action>
         render::HintId::OpenSettings => Some(Action::OpenSettingsMenu),
         render::HintId::ThemePickerApply => Some(Action::ThemePickerConfirm),
         render::HintId::ThemePickerRevert => Some(Action::ThemePickerCancel),
+        render::HintId::ThemePickerChrome => Some(Action::ThemePickerCycleChrome),
         render::HintId::HintsToggle => Some(Action::ToggleHints),
         render::HintId::ToggleJournals => Some(Action::ToggleJournals),
         // Clicking the tabs hint steps forward through the tabs (Right); scope

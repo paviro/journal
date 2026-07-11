@@ -112,6 +112,8 @@ pub(crate) enum Action {
     ThemePickerSelect(usize),
     ThemePickerConfirm,
     ThemePickerCancel,
+    /// Cycle the chrome override: auto → flat → bordered → auto.
+    ThemePickerCycleChrome,
     // Image viewer overlay
     OpenImageViewer(usize),
     ImageViewerNext,

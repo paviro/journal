@@ -375,6 +375,7 @@ pub(crate) fn dispatch_action(
         Action::ThemePickerSelect(index) => app.theme_picker_select(index),
         Action::ThemePickerConfirm => app.theme_picker_confirm(),
         Action::ThemePickerCancel => app.theme_picker_cancel(),
+        Action::ThemePickerCycleChrome => app.theme_picker_cycle_chrome(),
 
         Action::OpenImageViewer(index) => app.begin_image_viewer(index),
         Action::ImageViewerNext => app.image_viewer_step(1),

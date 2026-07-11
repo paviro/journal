@@ -57,6 +57,10 @@ pub struct UiSection {
     /// background, or are pinned to one variant.
     #[serde(default)]
     pub color_mode: ColorMode,
+    /// Chrome style: `auto` uses each theme's own `default_style`; `flat` or
+    /// `bordered` force that chrome on every theme.
+    #[serde(default)]
+    pub chrome: ChromeMode,
     #[serde(default)]
     pub layout: LayoutSection,
 }
@@ -66,6 +70,7 @@ impl Default for UiSection {
         Self {
             theme: default_theme(),
             color_mode: ColorMode::default(),
+            chrome: ChromeMode::default(),
             layout: LayoutSection::default(),
         }
     }
@@ -84,6 +89,28 @@ pub enum ColorMode {
     Auto,
     Dark,
     Light,
+}
+
+/// The `[ui] chrome` setting: `auto` follows the active theme's
+/// `default_style`; `flat`/`bordered` force that chrome on every theme.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChromeMode {
+    #[default]
+    Auto,
+    Flat,
+    Bordered,
+}
+
+impl ChromeMode {
+    /// The forced [`ChromeStyle`], or `None` for `Auto`.
+    pub(crate) fn forced_style(self) -> Option<crate::tui::theme::ChromeStyle> {
+        match self {
+            ChromeMode::Auto => None,
+            ChromeMode::Flat => Some(crate::tui::theme::ChromeStyle::Flat),
+            ChromeMode::Bordered => Some(crate::tui::theme::ChromeStyle::Bordered),
+        }
+    }
 }
 
 /// Layout geometry: how the panels and their contents are sized. Column-width and

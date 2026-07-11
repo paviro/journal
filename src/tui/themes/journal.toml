@@ -9,7 +9,7 @@
 # next launch.
 
 [chrome]
-style = "flat"   # "flat": surfaces separate by background; "bordered": drawn borders
+default_style = "flat"   # the theme’s preferred chrome; `[ui] chrome` (set from the theme picker) can force flat/bordered
 scrim = 0.45     # how much the screen dims behind dialogs (0 = classic dim)
 
 [colors]

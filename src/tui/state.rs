@@ -364,6 +364,9 @@ pub(crate) struct ThemePickerState {
     pub(crate) previous: crate::tui::theme::Theme,
     /// The configured theme name at open, marking the active row.
     pub(crate) previous_name: String,
+    /// The chrome override at open, restored on cancel (the picker cycles it
+    /// live for preview).
+    pub(crate) previous_chrome: Option<crate::tui::theme::ChromeStyle>,
 }
 
 impl ThemePickerState {

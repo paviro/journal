@@ -185,6 +185,7 @@ fn theme_picker_key_to_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Enter => Some(Action::ThemePickerConfirm),
         KeyCode::Up => Some(Action::ThemePickerMoveUp),
         KeyCode::Down => Some(Action::ThemePickerMoveDown),
+        KeyCode::Char('b') => Some(Action::ThemePickerCycleChrome),
         _ => None,
     }
 }

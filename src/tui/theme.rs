@@ -119,16 +119,58 @@ thread_local! {
     static TEST_THEME: std::cell::Cell<Option<Theme>> = const { std::cell::Cell::new(None) };
 }
 
-/// The current theme. Cheap to call everywhere: `Theme` is `Copy`.
+/// The user's chrome override (`[ui] chrome = "flat"|"bordered"`), applied on
+/// top of whatever the active theme declares as its `default_style`. `None`
+/// (= `auto`) follows the theme. Runtime-writable so the theme picker can
+/// cycle it with live preview.
+#[cfg(not(test))]
+static CHROME_OVERRIDE: RwLock<Option<ChromeStyle>> = RwLock::new(None);
+
+#[cfg(test)]
+thread_local! {
+    /// Per-thread override so parallel tests can pin a chrome without racing
+    /// the process-global (mirrors [`TEST_THEME`]).
+    static TEST_CHROME_OVERRIDE: std::cell::Cell<Option<ChromeStyle>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// The forced chrome style, or `None` when following the theme (`auto`).
+pub(crate) fn chrome_override() -> Option<ChromeStyle> {
+    #[cfg(test)]
+    return TEST_CHROME_OVERRIDE.with(std::cell::Cell::get);
+    #[cfg(not(test))]
+    *CHROME_OVERRIDE.read().expect("chrome override lock")
+}
+
+/// Force a chrome style on every theme (`None` = follow the theme). The next
+/// frame repaints with it — `theme()` applies it on read.
+pub(crate) fn set_chrome_override(style: Option<ChromeStyle>) {
+    #[cfg(test)]
+    TEST_CHROME_OVERRIDE.with(|cell| cell.set(style));
+    #[cfg(not(test))]
+    {
+        *CHROME_OVERRIDE.write().expect("chrome override lock") = style;
+    }
+}
+
+/// The current theme, with the chrome override applied. Cheap to call
+/// everywhere: `Theme` is `Copy`.
 pub(crate) fn theme() -> Theme {
     #[cfg(test)]
-    if let Some(theme) = TEST_THEME.with(std::cell::Cell::get) {
+    if let Some(mut theme) = TEST_THEME.with(std::cell::Cell::get) {
+        if let Some(style) = chrome_override() {
+            theme.chrome = style;
+        }
         return theme;
     }
-    THEME
+    let mut theme = THEME
         .read()
         .expect("theme lock")
-        .unwrap_or_else(Theme::terminal_default)
+        .unwrap_or_else(Theme::terminal_default);
+    if let Some(style) = chrome_override() {
+        theme.chrome = style;
+    }
+    theme
 }
 
 /// Swap the active theme; the next frame repaints with it. Used at startup,
@@ -159,6 +201,7 @@ pub(crate) fn mode() -> Mode {
 pub(crate) fn init_from_config(config_path: &Path, ui: &crate::config::UiSection) {
     let mode = detect_mode(ui.color_mode);
     let _ = MODE.set(mode);
+    set_chrome_override(ui.chrome.forced_style());
     install(load(config_path, &ui.theme, mode));
 }
 
@@ -719,14 +762,18 @@ struct ThemeFile {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ChromeSection {
-    style: ChromeStyle,
+    /// The theme's preferred chrome. A *default* because the `[ui] chrome`
+    /// setting can force flat/bordered on any theme; `style` stays accepted
+    /// so theme files from before the rename keep parsing.
+    #[serde(alias = "style")]
+    default_style: ChromeStyle,
     scrim: f32,
 }
 
 impl Default for ChromeSection {
     fn default() -> Self {
         Self {
-            style: ChromeStyle::Bordered,
+            default_style: ChromeStyle::Bordered,
             scrim: 0.0,
         }
     }
@@ -975,7 +1022,7 @@ impl ThemeFile {
             md_link,
             md_code,
             md_blockquote,
-            chrome: self.chrome.style,
+            chrome: self.chrome.default_style,
             scrim: self.chrome.scrim,
         })
     }
@@ -1003,6 +1050,27 @@ mod tests {
                 });
             }
         }
+    }
+
+    #[test]
+    fn chrome_style_key_accepts_old_and_new_names() {
+        // `default_style` is the documented key; `style` must keep parsing so
+        // theme files materialized before the rename don't break.
+        for key in ["default_style", "style"] {
+            let theme = parse(&format!("[chrome]\n{key} = \"flat\"\nscrim = 0.2"), Mode::Dark)
+                .unwrap_or_else(|err| panic!("`{key}` failed to parse: {err:#}"));
+            assert_eq!(theme.chrome(), ChromeStyle::Flat);
+        }
+    }
+
+    #[test]
+    fn chrome_override_wins_over_the_theme_default() {
+        set_test_theme(test_flat_theme());
+        assert_eq!(theme().chrome(), ChromeStyle::Flat);
+        set_chrome_override(Some(ChromeStyle::Bordered));
+        assert_eq!(theme().chrome(), ChromeStyle::Bordered, "override ignored");
+        set_chrome_override(None);
+        assert_eq!(theme().chrome(), ChromeStyle::Flat, "auto must follow the theme");
     }
 
     #[test]

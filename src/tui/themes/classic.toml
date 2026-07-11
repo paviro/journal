@@ -5,7 +5,7 @@
 # See journal.toml for the accepted color/style forms.
 
 [chrome]
-style = "bordered"
+default_style = "bordered"
 scrim = 0.0        # 0 falls back to dimming (no color blend)
 
 [colors]

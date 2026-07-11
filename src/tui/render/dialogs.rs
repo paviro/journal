@@ -65,10 +65,23 @@ pub(crate) fn feelings_selected_line_count(selected: &[String]) -> usize {
     feelings_selected_rows(selected).len().max(1)
 }
 
-const THEME_PICKER_HINTS: [Hint; 2] = [
-    Hint::new("apply", "enter", HintId::ThemePickerApply),
-    Hint::new("revert", "esc", HintId::ThemePickerRevert),
-];
+/// The picker's hint row, with the chrome hint's label reflecting the live
+/// `[ui] chrome` override so cycling it reads back immediately.
+pub(crate) fn theme_picker_hints() -> [Hint; 3] {
+    use crate::tui::theme::ChromeStyle;
+    let chrome = match crate::tui::theme::chrome_override() {
+        None => Hint::new("chrome: auto", "b", HintId::ThemePickerChrome),
+        Some(ChromeStyle::Flat) => Hint::new("chrome: flat", "b", HintId::ThemePickerChrome),
+        Some(ChromeStyle::Bordered) => {
+            Hint::new("chrome: bordered", "b", HintId::ThemePickerChrome)
+        }
+    };
+    [
+        Hint::new("apply", "enter", HintId::ThemePickerApply),
+        chrome,
+        Hint::new("revert", "esc", HintId::ThemePickerRevert),
+    ]
+}
 
 const MOOD_DIALOG_HINTS: [Hint; 5] = [
     Hint::new("decrease", "←", HintId::MoodDecrease),
@@ -201,10 +214,6 @@ pub(crate) fn feelings_dialog_hints(focus: EditMetadataFocus) -> &'static [Hint]
 
 pub(crate) fn mood_dialog_hints() -> &'static [Hint] {
     &MOOD_DIALOG_HINTS
-}
-
-pub(crate) fn theme_picker_hints() -> &'static [Hint] {
-    &THEME_PICKER_HINTS
 }
 
 pub(crate) fn location_dialog_hints(
@@ -516,7 +525,7 @@ pub(crate) fn feelings_dialog_layout(
 
 fn theme_picker_hint_height(frame_area: Rect) -> u16 {
     hint_height(
-        &THEME_PICKER_HINTS,
+        &theme_picker_hints(),
         dialog_hint_width(frame_area, LIST_DIALOG_WIDTH),
     )
 }
@@ -619,7 +628,7 @@ pub(super) fn draw_theme_picker(
     let mut render_state =
         list_state_for_render(state.selected_index(), scroll, layout.list.height, len > 0);
     frame.render_stateful_widget(list, layout.list, &mut render_state);
-    render_hint_line(frame, theme_picker_hints(), layout.hints, hover);
+    render_hint_line(frame, &theme_picker_hints(), layout.hints, hover);
     render_scrollbar_if_needed(frame, layout.area, len, max_visible, scroll);
 }
 

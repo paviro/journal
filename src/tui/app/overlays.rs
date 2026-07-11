@@ -226,6 +226,7 @@ impl App {
             list: SelectableList::default(),
             previous: crate::tui::theme::theme(),
             previous_name: self.config.ui.theme.clone(),
+            previous_chrome: crate::tui::theme::chrome_override(),
         };
         let active = state
             .entries
@@ -270,6 +271,18 @@ impl App {
         self.theme_picker_preview();
     }
 
+    /// Cycle the chrome override (auto → flat → bordered → auto), previewing
+    /// live — `theme()` applies it on read, so the next frame re-chromes.
+    /// Persisted on confirm; cancel restores the value from open time.
+    pub(crate) fn theme_picker_cycle_chrome(&mut self) {
+        use crate::tui::theme::{ChromeStyle, chrome_override, set_chrome_override};
+        set_chrome_override(match chrome_override() {
+            None => Some(ChromeStyle::Flat),
+            Some(ChromeStyle::Flat) => Some(ChromeStyle::Bordered),
+            Some(ChromeStyle::Bordered) => None,
+        });
+    }
+
     /// Confirm the highlighted theme: persist it to the config and close. A
     /// broken row or a failed save toasts and keeps the picker open.
     pub(crate) fn theme_picker_confirm(&mut self) {
@@ -289,6 +302,11 @@ impl App {
         };
         crate::tui::theme::install(theme);
         self.config.ui.theme = name.clone();
+        self.config.ui.chrome = match crate::tui::theme::chrome_override() {
+            None => crate::config::ChromeMode::Auto,
+            Some(crate::tui::theme::ChromeStyle::Flat) => crate::config::ChromeMode::Flat,
+            Some(crate::tui::theme::ChromeStyle::Bordered) => crate::config::ChromeMode::Bordered,
+        };
         if let Err(err) = crate::config::save_config(&self.config_path, &self.config) {
             self.toast(
                 ToastVariant::Error,
@@ -300,10 +318,11 @@ impl App {
         self.close_overlay();
     }
 
-    /// Cancel the picker: restore the theme from open time; the config was
-    /// never touched.
+    /// Cancel the picker: restore the theme and chrome override from open
+    /// time; the config was never touched.
     pub(crate) fn theme_picker_cancel(&mut self) {
         if let Some(state) = self.theme_picker_state() {
+            crate::tui::theme::set_chrome_override(state.previous_chrome);
             crate::tui::theme::install(state.previous);
         }
         self.close_overlay();

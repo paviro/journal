@@ -1553,3 +1553,40 @@ fn confirm_delete_hover_targets_the_buttons() {
     }
     assert!(saw.0 && saw.1, "both confirm buttons hoverable: {saw:?}");
 }
+
+#[test]
+fn theme_picker_cycles_chrome_and_cancel_restores_it() {
+    use crate::tui::theme::{ChromeStyle, chrome_override};
+    let mut app = app_with_journals(&["work"]);
+    app.open_theme_picker();
+    assert_eq!(chrome_override(), None);
+
+    assert_eq!(
+        keyboard::key_to_action(&app, key(KeyCode::Char('b')), true),
+        Some(Action::ThemePickerCycleChrome)
+    );
+
+    // auto → flat → bordered → auto, previewing live.
+    app.theme_picker_cycle_chrome();
+    assert_eq!(chrome_override(), Some(ChromeStyle::Flat));
+    app.theme_picker_cycle_chrome();
+    assert_eq!(chrome_override(), Some(ChromeStyle::Bordered));
+
+    // Cancel restores the override from open time along with the theme.
+    app.theme_picker_cancel();
+    assert_eq!(chrome_override(), None);
+}
+
+#[test]
+fn theme_picker_confirm_persists_the_chrome_override() {
+    use crate::tui::theme::ChromeStyle;
+    let mut app = app_with_journals(&["work"]);
+    app.open_theme_picker();
+    app.theme_picker_cycle_chrome();
+    app.theme_picker_confirm();
+    assert_eq!(app.config.ui.chrome, crate::config::ChromeMode::Flat);
+    assert_eq!(crate::tui::theme::chrome_override(), Some(ChromeStyle::Flat));
+    // The saved config round-trips the setting.
+    let loaded = crate::config::load_config(&app.config_path).unwrap();
+    assert_eq!(loaded.ui.chrome, crate::config::ChromeMode::Flat);
+}
