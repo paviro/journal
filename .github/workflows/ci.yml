@@ -72,8 +72,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.96.0
-      # No FUSE on Windows; check the standard (non-fuse) build compiles.
-      - run: cargo check --workspace --all-targets --locked
+      # FUSE doesn't exist on Windows (notema-fuse needs libfuse) and the Windows
+      # release build excludes it; check the rest of the standard build compiles.
+      - run: cargo check --workspace --exclude notema-fuse --all-targets --locked
 
   android-check:
     runs-on: ubuntu-latest
