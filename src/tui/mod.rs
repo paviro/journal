@@ -1,4 +1,6 @@
 mod app;
+#[cfg(feature = "bench")]
+pub(crate) mod bench_support;
 mod editor_highlight;
 mod editor_state;
 mod entry_rows;

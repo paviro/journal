@@ -76,6 +76,7 @@ sees ciphertext and can't read your entries.
 - [Themes](docs/THEMES.md) — theme files and the full token reference
 - [Building](docs/BUILDING.md) — from source, cross-compile, FUSE builds
 - [Architecture](docs/ARCHITECTURE.md) — crate layout and dependency rules
+- [Development](docs/DEVELOPMENT.md) — checks, cross-builds, running the benchmarks
 
 ## License
 

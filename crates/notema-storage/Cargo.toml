@@ -25,5 +25,9 @@ ureq.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 
+[[bench]]
+name = "scan"
+harness = false
+
 [lints]
 workspace = true

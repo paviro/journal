@@ -159,6 +159,13 @@ terminal-colorsaurus.workspace = true
 # Off by default: the standard build has no FUSE dependency and runs everywhere.
 # Enable for the dedicated macOS/Linux "-fuse" release artifacts (see Makefile.toml).
 fuse = ["dep:notema-fuse"]
+# Exposes the `bench` module (private TUI hot paths) for benches/. Dev-only.
+bench = []
+
+[[bench]]
+name = "tui"
+harness = false
+required-features = ["bench"]
 
 [build-dependencies]
 # build.rs shells out to cargo-about and embeds a gzipped JSON license report.

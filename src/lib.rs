@@ -14,6 +14,13 @@ pub fn run() -> anyhow::Result<()> {
     cli::run()
 }
 
+/// Bench-only handles onto the otherwise-private TUI hot paths (search, full-frame
+/// render). Gated behind the `bench` feature so it never widens the shipped API.
+#[cfg(feature = "bench")]
+pub mod bench {
+    pub use crate::tui::bench_support::{BenchApp, app_with_entries, draw_frame, search};
+}
+
 /// The command a device runs to request access to an already-encrypted store.
 /// Referenced from CLI errors and the TUI enroll notice so the wording lives in
 /// one place.
