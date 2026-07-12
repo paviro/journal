@@ -281,8 +281,11 @@ impl MarkdownTerminalRenderer {
                 self.links.push((target, String::new(), id));
                 self.push_style(theme().md_link());
             }
-            MarkdownTag::HtmlBlock
-            | MarkdownTag::FootnoteDefinition(_)
+            // An HTML block renders as its raw text; start a new block so the
+            // blank-line separator a preceding paragraph owes is emitted before
+            // it, rather than gluing the two together.
+            MarkdownTag::HtmlBlock => self.begin_block(),
+            MarkdownTag::FootnoteDefinition(_)
             | MarkdownTag::DefinitionList
             | MarkdownTag::DefinitionListTitle
             | MarkdownTag::DefinitionListDefinition

@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
@@ -85,42 +88,64 @@ fn language_for(name: &str) -> Option<Language> {
     }
 }
 
+thread_local! {
+    /// Per-language highlight configs, cached because `HighlightConfiguration::new`
+    /// recompiles the grammar's query — needless work on every code block, every
+    /// frame. Keyed by the normalized fence language; the config depends only on
+    /// the grammar, not the theme, so it's safe to reuse across theme changes.
+    static CONFIGS: RefCell<HashMap<String, HighlightConfiguration>> =
+        RefCell::new(HashMap::new());
+}
+
 pub(crate) fn highlight(language: &str, code: &str) -> Option<Vec<Line<'static>>> {
     if !theme().syntax().any_color() {
         return None;
     }
-    let language = language_for(language)?;
-    let mut configuration =
-        HighlightConfiguration::new(language.language, "notema", language.highlights, "", "")
+    let key = language.trim().to_ascii_lowercase();
+    CONFIGS.with(|configs| {
+        let mut configs = configs.borrow_mut();
+        if !configs.contains_key(&key) {
+            let language = language_for(&key)?;
+            let mut configuration = HighlightConfiguration::new(
+                language.language,
+                "notema",
+                language.highlights,
+                "",
+                "",
+            )
             .ok()?;
-    configuration.configure(HIGHLIGHT_NAMES);
-    let mut highlighter = Highlighter::new();
-    let events = highlighter
-        .highlight(&configuration, code.as_bytes(), None, |_| None)
-        .ok()?;
+            configuration.configure(HIGHLIGHT_NAMES);
+            configs.insert(key.clone(), configuration);
+        }
+        let configuration = configs.get(&key)?;
+        let mut highlighter = Highlighter::new();
+        let events = highlighter
+            .highlight(configuration, code.as_bytes(), None, |_| None)
+            .ok()?;
 
-    let syntax = theme().syntax();
-    let mut active = Vec::new();
-    let mut lines = vec![Line::default()];
-    for event in events {
-        match event.ok()? {
-            HighlightEvent::Source { start, end } => {
-                let style = active
-                    .last()
-                    .map(|index| style_for(*index, syntax))
-                    .unwrap_or_else(|| theme().md_code());
-                // Tree-sitter byte offsets are char-aligned in practice, but a
-                // non-boundary slice would panic mid-draw and take down the TUI;
-                // fall back to unhighlighted rendering instead.
-                push_source(&mut lines, code.get(start..end)?, style);
-            }
-            HighlightEvent::HighlightStart(Highlight(index)) => active.push(index),
-            HighlightEvent::HighlightEnd => {
-                active.pop();
+        let syntax = theme().syntax();
+        let mut active = Vec::new();
+        let mut lines = vec![Line::default()];
+        for event in events {
+            match event.ok()? {
+                HighlightEvent::Source { start, end } => {
+                    let style = active
+                        .last()
+                        .map(|index| style_for(*index, syntax))
+                        .unwrap_or_else(|| theme().md_code());
+                    // Tree-sitter byte offsets are char-aligned in practice, but a
+                    // non-boundary slice would panic mid-draw and take down the TUI;
+                    // fall back to unhighlighted rendering instead.
+                    push_source(&mut lines, code.get(start..end)?, style);
+                }
+                HighlightEvent::HighlightStart(Highlight(index)) => active.push(index),
+                HighlightEvent::HighlightEnd => {
+                    active.pop();
+                }
             }
         }
-    }
-    Some(lines)
+        Some(lines)
+    })
 }
 
 fn push_source(lines: &mut Vec<Line<'static>>, source: &str, style: Style) {
