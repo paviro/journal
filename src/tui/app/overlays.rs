@@ -200,7 +200,10 @@ impl App {
         if let Err(err) = crate::tui::theme::ensure_bundled(&dir) {
             self.toast(
                 ToastVariant::Error,
-                format!("Couldn't prepare themes: {}", crate::tui::concise_error(&err)),
+                format!(
+                    "Couldn't prepare themes: {}",
+                    crate::tui::concise_error(&err)
+                ),
             );
         }
         let mode = crate::tui::theme::mode();
