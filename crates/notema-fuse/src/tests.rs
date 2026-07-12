@@ -280,10 +280,7 @@ fn writing_through_age_alias_cannot_overwrite_ciphertext_with_plaintext() {
     // so no writable handle onto the ciphertext can ever exist.
     let alias = cpath("/diary/note.md.age");
     let mut stat = empty_stat();
-    assert_eq!(
-        jf_getattr(fx.ctx, alias.as_ptr(), &mut stat),
-        -libc::ENOENT
-    );
+    assert_eq!(jf_getattr(fx.ctx, alias.as_ptr(), &mut stat), -libc::ENOENT);
     let mut fh = 0u64;
     assert_eq!(
         jf_open(fx.ctx, alias.as_ptr(), libc::O_RDWR, &mut fh),
