@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/assets/themes.svg" alt="Notema cycling through its bundled themes" width="800">
+</p>
+
 <h1 align="center">Notema&nbsp;間</h1>
 
 <p align="center">
