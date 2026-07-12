@@ -502,6 +502,16 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         if app.environment.has_pending() || app.environment_backfill_active() {
             poll_timeout = poll_timeout.min(Duration::from_millis(100));
         }
+        // While toasts are up, wake exactly when the countdown line next loses a
+        // column, so the shrink steps evenly instead of beating against a fixed
+        // poll rate (which stalls a frame, then jumps). `animate_toasts` repaints
+        // on each such wake.
+        if !app.toasts.items().is_empty() {
+            let cols = render::countdown_cols(terminal.size()?.width);
+            if let Some(step) = app.toasts.next_countdown_step(cols) {
+                poll_timeout = poll_timeout.min(step);
+            }
+        }
         // Wake to run a debounced search recompute once typing pauses.
         if app.search.dirty {
             let remaining = app
@@ -682,6 +692,9 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         let animate_loading = (app.image_viewer_state().is_some()
             && app.image.runtime.has_pending())
             || matches!(app.overlay, state::Overlay::FetchingEnvironment(_));
+        // Repaint each tick while toasts are visible so the countdown line
+        // shrinks continuously; the loop already wakes on the toast deadline.
+        let animate_toasts = !app.toasts.items().is_empty();
 
         if redraw
             || refreshed
@@ -693,6 +706,7 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
             || context_saved
             || reader_flash_changed
             || animate_loading
+            || animate_toasts
         {
             if overlay_closed && app.image.runtime.uses_graphics() {
                 terminal.clear()?;

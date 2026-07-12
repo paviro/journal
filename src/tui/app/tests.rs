@@ -441,6 +441,50 @@ fn expire_toasts_drops_only_expired_ones_and_reports_once() {
 }
 
 #[test]
+fn next_countdown_step_is_at_most_one_column_of_lifetime() {
+    let config = Config::new(tempdir().unwrap().path().to_path_buf());
+    let mut app = new_app(config);
+    app.toast(ToastVariant::Success, "Saved");
+
+    // A fresh toast over 40 columns steps roughly every lifetime/40; the wake is
+    // scheduled no later than one such column so the shrink never skips a step.
+    let step = app.toasts.next_countdown_step(40).unwrap();
+    assert!(step <= std::time::Duration::from_millis(5000 / 40));
+
+    // With no columns to draw (terminal too narrow) there is nothing to animate.
+    assert!(app.toasts.next_countdown_step(0).is_none());
+}
+
+#[test]
+fn long_messages_stay_up_longer_than_short_ones() {
+    let config = Config::new(tempdir().unwrap().path().to_path_buf());
+    let mut app = new_app(config);
+
+    // A short confirmation sits at the 5s floor.
+    app.toast(ToastVariant::Success, "Saved");
+    let short = app.toast_deadline().unwrap();
+    assert!(short <= std::time::Duration::from_secs(5));
+
+    let config = Config::new(tempdir().unwrap().path().to_path_buf());
+    let mut app = new_app(config);
+    // A long error lingers, capped at 10s.
+    app.toast(ToastVariant::Error, "e".repeat(200));
+    let long = app.toast_deadline().unwrap();
+    assert!(long > std::time::Duration::from_secs(5));
+    assert!(long <= std::time::Duration::from_secs(10));
+}
+
+#[test]
+fn next_countdown_step_is_none_for_an_expired_toast() {
+    let config = Config::new(tempdir().unwrap().path().to_path_buf());
+    let mut app = new_app(config);
+    app.toasts.push_expired(ToastVariant::Info, "Old");
+
+    // Its line is already empty, so there is no further column to schedule.
+    assert!(app.toasts.next_countdown_step(40).is_none());
+}
+
+#[test]
 fn toast_queue_caps_at_the_four_newest() {
     let config = Config::new(tempdir().unwrap().path().to_path_buf());
     let mut app = new_app(config);

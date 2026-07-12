@@ -96,7 +96,7 @@ use reader::draw_selected_reader;
 use reader::metadata_scrolls_with_body;
 #[cfg(test)]
 pub(crate) use toasts::toast_rects;
-pub(crate) use toasts::{draw_toasts, toast_at_point};
+pub(crate) use toasts::{countdown_cols, draw_toasts, toast_at_point};
 pub(crate) use unlock::draw_unlock;
 
 pub(crate) fn list_state_for_render(

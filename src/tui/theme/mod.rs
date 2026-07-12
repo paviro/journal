@@ -245,6 +245,9 @@ pub(crate) struct Glyphs {
     pub(crate) focus_stripe: char,
     /// The accent edges of a toast card (flat chrome).
     pub(crate) toast_edge: char,
+    /// The dismissal countdown line along a toast's bottom edge; the filled
+    /// span shrinks as the toast nears its deadline.
+    pub(crate) toast_progress: char,
     /// The separator between tab labels; always rendered with a space each
     /// side so the strip's width math stays fixed.
     pub(crate) tab_separator: char,

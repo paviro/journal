@@ -2961,11 +2961,19 @@ mod flat_chrome_tests {
             buffer[(80u16, 2u16)].bg,
             theme::test_flat_theme().element_bg()
         );
-        // Padding rows above and below the message stay blank.
-        for y in [1u16, 3u16] {
-            let row: String = (75..117).map(|x| buffer[(x as u16, y)].symbol()).collect();
-            assert_eq!(row.trim(), "");
-        }
+        // The top padding row stays blank.
+        let top: String = (75..117)
+            .map(|x| buffer[(x as u16, 1u16)].symbol())
+            .collect();
+        assert_eq!(top.trim(), "");
+        // The bottom row carries the dismissal countdown line: a freshly-pushed
+        // toast fills the inner span with an accent `─`, inset one column inside
+        // each edge stripe so cols 75 and 116 stay blank.
+        let countdown: String = (75..117)
+            .map(|x| buffer[(x as u16, 3u16)].symbol())
+            .collect();
+        assert_eq!(countdown, format!(" {} ", "─".repeat(40)));
+        assert_eq!(buffer[(76u16, 3u16)].fg, success.fg.unwrap());
     }
 
     #[test]
@@ -2985,6 +2993,23 @@ mod flat_chrome_tests {
         assert_ne!(buffer[(74u16, 4u16)].symbol(), "┃");
         assert_eq!(buffer[(74u16, 5u16)].symbol(), "┃");
         assert_eq!(buffer[(74u16, 5u16)].fg, error.fg.unwrap());
+    }
+
+    #[test]
+    fn expired_toast_shows_no_countdown_line() {
+        pin_flat();
+        let mut app = app_with_journals(&["alpha"]);
+        app.toasts
+            .push_expired(crate::tui::state::ToastVariant::Info, "Gone");
+
+        let backend = render_app(app, 120, 30);
+        let buffer = backend.buffer();
+
+        // Its remaining fraction is 0, so the bottom countdown row is blank.
+        let countdown: String = (75..117)
+            .map(|x| buffer[(x as u16, 3u16)].symbol())
+            .collect();
+        assert_eq!(countdown.trim(), "");
     }
 
     // Flat chrome has no top border for the box title to fold into, so the title
@@ -3035,12 +3060,20 @@ mod toast_bordered_tests {
         let backend = render_app(app, 120, 30);
         let buffer = backend.buffer();
 
+        // The box grows one row to give the countdown a line above the bottom
+        // border: ┌ row 1, message row 2, countdown row 3, └ row 4.
         assert_eq!(buffer[(74u16, 1u16)].symbol(), "┌");
         assert_eq!(buffer[(117u16, 1u16)].symbol(), "┐");
-        assert_eq!(buffer[(74u16, 3u16)].symbol(), "└");
+        assert_eq!(buffer[(74u16, 4u16)].symbol(), "└");
+        assert_eq!(buffer[(117u16, 4u16)].symbol(), "┘");
         if let Some(fg) = crate::tui::theme::theme().error().fg {
             assert_eq!(buffer[(74u16, 1u16)].fg, fg);
         }
+        // Row 3 carries the countdown line, inset one column inside the border.
+        let countdown: String = (75..117)
+            .map(|x| buffer[(x as u16, 3u16)].symbol())
+            .collect();
+        assert_eq!(countdown, format!(" {} ", "─".repeat(40)));
         let message_row: String = (75..117)
             .map(|x| buffer[(x as u16, 2u16)].symbol())
             .collect();

@@ -509,6 +509,8 @@ struct ToastSection {
 struct ToastGlyphsSection {
     /// The accent edges of a toast card (flat chrome).
     edge: Option<String>,
+    /// The dismissal countdown line along a toast's bottom edge.
+    progress: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -788,6 +790,7 @@ impl ThemeFile {
                 "borders.glyphs.focus_stripe",
             )?,
             toast_edge: glyph(&self.toast.glyphs.edge, '┃', "toast.glyphs.edge")?,
+            toast_progress: glyph(&self.toast.glyphs.progress, '─', "toast.glyphs.progress")?,
             tab_separator: glyph(&self.tabs.glyphs.separator, '·', "tabs.glyphs.separator")?,
             divider: glyph(
                 &border_furniture.and_then(|g| g.divider.clone()),

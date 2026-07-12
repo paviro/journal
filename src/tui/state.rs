@@ -10,7 +10,23 @@ use super::app::{EditFeelingState, EditLocationState, EditMetadataState, SearchS
 use super::image::ImageAsset;
 use super::text_input::TextInput;
 
-const TOAST_LIFETIME: Duration = Duration::from_secs(5);
+/// Shortest a toast stays up — brief confirmations ("Saved", "Theme set to …")
+/// sit here; longer messages linger proportionally to their reading time.
+const TOAST_MIN_LIFETIME: Duration = Duration::from_secs(5);
+
+/// Cap on a toast's lifetime, so even a long error clears itself.
+const TOAST_MAX_LIFETIME: Duration = Duration::from_secs(10);
+
+/// Reading budget granted per character; a message's lifetime is its length
+/// times this, clamped to [`TOAST_MIN_LIFETIME`]..=[`TOAST_MAX_LIFETIME`].
+const TOAST_MS_PER_CHAR: u64 = 100;
+
+/// How long a toast carrying `message` stays up: proportional to its length so
+/// longer text gets more reading time, clamped to the min/max window.
+fn toast_lifetime(message: &str) -> Duration {
+    let reading = Duration::from_millis(message.chars().count() as u64 * TOAST_MS_PER_CHAR);
+    reading.clamp(TOAST_MIN_LIFETIME, TOAST_MAX_LIFETIME)
+}
 
 /// Newest toasts kept when the queue overflows.
 const TOAST_CAP: usize = 4;
@@ -86,6 +102,21 @@ pub(crate) struct Toast {
     pub(crate) message: String,
     pub(crate) variant: ToastVariant,
     deadline: Instant,
+    /// How long this toast was granted, so the countdown line scales to its own
+    /// (length-dependent) lifetime rather than a fixed constant.
+    lifetime: Duration,
+}
+
+impl Toast {
+    /// Fraction of this toast's lifetime still remaining, `1.0` at push down to
+    /// `0.0` at the deadline. Drives the shrinking dismissal countdown line.
+    pub(crate) fn remaining_fraction(&self) -> f32 {
+        let left = self
+            .deadline
+            .saturating_duration_since(Instant::now())
+            .as_secs_f32();
+        (left / self.lifetime.as_secs_f32()).clamp(0.0, 1.0)
+    }
 }
 
 /// The toast queue: capped to the newest [`TOAST_CAP`], each toast expiring on
@@ -97,10 +128,13 @@ pub(crate) struct Toasts {
 
 impl Toasts {
     pub(crate) fn push(&mut self, variant: ToastVariant, message: impl Into<String>) {
+        let message = message.into();
+        let lifetime = toast_lifetime(&message);
         self.items.push(Toast {
-            message: message.into(),
+            message,
             variant,
-            deadline: Instant::now() + TOAST_LIFETIME,
+            deadline: Instant::now() + lifetime,
+            lifetime,
         });
         if self.items.len() > TOAST_CAP {
             self.items.drain(..self.items.len() - TOAST_CAP);
@@ -117,6 +151,33 @@ impl Toasts {
         self.items
             .iter()
             .map(|toast| toast.deadline.saturating_duration_since(Instant::now()))
+            .min()
+    }
+
+    /// Time until the countdown line loses its next column for whichever toast
+    /// is closest to a step, given the shared inner column count `cols`. Waking
+    /// exactly at this instant makes the shrink step evenly, rather than beating
+    /// against a fixed poll rate (which stalls a frame, then jumps). `None` when
+    /// nothing is animating (no toasts, no room, or all lines already empty).
+    pub(crate) fn next_countdown_step(&self, cols: u16) -> Option<Duration> {
+        if cols == 0 {
+            return None;
+        }
+        let columns = f32::from(cols);
+        let now = Instant::now();
+        self.items
+            .iter()
+            .filter_map(|toast| {
+                let lifetime = toast.lifetime.as_secs_f32();
+                let remaining = toast.deadline.saturating_duration_since(now).as_secs_f32();
+                let filled = (columns * remaining / lifetime).ceil();
+                if filled <= 0.0 {
+                    return None;
+                }
+                // Remaining life at which `filled` drops by one column.
+                let next = (filled - 1.0) * lifetime / columns;
+                Some(Duration::from_secs_f32((remaining - next).max(0.0)))
+            })
             .min()
     }
 
@@ -143,6 +204,7 @@ impl Toasts {
             message: message.into(),
             variant,
             deadline: Instant::now() - Duration::from_secs(1),
+            lifetime: TOAST_MIN_LIFETIME,
         });
     }
 }
