@@ -8,15 +8,16 @@ use std::{
 /// A unique hidden sibling temp path next to `target`, for atomic
 /// write-then-rename. Named `.notema-<pid>-<rand>.<suffix>` in the target's
 /// directory so it lands on the same filesystem as the eventual rename target.
-pub fn sibling_temp_path(target: &Path, suffix: &str) -> PathBuf {
+pub fn sibling_temp_path(target: &Path, suffix: &str) -> Result<PathBuf> {
     let parent = target.parent().unwrap_or_else(|| Path::new("."));
     let mut noise = [0u8; 8];
-    let _ = getrandom::getrandom(&mut noise);
-    parent.join(format!(
+    getrandom::getrandom(&mut noise)
+        .map_err(|error| crate::EncryptionError::Randomness(error.to_string()))?;
+    Ok(parent.join(format!(
         ".notema-{}-{}.{suffix}",
         std::process::id(),
         hex::encode(noise),
-    ))
+    )))
 }
 
 /// Write `content` to `path` via a sibling temp file plus rename, so a crash
@@ -36,7 +37,7 @@ fn write_atomic(path: &Path, content: &[u8], private: bool) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let temp = sibling_temp_path(path, "tmp");
+    let temp = sibling_temp_path(path, "tmp")?;
     let result = write_temp_then_rename(&temp, path, content, private);
     if result.is_err() {
         let _ = fs::remove_file(&temp);

@@ -1,3 +1,5 @@
+schema_version = 1
+
 # Journal — the default theme. Layered dark/light surfaces, teal primary.
 #
 # Colors accept "cyan", "#rrggbb", "0".."255" (ANSI index), "none" (terminal

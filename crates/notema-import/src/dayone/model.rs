@@ -30,14 +30,14 @@ where
 }
 
 #[derive(Debug, Deserialize)]
-pub struct DayOneExport {
+pub(crate) struct DayOneExport {
     #[serde(default)]
     pub entries: Vec<DayOneEntry>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DayOneEntry {
+pub(crate) struct DayOneEntry {
     pub uuid: String,
     /// Markdown body. Day One escapes literal punctuation with backslashes.
     #[serde(default)]
@@ -100,7 +100,7 @@ pub struct DayOneEntry {
 /// Motion sample Day One attaches to an entry from device sensors.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UserActivity {
+pub(crate) struct UserActivity {
     pub activity_name: Option<String>,
     pub step_count: Option<u64>,
 }
@@ -110,7 +110,7 @@ pub struct UserActivity {
 /// `type` and lives at `audios/<md5>.m4a` regardless of `format`.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Moment {
+pub(crate) struct Moment {
     pub identifier: String,
     pub md5: Option<String>,
     #[serde(rename = "type")]
@@ -151,7 +151,7 @@ pub struct Moment {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Location {
+pub(crate) struct Location {
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
     pub place_name: Option<String>,
@@ -165,21 +165,21 @@ pub struct Location {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Region {
+pub(crate) struct Region {
     pub center: Option<Coordinate>,
     pub radius: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Coordinate {
+pub(crate) struct Coordinate {
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Weather {
+pub(crate) struct Weather {
     pub conditions_description: Option<String>,
     pub temperature_celsius: Option<f64>,
     pub weather_code: Option<String>,

@@ -72,12 +72,12 @@ pub(crate) enum MetadataChip {
 /// Chips are tested in row order (feelings first) so overlapping rows resolve
 /// deterministically; each occupies a distinct row in practice.
 pub(crate) fn metadata_at_point(
-    entry_view_area: Rect,
+    reader_area: Rect,
     x: u16,
     y: u16,
     values: EntryMetadataValues<'_>,
 ) -> Option<(MetadataChip, String)> {
-    let layout = entry_metadata_layout(entry_view_area, values);
+    let layout = entry_metadata_layout(reader_area, values);
     [
         (MetadataChip::Feelings, layout.feelings, values.feelings),
         (MetadataChip::People, layout.people, values.people),

@@ -2,12 +2,85 @@
 //! provenance, duplicate skipping on re-run, and per-entry failure handling.
 //! (The body-transform details are unit-tested inside the crate.)
 
-use std::fs;
+use std::{collections::HashSet, fs, path::Path};
 
-use notema_core::ImportSource;
-use notema_import::import_dayone;
-use notema_storage::JournalStore;
+use notema_domain::ImportSource;
+use notema_storage::{AssetFailure, EntryAssetOptions, EntryDraft, JournalStore};
 use tempfile::TempDir;
+
+#[derive(Debug, Default)]
+struct ImportReport {
+    imported: usize,
+    skipped_duplicate: usize,
+    images_stored: usize,
+    images_failed: usize,
+    attachments_skipped: usize,
+    failures: Vec<String>,
+}
+
+fn import_dayone(
+    store: &JournalStore,
+    journal: &str,
+    path: &Path,
+    download_remote: bool,
+) -> anyhow::Result<ImportReport> {
+    if store.encrypts_new_files() && !store.is_unlocked() {
+        anyhow::bail!("the journal store is encrypted; unlock it before importing");
+    }
+    if !store
+        .list_journals()?
+        .iter()
+        .any(|item| item.name == journal)
+    {
+        store.create_journal(journal)?;
+    }
+    let mut seen: HashSet<_> = store.scan_import_sources()?.into_iter().collect();
+    let batch = notema_import::parse_dayone(path)?;
+    let mut report = ImportReport::default();
+    for warning in batch.warnings {
+        report
+            .failures
+            .push(format!("{}: {}", warning.entry_id, warning.message));
+    }
+    for entry in batch.entries {
+        if !seen.insert(entry.provenance.clone()) {
+            report.skipped_duplicate += 1;
+            continue;
+        }
+        let created = store.create_entry(
+            EntryDraft {
+                journal,
+                body: &entry.body,
+                metadata: &entry.metadata,
+                created_at: Some(entry.created_at),
+                edited_at: Some(entry.edited_at),
+                timezone: entry.timezone.as_deref(),
+                location: entry.location.as_ref(),
+                weather: entry.weather.as_ref(),
+                celestial: entry.celestial.as_ref(),
+                air_quality: None,
+                writing_seconds: entry.writing_seconds,
+                import: Some(&entry.provenance),
+            },
+            EntryAssetOptions {
+                download_remote,
+                replace_offline: download_remote,
+            },
+        )?;
+        report.imported += 1;
+        report.attachments_skipped += entry.attachments_skipped;
+        report.images_stored += created.assets.stored;
+        for failure in created.assets.failed {
+            if let AssetFailure::Ingest { source, error } = failure {
+                report.images_failed += 1;
+                report
+                    .failures
+                    .push(format!("{}: {source}: {error}", entry.provenance.id));
+            }
+        }
+    }
+    Ok(report)
+}
 
 /// The provenance a Day One import records for the entry with this uuid.
 fn dayone(id: &str) -> ImportSource {

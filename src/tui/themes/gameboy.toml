@@ -1,6 +1,8 @@
+schema_version = 1
+
 # Game Boy — the DMG pocket LCD: four shades of pea-green and nothing else.
 # Light mode is the classic sunlit screen (pale green, dark ink); dark mode is
-# the dim backlit-off look. Single-hue like crt/e-ink, so meaning rides weight
+# the dim backlit-off look. Single-hue like crt/eclipse, so meaning rides weight
 # and glyph — the chart series carry distinct fills to stay legible without hue.
 #
 # See journal.toml for the accepted color/style forms.

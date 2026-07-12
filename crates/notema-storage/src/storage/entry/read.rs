@@ -3,23 +3,23 @@ use super::{Entry, EntryEncryptionState, EntryPath, ImportSource, Metadata, Time
 use crate::storage::{journals::is_hidden_name, list_journals};
 use crate::{
     AppResult,
-    markdown::{FrontMatter, display_preview, front_matter_fields, split_front_matter},
+    markdown::{FrontMatter, display_preview, split_front_matter},
 };
 use anyhow::Context;
-use notema_core::entry::build_search_haystack;
-use notema_core::feelings::normalize_feelings;
+use notema_domain::build_search_haystack;
+use notema_domain::normalize_feelings;
 use notema_encryption as crypto;
 use rayon::prelude::*;
 use std::{fs, path::Path};
 
-pub fn scan_entries(
+pub(crate) fn scan_entries(
     root: &Path,
     identity: Option<&crypto::UnlockedIdentity>,
 ) -> AppResult<Vec<Entry>> {
     read_entries(collect_entry_paths(root)?, identity)
 }
 
-pub fn scan_import_sources(
+pub(crate) fn scan_import_sources(
     root: &Path,
     identity: Option<&crypto::UnlockedIdentity>,
 ) -> AppResult<Vec<ImportSource>> {
@@ -36,7 +36,7 @@ pub fn scan_import_sources(
 
 /// Walk the journal tree once and collect every entry file path without reading
 /// any file contents. Skips hidden directories.
-pub fn collect_entry_paths(root: &Path) -> AppResult<Vec<EntryPath>> {
+pub(crate) fn collect_entry_paths(root: &Path) -> AppResult<Vec<EntryPath>> {
     let mut paths = Vec::new();
     for journal in list_journals(root)? {
         collect_paths(&journal.name, &journal.path, &mut paths)?;
@@ -73,7 +73,7 @@ fn collect_paths(journal: &str, dir: &Path, paths: &mut Vec<EntryPath>) -> AppRe
 
 /// Read and parse (and, when encrypted, decrypt) the given entry paths in
 /// parallel, returning them sorted newest-first.
-pub fn read_entries(
+pub(crate) fn read_entries(
     paths: Vec<EntryPath>,
     identity: Option<&crypto::UnlockedIdentity>,
 ) -> AppResult<Vec<Entry>> {
@@ -85,7 +85,7 @@ pub fn read_entries(
     Ok(entries)
 }
 
-pub fn read_entry(
+pub(crate) fn read_entry(
     journal: &str,
     path: &Path,
     identity: Option<&crypto::UnlockedIdentity>,
@@ -115,8 +115,16 @@ pub fn read_entry(
         Err(error) => return Err(error),
     };
     let (front_matter, body) = split_front_matter(&content);
+    let (parsed, warning) = match front_matter {
+        Some(front_matter) => match crate::markdown::parse_front_matter(front_matter) {
+            Ok(parsed) => (parsed, None),
+            Err(error) => (FrontMatter::default(), Some(error.user_message())),
+        },
+        None => (FrontMatter::default(), None),
+    };
     // One TOML parse per entry instead of one per field.
     let FrontMatter {
+        schema_version: _,
         mut metadata,
         datetime,
         import,
@@ -124,7 +132,7 @@ pub fn read_entry(
         weather,
         celestial,
         air_quality,
-    } = front_matter.map(front_matter_fields).unwrap_or_default();
+    } = parsed;
     metadata.feelings = normalize_feelings(metadata.feelings.iter().map(String::as_str));
     let created_at = datetime.created_at.map(Timestamp::parse);
     // `datetime.timezone`/`writing_seconds` are capture-only: preserved on disk,
@@ -170,6 +178,7 @@ pub fn read_entry(
         body,
         word_count,
         search_haystack,
+        warning,
     })
 }
 
@@ -183,7 +192,13 @@ fn read_entry_import_source(
         Err(error) => return Err(error),
     };
     let (front_matter, _) = split_front_matter(&content);
-    Ok(front_matter.and_then(|front_matter| front_matter_fields(front_matter).import))
+    front_matter
+        .map(|front_matter| {
+            crate::markdown::parse_front_matter(front_matter)
+                .map(|parsed| parsed.import)
+                .map_err(anyhow::Error::new)
+        })
+        .unwrap_or(Ok(None))
 }
 
 fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {
@@ -238,10 +253,11 @@ fn placeholder_entry(
         body: body.to_string(),
         word_count: 0,
         search_haystack: String::new(),
+        warning: None,
     })
 }
 
-pub fn read_entry_content(
+pub(crate) fn read_entry_content(
     path: &Path,
     identity: Option<&crypto::UnlockedIdentity>,
 ) -> AppResult<String> {

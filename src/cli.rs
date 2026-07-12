@@ -1,10 +1,11 @@
 use crate::{AppResult, config, encryption_cli, prompts, tui};
 use anyhow::{Context, bail};
 use clap::{Args, Parser, Subcommand};
-use notema_core::feelings;
-use notema_core::{MOOD_RANGE, Metadata};
-use notema_storage::{JournalStore, SecretString};
+use notema_domain::{MOOD_RANGE, Metadata, validate_feelings};
+use notema_encryption::{PendingRequest, SecretString};
+use notema_storage::JournalStore;
 use std::{
+    collections::HashSet,
     io::{self, Read},
     path::{Path, PathBuf},
 };
@@ -62,30 +63,6 @@ enum CliCommand {
         #[arg(value_name = "MOUNTPOINT")]
         mountpoint: Option<PathBuf>,
     },
-    /// Fill a journal with backdated fake entries [debug builds only]
-    #[cfg(debug_assertions)]
-    Sample(SampleArgs),
-}
-
-/// Arguments for the debug-only `sample` command.
-#[cfg(debug_assertions)]
-#[derive(Debug, Args)]
-struct SampleArgs {
-    /// Journal to fill; created if it doesn't exist
-    #[arg(value_name = "NAME", default_value = "Sample")]
-    journal: String,
-
-    /// Number of entries to generate
-    #[arg(long, default_value_t = 750)]
-    count: usize,
-
-    /// Spread creation dates across the last N days
-    #[arg(long, default_value_t = 1095)]
-    days: i64,
-
-    /// Seed the generator for a reproducible dataset
-    #[arg(long)]
-    seed: Option<u64>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -223,7 +200,7 @@ struct LogArgs {
     body: Vec<String>,
 }
 
-pub fn run() -> AppResult<()> {
+pub(crate) fn run() -> AppResult<()> {
     let cli = Cli::parse();
     let stdin_is_pipe = stdin_has_command_input();
 
@@ -254,34 +231,7 @@ fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppRe
         CliCommand::Licenses { dependency } => crate::licenses::run(dependency.clone()),
         #[cfg(feature = "fuse")]
         CliCommand::Mount { mountpoint } => mount_command(cli, mountpoint.as_deref()),
-        #[cfg(debug_assertions)]
-        CliCommand::Sample(args) => generate_sample_data(cli, args),
     }
-}
-
-/// Populate a journal with fake entries for development. Debug builds only —
-/// the whole command is compiled out of release binaries.
-#[cfg(debug_assertions)]
-fn generate_sample_data(cli: &Cli, args: &SampleArgs) -> AppResult<()> {
-    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-    let store = JournalStore::for_config(&config_path, &config.journal.path)?;
-    store.ensure()?;
-
-    let created = notema_seed::generate(
-        &store,
-        &notema_seed::GenConfig {
-            journal: args.journal.clone(),
-            count: args.count,
-            days: args.days,
-            seed: args.seed,
-        },
-    )?;
-    println!(
-        "Generated {created} sample {} in journal \"{}\".",
-        if created == 1 { "entry" } else { "entries" },
-        args.journal
-    );
-    Ok(())
 }
 
 fn handle_encryption_command(cli: &Cli, command: &EncryptionCommand) -> AppResult<()> {
@@ -521,7 +471,7 @@ fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
              If you're waiting for approval, run `notema encryption device list` to see the \
              request, or approve it from a device that can already read this journal.\n\
              To start over, delete that identity file and re-run enroll.",
-            store.paths().keys.identity_file.display()
+            store.identity_path().display()
         );
     }
 
@@ -543,7 +493,7 @@ fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
     println!("  {} {name}", crate::APPROVE_CMD);
     println!(
         "Identity file: {}. Back it up; without it encrypted entries cannot be decrypted.",
-        store.paths().keys.identity_file.display()
+        store.identity_path().display()
     );
     if passphrase.is_none() {
         println!("This key has no passphrase — keep this device and its backups secure.");
@@ -622,10 +572,10 @@ fn device_rename_command(cli: &Cli, old: &str, new: &str) -> AppResult<()> {
 /// name. `action` names the operation in the "how to select" error. Errors if
 /// nothing was selected or matched; the empty-queue case is handled by callers.
 fn select_requests(
-    pending: Vec<notema_storage::PendingRequest>,
+    pending: Vec<PendingRequest>,
     args: &RequestSelectionArgs,
     action: &str,
-) -> AppResult<Vec<notema_storage::PendingRequest>> {
+) -> AppResult<Vec<PendingRequest>> {
     let selected: Vec<_> = if args.all {
         pending
     } else if let Some(which) = &args.which {
@@ -694,7 +644,63 @@ fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {
     // on an encrypted store requires the unlocked identity.
     unlock_if_encrypted(&mut store)?;
 
-    let report = notema_import::import_dayone(&store, &journal, &args.path, args.download_images)?;
+    let batch = notema_import::parse_dayone(&args.path)?;
+    if !store
+        .list_journals()?
+        .iter()
+        .any(|existing| existing.name == journal)
+    {
+        store.create_journal(&journal)?;
+    }
+    let mut seen: HashSet<_> = store.scan_import_sources()?.into_iter().collect();
+    let mut report = ImportReport::default();
+    for warning in batch.warnings {
+        report
+            .failures
+            .push(format!("{}: {}", warning.entry_id, warning.message));
+    }
+    for entry in batch.entries {
+        if !seen.insert(entry.provenance.clone()) {
+            report.skipped_duplicate += 1;
+            continue;
+        }
+        let created = store.create_entry(
+            notema_storage::EntryDraft {
+                journal: &journal,
+                body: &entry.body,
+                metadata: &entry.metadata,
+                created_at: Some(entry.created_at),
+                edited_at: Some(entry.edited_at),
+                timezone: entry.timezone.as_deref(),
+                location: entry.location.as_ref(),
+                weather: entry.weather.as_ref(),
+                celestial: entry.celestial.as_ref(),
+                air_quality: None,
+                writing_seconds: entry.writing_seconds,
+                import: Some(&entry.provenance),
+            },
+            notema_storage::EntryAssetOptions {
+                download_remote: args.download_images,
+                replace_offline: args.download_images,
+            },
+        )?;
+        report.imported += 1;
+        report.attachments_skipped += entry.attachments_skipped;
+        report.images_stored += created.assets.stored;
+        for failure in created.assets.failed {
+            match failure {
+                notema_storage::AssetFailure::RemoteUnavailable { .. } => {
+                    report.remote_images_skipped += 1;
+                }
+                notema_storage::AssetFailure::Ingest { source, error } => {
+                    report.images_failed += 1;
+                    report
+                        .failures
+                        .push(format!("{}: {source}: {error}", entry.provenance.id));
+                }
+            }
+        }
+    }
 
     println!(
         "{}",
@@ -706,11 +712,7 @@ fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {
     Ok(())
 }
 
-fn import_report_summary(
-    report: &notema_import::ImportReport,
-    journal: &str,
-    download_images: bool,
-) -> String {
+fn import_report_summary(report: &ImportReport, journal: &str, download_images: bool) -> String {
     let mut parts = vec![format!(
         "Imported {} {} into '{journal}'",
         report.imported,
@@ -761,6 +763,17 @@ fn import_report_summary(
     parts.join("; ")
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ImportReport {
+    imported: usize,
+    skipped_duplicate: usize,
+    images_stored: usize,
+    images_failed: usize,
+    remote_images_skipped: usize,
+    attachments_skipped: usize,
+    failures: Vec<String>,
+}
+
 fn plural(count: usize, one: &'static str, many: &'static str) -> &'static str {
     if count == 1 { one } else { many }
 }
@@ -790,7 +803,7 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
     let tags = comma_separated_values(&args.tag);
     let people = comma_separated_values(&args.person);
     let activities = comma_separated_values(&args.activity);
-    let feelings = feelings::validate_feelings(
+    let feelings = validate_feelings(
         args.feeling
             .iter()
             .flat_map(|f| f.split(','))

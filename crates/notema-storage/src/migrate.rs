@@ -1,8 +1,8 @@
 use crate::{AppResult, JournalStore, storage};
 use anyhow::{Context, bail};
 use chrono::Local;
-use notema_encryption::{self as crypto, KeyPaths};
 use nanoid::nanoid;
+use notema_encryption::{self as crypto, KeyPaths};
 use std::{
     ffi::OsStr,
     fs,
@@ -26,7 +26,7 @@ pub struct DecryptSummary {
 /// another device — the private key and roster pins it held while encrypted,
 /// renamed aside rather than deleted. Returned by [`reconcile_disabled_encryption`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DisabledElsewhereCleanup {
+pub(crate) struct DisabledElsewhereCleanup {
     pub disabled_identity_file: Option<PathBuf>,
     pub disabled_trust_file: Option<PathBuf>,
 }
@@ -42,9 +42,9 @@ enum MigrationMode<'a> {
 
 /// Progress sink for a whole-store migration: called with `(done, total)` once
 /// at the start (`0, total`) and after each file is converted.
-pub type ProgressFn<'a> = &'a mut dyn FnMut(usize, usize);
+pub(crate) type ProgressFn<'a> = &'a mut dyn FnMut(usize, usize);
 
-pub fn encrypt_store(
+pub(crate) fn encrypt_store(
     store: &JournalStore,
     progress: ProgressFn<'_>,
 ) -> AppResult<MigrationSummary> {
@@ -85,7 +85,7 @@ pub(crate) fn encrypt_store_without_backup(
     Ok(MigrationSummary { migrated_files })
 }
 
-pub fn decrypt_store(
+pub(crate) fn decrypt_store(
     store: &JournalStore,
     identity: &crypto::UnlockedIdentity,
     progress: ProgressFn<'_>,
@@ -123,7 +123,7 @@ pub fn decrypt_store(
 /// - Requires no encrypted entries to remain, so a half-synced store (roster gone
 ///   but entries still `.age`) keeps the key that can still read them until the
 ///   plaintext conversions finish syncing.
-pub fn reconcile_disabled_encryption(
+pub(crate) fn reconcile_disabled_encryption(
     store: &JournalStore,
 ) -> AppResult<Option<DisabledElsewhereCleanup>> {
     let paths = &store.paths().keys;
@@ -153,7 +153,7 @@ pub fn reconcile_disabled_encryption(
 /// genesis is unchanged, so they still guard a re-enroll against a swapped or
 /// rolled-back roster. Returns the renamed path, or `None` when no identity
 /// exists here.
-pub fn retire_revoked_identity(store: &JournalStore) -> AppResult<Option<PathBuf>> {
+pub(crate) fn retire_revoked_identity(store: &JournalStore) -> AppResult<Option<PathBuf>> {
     let paths = &store.paths().keys;
     if !paths.identity_file.exists() {
         return Ok(None);
@@ -199,7 +199,7 @@ fn clear_age_dir(paths: &KeyPaths) -> AppResult<()> {
 /// Converts every file or returns `Err` on the first failure, leaving the store
 /// partially converted. Callers must run this inside [`atomic`] so such a
 /// failure rolls the whole store back rather than stranding it mid-conversion.
-pub fn reencrypt_store(
+pub(crate) fn reencrypt_store(
     store: &JournalStore,
     identity: &crypto::UnlockedIdentity,
     progress: ProgressFn<'_>,
@@ -231,13 +231,13 @@ fn reencrypt_file(
     identity: &crypto::UnlockedIdentity,
 ) -> AppResult<()> {
     let plaintext = crypto::decrypt_file_bytes(identity, path)?;
-    let temp = crypto::sibling_temp_path(path, "tmp.age");
+    let temp = crypto::sibling_temp_path(path, "tmp.age")?;
     recipients.encrypt_to_file(&plaintext, &temp)?;
     fs::rename(&temp, path)?;
     Ok(())
 }
 
-pub fn store_has_encrypted_entry_files(store: &JournalStore) -> AppResult<bool> {
+pub(crate) fn store_has_encrypted_entry_files(store: &JournalStore) -> AppResult<bool> {
     let mut has_match = false;
     collect_store_files_including_trash(store.paths().journal_root.as_path(), &mut |path| {
         if storage::is_encrypted_entry_file(path) {
@@ -354,7 +354,7 @@ fn convert_asset_file(path: &Path, mode: &MigrationMode<'_>) -> AppResult<()> {
     match mode {
         MigrationMode::Encrypt { recipients } => {
             let target = append_age(path);
-            let temp = crypto::sibling_temp_path(&target, "tmp.age");
+            let temp = crypto::sibling_temp_path(&target, "tmp.age")?;
             let plaintext = crypto::PlaintextBytes::from_vec(fs::read(path)?);
             recipients.encrypt_to_file(&plaintext, &temp)?;
             fs::rename(&temp, &target)?;
@@ -362,7 +362,7 @@ fn convert_asset_file(path: &Path, mode: &MigrationMode<'_>) -> AppResult<()> {
         }
         MigrationMode::Decrypt { identity } => {
             let target = strip_age(path)?;
-            let temp = crypto::sibling_temp_path(&target, "tmp");
+            let temp = crypto::sibling_temp_path(&target, "tmp")?;
             let plaintext = crypto::decrypt_file_bytes(identity, path)?;
             fs::write(&temp, plaintext.as_bytes())?;
             fs::rename(&temp, &target)?;
@@ -463,7 +463,7 @@ fn ensure_no_asset_collisions(files: &[PathBuf], mode: &MigrationMode<'_>) -> Ap
 
 fn encrypt_plain_entry(path: &Path, recipients: &crypto::EncryptionRecipients) -> AppResult<()> {
     let target = path.with_extension("md.age");
-    let temp = crypto::sibling_temp_path(&target, "tmp.age");
+    let temp = crypto::sibling_temp_path(&target, "tmp.age")?;
     let plaintext = crypto::PlaintextBytes::from_vec(fs::read(path)?);
     recipients.encrypt_to_file(&plaintext, &temp)?;
     fs::rename(&temp, &target)?;
@@ -473,7 +473,7 @@ fn encrypt_plain_entry(path: &Path, recipients: &crypto::EncryptionRecipients) -
 
 fn decrypt_encrypted_entry(path: &Path, identity: &crypto::UnlockedIdentity) -> AppResult<()> {
     let target = decrypted_entry_path(path)?;
-    let temp = crypto::sibling_temp_path(&target, "tmp.md");
+    let temp = crypto::sibling_temp_path(&target, "tmp.md")?;
     let plaintext = crypto::decrypt_file_bytes(identity, path)?;
     if std::str::from_utf8(plaintext.as_bytes())?.is_empty() {
         bail!("decrypted entry is empty: {}", path.display());

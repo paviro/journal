@@ -54,7 +54,7 @@ pub(crate) fn app_with_entry() -> App {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join("a.md"),
-            "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+            "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
     });
@@ -72,7 +72,7 @@ pub(crate) fn app_with_entries(count: usize) -> App {
             fs::write(
                 entry_dir.join(format!("{index}.md")),
                 format!(
-                    "+++\n[datetime]\ncreated_at = \"2026-07-01T10:{index:02}:00+02:00\"\n+++\n\n# Entry {index}\nPreview {index}\n"
+                    "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:{index:02}:00+02:00\"\n+++\n\n# Entry {index}\nPreview {index}\n"
                 ),
             )
             .unwrap();

@@ -55,8 +55,7 @@ pub(crate) fn draw_unlock(
     // The container: titled top-left, generous padding around its contents.
     let container = super::container_block("Enter Password");
     let overhead = super::container_block_vertical_inset(&container, inner);
-    let container_height =
-        (overhead + CONTAINER_CONTENT_HEIGHT + status_lines).min(inner.height);
+    let container_height = (overhead + CONTAINER_CONTENT_HEIGHT + status_lines).min(inner.height);
 
     // Center the container box within the outer border.
     let [group] = Layout::vertical([Constraint::Length(container_height)])

@@ -4,21 +4,26 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 
 [dependencies]
-anyhow = "1"
-notema-core = { path = "../notema-core" }
-notema-storage = { path = "../notema-storage" }
-libc = "0.2"
-zeroize = "1"
+anyhow.workspace = true
+notema-storage.workspace = true
+libc.workspace = true
+zeroize.workspace = true
 
 [build-dependencies]
 # Compile the C bridge (bridge.c) and link the system libfuse3. Using libfuse's
 # own high-level API means the mount is driven by libfuse's event loop, which is
 # what kext-free backends like fuse-t require — and it works equally with libfuse3
 # on Linux and macFUSE on macOS.
-cc = "1"
-pkg-config = "0.3"
+cc.workspace = true
+pkg-config.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+notema-encryption.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -4,21 +4,26 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 
 [dependencies]
-notema-core = { path = "../notema-core" }
-notema-encryption = { path = "../notema-encryption" }
-anyhow = "1"
-chrono = { version = "0.4", features = ["serde"] }
-iana-time-zone = "0.1"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp"] }
-moxcms = "0.8"
-nanoid = "0.5.0"
-rayon = "1"
-serde = { version = "1", features = ["derive"] }
-thiserror = "2"
-toml = "1.1"
-ureq = { version = "3", default-features = false, features = ["rustls"] }
+notema-domain.workspace = true
+notema-encryption.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+iana-time-zone.workspace = true
+image = { workspace = true, features = ["jpeg", "png", "gif", "webp", "bmp"] }
+moxcms.workspace = true
+nanoid.workspace = true
+rayon.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+ureq.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
+
+[lints]
+workspace = true

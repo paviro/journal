@@ -2,10 +2,8 @@ use crate::{
     AppResult,
     config::{Config, State},
 };
-use notema_core::feelings::{FEELING_GROUPS, normalize_feeling};
-use notema_core::{
-    Entry, EntryEncryptionState, EntryPath, SearchHit, entry_group_date, search_loaded_entries,
-};
+use notema_domain::{Entry, EntryEncryptionState, EntryPath, SearchHit, entry_group_date};
+use notema_domain::{FEELING_GROUPS, normalize_feeling};
 use notema_storage::{Journal, JournalStore, entry_timestamp_label, is_entry_file};
 use std::{
     cell::RefCell,
@@ -22,6 +20,7 @@ use ratatui::{
     widgets::ListState,
 };
 
+use super::search::search_loaded_entries;
 use super::state::{
     DeleteContext, EditMoodState, HoverTarget, ImageViewerState, MetadataKind, Overlay,
     ScrollState, SearchState, ToastVariant, Toasts, move_list_selection,
@@ -37,7 +36,7 @@ pub(crate) const JOURNAL_LIST_WIDTH: u16 = 27;
 pub(crate) const ENTRY_LIST_INLINE_WIDTH: u16 = 47;
 pub(crate) const ENTRY_LIST_MIN_WIDTH: u16 = 40;
 pub(crate) const TWO_PANEL_MIN_WIDTH: u16 = 87;
-pub(crate) const INLINE_ENTRY_VIEW_MIN_WIDTH: u16 = 125;
+pub(crate) const INLINE_READER_MIN_WIDTH: u16 = 125;
 
 /// Rows moved per PageUp/PageDown, as a multiple of a single-line scroll.
 const PAGE_STEP: i16 = 10;
@@ -46,7 +45,7 @@ const PAGE_STEP: i16 = 10;
 pub(crate) enum Focus {
     Journals,
     Entries,
-    EntryView,
+    Reader,
     /// The journal insights panel — the right-hand column when no entry is
     /// selected. Reached with Right past Entries; its Left/Right cycle tabs.
     Insights,
@@ -58,7 +57,7 @@ pub(crate) enum Mode {
     Search,
 }
 
-pub(crate) use notema_core::SearchScope;
+pub(crate) use notema_domain::SearchScope;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EntryTarget {
@@ -87,14 +86,43 @@ struct EntryRowKey {
     theme: crate::tui::theme::Theme,
 }
 
-/// Rendered entry-body lines plus the clickable `(body line, image index)` label
-/// positions — the output of the markdown parse/render pipeline, memoized because
-/// it is the dominant per-frame cost of the preview pane.
-pub(crate) type RenderedEntryBody = (Vec<Line<'static>>, Vec<(usize, usize)>);
+/// The Reader output of the Markdown parse/render pipeline, memoized because it
+/// is the dominant per-frame cost of the Reader pane.
+#[derive(Default)]
+pub(crate) struct RenderedEntryBody {
+    pub(crate) lines: Vec<Line<'static>>,
+    pub(crate) images: Vec<(usize, usize)>,
+    pub(crate) links: Vec<ReaderLinkHit>,
+    pub(crate) headings: Vec<ReaderHeading>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ReaderLinkHit {
+    pub(crate) line: usize,
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) target: String,
+    /// Document-unique id shared by every segment of one link. A link name that
+    /// wraps across display lines yields several hits with the same `group`, so
+    /// hovering any segment can highlight the whole name as one link.
+    pub(crate) group: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ReaderHeading {
+    pub(crate) anchor: String,
+    pub(crate) line: usize,
+}
+
+pub(crate) struct ReaderAnchorFlash {
+    pub(crate) line: usize,
+    pub(crate) until: Instant,
+}
 
 /// Cache key for [`App::cached_entry_body`]: the rendered body is fully
 /// determined by which entry is shown (`path` + `version`), the wrap width,
-/// and the theme (markdown colors, glyphs, and syntax highlighting are baked
+/// whether link URLs are shown, and the theme (markdown colors, glyphs, and
+/// syntax highlighting are baked
 /// into the lines — the picker's live preview must rebuild them). The
 /// `version` is [`RenderCaches::entries_version`] — not the rows version —
 /// because the body depends only on entry content, not on which search hits
@@ -106,6 +134,7 @@ struct EntryBodyKey {
     path: Option<PathBuf>,
     width: usize,
     theme: crate::tui::theme::Theme,
+    show_link_urls: bool,
 }
 
 /// The per-frame render memo caches and the version counters that invalidate
@@ -126,7 +155,7 @@ struct EntryBodyKey {
 struct RenderCaches {
     /// Memoized entry-list rows, keyed by [`EntryRowKey`].
     entry_row_cache: RefCell<Option<(EntryRowKey, Rc<EntryRowCache>)>>,
-    /// Memoized rendered body lines for the entry preview, keyed by
+    /// Memoized rendered body lines for the entry reader, keyed by
     /// [`EntryBodyKey`]. Rebuilt only when the shown entry or wrap width changes,
     /// so scroll and image ticks reuse it.
     entry_body_cache: RefCell<Option<(EntryBodyKey, Rc<RenderedEntryBody>)>>,
@@ -269,7 +298,7 @@ pub(crate) struct Library {
     /// and the entry count avoid re-scanning the whole `entries` Vec each call.
     journal_ranges: HashMap<String, Range<usize>>,
     /// Entry id → index into `entries`, rebuilt whenever `entries` is reloaded.
-    /// In Search mode the preview getters resolve a hit's `&Entry` through this
+    /// In Search mode the reader getters resolve a hit's `&Entry` through this
     /// instead of an O(entries) `iter().find`, so a single frame no longer does
     /// several full linear scans.
     entry_index_by_id: HashMap<String, usize>,
@@ -319,13 +348,13 @@ impl Library {
 }
 
 /// Where the reader is in the loaded [`Library`]: the two list selections, the
-/// preview scroll, which pane has keyboard focus, and Browse-vs-Search mode.
+/// reader scroll, which pane has keyboard focus, and Browse-vs-Search mode.
 /// Transient UI position (not content) — it survives a store reload, unlike the
 /// data in `Library`.
 pub(crate) struct Nav {
     pub(crate) journal_list: ListState,
     /// The selected entry (or search hit) index, or `None` when no entry is
-    /// selected. In Browse mode `None` shows the journal insights in the preview
+    /// selected. In Browse mode `None` shows the journal insights in the reader
     /// pane instead of an entry — reached by scrolling up past the first entry
     /// or clicking empty space in the list.
     pub(crate) selected_entry_index: Option<usize>,
@@ -335,9 +364,9 @@ pub(crate) struct Nav {
     /// Whether the focused entry viewer is expanded to the full screen, hiding the
     /// other columns. Only ever set in multi-column layouts (single-column already
     /// renders the viewer full-screen); reset when focus leaves the viewer.
-    pub(crate) entry_view_fullscreen: bool,
+    pub(crate) reader_fullscreen: bool,
     /// Whether the focused insights panel is expanded to the full screen. Like
-    /// [`Self::entry_view_fullscreen`] it only matters in multi-column layouts
+    /// [`Self::reader_fullscreen`] it only matters in multi-column layouts
     /// (single-column already renders the panel full-screen) and is reset when
     /// focus leaves the panel.
     pub(crate) insights_fullscreen: bool,
@@ -364,7 +393,7 @@ impl Default for Nav {
             entry_list: ListState::default(),
             scroll: ScrollState::default(),
             focus: Focus::Journals,
-            entry_view_fullscreen: false,
+            reader_fullscreen: false,
             insights_fullscreen: false,
             mode: Mode::Browse,
             insights_tab: InsightsTab::default(),
@@ -415,7 +444,8 @@ pub(crate) struct App {
     /// direct location-set write-backs).
     pub(crate) next_environment_id: u64,
     /// Clickable `[Image N …]` label positions from the last entry-view render.
-    pub(crate) entry_view_image_hits: EntryViewImageHits,
+    pub(crate) reader_image_hits: ReaderImageHits,
+    pub(crate) reader_anchor_flash: Option<ReaderAnchorFlash>,
     /// The insights list scrollbar geometry from the last render, so a mouse drag
     /// can map cursor rows back to a scroll offset. `total == 0` means the current
     /// tab has no scrollable list (no bar drawn).
@@ -432,13 +462,15 @@ pub(crate) struct App {
 /// Clickable image label positions in the entry view, captured at render time so
 /// the mouse handler can map a click back to an image index.
 #[derive(Default)]
-pub(crate) struct EntryViewImageHits {
+pub(crate) struct ReaderImageHits {
     pub(crate) content_rect: Rect,
     pub(crate) scroll: u16,
     /// Total rendered body line count, for mapping a scrollbar drag to a scroll offset.
     pub(crate) line_count: usize,
     /// `(body line index, image index)` per label line.
     pub(crate) labels: Vec<(usize, usize)>,
+    pub(crate) links: Vec<ReaderLinkHit>,
+    pub(crate) headings: Vec<ReaderHeading>,
 }
 
 /// The insights list scrollbar geometry captured at render time, so the mouse
@@ -458,7 +490,7 @@ pub(crate) struct InsightsScrollGeometry {
 pub(crate) enum ScrollbarDrag {
     Journals,
     EntryList,
-    EntryView,
+    Reader,
     Insights,
 }
 
@@ -503,7 +535,8 @@ impl App {
             backfill_inflight: None,
             backfill_last_dispatch: None,
             next_environment_id: 0,
-            entry_view_image_hits: EntryViewImageHits::default(),
+            reader_image_hits: ReaderImageHits::default(),
+            reader_anchor_flash: None,
             insights_scroll: InsightsScrollGeometry::default(),
             scrollbar: ScrollbarDragState::default(),
             hover: HoverTarget::default(),
@@ -599,7 +632,7 @@ impl App {
     /// full [`Self::refresh`], since the journal list or grouping may have moved.
     pub(crate) fn refresh_paths(&mut self, paths: &[PathBuf]) -> AppResult<()> {
         self.store.ensure()?;
-        let root = self.store.paths().journal_root.clone();
+        let root = self.store.root().to_path_buf();
 
         // notify frequently reports the same path several times per change.
         let mut changed = paths.to_vec();
@@ -691,7 +724,7 @@ impl App {
 
     /// Return the memoized rendered body for the entry at `path`/`width`, building
     /// it with `build` only on a cache miss (entry or width changed, or the store
-    /// reloaded). The markdown parse+render `build` runs is the preview pane's
+    /// reloaded). The markdown parse+render `build` runs is the reader pane's
     /// dominant per-frame cost, so this keeps scroll and image-tick redraws cheap.
     pub(crate) fn cached_entry_body(
         &self,
@@ -704,11 +737,12 @@ impl App {
             path: path.map(Path::to_path_buf),
             width,
             theme: crate::tui::theme::theme(),
+            show_link_urls: self.config.ui.layout.reader.show_link_urls,
         };
         self.caches.body(key, build)
     }
 
-    /// Precomputed word count of the entry currently shown in the preview, or 0
+    /// Precomputed word count of the entry currently shown in the reader, or 0
     /// when none is selected.
     pub(crate) fn selected_entry_word_count(&self) -> usize {
         self.resolved_selected_entry()
@@ -785,20 +819,16 @@ impl App {
         )
     }
 
-    pub(crate) fn scroll_entry_view(&mut self, delta: i16) {
+    pub(crate) fn scroll_reader(&mut self, delta: i16) {
         if delta.is_negative() {
-            self.nav.scroll.entry_view = self
-                .nav
-                .scroll
-                .entry_view
-                .saturating_sub(delta.unsigned_abs());
+            self.nav.scroll.reader = self.nav.scroll.reader.saturating_sub(delta.unsigned_abs());
         } else {
-            self.nav.scroll.entry_view = self.nav.scroll.entry_view.saturating_add(delta as u16);
+            self.nav.scroll.reader = self.nav.scroll.reader.saturating_add(delta as u16);
         }
     }
 
-    pub(crate) fn page_entry_view(&mut self, delta: i16) {
-        self.scroll_entry_view(delta.saturating_mul(PAGE_STEP));
+    pub(crate) fn page_reader(&mut self, delta: i16) {
+        self.scroll_reader(delta.saturating_mul(PAGE_STEP));
     }
 
     /// Scroll the insights list by `delta` rows. The offset saturates here and is
@@ -905,11 +935,11 @@ fn metadata_values(entry: &Entry, kind: MetadataKind) -> &[String] {
     }
 }
 
-pub(crate) fn inline_entry_view_is_visible(width: u16) -> bool {
-    width >= INLINE_ENTRY_VIEW_MIN_WIDTH
+pub(crate) fn inline_reader_is_visible(width: u16) -> bool {
+    width >= INLINE_READER_MIN_WIDTH
 }
 
-pub(crate) fn entry_view_is_available(width: u16) -> bool {
+pub(crate) fn reader_is_available(width: u16) -> bool {
     width >= TWO_PANEL_MIN_WIDTH
 }
 

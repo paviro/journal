@@ -14,7 +14,7 @@ on light, dark, and monochrome/e-ink terminals.
 
 ## Features
 
-- **TUI** — three-pane browser (journals / entries / preview) with mouse and
+- **TUI** — three-pane browser (journals / entries / reader) with mouse and
   keyboard (arrows + vim keys) navigation, live rendered markdown, in-terminal
   image rendering, and entry metadata.
 - **Fuzzy search** across the whole corpus, including metadata.
@@ -102,7 +102,7 @@ IP-based fallback, so nothing new leaves the device beyond the Nominatim lookup:
   `journal` embeds a small signed helper app, extracts it to
   `~/Library/Application Support/de.paviro.notema/` on first use, and reads the
   fix from it. The helper is built, signed, and (for release builds) notarized by
-  `notema-storage`'s build script, so it is never a committed binary. Grant
+  `notema-context`'s build script, so it is never a committed binary. Grant
   Location access when first prompted, or later in System Settings → Privacy &
   Security → Location Services.
 
@@ -130,11 +130,14 @@ Entries are markdown files with TOML front-matter, bucketed by date:
 
 ```markdown
 +++
-created_at = "2026-07-05T14:30:00+02:00"
-edited_at = "2026-07-05T14:30:00+02:00"
+schema_version = 1
 tags = ["work"]
 feelings = ["focused"]
 mood = 3
+
+[datetime]
+created_at = "2026-07-05T14:30:00+02:00"
+edited_at = "2026-07-05T14:30:00+02:00"
 +++
 
 # Entry body
@@ -148,6 +151,9 @@ on macOS), and are **never** part of the journal folder.
 The complete on-disk format — every front-matter field, the config/state files,
 and how to recover encrypted entries with the standard `age` CLI — is documented
 in [`docs/STORAGE-FORMAT.md`](docs/STORAGE-FORMAT.md).
+
+The workspace boundaries and dependency rules are in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Sync
 
@@ -361,9 +367,10 @@ theme = "blossom"               # a theme in <config-dir>/themes/ — see docs/T
 color_mode = "auto"             # auto | dark | light theme variant
 chrome = "default"              # default | flat | bordered — default follows the theme
 
-[ui.layout.entry_viewer]
+[ui.layout.reader]
 body_center_vertically = true   # center a short entry in the viewer when it fits
 body_max_width = 100            # cap the entry body width in cells (0 = no cap)
+show_link_urls = false          # show each link's target URL as a faint (url) after its name
 ```
 
 Runtime chrome toggles (`show_hints`, `show_journals`) aren't set here — they're

@@ -1,3 +1,5 @@
+schema_version = 1
+
 # Classic — the app's original look: terminal colors, drawn borders, reversed
 # selection. Every value below matches the built-in fallback; omitted keys
 # default to exactly these values.

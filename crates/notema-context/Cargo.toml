@@ -1,0 +1,27 @@
+[package]
+name = "notema-context"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+notema-domain.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sunrise.workspace = true
+thiserror.workspace = true
+ureq.workspace = true
+
+# Device location ("grab current GPS") providers, one per platform so no crate is
+# pulled in where it isn't used. See src/device_location/. macOS has no crate dep:
+# it extracts and runs the bundled `notema-locate` helper .app (a bare binary
+# can't get CoreLocation authorization on modern macOS).
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus.workspace = true
+
+[lints]
+workspace = true

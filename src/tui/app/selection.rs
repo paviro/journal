@@ -59,24 +59,24 @@ impl App {
         (index + divider_before) * crate::tui::render::journal_row_height() as usize
     }
 
-    /// Whether an entry is the active preview: one is selected *and* focus sits on
-    /// a column that owns it (the entry list or the entry viewer). Browsing the
+    /// Whether an entry is showing in the reader: one is selected *and* focus sits on
+    /// a column that owns it (the entry list or the reader pane). Browsing the
     /// journal list or the insights panel — even with a selection lingering from an
-    /// earlier preview — is not previewing an entry; both those columns show insights
+    /// earlier view — is not showing an entry; both those columns show insights
     /// in the shared right-hand pane instead. Both the entry-list highlight and the
-    /// preview-vs-insights choice key off this single predicate so they can never
+    /// reader-vs-insights choice key off this single predicate so they can never
     /// disagree.
-    fn entry_is_previewed(&self) -> bool {
-        matches!(self.nav.focus, Focus::Entries | Focus::EntryView)
+    fn entry_in_reader(&self) -> bool {
+        matches!(self.nav.focus, Focus::Entries | Focus::Reader)
             && self.nav.selected_entry_index.is_some()
     }
 
-    /// The preview pane shows journal insights (instead of an entry) when browsing and
-    /// no entry is being previewed. The internal editor takes over that pane, so it
-    /// suppresses the insights preview even when no entry is selected (e.g. a new
+    /// The reader pane shows journal insights (instead of an entry) when browsing and
+    /// no entry is being shown. The internal editor takes over that pane, so it
+    /// suppresses the insights view even when no entry is selected (e.g. a new
     /// entry being composed).
-    pub(crate) fn show_journal_insights_preview(&self) -> bool {
-        self.editor.is_none() && self.nav.mode == Mode::Browse && !self.entry_is_previewed()
+    pub(crate) fn show_journal_insights(&self) -> bool {
+        self.editor.is_none() && self.nav.mode == Mode::Browse && !self.entry_in_reader()
     }
 
     /// Whether the insights panel is the focused pane — the context in which its
@@ -88,7 +88,7 @@ impl App {
 
     /// Whether the entries list should draw a highlighted selection row.
     pub(crate) fn entries_highlighted(&self) -> bool {
-        self.entry_is_previewed()
+        self.entry_in_reader()
     }
 
     /// Clamp only the journal list's *selection* index into `[0, len)`. The offset
@@ -147,7 +147,8 @@ impl App {
 
     pub(super) fn reset_entry_scroll(&mut self) {
         *self.nav.entry_list.offset_mut() = 0;
-        self.nav.scroll.reset_entry_view();
+        self.nav.scroll.reset_reader();
+        self.reader_anchor_flash = None;
     }
 
     pub(crate) fn scroll_entry_list(
@@ -191,7 +192,7 @@ impl App {
     }
 
     /// The entry backing the current selection, resolving a search hit through
-    /// the id index. Unifies the Search/Browse branches the preview getters share.
+    /// the id index. Unifies the Search/Browse branches the reader getters share.
     pub(crate) fn resolved_selected_entry(&self) -> Option<&Entry> {
         match self.nav.mode {
             Mode::Search => self.library.entry_by_id(&self.selected_search_hit()?.id),
@@ -205,7 +206,7 @@ impl App {
             // nothing there (tabs switch with Left/Right).
             Focus::Insights => return,
             Focus::Journals if self.nav.mode == Mode::Browse => self.library.journals.len(),
-            Focus::Entries | Focus::EntryView | Focus::Journals => self.current_entry_list_len(),
+            Focus::Entries | Focus::Reader | Focus::Journals => self.current_entry_list_len(),
         };
         if len == 0 {
             return;
@@ -214,7 +215,7 @@ impl App {
         let previous_entry_index = self.nav.selected_entry_index;
         if self.nav.focus == Focus::Journals && self.nav.mode == Mode::Browse {
             move_list_selection(&mut self.nav.journal_list, len, delta);
-            // Browsing journals previews the journal's insights, not an entry: leave the
+            // Browsing journals shows the journal's insights, not an entry: leave the
             // entry selection empty until the user moves into the entries column.
             self.nav.selected_entry_index = None;
             *self.nav.entry_list.offset_mut() = 0;
@@ -241,7 +242,7 @@ impl App {
             }
         }
         if self.nav.selected_entry_index != previous_entry_index {
-            self.nav.scroll.entry_view = 0;
+            self.nav.scroll.reader = 0;
         }
     }
 
@@ -252,8 +253,8 @@ impl App {
 
         if self.selected_journal_index() != index {
             self.nav.journal_list.select(Some(index));
-            // Selecting a journal previews its insights, not an entry: clear any entry
-            // selection so the insights column shows and no preview is rendered.
+            // Selecting a journal shows its insights, not an entry: clear any entry
+            // selection so the insights column shows and no reader is rendered.
             self.nav.selected_entry_index = None;
             self.reset_entry_scroll();
         }
@@ -266,7 +267,7 @@ impl App {
 
         if self.nav.selected_entry_index != Some(index) {
             self.nav.selected_entry_index = Some(index);
-            self.nav.scroll.entry_view = 0;
+            self.nav.scroll.reader = 0;
         }
     }
 
@@ -289,11 +290,11 @@ impl App {
         self.nav.focus = Focus::Entries;
     }
 
-    pub(crate) fn focus_entry_view_from_click(&mut self) {
-        if self.nav.focus != Focus::EntryView {
-            self.nav.entry_view_fullscreen = false;
+    pub(crate) fn focus_reader_from_click(&mut self) {
+        if self.nav.focus != Focus::Reader {
+            self.nav.reader_fullscreen = false;
         }
-        self.nav.focus = Focus::EntryView;
+        self.nav.focus = Focus::Reader;
     }
 
     pub(crate) fn focus_insights(&mut self) {
@@ -324,7 +325,7 @@ impl App {
             self.nav.selected_entry_index = Some(index);
         }
         if reset_entry_scroll {
-            self.nav.scroll.entry_view = 0;
+            self.nav.scroll.reader = 0;
         }
         true
     }
@@ -400,16 +401,15 @@ impl App {
     }
 
     pub(crate) fn can_act_on_selected_entry(&self) -> bool {
-        matches!(self.nav.focus, Focus::Entries | Focus::EntryView)
-            && self.has_selected_entry_target()
+        matches!(self.nav.focus, Focus::Entries | Focus::Reader) && self.has_selected_entry_target()
     }
 
     /// Whether the entry viewer currently occupies the whole screen: either the
     /// terminal is single-column (no room for other panes) or the viewer has been
     /// expanded to full screen in a multi-column layout.
-    pub(crate) fn entry_view_is_fullscreen(&self, width: u16) -> bool {
-        self.nav.focus == Focus::EntryView
-            && (single_panel_is_active(width) || self.nav.entry_view_fullscreen)
+    pub(crate) fn reader_is_fullscreen(&self, width: u16) -> bool {
+        self.nav.focus == Focus::Reader
+            && (single_panel_is_active(width) || self.nav.reader_fullscreen)
     }
 
     /// Whether the insights panel currently occupies the whole screen: either the
@@ -420,7 +420,7 @@ impl App {
             && (single_panel_is_active(width) || self.nav.insights_fullscreen)
     }
 
-    pub(crate) fn selected_entry_view(&self) -> Option<(String, String)> {
+    pub(crate) fn selected_reader(&self) -> Option<(String, String)> {
         let entry = self.resolved_selected_entry()?;
         match entry.encryption_state {
             EntryEncryptionState::EncryptedLocked => {
@@ -437,7 +437,17 @@ impl App {
             }
             EntryEncryptionState::Plain | EntryEncryptionState::EncryptedUnlocked => {}
         }
-        Some((entry_timestamp_label(entry), entry.body.clone()))
+        let title = entry_timestamp_label(entry);
+        if let Some(warning) = &entry.warning {
+            return Some((
+                format!("! {title}"),
+                format!(
+                    "> [! WARNING] {warning}. Editing is disabled.\n\n{}",
+                    entry.body
+                ),
+            ));
+        }
+        Some((title, entry.body.clone()))
     }
 
     pub(crate) fn select_journal_by_name(&mut self, name: &str) {

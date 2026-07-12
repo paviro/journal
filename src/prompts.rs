@@ -3,7 +3,7 @@
 
 use crate::AppResult;
 use anyhow::bail;
-use notema_storage::{ExposeSecret, SecretString};
+use notema_encryption::{ExposeSecret, SecretString};
 use rpassword::prompt_password;
 use std::io::{self, IsTerminal, Write};
 

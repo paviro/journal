@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use anyhow::{Context, bail};
 use std::{
     fs,
@@ -9,14 +11,16 @@ pub(crate) mod markdown;
 mod migrate;
 mod storage;
 
-use notema_core::{AppResult, Entry, EntryPath, ImportSource, MetadataField};
+use notema_domain::{Entry, EntryPath, ImportSource, MetadataField};
 use notema_encryption as crypto;
 
+type AppResult<T> = anyhow::Result<T>;
+
 pub use error::StorageError;
-pub use notema_encryption::{
-    DeviceIdentityInfo, EncryptionError, ExposeSecret, PendingRequest, Recipient, SecretString,
-};
 pub use migrate::{DecryptSummary, MigrationSummary};
+use notema_encryption::{
+    DeviceIdentityInfo, EncryptionError, PendingRequest, Recipient, SecretString,
+};
 pub use storage::{
     ARCHIVED_SUFFIX, AssetFailure, AssetReport, EditOutcome, EntryAssetOptions, EntryCreateOutcome,
     EntryDraft, EntryEdit, EntryEditOutcome, Journal, entry_id, entry_timestamp_label,
@@ -117,11 +121,11 @@ pub struct EnableEncryptionSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct JournalStorePaths {
-    pub journal_root: PathBuf,
+struct JournalStorePaths {
+    journal_root: PathBuf,
     /// This store's key-material locations (roster, identity, trust pins). Owned
     /// by the encryption layer; storage only threads it through to `crypto`.
-    pub keys: crypto::KeyPaths,
+    keys: crypto::KeyPaths,
 }
 
 impl JournalStorePaths {
@@ -129,7 +133,7 @@ impl JournalStorePaths {
     /// directory: public key material lives in the synced `<root>/.age/` folder,
     /// the private age identity and roster trust pins next to the config (never
     /// synced).
-    pub fn new(journal_root: impl Into<PathBuf>, config_dir: impl AsRef<Path>) -> Self {
+    fn new(journal_root: impl Into<PathBuf>, config_dir: impl AsRef<Path>) -> Self {
         let journal_root = journal_root.into();
         let keys = crypto::KeyPaths::new(&journal_root, config_dir);
         Self { journal_root, keys }
@@ -137,7 +141,7 @@ impl JournalStorePaths {
 
     /// Like [`new`](Self::new), taking the config *file* and reading its parent
     /// directory for the identity location.
-    pub fn for_config(config_path: &Path, journal_root: &Path) -> AppResult<Self> {
+    fn for_config(config_path: &Path, journal_root: &Path) -> AppResult<Self> {
         let config_dir = config_path
             .parent()
             .context("config path has no parent directory")?;
@@ -160,8 +164,20 @@ impl JournalStore {
         })
     }
 
-    pub fn paths(&self) -> &JournalStorePaths {
+    pub fn root(&self) -> &Path {
+        &self.paths.journal_root
+    }
+
+    fn paths(&self) -> &JournalStorePaths {
         &self.paths
+    }
+
+    pub fn identity_path(&self) -> &Path {
+        &self.paths.keys.identity_file
+    }
+
+    pub fn device_roster_path(&self) -> &Path {
+        &self.paths.keys.devices_file
     }
 
     pub fn ensure(&self) -> AppResult<()> {
@@ -180,7 +196,7 @@ impl JournalStore {
     }
 
     /// Retire this device's identity after its access was revoked; see
-    /// [`migrate::retire_revoked_identity`]. Returns the renamed-aside path, or
+    /// the encryption cleanup helper. Returns the renamed-aside path, or
     /// `None` when there was no identity to retire.
     pub fn retire_revoked_identity(&self) -> AppResult<Option<PathBuf>> {
         migrate::retire_revoked_identity(self)
@@ -760,6 +776,9 @@ impl JournalStore {
         }
         let codec = self.entry_codec();
         let content = codec.read(path)?;
+        if let (Some(front_matter), _) = markdown::split_front_matter(&content) {
+            markdown::parse_front_matter(front_matter).map_err(anyhow::Error::new)?;
+        }
         let Some(new_content) = markdown::with_metadata_fields(&content, fields) else {
             return Ok(());
         };
@@ -779,6 +798,9 @@ impl JournalStore {
         }
         let codec = self.entry_codec();
         let content = codec.read(path)?;
+        if let (Some(front_matter), _) = markdown::split_front_matter(&content) {
+            markdown::parse_front_matter(front_matter).map_err(anyhow::Error::new)?;
+        }
         let Some(new_content) = markdown::with_metadata_fields_quiet(&content, fields) else {
             return Ok(());
         };

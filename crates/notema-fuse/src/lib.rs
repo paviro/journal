@@ -22,9 +22,7 @@
 //! the API is path-based, there is no inode bookkeeping — each path maps straight
 //! to its on-disk file.
 
-#![allow(clippy::not_unsafe_ptr_arg_deref)]
-
-use notema_core::AppResult;
+use anyhow::Result as AppResult;
 use notema_storage::JournalStore;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
@@ -62,9 +60,13 @@ pub fn mount(store: JournalStore, mountpoint: &Path) -> AppResult<()> {
     };
     let volname_ptr = volname.as_ref().map_or(std::ptr::null(), |v| v.as_ptr());
 
+    // SAFETY: All C strings outlive the blocking call and `ctx_ptr` owns a live
+    // `Ctx` until the event loop returns.
     let _status = unsafe { notema_fuse_run(mountpoint.as_ptr(), ctx_ptr, volname_ptr) };
 
     // Reclaim the leaked context now that the event loop has returned.
+    // SAFETY: `ctx_ptr` came from `Box::into_raw` above and libfuse has stopped
+    // using it now that `notema_fuse_run` returned.
     drop(unsafe { Box::from_raw(ctx_ptr as *mut ops::Ctx) });
 
     // A nonzero status here is not an application error: an external unmount

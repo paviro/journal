@@ -19,7 +19,7 @@ use regex::Regex;
 ///
 /// Heuristic: this also unescapes punctuation inside fenced code blocks, which
 /// Day One escapes too. Acceptable given Day One over-escapes.
-pub fn unescape_markdown(text: &str) -> String {
+pub(crate) fn unescape_markdown(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
@@ -41,7 +41,7 @@ pub fn unescape_markdown(text: &str) -> String {
 /// (`​*word*​`), and `U+2028` line separators wedged into list items. The
 /// former are pure clutter; the latter is a soft line break, so it becomes a
 /// newline.
-pub fn normalize_whitespace(text: &str) -> String {
+pub(crate) fn normalize_whitespace(text: &str) -> String {
     text.chars()
         .filter_map(|c| match c {
             '\u{200B}' => None,
@@ -66,7 +66,7 @@ pub fn normalize_whitespace(text: &str) -> String {
 /// apart from one block with internal blanks, so they merge into one. Harmless
 /// in practice (they still render as code) and rare outside Markdown reference
 /// docs.
-pub fn merge_code_fences(text: &str) -> String {
+pub(crate) fn merge_code_fences(text: &str) -> String {
     let lines: Vec<&str> = text.split('\n').collect();
     let mut out: Vec<String> = Vec::with_capacity(lines.len());
     let mut i = 0;
@@ -139,7 +139,7 @@ fn next_fence_after_blanks(lines: &[&str], start: usize) -> Option<usize> {
 /// Fenced code blocks (``` / ~~~) pass through untouched, so tags shown as
 /// example markup — e.g. the HTML samples in a Markdown reference entry — stay
 /// literal.
-pub fn recover_html_embeds(text: &str) -> String {
+pub(crate) fn recover_html_embeds(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut region = String::new();
     let mut in_fence = false;

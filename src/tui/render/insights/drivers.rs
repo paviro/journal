@@ -5,10 +5,7 @@
 //! [`super::correlate`] table, so it inherits the diverging lift/drain bar and
 //! scrolling.
 
-use notema_analytics::{
-    Correlate, Correlations,
-    correlations::{by_mood_delta_asc, by_mood_delta_desc},
-};
+use notema_analytics::{Correlation, Correlations, by_mood_delta_asc, by_mood_delta_desc};
 
 /// A value needs at least this many entries before it earns a place in the
 /// ranking — one lucky good day shouldn't crown an activity as a lifter.
@@ -16,8 +13,8 @@ const MIN_COUNT: usize = 3;
 
 /// Merge the correlation dimensions into a single lift-then-drain ranking. Values
 /// with too few entries, or no mood signal, are dropped.
-pub(super) fn rows(correlations: &Correlations) -> Vec<Correlate> {
-    let merged: Vec<Correlate> = correlations
+pub(super) fn rows(correlations: &Correlations) -> Vec<Correlation> {
+    let merged: Vec<Correlation> = correlations
         .people
         .iter()
         .chain(&correlations.activities)

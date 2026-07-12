@@ -27,7 +27,7 @@ struct Dependency {
 
 /// Print attributions and third-party licenses. With `dependency`, print the
 /// full license text for the matching crate instead of the grouped summary.
-pub fn run(dependency: Option<String>) -> AppResult<()> {
+pub(crate) fn run(dependency: Option<String>) -> AppResult<()> {
     if dependency.is_none() {
         print_data_sources();
     }
@@ -70,7 +70,7 @@ fn print_dependencies(dependency: Option<String>) -> AppResult<()> {
 fn print_summary(groups: &[LicenseGroup]) {
     if groups.is_empty() {
         println!(
-            "No third-party license data embedded (built with JOURNAL_SKIP_LICENSE_GENERATION)."
+            "No third-party license data embedded (built with NOTEMA_SKIP_LICENSE_GENERATION)."
         );
         return;
     }

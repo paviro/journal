@@ -1,5 +1,6 @@
 mod chrome;
 mod dialogs;
+mod editor;
 mod entries;
 mod footer;
 mod frames;
@@ -7,9 +8,11 @@ mod image_viewer;
 pub(crate) mod insights;
 mod journals;
 mod layout;
-mod markdown_panel;
+mod markdown;
 mod menus;
+mod metadata;
 mod pending;
+mod reader;
 mod table;
 mod toasts;
 mod unlock;
@@ -20,7 +23,7 @@ use ratatui::{
     widgets::{ListState, Paragraph},
 };
 
-use super::app::{App, EntryViewImageHits, single_panel_is_active};
+use super::app::{App, ReaderImageHits, single_panel_is_active};
 use super::editor_state::EditorPrompt;
 #[cfg(test)]
 pub(crate) use super::entry_rows::entry_row_metadata;
@@ -43,8 +46,8 @@ pub(crate) use super::surface::{
 };
 pub(crate) use chrome::{
     centered_rect_fixed_size, container_block, container_block_vertical_inset, count_label,
-    flat_chrome, panel_block,
-    panel_focus_stripe, render_centered_notice, render_scrollbar_if_needed,
+    flat_chrome, panel_block, panel_focus_stripe, render_centered_notice,
+    render_scrollbar_if_needed,
 };
 pub(crate) use dialogs::{
     confirm_delete_inner, feelings_dialog_hints, feelings_dialog_layout, location_dialog_hints,
@@ -56,6 +59,7 @@ use dialogs::{
     draw_edit_metadata_dialog, draw_edit_mood_dialog, draw_fetching_environment,
     draw_new_journal_input, draw_theme_picker,
 };
+use editor::draw_entry_editor;
 use entries::draw_entry_list;
 pub(crate) use footer::{
     Hint, HintId, expanded_footer_height, expanded_footer_hint_id_at_point, expanded_footer_lines,
@@ -78,9 +82,6 @@ pub(crate) use journals::JOURNAL_BOX_HEIGHT;
 use journals::draw_journals;
 pub(crate) use journals::{journal_list_rect, journal_row_height};
 pub(crate) use layout::{TuiLayout, tui_layout};
-#[cfg(test)]
-use markdown_panel::metadata_scrolls_with_body;
-use markdown_panel::{draw_entry_editor, draw_selected_entry_view};
 pub(crate) use menus::{
     MetadataChoice, MetadataMenuMode, SettingsChoice, draw_editor_shortcuts, draw_metadata_menu,
     editor_shortcut_close_at_point, editor_shortcut_hint_at_point, metadata_menu_choice_at_point,
@@ -90,6 +91,9 @@ pub(crate) use menus::{
 pub(crate) use pending::{
     AccessNotice, draw_disable_notice, draw_pending_notice, draw_pending_request,
 };
+use reader::draw_selected_reader;
+#[cfg(test)]
+use reader::metadata_scrolls_with_body;
 #[cfg(test)]
 pub(crate) use toasts::toast_rects;
 pub(crate) use toasts::{draw_toasts, toast_at_point};
@@ -122,9 +126,9 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
 
     // Cleared each frame; the entry-view render repopulates it when an entry is
     // shown, so a stale hit-map can't leak onto insights or empty views.
-    app.entry_view_image_hits = EntryViewImageHits::default();
+    app.reader_image_hits = ReaderImageHits::default();
 
-    if app.entry_view_is_fullscreen(area.width) {
+    if app.reader_is_fullscreen(area.width) {
         let footer_height = expanded_footer_height(app, area.width).min(area.height);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -140,10 +144,12 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
             };
             draw_entry_editor(frame, chunks[0], editor, side, top);
         } else {
-            draw_selected_entry_view(frame, chunks[0], app);
+            draw_selected_reader(frame, chunks[0], app);
         }
         let footer_area = chunks[1];
-        frame.buffer_mut().set_style(footer_area, chrome::footer_style());
+        frame
+            .buffer_mut()
+            .set_style(footer_area, chrome::footer_style());
         let footer_text_area = ratatui::layout::Rect {
             x: footer_area.x.saturating_add(1),
             width: footer_area.width.saturating_sub(1),
@@ -168,14 +174,14 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     }
     if let Some(area) = layout.insights {
         draw_journal_insights(frame, area.area, app);
-    } else if let Some(area) = layout.entry_view {
+    } else if let Some(area) = layout.reader {
         if let Some(editor) = app.editor.as_mut() {
             draw_entry_editor(frame, area.area, editor, 5, 3);
-        } else if app.show_journal_insights_preview() {
-            // With no entry selected, the preview pane shows the journal insights.
+        } else if app.show_journal_insights() {
+            // With no entry selected, the reader pane shows the journal insights.
             draw_journal_insights(frame, area.area, app);
         } else {
-            draw_selected_entry_view(frame, area.area, app);
+            draw_selected_reader(frame, area.area, app);
         }
     }
 

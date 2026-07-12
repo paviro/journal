@@ -6,7 +6,7 @@
 use std::process::Command;
 
 /// A human-friendly default device name (the hostname), or `"this device"`.
-pub fn default_device_name() -> String {
+pub(crate) fn default_device_name() -> String {
     hostname()
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty())

@@ -1,7 +1,7 @@
 use chrono::{DateTime, FixedOffset, NaiveDate};
-use notema_core::entry_date_from_path;
+use notema_domain::entry_date_from_path;
 
-use super::Entry;
+use notema_domain::Entry;
 
 /// Parse an RFC3339 timestamp, preserving its original offset.
 pub fn parse_entry_timestamp(value: &str) -> Option<DateTime<FixedOffset>> {
@@ -36,8 +36,8 @@ mod tests {
             id: "id".to_string(),
             journal: "work".to_string(),
             path: PathBuf::from(path),
-            encryption_state: notema_core::EntryEncryptionState::Plain,
-            created_at: created_at.map(notema_core::Timestamp::parse),
+            encryption_state: notema_domain::EntryEncryptionState::Plain,
+            created_at: created_at.map(notema_domain::Timestamp::parse),
             edited_at: None,
             preview: String::new(),
             activities: Vec::new(),
@@ -54,6 +54,7 @@ mod tests {
             body: String::new(),
             word_count: 0,
             search_haystack: String::new(),
+            warning: None,
         }
     }
 

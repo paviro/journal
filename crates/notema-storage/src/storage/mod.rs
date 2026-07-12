@@ -1,4 +1,4 @@
-use notema_core::AppResult;
+use crate::AppResult;
 use std::{fs, path::Path};
 
 mod dates;
@@ -6,7 +6,6 @@ mod entry;
 mod journals;
 
 pub use dates::{entry_timestamp_label, parse_entry_timestamp};
-pub use entry::Entry;
 pub use entry::entry_id;
 pub use entry::is_entry_file;
 pub use entry::sole_stored_image;
@@ -21,12 +20,12 @@ pub(crate) use entry::{
     read_entry_content, resolve_entry_asset_path, save_entry_edit, scan_entries,
     scan_import_sources,
 };
-pub use journals::{
-    ARCHIVED_SUFFIX, Journal, create_journal, is_archived_name, journal_display_name,
-    list_journals, set_journal_archived, validate_journal_name,
+pub use journals::{ARCHIVED_SUFFIX, Journal, is_archived_name, journal_display_name};
+pub(crate) use journals::{
+    create_journal, list_journals, set_journal_archived, validate_journal_name,
 };
 
-pub fn ensure_store(root: &Path) -> AppResult<()> {
+pub(crate) fn ensure_store(root: &Path) -> AppResult<()> {
     fs::create_dir_all(root)?;
     Ok(())
 }

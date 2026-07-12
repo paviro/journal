@@ -7,7 +7,7 @@
 //! [`moments`] resolver rewrites against the entry's on-disk media. The
 //! orchestration lives in [`crate::import_dayone`].
 
-pub mod model;
-pub mod moments;
-pub mod richtext;
-pub mod text;
+pub(crate) mod model;
+pub(crate) mod moments;
+pub(crate) mod richtext;
+pub(crate) mod text;

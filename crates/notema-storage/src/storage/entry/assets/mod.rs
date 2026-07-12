@@ -13,11 +13,11 @@
 mod net;
 
 use super::paths::{entry_assets_dir, entry_assets_dir_name};
+use crate::AppResult;
 use anyhow::bail;
-use notema_core::AppResult;
-use notema_encryption::{self as crypto, KeyPaths};
 use nanoid::nanoid;
 use net::{FetchError, fetch_source};
+use notema_encryption::{self as crypto, KeyPaths};
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
@@ -525,7 +525,7 @@ fn next_markdown_image(source: &str) -> Option<MarkdownImage> {
     let mut base = 0;
     loop {
         let start = base + source[base..].find("![")?;
-        if let Some(span) = notema_core::markdown::parse_inline_at(&source[start..]) {
+        if let Some(span) = notema_domain::parse_inline_at(&source[start..]) {
             return Some(MarkdownImage {
                 start,
                 end: start + span.span.end,

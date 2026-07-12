@@ -2,15 +2,15 @@ use super::*;
 use crate::tui::editor_state::EditorTarget;
 use crate::tui::environment::{EnvironmentRequest, EnvironmentTarget, environment_fields, resolve};
 use chrono::{DateTime, FixedOffset, Local};
-use notema_core::{EntryEncryptionState, Location};
+use notema_domain::{Coordinates, EntryEncryptionState, Location};
 
 /// Minimum gap between backfill dispatches — the Open-Meteo rate-limit knob.
 /// One entry per second (two calls) stays well under the free-tier ceiling.
 const BACKFILL_THROTTLE: Duration = Duration::from_secs(1);
 
 /// The `(lat, lon)` of a location, or `None` when it isn't pinned to coordinates.
-fn coords(location: &Location) -> Option<(f64, f64)> {
-    Some((location.latitude?, location.longitude?))
+fn coords(location: &Location) -> Option<Coordinates> {
+    location.coordinates()
 }
 
 /// Whether the store can read and rewrite this entry (unlocked or plaintext).
@@ -43,7 +43,7 @@ impl App {
             let Some(editor) = self.editor.as_mut() else {
                 return;
             };
-            let Some((lat, lon)) = editor.metadata.location.as_ref().and_then(coords) else {
+            let Some(coordinates) = editor.metadata.location.as_ref().and_then(coords) else {
                 editor.pending_environment = None;
                 editor.environment = None;
                 return;
@@ -54,8 +54,7 @@ impl App {
             editor.environment = None;
             EnvironmentRequest {
                 id,
-                lat,
-                lon,
+                coordinates,
                 datetime,
                 target: EnvironmentTarget::Editor,
             }
@@ -72,8 +71,7 @@ impl App {
     fn spawn_entry_environment(
         &mut self,
         path: PathBuf,
-        lat: f64,
-        lon: f64,
+        coordinates: Coordinates,
         datetime: DateTime<FixedOffset>,
     ) -> u64 {
         self.backfill_enqueued.insert(path.clone());
@@ -83,8 +81,7 @@ impl App {
         self.environment.request(
             EnvironmentRequest {
                 id,
-                lat,
-                lon,
+                coordinates,
                 datetime,
                 target: EnvironmentTarget::Entry(path),
             },
@@ -102,8 +99,8 @@ impl App {
         location: &Location,
         datetime: DateTime<FixedOffset>,
     ) {
-        if let Some((lat, lon)) = coords(location) {
-            self.spawn_entry_environment(path, lat, lon, datetime);
+        if let Some(coordinates) = coords(location) {
+            self.spawn_entry_environment(path, coordinates, datetime);
         }
     }
 
@@ -205,16 +202,16 @@ impl App {
                 // it after this path was queued, so the queued job is now stale.
                 .filter(|entry| entry.celestial.is_none())
                 .and_then(|entry| {
-                    let (lat, lon) = coords(entry.location.as_ref()?)?;
+                    let coordinates = coords(entry.location.as_ref()?)?;
                     let datetime = entry
                         .created_time()
                         .unwrap_or_else(|| Local::now().fixed_offset());
-                    Some((lat, lon, datetime))
+                    Some((coordinates, datetime))
                 });
-            let Some((lat, lon, datetime)) = params else {
+            let Some((coordinates, datetime)) = params else {
                 continue;
             };
-            let id = self.spawn_entry_environment(path, lat, lon, datetime);
+            let id = self.spawn_entry_environment(path, coordinates, datetime);
             self.backfill_inflight = Some(id);
             self.backfill_last_dispatch = Some(Instant::now());
             return;

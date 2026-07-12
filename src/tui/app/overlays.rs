@@ -115,6 +115,9 @@ impl App {
     }
 
     pub(crate) fn begin_edit_mood(&mut self) {
+        if self.editor.is_none() && !self.allow_selected_entry_edit() {
+            return;
+        }
         let saved = self.editing_mood();
         let draft = saved.unwrap_or(0);
         self.overlay = Overlay::EditMood(EditMoodState { saved, draft });
@@ -139,9 +142,7 @@ impl App {
             Focus::Journals => self.begin_confirm_delete_journal(),
             // Insights never holds a delete target (its `d` stays unbound), but the
             // match must stay total.
-            Focus::Entries | Focus::EntryView | Focus::Insights => {
-                self.begin_confirm_delete_entry()
-            }
+            Focus::Entries | Focus::Reader | Focus::Insights => self.begin_confirm_delete_entry(),
         }
     }
 
@@ -272,7 +273,7 @@ impl App {
         }
     }
 
-    /// Move the picker selection to `index` and preview that row.
+    /// Move the picker selection to `index` and reader that row.
     pub(crate) fn theme_picker_select(&mut self, index: usize) {
         if let Some(state) = self.theme_picker_state_mut() {
             state.select_index(index);

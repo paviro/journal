@@ -11,6 +11,12 @@ use super::{BorderGlyphs, ChromeStyle, CustomBorderSet, Fill, Glyphs, Mode, Synt
 
 pub(super) fn parse(text: &str, mode: Mode) -> Result<Theme> {
     let file: ThemeFile = toml::from_str(text).context("parsing theme TOML")?;
+    if file.schema_version != 1 {
+        bail!(
+            "unsupported theme schema version {}; expected 1",
+            file.schema_version
+        );
+    }
     file.resolve(mode)
 }
 
@@ -160,6 +166,7 @@ impl FillSpec {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(super) struct ThemeFile {
+    schema_version: u32,
     chrome: ChromeSection,
     palette: Palette,
     surfaces: SurfacesSection,

@@ -10,7 +10,7 @@
 //! Monochrome contract: the modifiers that carry meaning (bold on signed
 //! values, dim on secondary ink, inversion on selection fallbacks) are applied
 //! in code, not read from theme data, so no theme file can make a positive
-//! value render as plain body text on e-ink.
+//! value render as plain body text on eclipse.
 
 mod schema;
 #[cfg(test)]
@@ -30,16 +30,19 @@ use std::sync::RwLock;
 
 /// The bundled themes, embedded so the binary can materialize and fall back to
 /// them without touching the network or the repo.
-const BUNDLED: [(&str, &str); 23] = [
+const BUNDLED: [(&str, &str); 26] = [
     ("journal", include_str!("../themes/journal.toml")),
     ("classic", include_str!("../themes/classic.toml")),
-    ("e-ink", include_str!("../themes/e-ink.toml")),
+    ("eclipse", include_str!("../themes/eclipse.toml")),
     ("blossom", include_str!("../themes/blossom.toml")),
     ("fjord", include_str!("../themes/fjord.toml")),
     ("grove", include_str!("../themes/grove.toml")),
     ("tokyonight", include_str!("../themes/tokyonight.toml")),
-    ("catppuccin", include_str!("../themes/catppuccin.toml")),
+    ("lavender", include_str!("../themes/lavender.toml")),
     ("matcha", include_str!("../themes/matcha.toml")),
+    ("indigo", include_str!("../themes/indigo.toml")),
+    ("maple", include_str!("../themes/maple.toml")),
+    ("celadon", include_str!("../themes/celadon.toml")),
     ("rose-pine", include_str!("../themes/rose-pine.toml")),
     ("dungeon", include_str!("../themes/dungeon.toml")),
     ("synthwave", include_str!("../themes/synthwave.toml")),
@@ -67,7 +70,7 @@ pub(crate) enum Mode {
     Light,
 }
 
-/// A chart fill: which glyph is repeated and how it is styled. E-ink themes
+/// A chart fill: which glyph is repeated and how it is styled. Eclipse themes
 /// vary the glyph per series so data stays readable without hue.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Fill {
@@ -499,17 +502,17 @@ pub(crate) fn test_flat_theme() -> Theme {
     builtin(DEFAULT_THEME, Mode::Dark).expect("bundled default theme resolves")
 }
 
-/// The resolved bundled e-ink theme, for tests asserting the monochrome
+/// The resolved bundled eclipse theme, for tests asserting the monochrome
 /// glyph-differentiation contract end to end.
 #[cfg(test)]
-pub(crate) fn test_eink_theme() -> Theme {
-    builtin("e-ink", Mode::Dark).expect("bundled e-ink theme resolves")
+pub(crate) fn test_eclipse_theme() -> Theme {
+    builtin("eclipse", Mode::Dark).expect("bundled eclipse theme resolves")
 }
 
 /// Resolve a theme snippet (dark mode) for tests that pin specific tokens.
 #[cfg(test)]
 pub(crate) fn test_theme_from_toml(text: &str) -> Theme {
-    parse(text, Mode::Dark).expect("test theme snippet resolves")
+    parse(&format!("schema_version = 1\n{text}"), Mode::Dark).expect("test theme snippet resolves")
 }
 
 impl Theme {

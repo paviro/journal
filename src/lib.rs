@@ -1,12 +1,18 @@
-pub mod cli;
-pub mod config;
-pub mod device;
-pub mod encryption_cli;
-pub mod licenses;
-pub mod prompts;
-pub mod tui;
+#![forbid(unsafe_code)]
 
-pub use notema_core::AppResult;
+mod cli;
+mod config;
+mod device;
+mod encryption_cli;
+mod licenses;
+mod prompts;
+mod tui;
+
+pub(crate) type AppResult<T> = anyhow::Result<T>;
+
+pub fn run() -> anyhow::Result<()> {
+    cli::run()
+}
 
 /// The command a device runs to request access to an already-encrypted store.
 /// Referenced from CLI errors and the TUI enroll notice so the wording lives in

@@ -4,12 +4,19 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 
 [dependencies]
-chrono = "0.4"
-notema-core = { path = "../notema-core" }
-notema-storage = { path = "../notema-storage" }
-rand = "0.9"
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+notema-domain.workspace = true
+notema-storage.workspace = true
+rand.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
+
+[lints]
+workspace = true

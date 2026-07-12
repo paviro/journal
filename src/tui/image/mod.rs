@@ -1,7 +1,7 @@
 //! Terminal image rendering for the fullscreen image viewer.
 //!
 //! Uses a real graphics protocol (Kitty, iTerm2, or sixel) when the terminal
-//! supports one, else falls back to colored ASCII art (via `rascii_art`).
+//! supports one, else falls back to a theme-independent luminance ramp.
 //! Encrypted assets are decrypted straight into memory — plaintext is never
 //! written to disk.
 //!

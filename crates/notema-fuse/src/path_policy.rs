@@ -99,6 +99,8 @@ pub(super) fn backing_for_new_file(base: PathBuf) -> BackingFile {
 }
 
 fn is_safe_mounted_path(path: *const c_char) -> bool {
+    // SAFETY: This helper is called only with a libfuse path or a live CString
+    // from tests; both are non-null and NUL-terminated.
     let bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
     let rel = bytes.strip_prefix(b"/").unwrap_or(bytes);
     rel.split(|&b| b == b'/')
@@ -121,6 +123,7 @@ fn component_is_rejected_system_state(component: &[u8]) -> bool {
 }
 
 fn is_rejected_system_path(path: *const c_char) -> bool {
+    // SAFETY: The same mounted-path contract as `is_safe_mounted_path` applies.
     let bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
     let rel = bytes.strip_prefix(b"/").unwrap_or(bytes);
     rel.split(|&b| b == b'/')

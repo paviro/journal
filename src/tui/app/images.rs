@@ -12,7 +12,7 @@ impl App {
         let open_entry = self
             .selected_entry_target()
             .map(|target| target.path)
-            .filter(|_| self.nav.focus == Focus::EntryView);
+            .filter(|_| self.nav.focus == Focus::Reader);
 
         // Drop the cache when the entry that warmed it is no longer open (closed
         // or switched to another entry) or the viewer's target size changed.
@@ -54,7 +54,7 @@ impl App {
             return images.clone();
         }
 
-        let images = Rc::new(match (&target_path, self.selected_entry_view()) {
+        let images = Rc::new(match (&target_path, self.selected_reader()) {
             (Some(path), Some((_, content))) => entry_images(&content, path),
             _ => Vec::new(),
         });
@@ -78,14 +78,14 @@ impl App {
 
     /// Open the fullscreen viewer on the selected entry's image at `index`
     /// (clamped); no-op when the entry has no images. Focuses the entry view
-    /// first so the viewer is only ever open with `Focus::EntryView` — the
+    /// first so the viewer is only ever open with `Focus::Reader` — the
     /// invariant [`App::sync_image_warm`] relies on to own the cache lifecycle.
     pub(crate) fn begin_image_viewer(&mut self, index: usize) {
         let assets = self.selected_entry_images();
         if assets.is_empty() {
             return;
         }
-        self.nav.focus = Focus::EntryView;
+        self.nav.focus = Focus::Reader;
         let index = index.min(assets.len() - 1);
         self.overlay = Overlay::ImageViewer(ImageViewerState { assets, index });
     }
@@ -111,7 +111,7 @@ impl App {
     /// Image index if `(col, row)` lands on a clickable image label in the entry
     /// view, using the positions captured at render time.
     pub(crate) fn image_label_at(&self, col: u16, row: u16) -> Option<usize> {
-        let hits = &self.entry_view_image_hits;
+        let hits = &self.reader_image_hits;
         let rect = hits.content_rect;
         if rect.width == 0
             || rect.height == 0
@@ -127,5 +127,91 @@ impl App {
             .iter()
             .find(|(label_row, _)| *label_row == line_index)
             .map(|(_, image_index)| *image_index)
+    }
+
+    /// Body line of the `[Image N …]` label under `(col, row)`, for hover
+    /// highlighting — the row-level sibling of [`Self::image_label_at`].
+    pub(crate) fn reader_image_line_at(&self, col: u16, row: u16) -> Option<usize> {
+        let hits = &self.reader_image_hits;
+        let line = self.reader_body_line_at(col, row)?;
+        hits.labels
+            .iter()
+            .find(|(label_row, _)| *label_row == line)
+            .map(|(label_row, _)| *label_row)
+    }
+
+    /// The clickable link region `(line, start, end)` under `(col, row)`, for
+    /// hover highlighting — the region-level sibling of [`Self::reader_link_at`].
+    pub(crate) fn reader_link_hit_at(&self, col: u16, row: u16) -> Option<(usize, usize, usize)> {
+        let hits = &self.reader_image_hits;
+        let line = self.reader_body_line_at(col, row)?;
+        let column = (col - hits.content_rect.x) as usize;
+        hits.links
+            .iter()
+            .find(|hit| hit.line == line && column >= hit.start && column < hit.end)
+            .map(|hit| (hit.line, hit.start, hit.end))
+    }
+
+    /// The body line index `(col, row)` maps onto, if it lands inside the
+    /// reader's content rect. Shared by the click and hover hit-tests.
+    fn reader_body_line_at(&self, col: u16, row: u16) -> Option<usize> {
+        let rect = self.reader_image_hits.content_rect;
+        if rect.width == 0
+            || rect.height == 0
+            || col < rect.x
+            || col >= rect.x + rect.width
+            || row < rect.y
+            || row >= rect.y + rect.height
+        {
+            return None;
+        }
+        Some(self.reader_image_hits.scroll as usize + (row - rect.y) as usize)
+    }
+
+    pub(crate) fn reader_link_at(&self, col: u16, row: u16) -> Option<String> {
+        let hits = &self.reader_image_hits;
+        let rect = hits.content_rect;
+        if rect.width == 0
+            || rect.height == 0
+            || col < rect.x
+            || col >= rect.x + rect.width
+            || row < rect.y
+            || row >= rect.y + rect.height
+        {
+            return None;
+        }
+        let line = hits.scroll as usize + (row - rect.y) as usize;
+        let column = (col - rect.x) as usize;
+        hits.links
+            .iter()
+            .find(|hit| hit.line == line && column >= hit.start && column < hit.end)
+            .map(|hit| hit.target.clone())
+    }
+
+    pub(crate) fn reader_heading_line(&self, anchor: &str) -> Option<usize> {
+        self.reader_image_hits
+            .headings
+            .iter()
+            .find(|heading| heading.anchor == anchor)
+            .map(|heading| heading.line)
+    }
+
+    pub(crate) fn flash_reader_heading(&mut self, line: usize) {
+        self.reader_anchor_flash = Some(super::ReaderAnchorFlash {
+            line,
+            until: std::time::Instant::now() + std::time::Duration::from_millis(700),
+        });
+    }
+
+    pub(crate) fn expire_reader_heading_flash(&mut self) -> bool {
+        if self
+            .reader_anchor_flash
+            .as_ref()
+            .is_some_and(|flash| std::time::Instant::now() >= flash.until)
+        {
+            self.reader_anchor_flash = None;
+            return true;
+        }
+        false
     }
 }

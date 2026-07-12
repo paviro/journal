@@ -35,7 +35,7 @@ pub fn is_archived_name(name: &str) -> bool {
     name.ends_with(ARCHIVED_SUFFIX)
 }
 
-pub fn list_journals(root: &Path) -> AppResult<Vec<Journal>> {
+pub(crate) fn list_journals(root: &Path) -> AppResult<Vec<Journal>> {
     let mut journals = Vec::new();
     if !root.exists() {
         return Ok(journals);
@@ -74,7 +74,7 @@ pub fn list_journals(root: &Path) -> AppResult<Vec<Journal>> {
 /// Archive or unarchive a journal by renaming its directory to add or strip the
 /// [`ARCHIVED_SUFFIX`]. Returns the journal in its new state. Errors if the
 /// target directory already exists.
-pub fn set_journal_archived(root: &Path, name: &str, archived: bool) -> AppResult<Journal> {
+pub(crate) fn set_journal_archived(root: &Path, name: &str, archived: bool) -> AppResult<Journal> {
     let display = journal_display_name(name);
     let target_name = if archived {
         format!("{display}{ARCHIVED_SUFFIX}")
@@ -108,7 +108,7 @@ pub fn set_journal_archived(root: &Path, name: &str, archived: bool) -> AppResul
     })
 }
 
-pub fn create_journal(root: &Path, name: &str) -> AppResult<Journal> {
+pub(crate) fn create_journal(root: &Path, name: &str) -> AppResult<Journal> {
     let name = validate_journal_name(name)?;
     // The archived marker is a reserved suffix — never let a user create a journal
     // that would masquerade as archived. (Validation itself accepts the suffix so
@@ -125,7 +125,7 @@ pub fn create_journal(root: &Path, name: &str) -> AppResult<Journal> {
     })
 }
 
-pub fn validate_journal_name(name: &str) -> AppResult<String> {
+pub(crate) fn validate_journal_name(name: &str) -> AppResult<String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         bail!("journal name cannot be empty");

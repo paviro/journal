@@ -20,12 +20,14 @@ pub struct PendingRequest {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PendingFile {
+    schema_version: u32,
     recipient: Recipient,
     sig: String,
 }
 
 #[derive(Serialize)]
 struct PendingFileRef<'a> {
+    schema_version: u32,
     recipient: &'a Recipient,
     sig: &'a str,
 }
@@ -62,20 +64,24 @@ pub fn read_pending(paths: &KeyPaths) -> Result<Vec<PendingRequest>> {
         else {
             continue;
         };
-        let Ok(text) = fs::read_to_string(entry.path()) else {
-            continue;
-        };
-        let Ok(parsed) = toml::from_str::<PendingFile>(&text) else {
-            continue;
-        };
+        let text = fs::read_to_string(entry.path())?;
+        let parsed = toml::from_str::<PendingFile>(&text)?;
+        if parsed.schema_version != 1 {
+            return Err(crate::EncryptionError::UnsupportedSchema {
+                kind: "pending request",
+                version: parsed.schema_version,
+            });
+        }
         // Drop a request whose self-signature doesn't check out: it was corrupted
         // or forged in the synced folder. A genuine device can re-submit.
         if !verify_signature(
             &parsed.recipient.sign_key,
-            &pending_signing_bytes(&parsed.recipient),
+            &pending_signing_bytes(&parsed.recipient)?,
             &parsed.sig,
         ) {
-            continue;
+            return Err(crate::EncryptionError::RosterUnverified {
+                detail: format!("pending request {id} has an invalid self-signature"),
+            });
         }
         requests.push(PendingRequest {
             id: id.to_string(),
@@ -101,8 +107,9 @@ fn write_pending(
     identity: &UnlockedIdentity,
 ) -> Result<()> {
     fs::create_dir_all(&paths.age_dir)?;
-    let sig = sign_bytes(&identity.signing, &pending_signing_bytes(recipient));
+    let sig = sign_bytes(&identity.signing, &pending_signing_bytes(recipient)?);
     let document = PendingFileRef {
+        schema_version: 1,
         recipient,
         sig: &sig,
     };
@@ -113,13 +120,13 @@ fn write_pending(
 /// Build the byte buffer a device self-signs in its join request, binding its
 /// name and both public keys under a distinct domain so it can't be replayed as
 /// any other signature.
-fn pending_signing_bytes(recipient: &Recipient) -> Vec<u8> {
+fn pending_signing_bytes(recipient: &Recipient) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
-    roster::push_field(&mut buf, b"notema.pending.v1");
-    roster::push_field(&mut buf, recipient.name.as_bytes());
-    roster::push_field(&mut buf, recipient.enc_key.as_bytes());
-    roster::push_field(&mut buf, recipient.sign_key.as_bytes());
-    buf
+    roster::push_field(&mut buf, b"notema.pending.v1")?;
+    roster::push_field(&mut buf, recipient.name.as_bytes())?;
+    roster::push_field(&mut buf, recipient.enc_key.as_bytes())?;
+    roster::push_field(&mut buf, recipient.sign_key.as_bytes())?;
+    Ok(buf)
 }
 
 /// The `pending-<id>.toml` file name for a recipient, where `<id>` is a stable,

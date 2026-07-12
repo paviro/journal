@@ -126,10 +126,10 @@ pub(crate) fn point_in_rect(area: Rect, x: u16, y: u16) -> bool {
 }
 
 pub(crate) fn entry_metadata_layout(
-    entry_view_area: Rect,
+    reader_area: Rect,
     values: EntryMetadataValues<'_>,
 ) -> EntryMetadataLayout {
-    let inner = PanelGeometry::new(entry_view_area).content;
+    let inner = PanelGeometry::new(reader_area).content;
     let metadata_height = metadata_section_height(inner.width, values);
     let show_metadata = metadata_height > 0 && inner.height > metadata_height;
 

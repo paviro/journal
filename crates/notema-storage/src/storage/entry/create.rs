@@ -4,11 +4,11 @@ use super::codec::EntryCodec;
 use super::paths::{
     ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_assets_dir, entry_path_with_id,
 };
+use crate::AppResult;
 use anyhow::bail;
 use chrono::{DateTime, FixedOffset, Local};
-use notema_core::AppResult;
-use notema_core::{AirQuality, Celestial, ImportSource, Location, Weather};
 use nanoid::nanoid;
+use notema_domain::{AirQuality, Celestial, ImportSource, Location, Weather};
 use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
@@ -66,7 +66,7 @@ impl<'a> EntryDraft<'a> {
 /// Create a new entry from an in-memory draft. Asset references are rewritten
 /// before the final entry content is encoded and written, so encrypted stores do
 /// not need a read/decrypt/write pass after creation.
-pub fn create_entry(
+pub(crate) fn create_entry(
     codec: &EntryCodec<'_>,
     root: &Path,
     draft: EntryDraft<'_>,
@@ -164,8 +164,9 @@ fn entry_content(
     import: Option<&ImportSource>,
 ) -> String {
     let front_matter = crate::markdown::FrontMatter {
+        schema_version: crate::markdown::ENTRY_SCHEMA_VERSION,
         metadata: metadata.clone(),
-        datetime: crate::markdown::Datetime {
+        datetime: crate::markdown::EntryTimestamps {
             created_at: Some(created_at.to_rfc3339()),
             edited_at: Some(edited_at.to_rfc3339()),
             timezone: timezone.map(str::to_string),

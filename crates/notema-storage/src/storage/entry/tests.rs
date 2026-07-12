@@ -202,7 +202,7 @@ fn save_entry_edit_reports_changed_unchanged_and_deleted() {
 fn save_entry_edit_preserves_unparseable_front_matter() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("2026-07-06T10-00-00.md");
-    let original = "+++\ntags = [unterminated\n+++\n\nold body\n";
+    let original = "+++\nschema_version = 1\ntags = [unterminated\n+++\n\nold body\n";
     fs::write(&path, original).unwrap();
     let metadata = Metadata::default();
 
@@ -213,7 +213,7 @@ fn save_entry_edit_preserves_unparseable_front_matter() {
             body: "new body\n",
             metadata: &metadata,
             original_metadata: &metadata,
-            writing_seconds: None,
+            writing_seconds: Some(12),
             remove_if_empty: true,
             extra_fields: &[],
         },
@@ -235,7 +235,7 @@ fn entry_id_and_journal_come_from_path_not_front_matter() {
     let path = dir.path().join("id-from-file.md");
     fs::write(
         &path,
-        "+++\nid = \"wrong\"\njournal = \"wrong\"\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
+        "+++\nschema_version = 1\nid = \"wrong\"\njournal = \"wrong\"\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
     )
     .unwrap();
 
@@ -251,7 +251,7 @@ fn entry_preview_collapses_body_with_markdown_stripped() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Hi how is it going?\nThis is a test entry\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Hi how is it going?\nThis is a test entry\n",
     )
     .unwrap();
 
@@ -266,7 +266,7 @@ fn entry_tags_read_toml_list() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\ntags = [\"work\", \"deep focus\"]\n+++\n\n# Tagged\n",
+        "+++\nschema_version = 1\ntags = [\"work\", \"deep focus\"]\n+++\n\n# Tagged\n",
     )
     .unwrap();
 
@@ -281,7 +281,7 @@ fn entry_feelings_read_known_values_only() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\nfeelings = [\"Calm\", \"nope\", \"focused\"]\n+++\n\n# Feeling\n",
+        "+++\nschema_version = 1\nfeelings = [\"Calm\", \"nope\", \"focused\"]\n+++\n\n# Feeling\n",
     )
     .unwrap();
 
@@ -342,11 +342,11 @@ fn create_entry_writes_metadata_location() {
         "work",
         "Some text",
         &Metadata {
-            location: Some(notema_core::Location {
+            location: Some(notema_domain::Location {
                 name: Some("Cafe".to_string()),
                 latitude: Some(52.52),
                 longitude: Some(13.405),
-                ..notema_core::Location::default()
+                ..notema_domain::Location::default()
             }),
             ..Metadata::default()
         },
@@ -371,7 +371,7 @@ fn plain_entry_preview_is_the_whole_body() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\nPlain title\nPlain preview\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\nPlain title\nPlain preview\n",
     )
     .unwrap();
 
@@ -387,7 +387,7 @@ fn empty_entry_preview_is_empty_and_label_falls_back_to_timestamp() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n",
     )
     .unwrap();
 
@@ -412,12 +412,12 @@ fn scan_entries_skips_trash() {
     fs::create_dir_all(&trash_dir).unwrap();
     fs::write(
         entry_dir.join("entry.md"),
-        "+++\ntags = []\n+++\n\n# Active\n",
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# Active\n",
     )
     .unwrap();
     fs::write(
         trash_dir.join("trashed.md"),
-        "+++\ntags = []\n+++\n\n# Trashed\n",
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# Trashed\n",
     )
     .unwrap();
 
@@ -450,7 +450,7 @@ fn scan_entries_returns_locked_placeholder_for_encrypted_entry_without_key() {
     assert_eq!(entries[0].preview, "[locked] Encrypted entry");
     assert_eq!(entries[0].body, "Encryption identity not available");
     assert_eq!(
-        notema_core::entry_group_date(&entries[0]),
+        notema_domain::entry_group_date(&entries[0]),
         Some(chrono::NaiveDate::from_ymd_opt(2026, 7, 1).unwrap())
     );
 }

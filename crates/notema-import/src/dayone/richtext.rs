@@ -98,7 +98,7 @@ enum LineKind {
 /// Render a Day One `richText` JSON string to Markdown. Returns `None` if the
 /// string does not parse or yields no content, so the caller can fall back to the
 /// `text` cleanup path.
-pub fn render(json: &str) -> Option<String> {
+pub(crate) fn render(json: &str) -> Option<String> {
     let doc: RichText = serde_json::from_str(json).ok()?;
 
     let mut lines: Vec<(LineKind, String)> = Vec::new();

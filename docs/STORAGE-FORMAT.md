@@ -3,8 +3,8 @@
 `journal` stores everything as plain files on disk — no database, no proprietary
 container. This document specifies that on-disk format so other tools can read and
 write entries, and so you can recover your data with standard utilities even
-without this app. The format is stable as of the first release; fields are only
-ever added in backward-compatible ways.
+without this app. There has not been a release yet; version `1` is the only
+supported schema and there are no migrations.
 
 ## Directory layout
 
@@ -38,6 +38,7 @@ lines, a blank line, then the Markdown body.
 
 ```markdown
 +++
+schema_version = 1
 activities = ["coding"]
 feelings = ["focused", "proud"]
 people = ["Alice"]
@@ -115,8 +116,12 @@ Markdown content here.
   is exactly `+++`. Both LF and CRLF line endings are accepted.
 - A single blank line separates the closing fence from the body.
 - A file with no `+++` front matter is treated as all body, no metadata.
-- Parsing is lenient: unknown keys are ignored, and any field may be omitted.
-  Malformed front matter is treated as empty metadata rather than failing the file.
+- `schema_version = 1` is required. A different or missing version is reported as
+  unsupported.
+- Unknown keys survive metadata edits. Optional known fields may be omitted.
+- Malformed or unsupported front matter leaves the Markdown body readable with a
+  warning. Body-only edits preserve the raw front matter. Metadata edits are
+  blocked until the front matter is fixed.
 
 ### Front matter fields
 
@@ -125,6 +130,7 @@ then the system/import tables.
 
 | Key            | Type            | Meaning |
 |----------------|-----------------|---------|
+| `schema_version` | integer       | Required; currently `1`. |
 | `activities`   | array of string | Free-form activities. |
 | `feelings`     | array of string | From a fixed vocabulary (below); unknown values are dropped on read. |
 | `people`       | array of string | Free-form people references. |
@@ -138,9 +144,7 @@ then the system/import tables.
 | `[air_quality]`| table           | Air quality and UV at the time of writing — fetched from Open-Meteo's air-quality endpoint (a separate provider than `[weather]`, so an entry may carry one without the other). All optional: `european_aqi`, `us_aqi`, `pm2_5`, `pm10` (µg/m³), `carbon_monoxide`, `nitrogen_dioxide`, `ozone`, `sulphur_dioxide` (µg/m³), `uv_index`, `birch_pollen`, `grass_pollen`, `ragweed_pollen` (grains/m³, Europe only), and `source` (provider, for attribution). Capture-only. |
 | `[celestial]`  | table           | Sun/moon at the time of writing — computed locally when a location is set, or captured on Day One import. All optional: `moon_phase` (0–1), `moon_phase_name`, `sunrise`, `sunset`, `day_length_seconds` (sunset − sunrise). Capture-only. |
 
-All list fields are plural; timestamps are RFC 3339 with an offset. There is no
-schema-version field — the format evolves by adding optional fields, and readers
-should ignore anything they don't recognize.
+All list fields are plural; timestamps are RFC 3339 with an offset.
 
 ### Feelings vocabulary
 
@@ -156,32 +160,36 @@ Values outside this list are silently dropped when an entry is read.
 
 ## Config and state files
 
-Both live in the config directory (`$XDG_CONFIG_HOME/journal/` or
-`~/.config/notema/`) and are never synced. Unknown keys are ignored, so new
-options stay backward-compatible.
+Both live in the config directory (`$XDG_CONFIG_HOME/notema/` or
+`~/.config/notema/`) and are never synced. Both require `schema_version = 1`.
+Unknown keys are rejected so misspelled settings do not silently do nothing.
 
 `config.toml` — user-authored settings:
 
 ```toml
+schema_version = 1
+
 [journal]
 path = "~/Journals"               # tilde is expanded on load
 default = "work"                  # optional
 
 [editor]
-command = "nano"
+start_fullscreen = false
 
 [attachments]
 download_remote_images = true
 
-[ui.layout.entry_viewer]
+[ui.layout.reader]
 body_center_vertically = true     # center a short entry when it fits, no scrollbar
 body_max_width = 100              # cap the body width in cells (0 = no cap)
+show_link_urls = false            # show each link's target URL as a faint (url) after its name
 ```
 
 `state.toml` — machine-written session state (kept separate so it never clutters
 your settings), including UI toggles flipped from inside the TUI:
 
 ```toml
+schema_version = 1
 last_journal = "personal"         # journal reselected on next launch
 
 [ui]
@@ -194,13 +202,13 @@ show_journals = true
 When encryption is on, only ciphertext and public key material live in the synced
 `.age/` folder; private keys never leave the device.
 
-- `.age/devices.toml` — the **signed device roster**: an append-only log of
+- `.age/devices.toml` — the **signed device roster**, schema version `1`: an append-only log of
   Ed25519-signed `[[operation]]` entries (`genesis`/`add`/`revoke`/`rename`) naming
   each device's age public key (`enc_key`), signing public key (`sign_key`), and
   label. Verified from the genesis on every read; a tampered or rolled-back log is
   rejected wholesale.
-- `.age/pending-<id>.toml` — a join request from a not-yet-approved device.
-- `~/.config/notema/identity.toml` — **this device's private keys** (never
+- `.age/pending-<id>.toml` — a schema-versioned join request from a not-yet-approved device.
+- `~/.config/notema/identity.toml` — **this device's private keys**, schema version `1` (never
   synced). A TOML file holding `device_name` plus either `plain_keys` (mode-0600
   cleartext when no passphrase) or `encrypted_keys` (age ASCII armor when a
   passphrase is set). Inside is a small bundle: `x25519` (the age secret key) and

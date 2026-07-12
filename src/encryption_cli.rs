@@ -8,7 +8,7 @@ use std::path::Path;
 /// bar is created at the start of each pass (a `(0, total)` tick) — so a
 /// two-pass operation like rotation shows a bar per pass — and cleared when the
 /// pass completes.
-pub fn cli_progress() -> impl FnMut(usize, usize) {
+pub(crate) fn cli_progress() -> impl FnMut(usize, usize) {
     let mut bar: Option<ProgressBar> = None;
     move |done, total| {
         if done == 0 {
@@ -28,7 +28,7 @@ pub fn cli_progress() -> impl FnMut(usize, usize) {
     }
 }
 
-pub fn encrypt_store(
+pub(crate) fn encrypt_store(
     config_path: &Path,
     config: &Config,
     device_name: Option<&str>,
@@ -39,7 +39,7 @@ pub fn encrypt_store(
         if !store.unlock_available() {
             bail!(
                 "this journal is already encrypted for other devices, but this one has no key at {}; run `{}` to request access instead",
-                store.paths().keys.identity_file.display(),
+                store.identity_path().display(),
                 crate::ENROLL_CMD,
             );
         }
@@ -48,8 +48,8 @@ pub fn encrypt_store(
         // Encrypted entries but no roster to encrypt more against — reuse the
         // storage layer's own message rather than restating it here. anyhow
         // prints the typed error's Display, so route it through directly.
-        return Err(notema_storage::EncryptionError::RecipientsMissing {
-            path: store.paths().keys.devices_file.clone(),
+        return Err(notema_encryption::EncryptionError::RecipientsMissing {
+            path: store.device_roster_path().to_path_buf(),
         }
         .into());
     } else {
@@ -63,7 +63,7 @@ pub fn encrypt_store(
         );
         println!(
             "Encryption recipient: {recipient}. Identity file: {}. Back it up; without it encrypted journal files cannot be decrypted.",
-            store.paths().keys.identity_file.display()
+            store.identity_path().display()
         );
         if passphrase.is_none() {
             println!("This key has no passphrase — keep this device and its backups secure.");
@@ -78,17 +78,17 @@ pub fn encrypt_store(
     );
     println!(
         "Encryption recipient: {recipient}. Identity file: {}. Back it up; without it encrypted journal files cannot be decrypted.",
-        store.paths().keys.identity_file.display()
+        store.identity_path().display()
     );
     Ok(())
 }
 
-pub fn decrypt_store(config_path: &Path, config: &Config) -> AppResult<()> {
+pub(crate) fn decrypt_store(config_path: &Path, config: &Config) -> AppResult<()> {
     let mut store = JournalStore::for_config(config_path, &config.journal.path)?;
     if !store.unlock_available() {
         bail!(
             "age identity not found at {}; encrypted entries cannot be decrypted on this machine",
-            store.paths().keys.identity_file.display()
+            store.identity_path().display()
         );
     }
     let passphrase = if store.identity_needs_passphrase()? {

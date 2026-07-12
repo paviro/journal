@@ -1,11 +1,94 @@
-use super::ops::*;
+use super::ops::{Ctx, RENAME_NOREPLACE, ctx_ref as raw_ctx_ref};
 use crate::path_policy::{
     BackingFile, existing_file, is_rejected_system_name, mounted_name, visible_entries, with_age,
 };
-use notema_storage::{JournalStore, SecretString, StoreFileEncoding};
+use notema_encryption::SecretString;
+use notema_storage::{JournalStore, StoreFileEncoding};
 use std::ffi::{CString, OsStr, OsString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::path::{Path, PathBuf};
+
+fn ctx_ref<'a>(ctx: *mut c_void) -> &'a Ctx {
+    // SAFETY: Every test context comes from `Box::into_raw` in `Harness` and
+    // remains owned until the harness is dropped.
+    unsafe { raw_ctx_ref(ctx) }
+}
+
+fn jf_create(
+    ctx: *mut c_void,
+    path: *const c_char,
+    mode: u32,
+    flags: c_int,
+    fh_out: *mut u64,
+) -> c_int {
+    // SAFETY: Test callers pass live CStrings, context pointers, and output slots.
+    unsafe { super::ops::jf_create(ctx, path, mode, flags, fh_out) }
+}
+
+fn jf_open(ctx: *mut c_void, path: *const c_char, flags: c_int, fh_out: *mut u64) -> c_int {
+    // SAFETY: Test callers pass live CStrings, context pointers, and output slots.
+    unsafe { super::ops::jf_open(ctx, path, flags, fh_out) }
+}
+
+fn jf_read(
+    ctx: *mut c_void,
+    path: *const c_char,
+    buf: *mut c_char,
+    size: usize,
+    offset: i64,
+    fh: u64,
+) -> c_int {
+    // SAFETY: Test callers size the writable buffer to at least `size` bytes.
+    unsafe { super::ops::jf_read(ctx, path, buf, size, offset, fh) }
+}
+
+fn jf_write(
+    ctx: *mut c_void,
+    path: *const c_char,
+    buf: *const c_char,
+    size: usize,
+    offset: i64,
+    fh: u64,
+) -> c_int {
+    // SAFETY: Test callers keep the input buffer alive for `size` bytes.
+    unsafe { super::ops::jf_write(ctx, path, buf, size, offset, fh) }
+}
+
+fn jf_truncate(ctx: *mut c_void, path: *const c_char, size: i64, fh: u64, has_fh: c_int) -> c_int {
+    // SAFETY: Test callers pass a live harness context and CString path.
+    unsafe { super::ops::jf_truncate(ctx, path, size, fh, has_fh) }
+}
+
+fn jf_release(ctx: *mut c_void, path: *const c_char, fh: u64) -> c_int {
+    // SAFETY: Test callers pass a live harness context and CString path.
+    unsafe { super::ops::jf_release(ctx, path, fh) }
+}
+
+fn jf_rename(ctx: *mut c_void, from: *const c_char, to: *const c_char, flags: u32) -> c_int {
+    // SAFETY: Test callers keep both CString paths and the context alive.
+    unsafe { super::ops::jf_rename(ctx, from, to, flags) }
+}
+
+fn jf_unlink(ctx: *mut c_void, path: *const c_char) -> c_int {
+    // SAFETY: Test callers pass a live harness context and CString path.
+    unsafe { super::ops::jf_unlink(ctx, path) }
+}
+
+fn jf_getattr(ctx: *mut c_void, path: *const c_char, stat: *mut libc::stat) -> c_int {
+    // SAFETY: Test callers pass a live context/path and writable `stat`.
+    unsafe { super::ops::jf_getattr(ctx, path, stat) }
+}
+
+fn jf_rmdir(ctx: *mut c_void, path: *const c_char) -> c_int {
+    // SAFETY: Test callers pass a live harness context and CString path.
+    unsafe { super::ops::jf_rmdir(ctx, path) }
+}
+
+fn empty_stat() -> libc::stat {
+    // SAFETY: `libc::stat` is a plain C output structure and an all-zero value
+    // is a valid initialized buffer for `getattr` to fill.
+    unsafe { std::mem::zeroed() }
+}
 
 #[test]
 fn with_age_and_mounted_name_round_trip() {
@@ -118,6 +201,8 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
+        // SAFETY: `self.ctx` was created exactly once with `Box::into_raw`, and
+        // no test callback can outlive the fixture borrow.
         drop(unsafe { Box::from_raw(self.ctx as *mut Ctx) });
     }
 }
@@ -365,7 +450,7 @@ fn unlink_removes_file() {
     let p = cpath("/diary/note.md");
     assert_eq!(jf_unlink(fx.ctx, p.as_ptr()), 0);
     assert!(!fx.root().join("diary/note.md.age").exists());
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    let mut st = empty_stat();
     assert_eq!(jf_getattr(fx.ctx, p.as_ptr(), &mut st), -libc::ENOENT);
 }
 
@@ -400,7 +485,7 @@ fn getattr_reports_plaintext_size() {
     fx.mkdir_p("diary");
     write_new(&fx, "/diary/note.md", b"hello world");
 
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    let mut st = empty_stat();
     assert_eq!(
         jf_getattr(fx.ctx, cpath("/diary/note.md").as_ptr(), &mut st),
         0
@@ -420,7 +505,7 @@ fn getattr_reflects_external_size_changes() {
         .write_store_file(&disk, StoreFileEncoding::Encrypted, b"abcdef")
         .unwrap();
 
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    let mut st = empty_stat();
     assert_eq!(
         jf_getattr(fx.ctx, cpath("/diary/note.md").as_ptr(), &mut st),
         0
@@ -435,7 +520,7 @@ fn age_metadata_passes_through_plaintext() {
     assert!(disk.is_file());
     let raw = std::fs::read(&disk).unwrap();
 
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    let mut st = empty_stat();
     assert_eq!(
         jf_getattr(fx.ctx, cpath("/.age/devices.toml").as_ptr(), &mut st),
         0
@@ -482,7 +567,7 @@ fn traversal_and_symlinks_are_inaccessible() {
     )
     .unwrap();
 
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    let mut st = empty_stat();
     assert_eq!(
         jf_getattr(
             fx.ctx,
@@ -502,7 +587,7 @@ fn traversal_and_symlinks_are_inaccessible() {
 fn getattr_reports_directory_mtime() {
     let fx = Fixture::new();
     fx.mkdir_p("diary");
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    let mut st = empty_stat();
     assert_eq!(jf_getattr(fx.ctx, cpath("/diary").as_ptr(), &mut st), 0);
     assert!(st.st_mtime > 0, "directories should carry their real mtime");
 }

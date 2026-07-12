@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use notema_core::SearchHit;
+use notema_domain::SearchHit;
 use ratatui::widgets::ListState;
 
 use super::app::{EditFeelingState, EditLocationState, EditMetadataState, SearchScope};
@@ -16,18 +16,18 @@ const TOAST_LIFETIME: Duration = Duration::from_secs(5);
 const TOAST_CAP: usize = 4;
 
 /// Vertical scroll offsets for the panels that scroll their own body: the entry
-/// preview, and the insights panel's ranked-list tabs (People / Activities / Tags).
+/// reader, and the insights panel's ranked-list tabs (People / Activities / Tags).
 #[derive(Default)]
 pub(crate) struct ScrollState {
-    pub(crate) entry_view: u16,
+    pub(crate) reader: u16,
     /// First visible row of the insights list tabs, in row units (not pixels).
     pub(crate) insights: u16,
 }
 
 impl ScrollState {
-    /// Reset the entry preview scroll.
-    pub(crate) fn reset_entry_view(&mut self) {
-        self.entry_view = 0;
+    /// Reset the entry reader scroll.
+    pub(crate) fn reset_reader(&mut self) {
+        self.reader = 0;
     }
 
     /// Reset the insights list scroll — called when the tab, scope, or journal
@@ -41,7 +41,7 @@ impl ScrollState {
 /// it back to `None` — that single rule is the whole keyboard/mouse input-mode
 /// machine: a parked cursor must not keep glowing while the user arrows
 /// around, and the next mouse move restores it. Hovering never moves the main
-/// panels' selection (selecting has side effects — journal switch, preview
+/// panels' selection (selecting has side effects — journal switch, reader
 /// swap — that stay click-only); overlay menus do follow the cursor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum HoverTarget {
@@ -58,6 +58,14 @@ pub(crate) enum HoverTarget {
     DialogRow(usize),
     /// A confirm dialog's yes (`true`) / no (`false`) button.
     ConfirmButton(bool),
+    /// A clickable link name in the reader, by its body line and column span.
+    ReaderLink {
+        line: usize,
+        start: usize,
+        end: usize,
+    },
+    /// A clickable `[Image N …]` label in the reader, by its body line.
+    ReaderImage(usize),
     /// A single-line text field, identified by the rect it was last drawn
     /// into (fields carry no other identity; only one can be hovered).
     TextField(ratatui::layout::Rect),

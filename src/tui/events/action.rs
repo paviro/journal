@@ -1,26 +1,52 @@
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyEvent, MouseEvent};
+use ratatui::layout::Rect;
 
 use crate::tui::state::MetadataKind;
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ReaderAction {
+    ScrollLines(i16),
+    ScrollPages(i16),
+    ScrollToStart,
+    ScrollToEnd,
+    SetFullscreen(bool),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum InsightsAction {
+    ScrollLines(i16),
+    ScrollPages(i16),
+    ScrollToStart,
+    ScrollToEnd,
+    SetFullscreen(bool),
+    ToggleScope,
+    CycleTimeframe,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Action {
+    PointerInput {
+        event: MouseEvent,
+        area: Rect,
+    },
+    PointerScroll {
+        event: MouseEvent,
+        area: Rect,
+        delta: i16,
+    },
+    PointerHover {
+        column: u16,
+        row: u16,
+        area: Rect,
+    },
     // Global
     Quit,
     // Browse / search navigation
     FocusLeft,
     FocusRight,
-    MoveUp,
-    MoveDown,
-    // Entry view scroll
-    ScrollEntryView(i16),
-    PageEntryView(i16),
-    ScrollEntryViewToStart,
-    ScrollEntryViewToEnd,
-    // Insights list scroll (Focus::Insights, People / Activities / Tags tabs)
-    ScrollInsights(i16),
-    PageInsights(i16),
-    ScrollInsightsToStart,
-    ScrollInsightsToEnd,
+    MoveSelection(isize),
+    Reader(ReaderAction),
+    Insights(InsightsAction),
     // Browse operations
     BeginSearch,
     ExitSearch,
@@ -34,7 +60,6 @@ pub(crate) enum Action {
     EditorOpenHelp,
     EditorClosePrompt,
     EditorScrollHelp(i16),
-    EditorBeginMetadata(MetadataKind),
     EditorInput(KeyEvent),
     EditorSelectAll,
     EditorScroll(i16),
@@ -48,56 +73,40 @@ pub(crate) enum Action {
     },
     EditorEndSelection,
     ViewSelected,
-    // Expand the focused entry viewer to full screen (multi-column) / collapse back
-    ExpandEntryView,
-    CollapseEntryView,
-    // Expand the focused insights panel to full screen (multi-column) / collapse back
-    ExpandInsights,
-    CollapseInsights,
+    OpenReaderLink(String),
     BeginDelete,
     ConfirmDelete,
     // Cancel / close — covers Esc across all overlays
     CancelOverlay,
     OpenMetadataMenu,
-    BeginEditTags,
-    BeginEditPeople,
-    BeginEditActivities,
+    BeginEditMetadata(MetadataKind),
     BeginEditFeelings,
     BeginEditMood,
     ToggleStarred,
     NewEntry,
     NewJournal,
     ToggleArchiveJournal,
-    // Journal insights panel (Focus::Insights). Tabs switch via FocusLeft/Right.
-    ToggleInsightsScope,
-    CycleInsightsTimeframe,
     // New-journal input overlay
     JournalInputSubmit,
     // Tags overlay
-    MetadataMoveUp,
-    MetadataMoveDown,
+    MoveDialogSelection(isize),
     MetadataToggle,
     MetadataSwitchFocus,
     MetadataAddFromInput,
     MetadataSave,
     // Feelings overlay
-    FeelingsMoveUp,
-    FeelingsMoveDown,
     FeelingsToggle,
     FeelingsExpand,
     FeelingsCollapse,
     FeelingsSwitchFocus,
     FeelingsSave,
     // Mood overlay
-    MoodDecrease,
-    MoodIncrease,
+    AdjustMood(i8),
     MoodSave,
     MoodClear,
     // Location overlay
     BeginEditLocation,
     LocationSwitchFocus,
-    LocationMoveUp,
-    LocationMoveDown,
     LocationResolve,
     LocationGrabDevice,
     LocationSelectRow,
@@ -106,9 +115,7 @@ pub(crate) enum Action {
     // Settings menu + theme picker overlays
     OpenSettingsMenu,
     OpenThemePicker,
-    ThemePickerMoveUp,
-    ThemePickerMoveDown,
-    /// Select (and live-preview) the row at this index — mouse click.
+    /// Select (and show in the reader) the row at this index — mouse click.
     ThemePickerSelect(usize),
     ThemePickerConfirm,
     ThemePickerCancel,
@@ -118,8 +125,7 @@ pub(crate) enum Action {
     ThemePickerCycleMode,
     // Image viewer overlay
     OpenImageViewer(usize),
-    ImageViewerNext,
-    ImageViewerPrev,
+    StepImageViewer(isize),
     // Search text input (only active when mode=Search and focus=Entries)
     /// A key press for whichever text field currently owns the caret (search
     /// box or an open dialog's focused input): chars, backspace, caret

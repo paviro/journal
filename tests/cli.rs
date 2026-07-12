@@ -1,5 +1,6 @@
-use notema_core::{Entry, Metadata};
-use notema_storage::{JournalStore, SecretString};
+use notema_domain::{Entry, Metadata};
+use notema_encryption::SecretString;
+use notema_storage::JournalStore;
 use std::{
     env, fs,
     io::Write,
@@ -13,9 +14,21 @@ fn journal_bin() -> &'static str {
 }
 
 fn write_config(path: &Path, root: &Path, default_journal: Option<&str>) {
-    let mut config = notema::config::Config::new(root.to_path_buf());
-    config.journal.default = default_journal.map(str::to_string);
-    notema::config::save_config(path, &config).unwrap();
+    let mut journal = toml::map::Map::new();
+    journal.insert(
+        "path".to_string(),
+        toml::Value::String(root.to_string_lossy().into_owned()),
+    );
+    if let Some(default) = default_journal {
+        journal.insert(
+            "default".to_string(),
+            toml::Value::String(default.to_string()),
+        );
+    }
+    let mut config = toml::map::Map::new();
+    config.insert("schema_version".to_string(), toml::Value::Integer(1));
+    config.insert("journal".to_string(), toml::Value::Table(journal));
+    fs::write(path, toml::to_string(&config).unwrap()).unwrap();
 }
 
 fn scan_entries_for(root: &Path, journal: &str) -> Vec<Entry> {
@@ -409,8 +422,8 @@ fn set_default_journal_persists_to_config() {
         .unwrap();
 
     assert!(output.status.success());
-    let config = notema::config::load_config(&config_path).unwrap();
-    assert_eq!(config.journal.default.as_deref(), Some("work"));
+    let config: toml::Value = toml::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+    assert_eq!(config["journal"]["default"].as_str(), Some("work"));
 }
 
 #[test]
@@ -481,8 +494,16 @@ fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
     fs::create_dir_all(&trash_dir).unwrap();
     let entry = entry_dir.join("entry.md");
     let trashed = trash_dir.join("old.md");
-    fs::write(&entry, "+++\ntags = []\n+++\n\n# Secret\nBody\n").unwrap();
-    fs::write(&trashed, "+++\ntags = []\n+++\n\n# Trashed\n").unwrap();
+    fs::write(
+        &entry,
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# Secret\nBody\n",
+    )
+    .unwrap();
+    fs::write(
+        &trashed,
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# Trashed\n",
+    )
+    .unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -511,23 +532,18 @@ fn encrypt_command_converts_store_and_entry_command_writes_encrypted_files() {
     );
     assert_eq!(
         store
-            .paths()
-            .keys
-            .devices_file
+            .device_roster_path()
             .file_name()
             .and_then(|name| name.to_str()),
         Some("devices.toml")
     );
     assert_eq!(
-        store.paths().keys.devices_file,
+        store.device_roster_path(),
         root.join(".age").join("devices.toml")
     );
-    assert_eq!(
-        store.paths().keys.identity_file,
-        dir.path().join("identity.toml")
-    );
-    assert!(store.paths().keys.devices_file.exists());
-    assert!(store.paths().keys.identity_file.exists());
+    assert_eq!(store.identity_path(), dir.path().join("identity.toml"));
+    assert!(store.device_roster_path().exists());
+    assert!(store.identity_path().exists());
     assert!(!dir.path().join("encryption").exists());
     assert!(!fs::read_dir(dir.path()).unwrap().any(|entry| {
         entry
@@ -616,7 +632,11 @@ fn encrypt_command_finishes_partial_encryption_without_touching_existing_age_fil
     let entry_dir = root.join("work").join("2026").join("07").join("02");
     fs::create_dir_all(&entry_dir).unwrap();
     let remaining_plain = entry_dir.join("remaining.md");
-    fs::write(&remaining_plain, "+++\ntags = []\n+++\n\n# Remaining\n").unwrap();
+    fs::write(
+        &remaining_plain,
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# Remaining\n",
+    )
+    .unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -660,7 +680,11 @@ fn encrypt_command_fails_when_plain_entry_target_age_file_already_exists() {
     fs::create_dir_all(&entry_dir).unwrap();
     let plain = entry_dir.join("entry.md");
     let encrypted = entry_dir.join("entry.md.age");
-    fs::write(&plain, "+++\ntags = []\n+++\n\n# Plain\n").unwrap();
+    fs::write(
+        &plain,
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# Plain\n",
+    )
+    .unwrap();
     fs::write(&encrypted, "# Existing encrypted\n").unwrap();
     write_config(&config, &root, Some("work"));
 
@@ -684,7 +708,7 @@ fn encrypt_command_fails_when_encrypted_entries_exist_without_device_roster() {
     let config = dir.path().join("config.toml");
     let (store, _recipient) = generate_identity_store(&config, &root, "secret");
     let encrypted = create_entry(&store, "work", "# Secret");
-    fs::remove_file(&store.paths().keys.devices_file).unwrap();
+    fs::remove_file(store.device_roster_path()).unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -697,7 +721,7 @@ fn encrypt_command_fails_when_encrypted_entries_exist_without_device_roster() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("device roster is missing"));
     assert!(encrypted.exists());
-    assert!(!store.paths().keys.devices_file.exists());
+    assert!(!store.device_roster_path().exists());
 }
 
 #[test]
@@ -707,7 +731,7 @@ fn encrypt_command_fails_when_recipients_exist_but_device_has_no_identity() {
     let config = dir.path().join("config.toml");
     // Recipients synced from another device, but this one never enrolled.
     let (store, _recipient) = generate_identity_store(&config, &root, "secret");
-    fs::remove_file(&store.paths().keys.identity_file).unwrap();
+    fs::remove_file(store.identity_path()).unwrap();
     write_config(&config, &root, Some("work"));
 
     let output = Command::new(journal_bin())
@@ -728,7 +752,7 @@ fn encrypted_entry_command_writes_age_files_without_unlocking() {
     let config = dir.path().join("config.toml");
     let (mut store, _recipient) = generate_identity_store(&config, &root, "secret");
     store.unlock(Some(&SecretString::from("secret"))).unwrap();
-    fs::remove_file(&store.paths().keys.identity_file).unwrap();
+    fs::remove_file(store.identity_path()).unwrap();
     fs::create_dir_all(root.join("work")).unwrap();
     write_config(&config, &root, Some("work"));
 
@@ -769,7 +793,7 @@ fn encrypted_log_command_writes_age_files_without_unlocking() {
     store.unlock(Some(&SecretString::from("secret"))).unwrap();
     // Remove the identity so the CLI has no way to decrypt — a new entry must
     // still encrypt to the roster, proving writing needs only the recipients.
-    fs::remove_file(&store.paths().keys.identity_file).unwrap();
+    fs::remove_file(store.identity_path()).unwrap();
     fs::create_dir_all(root.join("work")).unwrap();
     write_config(&config, &root, Some("work"));
 
@@ -832,8 +856,7 @@ fn encrypted_entries_can_be_decrypted_with_age_cli() {
     let encrypted = Path::new(std::str::from_utf8(&output.stdout).unwrap().trim()).to_path_buf();
 
     let identity = dir.path().join("age-identity.txt");
-    let secret =
-        extract_age_secret(&fs::read_to_string(&store.paths().keys.identity_file).unwrap());
+    let secret = extract_age_secret(&fs::read_to_string(store.identity_path()).unwrap());
     fs::write(&identity, format!("{secret}\n")).unwrap();
 
     let output = Command::new("age")
@@ -863,7 +886,7 @@ fn passphrase_identity_stores_recoverable_age_armor() {
     let config = dir.path().join("config.toml");
     let (store, _) = generate_identity_store(&config, &root, "correct horse battery");
 
-    let text = fs::read_to_string(&store.paths().keys.identity_file).unwrap();
+    let text = fs::read_to_string(store.identity_path()).unwrap();
     assert!(
         text.contains("encrypted_keys"),
         "passphrase identity should store encrypted_keys: {text}"

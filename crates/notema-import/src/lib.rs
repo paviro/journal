@@ -1,21 +1,21 @@
+#![forbid(unsafe_code)]
+
 //! Import external journals into the store.
 //!
 //! Currently supports [Day One](https://dayoneapp.com/) JSON exports via
-//! [`import_dayone`]. Each importer maps an external format onto the store's
+//! [`parse_dayone`]. Each importer maps an external format onto the store's
 //! entry model, records provenance (`[import]`) so re-runs skip already-imported
 //! entries, and preserves original timestamps.
 
 mod dayone;
 
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use anyhow::Context;
 use chrono::{DateTime, FixedOffset};
-use notema_core::{AppResult, Celestial, ImportSource, Location, Metadata, Weather};
-use notema_storage::{AssetFailure, EntryAssetOptions, EntryDraft, JournalStore};
+use notema_domain::{Celestial, ImportSource, Location, Metadata, Weather};
+use thiserror::Error;
 
 /// Map Day One's parsed location onto the store's [`Location`], keeping only the
 /// place hierarchy and coordinates (the geofence `region` and `timeZoneName` are
@@ -102,71 +102,69 @@ fn zoned_timestamp(rfc3339_utc: &str, tz: Option<&str>) -> Option<DateTime<Fixed
     }
 }
 
-/// Summary of a Day One import, printed to the user.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct ImportReport {
-    /// Entries created.
-    pub imported: usize,
-    /// Entries skipped because their `[import]` provenance was already present.
-    pub skipped_duplicate: usize,
-    /// Photos copied into entry asset folders.
-    pub images_stored: usize,
-    /// Photos that could not be ingested (missing file, decode failure, …).
-    pub images_failed: usize,
-    /// Remote `http(s)` images that were not fetched. When downloading was on,
-    /// these were unreachable and are replaced in the body with `[Offline
-    /// Image]`; when off, they are left as links to fetch later. Not failures.
-    pub remote_images_skipped: usize,
-    /// Non-image attachments (audio/video/pdf) referenced but not imported.
-    pub attachments_skipped: usize,
-    /// Human-readable per-entry problems that did not abort the import.
-    pub failures: Vec<String>,
+#[derive(Debug, Error)]
+pub enum ImportError {
+    #[error("could not read {path}: {source}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("could not parse Day One export {path}: {source}")]
+    Parse {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
 }
 
-/// Import every entry from a Day One JSON export at `json_path` into `journal`,
-/// creating the journal if it does not exist. Media folders (e.g. `photos/`) are
-/// resolved relative to the JSON file. Entries whose Day One UUID was already
-/// imported are skipped.
-///
-/// `download_remote` gates fetching `http(s)` image links found in entry bodies
-/// (Day One entries can embed remote images, distinct from local `photos`);
-/// pass the store's configured preference, mirroring `notema log`.
-pub fn import_dayone(
-    store: &JournalStore,
-    journal: &str,
-    json_path: &Path,
-    download_remote: bool,
-) -> AppResult<ImportReport> {
-    // Asset ingestion only needs the recipients roster, but duplicate detection
-    // must decrypt existing entries' `[import]` provenance — a locked import
-    // would silently re-import everything.
-    if store.encrypts_new_files() && !store.is_unlocked() {
-        anyhow::bail!("the journal store is encrypted; unlock it before importing");
-    }
+#[derive(Debug, Default, PartialEq)]
+pub struct ImportBatch {
+    pub entries: Vec<ImportedEntry>,
+    pub warnings: Vec<ImportWarning>,
+}
 
-    let file =
-        File::open(json_path).with_context(|| format!("could not read {}", json_path.display()))?;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportWarning {
+    pub entry_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportedEntry {
+    pub provenance: ImportSource,
+    pub body: String,
+    pub metadata: Metadata,
+    pub created_at: DateTime<FixedOffset>,
+    pub edited_at: DateTime<FixedOffset>,
+    pub timezone: Option<String>,
+    pub location: Option<Location>,
+    pub weather: Option<Weather>,
+    pub celestial: Option<Celestial>,
+    pub writing_seconds: Option<u64>,
+    pub attachments_skipped: usize,
+}
+
+/// Parse and normalize a Day One export without reading or mutating a Notema
+/// store. Local photo references are resolved relative to the export file.
+pub fn parse_dayone(json_path: &Path) -> Result<ImportBatch, ImportError> {
+    let file = File::open(json_path).map_err(|source| ImportError::Read {
+        path: json_path.to_path_buf(),
+        source,
+    })?;
     let export: DayOneExport =
-        serde_json::from_reader(BufReader::new(file)).context("could not parse Day One export")?;
+        serde_json::from_reader(BufReader::new(file)).map_err(|source| ImportError::Parse {
+            path: json_path.to_path_buf(),
+            source,
+        })?;
     let media_root = json_path.parent().unwrap_or_else(|| Path::new("."));
-
-    if !store.list_journals()?.iter().any(|j| j.name == journal) {
-        store.create_journal(journal)?;
-    }
-
-    let mut seen: HashSet<ImportSource> = store.scan_import_sources()?.into_iter().collect();
-
-    let mut report = ImportReport::default();
+    let mut batch = ImportBatch::default();
 
     for entry in &export.entries {
-        let import = ImportSource {
+        let provenance = ImportSource {
             source: "dayone".to_string(),
             id: entry.uuid.clone(),
         };
-        if seen.contains(&import) {
-            report.skipped_duplicate += 1;
-            continue;
-        }
 
         let tz = entry.time_zone.as_deref();
         let Some(created_at) = entry
@@ -174,9 +172,10 @@ pub fn import_dayone(
             .as_deref()
             .and_then(|value| zoned_timestamp(value, tz))
         else {
-            report
-                .failures
-                .push(format!("{}: missing or invalid creationDate", entry.uuid));
+            batch.warnings.push(ImportWarning {
+                entry_id: entry.uuid.clone(),
+                message: "missing or invalid creationDate".to_string(),
+            });
             continue;
         };
         let edited_at = entry
@@ -236,57 +235,32 @@ pub fn import_dayone(
             .as_ref()
             .map(map_celestial)
             .filter(|c| !c.is_empty());
-        // Day One records fractional seconds; whole seconds are plenty.
-        let editing_seconds = entry.editing_time.map(|secs| secs as u64);
+        let writing_seconds = entry
+            .editing_time
+            .and_then(|seconds| std::time::Duration::try_from_secs_f64(seconds).ok())
+            .map(|duration| duration.as_secs());
 
-        // Replace un-fetchable images with a placeholder only when we actually
-        // tried to download — otherwise remote links are kept so they can be
-        // fetched by a later `--download-images` run.
-        let created = store.create_entry(
-            EntryDraft {
-                journal,
-                body: &rewrite.body,
-                metadata: &metadata,
-                created_at: Some(created_at),
-                edited_at: Some(edited_at),
-                timezone: tz,
-                location: location.as_ref(),
-                weather: weather.as_ref(),
-                celestial: celestial.as_ref(),
-                air_quality: None,
-                writing_seconds: editing_seconds,
-                import: Some(&import),
-            },
-            EntryAssetOptions {
-                download_remote,
-                replace_offline: download_remote,
-            },
-        )?;
-
-        report.images_stored += created.assets.stored;
-        for failure in created.assets.failed {
-            match failure {
-                // A remote link we chose not to (or couldn't) fetch — download
-                // off, or the host is gone — is left in the body as a link, not
-                // a failure.
-                AssetFailure::RemoteUnavailable { .. } => report.remote_images_skipped += 1,
-                AssetFailure::Ingest { source, error } => {
-                    report.images_failed += 1;
-                    report
-                        .failures
-                        .push(format!("{}: {source}: {error}", entry.uuid));
-                }
-            }
-        }
         for id in &rewrite.unresolved {
-            report
-                .failures
-                .push(format!("{}: unresolved photo moment {id}", entry.uuid));
+            batch.warnings.push(ImportWarning {
+                entry_id: entry.uuid.clone(),
+                message: format!("unresolved photo moment {id}"),
+            });
         }
-        report.attachments_skipped += rewrite.skipped_attachments();
-        report.imported += 1;
-        seen.insert(import);
+        let attachments_skipped = rewrite.skipped_attachments();
+        batch.entries.push(ImportedEntry {
+            provenance,
+            body: rewrite.body,
+            metadata,
+            created_at,
+            edited_at,
+            timezone: entry.time_zone.clone(),
+            location,
+            weather,
+            celestial,
+            writing_seconds,
+            attachments_skipped,
+        });
     }
 
-    Ok(report)
+    Ok(batch)
 }

@@ -51,6 +51,9 @@ impl App {
     }
 
     fn begin_edit_metadata(&mut self, kind: MetadataKind) {
+        if self.editor.is_none() && !self.allow_selected_entry_edit() {
+            return;
+        }
         let (active_values, archived_only) = self.metadata_partitioned(kind);
         let active_len = active_values.len();
         // Archived-only values live after the active ones; they stay hidden until

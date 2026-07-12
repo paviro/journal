@@ -625,7 +625,7 @@ pub(crate) fn sentiment_segments(
         }
     }
     // Each sentiment renders with its own fill: color themes vary the hue,
-    // e-ink varies the glyph (█▒░) so the series stay apart without color.
+    // eclipse varies the glyph (█▒░) so the series stay apart without color.
     let segment = |fill: crate::tui::theme::Fill, cells: usize| {
         Span::styled(fill.glyph.to_string().repeat(cells), fill.style)
     };
@@ -764,10 +764,10 @@ mod tests {
     }
 
     #[test]
-    fn sentiment_segments_stay_distinguishable_without_color_on_eink() {
-        // The e-ink theme separates the three series by glyph, not hue: each
+    fn sentiment_segments_stay_distinguishable_without_color_on_eclipse() {
+        // The eclipse theme separates the three series by glyph, not hue: each
         // rendered segment must use a different fill character.
-        crate::tui::theme::set_test_theme(crate::tui::theme::test_eink_theme());
+        crate::tui::theme::set_test_theme(crate::tui::theme::test_eclipse_theme());
         let line = sentiment_segments(2, 2, 2, 9);
         let glyphs: Vec<char> = line
             .spans
@@ -777,7 +777,7 @@ mod tests {
         assert_eq!(glyphs.len(), 3);
         assert!(
             glyphs[0] != glyphs[1] && glyphs[1] != glyphs[2] && glyphs[0] != glyphs[2],
-            "e-ink sentiment glyphs not pairwise distinct: {glyphs:?}"
+            "eclipse sentiment glyphs not pairwise distinct: {glyphs:?}"
         );
     }
 }

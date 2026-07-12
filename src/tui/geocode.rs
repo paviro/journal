@@ -3,7 +3,8 @@
 //! one-request-per-second ceiling.
 
 use crate::tui::worker::Worker;
-use notema_context_provider::{DeviceFix, GeocodeHit, device_location, geocode, reverse_geocode};
+use notema_context::{DeviceFix, GeocodeHit, device_location, geocode, reverse_geocode};
+use notema_domain::Coordinates;
 
 /// How many forward-geocode candidates to request (Nominatim `limit`).
 const CANDIDATE_LIMIT: usize = 6;
@@ -15,7 +16,7 @@ pub(crate) type GeocodeWorker = Worker<GeocodeRequest, GeocodeResult>;
 /// device's own current location (which is then named like any coordinates).
 pub(crate) enum GeocodeQuery {
     Address(String),
-    Coords { lat: f64, lon: f64 },
+    Coordinates(Coordinates),
     Device,
 }
 
@@ -45,11 +46,11 @@ pub(crate) fn resolve(request: GeocodeRequest) -> GeocodeResult {
             false,
             geocode(&query, CANDIDATE_LIMIT).map_err(|error| error.to_string()),
         ),
-        GeocodeQuery::Coords { lat, lon } => (true, reverse_hits(lat, lon)),
+        GeocodeQuery::Coordinates(coordinates) => (true, reverse_hits(coordinates)),
         // Grab the device's position, then name it through the same reverse path.
         GeocodeQuery::Device => match device_location() {
             Ok(fix) => {
-                let hits = reverse_hits(fix.latitude, fix.longitude);
+                let hits = reverse_hits(fix.coordinates);
                 device_fix = Some(fix);
                 (true, hits)
             }
@@ -65,8 +66,8 @@ pub(crate) fn resolve(request: GeocodeRequest) -> GeocodeResult {
 }
 
 /// Reverse-geocode coordinates into the zero-or-one hit the dialog expects.
-fn reverse_hits(lat: f64, lon: f64) -> Result<Vec<GeocodeHit>, String> {
-    reverse_geocode(lat, lon)
+fn reverse_hits(coordinates: Coordinates) -> Result<Vec<GeocodeHit>, String> {
+    reverse_geocode(coordinates)
         .map(|hit| hit.into_iter().collect())
         .map_err(|error| error.to_string())
 }

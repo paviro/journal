@@ -19,13 +19,11 @@ use crate::tui::text_input::TextInput;
 use crate::tui::theme::theme;
 
 use super::{
-    chrome::{
-        centered_rect_fixed_size, flat_chrome, render_scrollbar_if_needed, separator_style,
-    },
+    chrome::{centered_rect_fixed_size, flat_chrome, render_scrollbar_if_needed, separator_style},
     footer::{Hint, HintId, hint_height, hint_lines},
     frames::{dialog_frame_rows, dialog_inner, draw_dialog_frame, render_confirm_buttons},
     list_state_for_render,
-    markdown_panel::MoodBar,
+    metadata::MoodBar,
 };
 use std::time::Instant;
 
@@ -642,8 +640,7 @@ pub(super) fn draw_theme_picker(
     };
 
     draw_dialog_frame(frame, layout.area, "Theme", true);
-    let list = List::new(items)
-        .highlight_style(theme().selection());
+    let list = List::new(items).highlight_style(theme().selection());
     let mut render_state =
         list_state_for_render(state.selected_index(), scroll, layout.list.height, len > 0);
     frame.render_stateful_widget(list, layout.list, &mut render_state);
@@ -999,8 +996,7 @@ pub(super) fn draw_edit_metadata_dialog(
         layout.inner,
     );
     render_separator(frame, layout.list_top_separator);
-    let list = List::new(items)
-        .highlight_style(theme().selection());
+    let list = List::new(items).highlight_style(theme().selection());
     let mut render_state = list_state_for_render(
         state.selected_index(),
         scroll,
@@ -1205,8 +1201,7 @@ pub(super) fn draw_edit_location_dialog(
             .collect()
     };
 
-    let list = List::new(items)
-        .highlight_style(theme().selection());
+    let list = List::new(items).highlight_style(theme().selection());
     let mut render_state = list_state_for_render(
         state.selected_index(),
         scroll,
@@ -1299,8 +1294,7 @@ pub(super) fn draw_edit_feelings_dialog(
         layout.inner,
     );
     render_separator(frame, layout.list_top_separator);
-    let list = List::new(items)
-        .highlight_style(theme().selection());
+    let list = List::new(items).highlight_style(theme().selection());
     let mut render_state = list_state_for_render(
         state.selected_index(),
         scroll,

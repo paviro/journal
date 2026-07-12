@@ -6,11 +6,15 @@ themes are written there on first use and are never overwritten afterwards —
 edits to them survive upgrades. Any `.toml` file in the directory is a theme;
 the file stem is the theme name.
 
-Bundled themes: `blossom` (default), `journal`, `classic`, `e-ink`, `fjord`,
-`grove`, `matcha`, `tokyonight`, `catppuccin`, `rose-pine`, `dungeon`,
-`synthwave`, `crt`, `cyberpunk`, `vaporwave`, `matrix`, `tron`, `eldritch`,
-`hal`, `gameboy`, `wasteland`, `arcade`, `deep-space`. `classic` is the
-terminal-default look the app has without any theme; `e-ink` is pure
+Every theme starts with `schema_version = 1`. Other versions and unknown keys
+are rejected.
+
+Bundled themes: `blossom` (default), `journal`, `classic`, `eclipse`, `fjord`,
+`grove`, `matcha`, `indigo`, `maple`, `celadon`, `tokyonight`, `lavender`,
+`rose-pine`, `dungeon`, `synthwave`, `crt`, `cyberpunk`, `vaporwave`, `matrix`,
+`tron`, `eldritch`, `hal`, `gameboy`, `wasteland`, `arcade`, `deep-space`.
+`classic` is the
+terminal-default look the app has without any theme; `eclipse` is pure
 black-and-white for monochrome displays; the rest are bold, high-color looks
 (the last eight riffing on films and games) that lean on the accent,
 structural, and glyph tokens below.
@@ -21,6 +25,8 @@ a warning on stderr — the app always starts.
 ## Config keys
 
 ```toml
+schema_version = 1
+
 [ui]
 theme = "blossom"        # file stem of a theme in <config-dir>/themes/
 color_mode = "auto"      # auto | dark | light — picks the { dark, light } variant
@@ -241,7 +247,7 @@ Modifiers that carry meaning are applied in code and cannot be removed by a
 theme: signed values are bold, secondary ink is dim, the selection fallback is
 inverted, and chart series can differ by glyph. A theme chooses colors and
 identity glyphs; it can never make a positive value render as plain body text.
-The `e-ink` theme is the reference: pure black-and-white, with chart series
+The `eclipse` theme is the reference: pure black-and-white, with chart series
 distinguished by three distinct fill glyphs instead of hue.
 
 ## Chrome styles

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Development-only sample-data generator. Fills a [`JournalStore`] with
 //! backdated, richly tagged fake entries so the TUI, journal timeline, and
 //! stats/analytics views have realistic data to render. Every generated entry
@@ -9,11 +11,11 @@
 //! coin-flips), and each entry's feelings, body text, and starring line up with
 //! that mood. The feeling-group → valence mapping used here lives only in this
 //! generator to mimic what a real user would log; the product itself never
-//! attaches good/bad judgment to a feeling (see `notema-core/src/feelings.rs`).
+//! attaches good/bad judgment to a feeling (see `notema-domain/src/feelings.rs`).
 
+use anyhow::Result as AppResult;
 use chrono::{Duration, Local};
-use notema_core::feelings::{self, FEELING_GROUPS};
-use notema_core::{AppResult, ImportSource, MOOD_RANGE, Metadata};
+use notema_domain::{FEELING_GROUPS, ImportSource, MOOD_RANGE, Metadata, feelings};
 use notema_storage::JournalStore;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -21,7 +23,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 pub const SEED_SOURCE: &str = "seed";
 
 /// Knobs for a generation run.
-pub struct GenConfig {
+pub struct SeedConfig {
     /// Journal to fill; created if it doesn't exist yet.
     pub journal: String,
     /// Number of entries to create.
@@ -139,7 +141,7 @@ const NEGATIVE_SENTENCES: &[&str] = &[
 
 /// Ensure the target journal exists, then create `config.count` backdated
 /// entries. Returns the number of entries created.
-pub fn generate(store: &JournalStore, config: &GenConfig) -> AppResult<usize> {
+pub fn generate(store: &JournalStore, config: &SeedConfig) -> AppResult<usize> {
     let mut rng = match config.seed {
         Some(seed) => StdRng::seed_from_u64(seed),
         None => StdRng::from_os_rng(),
@@ -297,7 +299,7 @@ impl FeelingPools {
             };
             bucket.extend(group.feelings.iter().map(|feeling| feeling.name));
         }
-        let all = feelings::feelings().collect();
+        let all = feelings().collect();
         FeelingPools {
             positive,
             neutral,
@@ -457,7 +459,7 @@ mod tests {
         let store = JournalStore::new(dir.path().join("journals"), dir.path());
         store.ensure().unwrap();
 
-        let config = GenConfig {
+        let config = SeedConfig {
             journal: "Sample".to_string(),
             count: 25,
             days: 180,
@@ -490,7 +492,7 @@ mod tests {
             store.ensure().unwrap();
             generate(
                 &store,
-                &GenConfig {
+                &SeedConfig {
                     journal: "Sample".to_string(),
                     count: 10,
                     days: 90,
@@ -524,7 +526,7 @@ mod tests {
     fn feeling_pools_classify_every_feeling_once() {
         let pools = FeelingPools::build();
         let total = pools.positive.len() + pools.neutral.len() + pools.negative.len();
-        assert_eq!(total, feelings::feelings().count());
+        assert_eq!(total, feelings().count());
         assert!(pools.positive.contains(&"happy"));
         assert!(pools.positive.contains(&"grateful"));
         assert!(pools.negative.contains(&"angry"));

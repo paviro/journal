@@ -1,13 +1,31 @@
 use super::{App, Focus};
 use crate::tui::editor_state::{EditorTarget, EntryEditor};
 use crate::tui::state::{MetadataKind, ToastVariant};
-use notema_core::Metadata;
+use notema_domain::Metadata;
 
 impl App {
+    pub(crate) fn selected_entry_edit_warning(&self) -> Option<String> {
+        self.resolved_selected_entry()?.warning.clone()
+    }
+
+    pub(crate) fn allow_selected_entry_edit(&mut self) -> bool {
+        let Some(warning) = self.selected_entry_edit_warning() else {
+            return true;
+        };
+        self.toast(
+            ToastVariant::Error,
+            format!("Can't edit this entry. {warning}. Repair its +++ metadata block first."),
+        );
+        false
+    }
+
     /// Open the internal editor on the selected entry, replacing the entry-view
     /// content in place. Refuses locked encrypted entries. Stays in the current
     /// column layout (fullscreen is a separate toggle).
     pub(crate) fn open_editor_for_selected(&mut self) {
+        if !self.allow_selected_entry_edit() {
+            return;
+        }
         let Some(target) = self.selected_entry_target() else {
             return;
         };
@@ -27,15 +45,15 @@ impl App {
             &body,
             metadata,
         ));
-        self.nav.focus = Focus::EntryView;
+        self.nav.focus = Focus::Reader;
         if self.config.editor.start_fullscreen {
-            self.nav.entry_view_fullscreen = true;
+            self.nav.reader_fullscreen = true;
         }
     }
 
     /// Open the internal editor on a blank buffer for a new entry in the selected
     /// journal. Opens in-pane in the entry-view column (fullscreen stays a toggle);
-    /// [`show_journal_insights_preview`](Self::show_journal_insights_preview) yields
+    /// [`show_journal_insights`](Self::show_journal_insights) yields
     /// that column to the editor even with no entry selected.
     pub(crate) fn open_editor_for_new(&mut self) {
         let Some(journal) = self.selected_journal().map(|journal| journal.name.clone()) else {
@@ -43,9 +61,9 @@ impl App {
             return;
         };
         self.editor = Some(EntryEditor::for_new(journal));
-        self.nav.focus = Focus::EntryView;
+        self.nav.focus = Focus::Reader;
         if self.config.editor.start_fullscreen {
-            self.nav.entry_view_fullscreen = true;
+            self.nav.reader_fullscreen = true;
         }
     }
 
@@ -58,8 +76,8 @@ impl App {
         editor.metadata = metadata.clone();
         editor.original_metadata = metadata;
         self.editor = Some(editor);
-        self.nav.entry_view_fullscreen = true;
-        self.nav.focus = Focus::EntryView;
+        self.nav.reader_fullscreen = true;
+        self.nav.focus = Focus::Reader;
         self.compose = true;
     }
 
@@ -73,9 +91,9 @@ impl App {
         );
         self.editor = None;
         if was_new {
-            self.nav.entry_view_fullscreen = false;
+            self.nav.reader_fullscreen = false;
             self.nav.focus = if self.has_selected_entry_target() {
-                Focus::EntryView
+                Focus::Reader
             } else {
                 Focus::Entries
             };
@@ -111,7 +129,7 @@ impl App {
 
     /// The location the location dialog should open with: the open editor's
     /// draft (empty for a new entry), else the selected entry's.
-    pub(crate) fn editing_location(&self) -> Option<notema_core::Location> {
+    pub(crate) fn editing_location(&self) -> Option<notema_domain::Location> {
         match &self.editor {
             Some(editor) => editor.metadata.location.clone(),
             None => self
@@ -122,7 +140,7 @@ impl App {
 
     /// Write a location edit into the open editor's buffer (applied to the
     /// entry only on save). No-op when the editor is closed.
-    pub(crate) fn set_editor_location(&mut self, location: Option<notema_core::Location>) {
+    pub(crate) fn set_editor_location(&mut self, location: Option<notema_domain::Location>) {
         let Some(editor) = self.editor.as_mut() else {
             return;
         };

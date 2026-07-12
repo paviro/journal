@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Journal's encryption layer: per-device age keypairs, a signed append-only
 //! device roster, passphrase-wrapped identities, and the helpers that turn
 //! journal bytes into age ciphertext and back.

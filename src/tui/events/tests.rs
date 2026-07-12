@@ -40,7 +40,7 @@ fn up() -> MouseEventKind {
 }
 
 fn mouse_in_area(app: &mut App, event: MouseEvent, w: u16, h: u16) {
-    mouse::handle_mouse_in_area(app, event, Rect::new(0, 0, w, h)).unwrap();
+    mouse::apply_pointer_in_area(app, event, Rect::new(0, 0, w, h)).unwrap();
 }
 
 fn set_tag_dialog_items(app: &mut App, count: usize) {
@@ -50,6 +50,20 @@ fn set_tag_dialog_items(app: &mut App, count: usize) {
         .collect();
     state.filtered = (0..count).collect();
     state.normalize_list_state();
+}
+
+#[test]
+fn action_errors_become_toasts_and_keep_the_event_loop_running() {
+    let dir = tempdir().unwrap();
+    let config = Config::new(dir.path().to_path_buf());
+    let mut app = new_app(config);
+
+    let outcome = recover_action_error(&mut app, Err(anyhow::anyhow!("write failed"))).unwrap();
+
+    assert_eq!(outcome, DispatchOutcome::Continue);
+    let toast = app.toasts.items().last().unwrap();
+    assert_eq!(toast.variant, crate::tui::state::ToastVariant::Error);
+    assert_eq!(toast.message, "Action failed: write failed");
 }
 
 #[test]
@@ -72,30 +86,34 @@ fn enter_on_journals_moves_to_entries_like_right_arrow() {
 }
 
 #[test]
-fn right_on_entry_expands_when_inline_entry_view_is_hidden() {
-    let dir = tempdir().unwrap();
-    let entry_dir = dir.path().join("work").join("2026-07-01");
-    fs::create_dir_all(&entry_dir).unwrap();
-    fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\nBody\n").unwrap();
-    let config = Config::new(dir.path().to_path_buf());
-    let mut app = new_app(config);
-    app.select_journal_by_name("work");
-    app.nav.focus = Focus::Entries;
-
-    // Right on Entries when not entry_view_available → ViewSelected → view_selected
-    view_selected(&mut app).unwrap();
-
-    assert_eq!(app.nav.focus, Focus::EntryView);
-}
-
-#[test]
-fn expanded_entry_title_matches_entry_view_timestamp_title() {
+fn right_on_entry_expands_when_inline_reader_is_hidden() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\nBody\n",
+    )
+    .unwrap();
+    let config = Config::new(dir.path().to_path_buf());
+    let mut app = new_app(config);
+    app.select_journal_by_name("work");
+    app.nav.focus = Focus::Entries;
+
+    // Right on Entries when not reader_available → ViewSelected → view_selected
+    view_selected(&mut app).unwrap();
+
+    assert_eq!(app.nav.focus, Focus::Reader);
+}
+
+#[test]
+fn expanded_entry_title_matches_reader_timestamp_title() {
+    let dir = tempdir().unwrap();
+    let entry_dir = dir.path().join("work").join("2026-07-01");
+    fs::create_dir_all(&entry_dir).unwrap();
+    fs::write(
+        entry_dir.join("a.md"),
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -105,25 +123,29 @@ fn expanded_entry_title_matches_entry_view_timestamp_title() {
 
     view_selected(&mut app).unwrap();
 
-    let (title, _) = app.selected_entry_view().unwrap();
+    let (title, _) = app.selected_reader().unwrap();
     assert_eq!(title, "Wednesday, 1 July 2026, 10:23");
 }
 
 #[test]
-fn right_on_entry_focuses_entry_view_when_entry_view_is_available() {
+fn right_on_entry_focuses_reader_when_reader_is_available() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
-    fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\nBody\n").unwrap();
+    fs::write(
+        entry_dir.join("a.md"),
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\nBody\n",
+    )
+    .unwrap();
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::Entries;
 
-    // Right on Entries when entry_view_available → FocusRight → focus to EntryView
+    // Right on Entries when reader_available → FocusRight → focus to Reader
     move_focus_right(&mut app, true);
 
-    assert_eq!(app.nav.focus, Focus::EntryView);
+    assert_eq!(app.nav.focus, Focus::Reader);
 }
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -166,9 +188,9 @@ fn editor_footer_hints_route_to_editor_actions() {
 fn right_past_entries_focuses_insights_and_arrows_cycle_tabs() {
     let mut app = app_with_entries(1);
     app.nav.focus = Focus::Entries;
-    // No entry selected → the right column is the insights preview.
+    // No entry selected → the right column is the insights reader.
     app.nav.selected_entry_index = None;
-    assert!(app.show_journal_insights_preview());
+    assert!(app.show_journal_insights());
 
     // Right past Entries focuses the panel on its first tab.
     move_focus_right(&mut app, true);
@@ -195,9 +217,9 @@ fn right_past_entries_focuses_insights_and_arrows_cycle_tabs() {
 fn right_reaches_insights_in_single_panel_layout() {
     let mut app = app_with_entries(1);
     app.nav.focus = Focus::Entries;
-    // No entry selected → the entries column previews the journal insights.
+    // No entry selected → the entries column shows the journal insights.
     app.nav.selected_entry_index = None;
-    assert!(app.show_journal_insights_preview());
+    assert!(app.show_journal_insights());
 
     // At single-panel width (entry view unavailable) Right still focuses the panel,
     // which renders full-screen; Left from the first tab returns to the entries list.
@@ -218,16 +240,16 @@ fn enter_expands_and_collapses_the_insights_panel() {
     // Enter on the focused panel expands it; Enter/Esc collapse it back.
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Enter), true),
-        Some(Action::ExpandInsights)
+        Some(Action::Insights(InsightsAction::SetFullscreen(true)))
     );
     app.nav.insights_fullscreen = true;
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Enter), true),
-        Some(Action::CollapseInsights)
+        Some(Action::Insights(InsightsAction::SetFullscreen(false)))
     );
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Esc), true),
-        Some(Action::CollapseInsights)
+        Some(Action::Insights(InsightsAction::SetFullscreen(false)))
     );
 
     // Leaving the panel (Left from the first tab) resets full-screen so it
@@ -249,7 +271,7 @@ fn scope_key_toggles_only_while_insights_panel_is_focused() {
     app.nav.focus = Focus::Insights;
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Char('g')), true),
-        Some(Action::ToggleInsightsScope)
+        Some(Action::Insights(InsightsAction::ToggleScope))
     );
 }
 
@@ -269,7 +291,7 @@ fn window_key_cycles_timeframe_only_on_driver_tabs() {
     app.nav.insights_tab = InsightsTab::Drivers;
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Char('w')), true),
-        Some(Action::CycleInsightsTimeframe)
+        Some(Action::Insights(InsightsAction::CycleTimeframe))
     );
     assert_eq!(InsightsTimeframe::Overall.next(), InsightsTimeframe::Year);
     assert_eq!(InsightsTimeframe::Week.next(), InsightsTimeframe::Overall);
@@ -278,7 +300,7 @@ fn window_key_cycles_timeframe_only_on_driver_tabs() {
 #[test]
 fn clicking_a_border_tab_focuses_the_panel_and_selects_that_tab() {
     let mut app = app_with_entries(1);
-    // Preview state so the insights panel is the right-hand column.
+    // Reader state so the insights panel is the right-hand column.
     app.nav.selected_entry_index = None;
     app.nav.focus = Focus::Journals;
 
@@ -294,22 +316,22 @@ fn clicking_a_border_tab_focuses_the_panel_and_selects_that_tab() {
 fn multi_col_enter_focuses_then_expands_then_collapses() {
     let mut app = app_with_entries(1);
 
-    // First Enter opens the focused preview pane (not full screen yet).
+    // First Enter opens the focused reader pane (not full screen yet).
     view_selected(&mut app).unwrap();
-    assert_eq!(app.nav.focus, Focus::EntryView);
-    assert!(!app.nav.entry_view_fullscreen);
+    assert_eq!(app.nav.focus, Focus::Reader);
+    assert!(!app.nav.reader_fullscreen);
 
     // Second Enter expands to full screen.
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Enter), true),
-        Some(Action::ExpandEntryView)
+        Some(Action::Reader(ReaderAction::SetFullscreen(true)))
     );
-    app.nav.entry_view_fullscreen = true;
+    app.nav.reader_fullscreen = true;
 
     // Third Enter closes full screen (collapses back to the focused pane).
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Enter), true),
-        Some(Action::CollapseEntryView)
+        Some(Action::Reader(ReaderAction::SetFullscreen(false)))
     );
 }
 
@@ -317,11 +339,11 @@ fn multi_col_enter_focuses_then_expands_then_collapses() {
 fn multi_col_fullscreen_esc_collapses_and_left_is_inert() {
     let mut app = app_with_entries(1);
     view_selected(&mut app).unwrap();
-    app.nav.entry_view_fullscreen = true;
+    app.nav.reader_fullscreen = true;
 
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Esc), true),
-        Some(Action::CollapseEntryView)
+        Some(Action::Reader(ReaderAction::SetFullscreen(false)))
     );
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Left), true),
@@ -348,12 +370,12 @@ fn single_col_viewer_exits_on_enter_esc_and_left() {
 fn leaving_the_viewer_clears_fullscreen() {
     let mut app = app_with_entries(1);
     view_selected(&mut app).unwrap();
-    app.nav.entry_view_fullscreen = true;
+    app.nav.reader_fullscreen = true;
 
     move_focus_left(&mut app);
 
     assert_eq!(app.nav.focus, Focus::Entries);
-    assert!(!app.nav.entry_view_fullscreen);
+    assert!(!app.nav.reader_fullscreen);
 }
 
 #[test]
@@ -400,7 +422,7 @@ fn location_dialog_keys_route_by_focus() {
         let state = app.edit_location_state_mut().unwrap();
         state.presets.push(LocationPreset {
             label: "Berlin".to_string(),
-            location: notema_core::Location {
+            location: notema_domain::Location {
                 city: Some("Berlin".to_string()),
                 ..Default::default()
             },
@@ -466,15 +488,15 @@ fn location_query_enter_saves_once_the_query_is_resolved() {
 fn snapshot_restores_fullscreen_across_an_edit() {
     let mut app = app_with_entries(1);
     view_selected(&mut app).unwrap();
-    app.nav.entry_view_fullscreen = true;
+    app.nav.reader_fullscreen = true;
 
-    let snapshot = EntryViewSnapshot::capture(&app);
-    app.nav.entry_view_fullscreen = false;
+    let snapshot = ReaderSnapshot::capture(&app);
+    app.nav.reader_fullscreen = false;
     app.nav.focus = Focus::Entries;
-    restore_entry_view_or_close(&mut app, snapshot);
+    restore_reader_or_close(&mut app, snapshot);
 
-    assert_eq!(app.nav.focus, Focus::EntryView);
-    assert!(app.nav.entry_view_fullscreen);
+    assert_eq!(app.nav.focus, Focus::Reader);
+    assert!(app.nav.reader_fullscreen);
 }
 
 #[test]
@@ -591,7 +613,7 @@ fn wide_journal_click_selects_journal_and_keeps_journal_focus() {
     let mut app = app_with_journals(&["alpha", "beta"]);
     app.nav.focus = Focus::Journals;
     app.nav.selected_entry_index = Some(3);
-    app.nav.scroll.entry_view = 10;
+    app.nav.scroll.reader = 10;
     let layout = render::tui_layout(Rect::new(0, 0, 120, 20), &app);
     let journals = layout.journals.unwrap().content;
 
@@ -610,10 +632,10 @@ fn wide_journal_click_selects_journal_and_keeps_journal_focus() {
 
     assert_eq!(app.selected_journal_index(), 1);
     // Selecting a journal clears the entry selection so the insights column shows
-    // instead of an entry preview.
+    // instead of an entry reader.
     assert_eq!(app.nav.selected_entry_index, None);
-    assert!(app.show_journal_insights_preview());
-    assert_eq!(app.nav.scroll.entry_view, 0);
+    assert!(app.show_journal_insights());
+    assert_eq!(app.nav.scroll.reader, 0);
     assert_eq!(app.nav.focus, Focus::Journals);
 }
 
@@ -702,7 +724,7 @@ fn wheel_over_entries_scrolls_without_changing_selection() {
 }
 
 #[test]
-fn entry_click_selects_row_without_opening_viewer_when_entry_view_is_visible() {
+fn entry_click_selects_row_without_opening_viewer_when_reader_is_visible() {
     let mut app = app_with_entries(2);
     app.nav.focus = Focus::Journals;
     let layout = render::tui_layout(Rect::new(0, 0, 130, 12), &app);
@@ -733,7 +755,7 @@ fn entry_click_selects_row_without_opening_viewer_when_entry_view_is_visible() {
 #[test]
 fn entry_panel_month_divider_click_deselects_to_journal_insights() {
     let mut app = app_with_entries(1);
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
     let layout = render::tui_layout(Rect::new(0, 0, 120, 12), &app);
     let entries = layout.entries.unwrap().panel.content;
 
@@ -756,7 +778,7 @@ fn entry_panel_month_divider_click_deselects_to_journal_insights() {
 #[test]
 fn entry_panel_empty_space_click_deselects_to_journal_insights() {
     let mut app = app_with_entries(1);
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
     let layout = render::tui_layout(Rect::new(0, 0, 130, 20), &app);
     let geo = layout.entries.unwrap();
     let entries = geo.panel.content;
@@ -780,24 +802,23 @@ fn entry_panel_empty_space_click_deselects_to_journal_insights() {
 }
 
 #[test]
-fn wheel_over_entry_view_scrolls_entry_view_only() {
+fn wheel_over_reader_scrolls_reader_only() {
     let mut app = app_with_entries(6);
     app.nav.focus = Focus::Entries;
     let layout = render::tui_layout(Rect::new(0, 0, 120, 20), &app);
-    let entry_view = layout.entry_view.unwrap().content;
+    let reader = layout.reader.unwrap().content;
 
     mouse_in_area(
         &mut app,
-        mouse(MouseEventKind::ScrollDown, entry_view.x, entry_view.y),
+        mouse(MouseEventKind::ScrollDown, reader.x, reader.y),
         120,
         20,
     );
 
-    assert_eq!(app.nav.scroll.entry_view, 1);
+    assert_eq!(app.nav.scroll.reader, 1);
     assert_eq!(app.nav.entry_list.offset(), 0);
     assert_eq!(app.nav.selected_entry_index, Some(0));
-    // Scrolling moves the content under the cursor but leaves the active pane alone.
-    assert_eq!(app.nav.focus, Focus::Entries);
+    assert_eq!(app.nav.focus, Focus::Reader);
 }
 
 #[test]
@@ -806,7 +827,7 @@ fn expanded_entry_wheel_scrolls_and_clicks_do_not_close() {
     view_selected(&mut app).unwrap();
 
     mouse_in_area(&mut app, mouse(MouseEventKind::ScrollDown, 1, 1), 80, 20);
-    assert_eq!(app.nav.scroll.entry_view, 1);
+    assert_eq!(app.nav.scroll.reader, 1);
 
     mouse_in_area(
         &mut app,
@@ -814,14 +835,14 @@ fn expanded_entry_wheel_scrolls_and_clicks_do_not_close() {
         80,
         20,
     );
-    assert_eq!(app.nav.focus, Focus::EntryView);
+    assert_eq!(app.nav.focus, Focus::Reader);
 }
 
 #[test]
 fn multi_col_fullscreen_body_click_does_not_collapse() {
     let mut app = app_with_entries(1);
     view_selected(&mut app).unwrap();
-    app.nav.entry_view_fullscreen = true;
+    app.nav.reader_fullscreen = true;
 
     // A click inside the full-screen body (not on a metadata chip) must leave the
     // viewer expanded rather than collapsing it back to the pane.
@@ -832,17 +853,17 @@ fn multi_col_fullscreen_body_click_does_not_collapse() {
         20,
     );
 
-    assert_eq!(app.nav.focus, Focus::EntryView);
-    assert!(app.nav.entry_view_fullscreen);
+    assert_eq!(app.nav.focus, Focus::Reader);
+    assert!(app.nav.reader_fullscreen);
 }
 
 #[test]
-fn metadata_refresh_restores_expanded_entry_view_and_scroll() {
+fn metadata_refresh_restores_expanded_reader_and_scroll() {
     let mut app = app_with_entries(1);
     view_selected(&mut app).unwrap();
-    app.nav.scroll.entry_view = 7;
+    app.nav.scroll.reader = 7;
 
-    let snapshot = EntryViewSnapshot::capture(&app);
+    let snapshot = ReaderSnapshot::capture(&app);
     app.begin_edit_tags();
     super::actions::set_metadata_on_entry(
         &mut app,
@@ -850,11 +871,11 @@ fn metadata_refresh_restores_expanded_entry_view_and_scroll() {
         &["work".to_string()],
     )
     .unwrap();
-    restore_entry_view_or_close(&mut app, snapshot);
+    restore_reader_or_close(&mut app, snapshot);
     app.close_overlay();
 
-    assert_eq!(app.nav.focus, Focus::EntryView);
-    assert_eq!(app.nav.scroll.entry_view, 7);
+    assert_eq!(app.nav.focus, Focus::Reader);
+    assert_eq!(app.nav.scroll.reader, 7);
     assert_eq!(app.selected_entry_tags(), vec!["work".to_string()]);
     assert!(!app.has_overlay());
 }
@@ -863,41 +884,41 @@ fn metadata_refresh_restores_expanded_entry_view_and_scroll() {
 fn confirmed_delete_from_expanded_entry_closes_viewer() {
     let mut app = app_with_entries(1);
     view_selected(&mut app).unwrap();
-    app.nav.scroll.entry_view = 5;
+    app.nav.scroll.reader = 5;
     app.begin_confirm_delete();
 
-    assert_eq!(app.nav.focus, Focus::EntryView);
+    assert_eq!(app.nav.focus, Focus::Reader);
 
     confirm_delete(&mut app).unwrap();
 
     assert_eq!(app.nav.focus, Focus::Entries);
-    assert_eq!(app.nav.scroll.entry_view, 0);
+    assert_eq!(app.nav.scroll.reader, 0);
     assert_eq!(app.current_entry_list_len(), 0);
     assert!(!app.has_overlay());
 }
 
 #[test]
-fn search_from_entry_view_resets_focus_and_scroll() {
+fn search_from_reader_resets_focus_and_scroll() {
     let mut app = app_with_entries(1);
     view_selected(&mut app).unwrap();
-    app.nav.scroll.entry_view = 5;
+    app.nav.scroll.reader = 5;
 
     app.begin_search();
 
     assert_eq!(app.nav.focus, Focus::Entries);
     assert_eq!(app.nav.mode, crate::tui::app::Mode::Search);
-    assert_eq!(app.nav.scroll.entry_view, 0);
+    assert_eq!(app.nav.scroll.reader, 0);
 }
 
 #[test]
-fn select_created_entry_path_opens_expanded_entry_view() {
+fn select_created_entry_path_opens_expanded_reader() {
     let dir = tempdir().unwrap();
     let root = dir.path().to_path_buf();
     let entry_dir = root.join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\ntags = []\n+++\n\n# Existing\nBody\n",
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# Existing\nBody\n",
     )
     .unwrap();
 
@@ -905,7 +926,7 @@ fn select_created_entry_path_opens_expanded_entry_view() {
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     view_selected(&mut app).unwrap();
-    app.nav.scroll.entry_view = 9;
+    app.nav.scroll.reader = 9;
 
     let store = JournalStore::for_config(&root.join("config.toml"), &root).unwrap();
     let created = store
@@ -913,7 +934,7 @@ fn select_created_entry_path_opens_expanded_entry_view() {
             notema_storage::EntryDraft::new(
                 "work",
                 "# Created\nBody\n",
-                &notema_core::Metadata::default(),
+                &notema_domain::Metadata::default(),
             ),
             notema_storage::EntryAssetOptions::default(),
         )
@@ -922,10 +943,10 @@ fn select_created_entry_path_opens_expanded_entry_view() {
     app.refresh().unwrap();
     let created_id = notema_storage::entry_id(&created).unwrap();
     assert!(app.select_entry_by_id(&created_id, true));
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
 
-    assert_eq!(app.nav.focus, Focus::EntryView);
-    assert_eq!(app.nav.scroll.entry_view, 0);
+    assert_eq!(app.nav.focus, Focus::Reader);
+    assert_eq!(app.nav.scroll.reader, 0);
     assert_eq!(app.selected_entry_target().unwrap().path, created);
 }
 
@@ -1350,11 +1371,11 @@ fn theme_picker_keys_route_to_dedicated_actions() {
 
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Up), true),
-        Some(Action::ThemePickerMoveUp)
+        Some(Action::MoveDialogSelection(-1))
     );
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Down), true),
-        Some(Action::ThemePickerMoveDown)
+        Some(Action::MoveDialogSelection(1))
     );
     assert_eq!(
         keyboard::key_to_action(&app, key(KeyCode::Enter), true),
@@ -1395,7 +1416,7 @@ fn hover_tracks_journal_rows_without_moving_selection() {
 
     // The middle line of the second journal's row.
     let row = list.y + render::journal_row_height() + 1;
-    assert!(mouse::update_hover(&mut app, list.x + 2, row, area));
+    assert!(mouse::apply_hover(&mut app, list.x + 2, row, area));
     assert_eq!(app.hover, HoverTarget::Journal(1));
     assert_eq!(
         app.nav.journal_list.selected(),
@@ -1404,7 +1425,7 @@ fn hover_tracks_journal_rows_without_moving_selection() {
     );
 
     // Motion within the same row doesn't ask for a repaint.
-    assert!(!mouse::update_hover(&mut app, list.x + 3, row, area));
+    assert!(!mouse::apply_hover(&mut app, list.x + 3, row, area));
 
     // Any key event clears the glow — the keyboard half of the input mode.
     assert!(app.clear_hover());
@@ -1417,7 +1438,7 @@ fn hover_finds_footer_hints() {
     let area = Rect::new(0, 0, 120, 20);
     let footer = render::tui_layout(area, &app).footer;
     let hovered = (footer.x..footer.x + footer.width).any(|col| {
-        mouse::update_hover(&mut app, col, footer.y, area);
+        mouse::apply_hover(&mut app, col, footer.y, area);
         matches!(app.hover, HoverTarget::FooterHint(_))
     });
     assert!(hovered, "no footer hint hoverable on the browse footer");
@@ -1439,7 +1460,7 @@ fn hover_tracks_insights_tabs_without_switching_tabs() {
         })
         .expect("writing tab");
 
-    assert!(mouse::update_hover(&mut app, col, insights.area.y, area));
+    assert!(mouse::apply_hover(&mut app, col, insights.area.y, area));
     assert_eq!(app.hover, HoverTarget::InsightsTab(InsightsTab::Writing));
     assert_eq!(app.nav.insights_tab, InsightsTab::Overview);
 }
@@ -1462,7 +1483,7 @@ fn theme_picker_hover_moves_selection_for_live_preview() {
     let layout = render::theme_picker_layout(area, len, state.mode_switchable());
 
     let row = layout.list.y + (target - offset) as u16;
-    assert!(mouse::update_hover(&mut app, layout.list.x + 1, row, area));
+    assert!(mouse::apply_hover(&mut app, layout.list.x + 1, row, area));
     assert_eq!(app.hover, HoverTarget::ThemePickerRow(target));
     // Overlay menus follow the cursor: the hovered row becomes the selection,
     // which live-previews the theme (same path as the arrow keys).
@@ -1483,7 +1504,7 @@ fn settings_menu_hover_targets_its_rows() {
         .flat_map(|row| (0..area.width).map(move |col| (col, row)))
         .find(|(col, row)| render::settings_menu_row_at_point(area, *col, *row) == Some(0))
         .expect("settings menu has a hoverable row");
-    assert!(mouse::update_hover(&mut app, point.0, point.1, area));
+    assert!(mouse::apply_hover(&mut app, point.0, point.1, area));
     assert_eq!(app.hover, HoverTarget::DialogRow(0));
 }
 
@@ -1522,7 +1543,7 @@ fn hovering_a_toast_targets_it_over_everything() {
     let area = Rect::new(0, 0, 120, 30);
     let rect = render::toast_rects(&app, area)[0];
 
-    assert!(mouse::update_hover(&mut app, rect.x + 1, rect.y + 1, area));
+    assert!(mouse::apply_hover(&mut app, rect.x + 1, rect.y + 1, area));
     // Even with the picker open, the topmost toast wins the probe.
     assert_eq!(app.hover, HoverTarget::Toast(0));
 }
@@ -1536,7 +1557,7 @@ fn dialog_list_hover_targets_rows_without_selecting() {
     let layout = render::metadata_dialog_layout(area, 5);
 
     // The third row: hover targets it, but selection and toggles stay put.
-    assert!(mouse::update_hover(
+    assert!(mouse::apply_hover(
         &mut app,
         layout.list.x,
         layout.list.y + 2,
@@ -1563,7 +1584,7 @@ fn confirm_delete_hover_targets_the_buttons() {
     let mut saw = (false, false);
     for col in inner.x..inner.x + inner.width {
         for row in inner.y..inner.y + inner.height {
-            mouse::update_hover(&mut app, col, row, area);
+            mouse::apply_hover(&mut app, col, row, area);
             match app.hover {
                 HoverTarget::ConfirmButton(true) => saw.0 = true,
                 HoverTarget::ConfirmButton(false) => saw.1 = true,

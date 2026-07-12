@@ -1,15 +1,16 @@
 use super::codec::EntryCodec;
 use super::create::EntryAssetOptions;
 use super::paths::entry_assets_dir;
+use crate::AppResult;
 use anyhow::{Context, bail};
-use notema_core::{AppResult, Metadata, MetadataField};
+use notema_domain::{Metadata, MetadataField};
 use notema_encryption::{self as crypto, KeyPaths};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-pub fn delete_journal(
+pub(crate) fn delete_journal(
     root: &Path,
     journal_name: &str,
     journal_path: &Path,
@@ -82,7 +83,7 @@ impl EditOutcome {
 /// The entry is opened once to preserve front matter, then assets, metadata,
 /// writing time, and extra save-time fields are applied before a single final
 /// write.
-pub fn save_entry_edit(
+pub(crate) fn save_entry_edit(
     codec: &EntryCodec<'_>,
     path: &Path,
     edit: EntryEdit<'_>,
@@ -126,7 +127,7 @@ pub fn save_entry_edit(
         &metadata_fields,
         edit.extra_fields,
         edit.writing_seconds,
-    );
+    )?;
     codec.write_existing(path, &content)?;
 
     Ok(EntryEditOutcome {
@@ -166,15 +167,23 @@ fn render_edited_content(
     metadata_fields: &[MetadataField],
     extra_fields: &[MetadataField],
     writing_seconds: Option<u64>,
-) -> String {
+) -> AppResult<String> {
     let Some(front_matter) = front_matter else {
-        return body.to_string();
+        return Ok(body.to_string());
     };
-    let Some(mut parsed) = crate::markdown::parse_front_matter(front_matter) else {
-        return format!(
-            "+++\n{front_matter}\n+++\n\n{}",
-            body.trim_start_matches('\n')
-        );
+    let mut parsed = match crate::markdown::parse_front_matter(front_matter) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            if !metadata_fields.is_empty() || !extra_fields.is_empty() {
+                bail!("cannot edit entry metadata until its front matter is repaired: {error}");
+            }
+            // A body-only edit can preserve malformed front matter byte-for-byte.
+            // Capture fields such as writing time cannot be updated safely here.
+            return Ok(format!(
+                "+++\n{front_matter}\n+++\n\n{}",
+                body.trim_start_matches('\n')
+            ));
+        }
     };
 
     for field in metadata_fields.iter().chain(extra_fields) {
@@ -192,10 +201,10 @@ fn render_edited_content(
         );
     }
     parsed.datetime.edited_at = Some(chrono::Local::now().to_rfc3339());
-    crate::markdown::render_entry(&parsed, body)
+    Ok(crate::markdown::render_entry(&parsed, body))
 }
 
-pub fn delete_empty_entry(path: &Path) -> AppResult<()> {
+pub(crate) fn delete_empty_entry(path: &Path) -> AppResult<()> {
     fs::remove_file(path)?;
     remove_entry_assets(path);
     Ok(())
@@ -216,7 +225,7 @@ fn remove_entry_assets(entry_path: &Path) {
 /// step fails. `fill` receives the temp path and writes the (plain or encrypted)
 /// bytes to it.
 fn replace_atomically(path: &Path, fill: impl FnOnce(&Path) -> AppResult<()>) -> AppResult<()> {
-    let temp = crypto::sibling_temp_path(path, "tmp");
+    let temp = crypto::sibling_temp_path(path, "tmp")?;
     let result = fill(&temp).and_then(|()| Ok(fs::rename(&temp, path)?));
     if result.is_err() {
         let _ = fs::remove_file(&temp);
@@ -239,7 +248,7 @@ pub(crate) fn write_encrypted_entry_content(
     })
 }
 
-pub fn move_entry_to_trash(root: &Path, entry_path: &Path) -> AppResult<PathBuf> {
+pub(crate) fn move_entry_to_trash(root: &Path, entry_path: &Path) -> AppResult<PathBuf> {
     let relative = entry_path.strip_prefix(root)?;
     let mut components = relative.components();
     let journal = components

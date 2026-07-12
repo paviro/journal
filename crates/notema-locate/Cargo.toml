@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 description = "macOS CoreLocation helper for Notema — prints a JSON location fix. Bundled into a signed .app; not used directly."
 
 [[bin]]
@@ -14,6 +16,9 @@ path = "src/main.rs"
 # signed .app that wraps this binary (a bare CLI can't get location on modern
 # macOS). On other targets the binary is a stub, so the workspace still builds.
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDate", "NSEnumerator", "NSError", "NSObjCRuntime", "NSRunLoop", "NSString"] }
-objc2-core-location = { version = "0.3", default-features = false, features = ["std", "CLLocation", "CLLocationManager", "CLLocationManagerDelegate", "CLError"] }
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-core-location.workspace = true
+
+[lints]
+workspace = true

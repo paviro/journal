@@ -1,4 +1,4 @@
-use notema_core::AppResult;
+use anyhow::Result as AppResult;
 use notema_storage::{JournalStore, StoreFileEncoding};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, OsStr};
@@ -49,7 +49,13 @@ const RENAME_EXCHANGE: u32 = 2;
 
 // --- path helpers -----------------------------------------------------------
 
-pub(super) fn ctx_ref<'a>(ptr: *mut c_void) -> &'a Ctx {
+/// # Safety
+///
+/// `ptr` must be the live `Ctx` pointer registered as libfuse private data, and
+/// the returned reference must not outlive that mount callback.
+pub(super) unsafe fn ctx_ref<'a>(ptr: *mut c_void) -> &'a Ctx {
+    // SAFETY: The caller guarantees `ptr` is the live mount context and the
+    // returned borrow is bounded by the current callback.
     unsafe { &*(ptr as *const Ctx) }
 }
 
@@ -57,6 +63,8 @@ pub(super) fn ctx_ref<'a>(ptr: *mut c_void) -> &'a Ctx {
 /// e.g. `/personal/x.md` → `<root>/personal/x.md`. The FUSE root `/` maps to the
 /// journal root itself.
 fn base_of(ctx: &Ctx, path: *const c_char) -> PathBuf {
+    // SAFETY: Every caller receives `path` from libfuse or supplies a live
+    // CString in tests, so it is non-null and NUL-terminated.
     let bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
     let rel = bytes.strip_prefix(b"/").unwrap_or(bytes);
     if rel.is_empty() {
@@ -68,7 +76,7 @@ fn base_of(ctx: &Ctx, path: *const c_char) -> PathBuf {
 
 impl Ctx {
     pub(super) fn new(store: JournalStore) -> Self {
-        let root = store.paths().journal_root.clone();
+        let root = store.root().to_path_buf();
         Self {
             store,
             root,
@@ -76,7 +84,10 @@ impl Ctx {
                 handles: HashMap::new(),
                 next_fh: 1,
             }),
+            // SAFETY: `getuid` and `getgid` take no pointers and have no
+            // preconditions.
             uid: unsafe { libc::getuid() },
+            // SAFETY: See `getuid` above.
             gid: unsafe { libc::getgid() },
         }
     }
@@ -104,17 +115,19 @@ impl Ctx {
     fn file_size(&self, file: &BackingFile) -> AppResult<u64> {
         let inner = self.lock();
         if let Some(handle) = inner.handles.values().find(|h| h.on_disk == file.path) {
-            return Ok(handle.buf.len() as u64);
+            return Ok(u64::try_from(handle.buf.len())?);
         }
         drop(inner);
-        Ok(self.store.read_store_file(&file.path, file.encoding)?.len() as u64)
+        Ok(u64::try_from(
+            self.store.read_store_file(&file.path, file.encoding)?.len(),
+        )?)
     }
 
     /// Re-encrypt and write back a dirty handle's buffer; no-op for clean or
     /// read-only handles.
     fn commit(&self, fh: u64) -> Result<(), c_int> {
-        let inner = self.lock();
-        let Some(handle) = inner.handles.get(&fh) else {
+        let mut inner = self.lock();
+        let Some(handle) = inner.handles.get_mut(&fh) else {
             return Ok(());
         };
         if handle.deleted {
@@ -123,19 +136,10 @@ impl Ctx {
         if !handle.dirty || !handle.writable {
             return Ok(());
         }
-        let file = BackingFile {
-            path: handle.on_disk.clone(),
-            encoding: handle.encoding,
-        };
-        let bytes = handle.buf.clone();
-        drop(inner);
         self.store
-            .write_store_file(&file.path, file.encoding, &bytes)
+            .write_store_file(&handle.on_disk, handle.encoding, &handle.buf)
             .map_err(|e| app_errno(&e))?;
-        let mut inner = self.lock();
-        if let Some(handle) = inner.handles.get_mut(&fh) {
-            handle.dirty = false;
-        }
+        handle.dirty = false;
         Ok(())
     }
 }
@@ -168,6 +172,7 @@ fn app_errno(err: &anyhow::Error) -> c_int {
 }
 
 fn fill_dir_stat(ctx: &Ctx, st: *mut libc::stat, disk: &Path) {
+    // SAFETY: The callback contract supplies a non-null, writable `stat`.
     unsafe {
         let s = &mut *st;
         s.st_mode = libc::S_IFDIR | 0o755;
@@ -178,17 +183,21 @@ fn fill_dir_stat(ctx: &Ctx, st: *mut libc::stat, disk: &Path) {
     set_mtime_from_disk(st, disk);
 }
 
-fn fill_file_stat(ctx: &Ctx, st: *mut libc::stat, size: u64, disk: &Path) {
+fn fill_file_stat(ctx: &Ctx, st: *mut libc::stat, size: u64, disk: &Path) -> Result<(), c_int> {
+    let st_size = libc::off_t::try_from(size).map_err(|_| -libc::EOVERFLOW)?;
+    let st_blocks = libc::blkcnt_t::try_from(size.div_ceil(512)).map_err(|_| -libc::EOVERFLOW)?;
+    // SAFETY: The callback contract supplies a non-null, writable `stat`.
     unsafe {
         let s = &mut *st;
         s.st_mode = libc::S_IFREG | 0o644;
         s.st_nlink = 1;
         s.st_uid = ctx.uid;
         s.st_gid = ctx.gid;
-        s.st_size = size as libc::off_t;
-        s.st_blocks = size.div_ceil(512) as libc::blkcnt_t;
+        s.st_size = st_size;
+        s.st_blocks = st_blocks;
     }
     set_mtime_from_disk(st, disk);
+    Ok(())
 }
 
 /// Copy the on-disk modification time onto the stat, so files and folders show
@@ -197,13 +206,17 @@ fn set_mtime_from_disk(st: *mut libc::stat, disk: &Path) {
     if let Ok(secs) = std::fs::metadata(disk)
         .and_then(|m| m.modified())
         .and_then(|t| t.duration_since(UNIX_EPOCH).map_err(std::io::Error::other))
-        .map(|d| d.as_secs() as libc::time_t)
+        .and_then(|duration| {
+            libc::time_t::try_from(duration.as_secs()).map_err(std::io::Error::other)
+        })
     {
         set_mtime(st, secs);
     }
 }
 
 fn set_mtime(st: *mut libc::stat, secs: libc::time_t) {
+    // SAFETY: `st` is the same writable callback pointer validated by the
+    // caller of the stat-filling helpers.
     unsafe {
         let s = &mut *st;
         s.st_mtime = secs;
@@ -215,12 +228,20 @@ fn set_mtime(st: *mut libc::stat, secs: libc::time_t) {
 // --- libfuse callbacks (called from bridge.c) -------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_getattr(ctx: *mut c_void, path: *const c_char, st: *mut libc::stat) -> c_int {
+/// # Safety
+/// `ctx`, `path`, and `st` must be valid callback pointers supplied by libfuse.
+pub(crate) unsafe extern "C" fn jf_getattr(
+    ctx: *mut c_void,
+    path: *const c_char,
+    st: *mut libc::stat,
+) -> c_int {
     guard(move || getattr(ctx, path, st))
 }
 
 fn getattr(ctx: *mut c_void, path: *const c_char, st: *mut libc::stat) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_getattr` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
+    // SAFETY: libfuse supplied `st` as one writable `stat` object.
     unsafe { std::ptr::write_bytes(st, 0, 1) };
     if is_protected_path(path) {
         return -libc::ENOENT;
@@ -231,10 +252,10 @@ fn getattr(ctx: *mut c_void, path: *const c_char, st: *mut libc::stat) -> c_int 
         0
     } else if let Some(file) = existing_file(&base) {
         match ctx.file_size(&file) {
-            Ok(size) => {
-                fill_file_stat(ctx, st, size, &file.path);
-                0
-            }
+            Ok(size) => match fill_file_stat(ctx, st, size, &file.path) {
+                Ok(()) => 0,
+                Err(error) => error,
+            },
             Err(e) => app_errno(&e),
         }
     } else {
@@ -243,7 +264,9 @@ fn getattr(ctx: *mut c_void, path: *const c_char, st: *mut libc::stat) -> c_int 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_readdir(
+/// # Safety
+/// All pointers must be valid for the duration of this libfuse callback.
+pub(crate) unsafe extern "C" fn jf_readdir(
     ctx: *mut c_void,
     path: *const c_char,
     buf: *mut c_void,
@@ -253,11 +276,14 @@ pub extern "C" fn jf_readdir(
 }
 
 fn readdir(ctx: *mut c_void, path: *const c_char, buf: *mut c_void, filler: *mut c_void) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_readdir` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
     if is_protected_path(path) {
         return -libc::ENOENT;
     }
     for name in [c".", c".."] {
+        // SAFETY: libfuse owns `buf` and `filler`; `name` is NUL-terminated and
+        // remains alive for the call.
         unsafe { super::bridge_fill(filler, buf, name.as_ptr()) };
     }
     let base = base_of(ctx, path);
@@ -267,6 +293,7 @@ fn readdir(ctx: *mut c_void, path: *const c_char, buf: *mut c_void, filler: *mut
     };
     for name in entries {
         if let Ok(name) = CString::new(name.as_bytes()) {
+            // SAFETY: As above; this CString remains alive for the call.
             unsafe { super::bridge_fill(filler, buf, name.as_ptr()) };
         }
     }
@@ -274,7 +301,9 @@ fn readdir(ctx: *mut c_void, path: *const c_char, buf: *mut c_void, filler: *mut
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_open(
+/// # Safety
+/// `ctx` and `path` must be valid, and `fh_out` must be writable.
+pub(crate) unsafe extern "C" fn jf_open(
     ctx: *mut c_void,
     path: *const c_char,
     flags: c_int,
@@ -284,7 +313,8 @@ pub extern "C" fn jf_open(
 }
 
 fn open(ctx: *mut c_void, path: *const c_char, flags: c_int, fh_out: *mut u64) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_open` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
     if is_protected_path(path) {
         return -libc::ENOENT;
     }
@@ -305,7 +335,10 @@ fn open(ctx: *mut c_void, path: *const c_char, flags: c_int, fh_out: *mut u64) -
     };
     let mut inner = ctx.lock();
     let fh = inner.next_fh;
-    inner.next_fh += 1;
+    let Some(next_fh) = inner.next_fh.checked_add(1) else {
+        return -libc::EMFILE;
+    };
+    inner.next_fh = next_fh;
     inner.handles.insert(
         fh,
         Handle {
@@ -317,12 +350,15 @@ fn open(ctx: *mut c_void, path: *const c_char, flags: c_int, fh_out: *mut u64) -
             writable,
         },
     );
+    // SAFETY: libfuse supplied `fh_out` as a writable `u64` slot.
     unsafe { *fh_out = fh };
     0
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_create(
+/// # Safety
+/// `ctx` and `path` must be valid, and `fh_out` must be writable.
+pub(crate) unsafe extern "C" fn jf_create(
     ctx: *mut c_void,
     path: *const c_char,
     mode: u32,
@@ -339,7 +375,8 @@ fn create(
     flags: c_int,
     fh_out: *mut u64,
 ) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_create` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
     if is_protected_path(path) {
         return -libc::ENOENT;
     }
@@ -355,7 +392,10 @@ fn create(
     let writable = access == libc::O_WRONLY || access == libc::O_RDWR;
     let mut inner = ctx.lock();
     let fh = inner.next_fh;
-    inner.next_fh += 1;
+    let Some(next_fh) = inner.next_fh.checked_add(1) else {
+        return -libc::EMFILE;
+    };
+    inner.next_fh = next_fh;
     inner.handles.insert(
         fh,
         Handle {
@@ -367,12 +407,15 @@ fn create(
             writable,
         },
     );
+    // SAFETY: libfuse supplied `fh_out` as a writable `u64` slot.
     unsafe { *fh_out = fh };
     0
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_read(
+/// # Safety
+/// `buf` must be writable for `size` bytes; the other pointers must be valid.
+pub(crate) unsafe extern "C" fn jf_read(
     ctx: *mut c_void,
     path: *const c_char,
     buf: *mut c_char,
@@ -391,7 +434,8 @@ fn read(
     off: i64,
     fh: u64,
 ) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_read` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
     let inner = ctx.lock();
     let Some(handle) = inner.handles.get(&fh) else {
         return -libc::EBADF;
@@ -399,18 +443,25 @@ fn read(
     if off < 0 {
         return -libc::EINVAL;
     }
-    let start = (off as usize).min(handle.buf.len());
+    let Ok(start) = usize::try_from(off) else {
+        return -libc::EFBIG;
+    };
+    let start = start.min(handle.buf.len());
     let end = start.saturating_add(size).min(handle.buf.len());
     let slice = &handle.buf[start..end];
     let Ok(written) = c_int::try_from(slice.len()) else {
         return -libc::EFBIG;
     };
+    // SAFETY: libfuse guarantees `buf` is writable for `size` bytes. `slice` is
+    // at most `size` bytes and cannot overlap the external buffer.
     unsafe { std::ptr::copy_nonoverlapping(slice.as_ptr(), buf as *mut u8, slice.len()) };
     written
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_write(
+/// # Safety
+/// `buf` must be readable for `size` bytes; the other pointers must be valid.
+pub(crate) unsafe extern "C" fn jf_write(
     ctx: *mut c_void,
     path: *const c_char,
     buf: *const c_char,
@@ -429,7 +480,8 @@ fn write(
     off: i64,
     fh: u64,
 ) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_write` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
     let mut inner = ctx.lock();
     let Some(handle) = inner.handles.get_mut(&fh) else {
         return -libc::EBADF;
@@ -443,13 +495,17 @@ fn write(
     let Ok(written) = c_int::try_from(size) else {
         return -libc::EFBIG;
     };
-    let start = off as usize;
+    let Ok(start) = usize::try_from(off) else {
+        return -libc::EFBIG;
+    };
     let Some(end) = start.checked_add(size) else {
         return -libc::EFBIG;
     };
     if handle.buf.len() < end {
         handle.buf.resize(end, 0);
     }
+    // SAFETY: libfuse guarantees `buf` is readable for exactly `size` bytes for
+    // the duration of this callback.
     let data = unsafe { std::slice::from_raw_parts(buf as *const u8, size) };
     handle.buf[start..end].copy_from_slice(data);
     handle.dirty = true;
@@ -457,7 +513,9 @@ fn write(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_truncate(
+/// # Safety
+/// `ctx` and `path` must be valid callback pointers supplied by libfuse.
+pub(crate) unsafe extern "C" fn jf_truncate(
     ctx: *mut c_void,
     path: *const c_char,
     size: i64,
@@ -468,14 +526,17 @@ pub extern "C" fn jf_truncate(
 }
 
 fn truncate(ctx: *mut c_void, path: *const c_char, size: i64, _fh: u64, _has_fh: c_int) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_truncate` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
     if is_protected_path(path) {
         return -libc::ENOENT;
     }
     if size < 0 {
         return -libc::EINVAL;
     }
-    let size = size as usize;
+    let Ok(size) = usize::try_from(size) else {
+        return -libc::EFBIG;
+    };
     let base = base_of(ctx, path);
     let file = existing_file(&base);
 
@@ -520,12 +581,15 @@ fn truncate(ctx: *mut c_void, path: *const c_char, size: i64, _fh: u64, _has_fh:
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_unlink(ctx: *mut c_void, path: *const c_char) -> c_int {
+/// # Safety
+/// `ctx` and `path` must be valid callback pointers supplied by libfuse.
+pub(crate) unsafe extern "C" fn jf_unlink(ctx: *mut c_void, path: *const c_char) -> c_int {
     guard(move || unlink(ctx, path))
 }
 
 fn unlink(ctx: *mut c_void, path: *const c_char) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_unlink` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
     if is_protected_path(path) {
         return -libc::ENOENT;
     }
@@ -551,12 +615,19 @@ fn unlink(ctx: *mut c_void, path: *const c_char) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_mkdir(ctx: *mut c_void, path: *const c_char, mode: u32) -> c_int {
+/// # Safety
+/// `ctx` and `path` must be valid callback pointers supplied by libfuse.
+pub(crate) unsafe extern "C" fn jf_mkdir(
+    ctx: *mut c_void,
+    path: *const c_char,
+    mode: u32,
+) -> c_int {
     guard(move || mkdir(ctx, path, mode))
 }
 
 fn mkdir(ctx: *mut c_void, path: *const c_char, _mode: u32) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_mkdir` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
     if is_protected_path(path) {
         return -libc::ENOENT;
     }
@@ -567,12 +638,15 @@ fn mkdir(ctx: *mut c_void, path: *const c_char, _mode: u32) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_rmdir(ctx: *mut c_void, path: *const c_char) -> c_int {
+/// # Safety
+/// `ctx` and `path` must be valid callback pointers supplied by libfuse.
+pub(crate) unsafe extern "C" fn jf_rmdir(ctx: *mut c_void, path: *const c_char) -> c_int {
     guard(move || rmdir(ctx, path))
 }
 
 fn rmdir(ctx: *mut c_void, path: *const c_char) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_rmdir` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
     if is_protected_path(path) {
         return -libc::ENOENT;
     }
@@ -609,7 +683,9 @@ fn remove_rejected_system_state_in(dir: &Path) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_rename(
+/// # Safety
+/// `ctx`, `from`, and `to` must be valid callback pointers supplied by libfuse.
+pub(crate) unsafe extern "C" fn jf_rename(
     ctx: *mut c_void,
     from: *const c_char,
     to: *const c_char,
@@ -619,7 +695,8 @@ pub extern "C" fn jf_rename(
 }
 
 fn rename(ctx: *mut c_void, from: *const c_char, to: *const c_char, flags: u32) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_rename` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
     if is_protected_path(from) || is_protected_path(to) {
         return -libc::ENOENT;
     }
@@ -674,7 +751,9 @@ fn rename(ctx: *mut c_void, from: *const c_char, to: *const c_char, flags: u32) 
 /// Report the backing filesystem's space so `df` shows real numbers and GUI file
 /// managers (Finder) allow copies in — they refuse without a free-space figure.
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_statfs(
+/// # Safety
+/// `ctx`, `path`, and `st` must be valid callback pointers supplied by libfuse.
+pub(crate) unsafe extern "C" fn jf_statfs(
     ctx: *mut c_void,
     path: *const c_char,
     st: *mut libc::statvfs,
@@ -683,10 +762,13 @@ pub extern "C" fn jf_statfs(
 }
 
 fn statfs(ctx: *mut c_void, _path: *const c_char, st: *mut libc::statvfs) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_statfs` validates the callback lifetime and pointer contract.
+    let ctx = unsafe { ctx_ref(ctx) };
     let Ok(root) = CString::new(ctx.root.as_os_str().as_bytes()) else {
         return -libc::EIO;
     };
+    // SAFETY: `root` is a live NUL-terminated path and libfuse supplied `st` as
+    // a writable `statvfs` object.
     let rc = unsafe { libc::statvfs(root.as_ptr(), st) };
     if rc == 0 {
         0
@@ -696,24 +778,34 @@ fn statfs(ctx: *mut c_void, _path: *const c_char, st: *mut libc::statvfs) -> c_i
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_flush(ctx: *mut c_void, path: *const c_char, fh: u64) -> c_int {
+/// # Safety
+/// `ctx` and `path` must be valid callback pointers supplied by libfuse.
+pub(crate) unsafe extern "C" fn jf_flush(ctx: *mut c_void, path: *const c_char, fh: u64) -> c_int {
     guard(move || flush(ctx, path, fh))
 }
 
 fn flush(ctx: *mut c_void, _path: *const c_char, fh: u64) -> c_int {
-    match ctx_ref(ctx).commit(fh) {
+    // SAFETY: `jf_flush` validates the callback lifetime and context pointer.
+    match unsafe { ctx_ref(ctx) }.commit(fh) {
         Ok(()) => 0,
         Err(e) => e,
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn jf_release(ctx: *mut c_void, path: *const c_char, fh: u64) -> c_int {
+/// # Safety
+/// `ctx` and `path` must be valid callback pointers supplied by libfuse.
+pub(crate) unsafe extern "C" fn jf_release(
+    ctx: *mut c_void,
+    path: *const c_char,
+    fh: u64,
+) -> c_int {
     guard(move || release(ctx, path, fh))
 }
 
 fn release(ctx: *mut c_void, _path: *const c_char, fh: u64) -> c_int {
-    let ctx = ctx_ref(ctx);
+    // SAFETY: `jf_release` validates the callback lifetime and context pointer.
+    let ctx = unsafe { ctx_ref(ctx) };
     let result = ctx.commit(fh);
     ctx.lock().handles.remove(&fh);
     match result {

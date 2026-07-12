@@ -9,7 +9,7 @@ use std::{
 pub(crate) const ENTRY_ID_LEN: usize = 12;
 
 #[cfg(test)]
-pub fn entry_path(root: &Path, journal: &str, now: DateTime<FixedOffset>) -> PathBuf {
+pub(crate) fn entry_path(root: &Path, journal: &str, now: DateTime<FixedOffset>) -> PathBuf {
     entry_path_with_id(root, journal, now, &nanoid!(ENTRY_ID_LEN))
 }
 
@@ -35,13 +35,13 @@ pub(crate) fn encrypted_entry_path_with_id(
     entry_path_with_id(root, journal, now, id).with_extension("md.age")
 }
 
-pub fn is_encrypted_entry_file(path: &Path) -> bool {
+pub(crate) fn is_encrypted_entry_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.ends_with(".md.age"))
 }
 
-pub fn is_plain_entry_file(path: &Path) -> bool {
+pub(crate) fn is_plain_entry_file(path: &Path) -> bool {
     path.extension() == Some(OsStr::new("md"))
 }
 

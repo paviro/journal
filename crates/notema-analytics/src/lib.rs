@@ -4,15 +4,19 @@
 //! that the render layer can turn into panels. No I/O, no rendering: given the
 //! same entries and `today`, the output is deterministic.
 
-use chrono::{Datelike, NaiveDate};
-use notema_core::{Entry, entry_group_date};
+#![forbid(unsafe_code)]
 
-pub mod cadence;
-pub mod correlations;
-pub mod mood;
+use chrono::{Datelike, NaiveDate};
+use notema_domain::{Entry, entry_group_date};
+
+mod cadence;
+mod correlations;
+mod mood;
 
 pub use cadence::Cadence;
-pub use correlations::{Correlate, Correlations, build_correlations};
+pub use correlations::{
+    Correlation, Correlations, build_correlations, by_mood_delta_asc, by_mood_delta_desc,
+};
 pub use mood::{MoodAnalytics, Sentiment};
 
 /// The full set of aggregates for one set of entries.
@@ -107,12 +111,12 @@ pub fn analyze(entries: &[&Entry], today: NaiveDate) -> Analytics {
 /// those within 15% of that extreme and rotated by `today`'s ordinal so the pick
 /// changes day to day. `None` when nothing pulls mood in the requested direction.
 fn pick_extreme<'a>(
-    correlates: impl Iterator<Item = &'a Correlate>,
+    correlates: impl Iterator<Item = &'a Correlation>,
     today: NaiveDate,
     positive: bool,
 ) -> Option<String> {
     let want = |delta: f32| if positive { delta > 0.0 } else { delta < 0.0 };
-    let mut candidates: Vec<&Correlate> = correlates
+    let mut candidates: Vec<&Correlation> = correlates
         .filter(|correlate| correlate.mood_delta.is_some_and(&want))
         .collect();
     // The extreme is the max lift or the min (most negative) drain; both stay
@@ -213,7 +217,7 @@ pub(crate) mod test_support {
     use std::path::PathBuf;
 
     use chrono::NaiveDate;
-    use notema_core::{Entry, EntryEncryptionState, Timestamp};
+    use notema_domain::{Entry, EntryEncryptionState, Timestamp};
 
     /// Build a plain entry from defaults, letting the caller set only the fields
     /// a test cares about (created_at, word_count, metadata, id).
@@ -240,6 +244,7 @@ pub(crate) mod test_support {
             body: String::new(),
             word_count: 0,
             search_haystack: String::new(),
+            warning: None,
         };
         configure(&mut entry);
         entry
@@ -330,9 +335,9 @@ mod tests {
     #[test]
     fn lifts_names_a_person_and_a_thing_that_raise_mood() {
         use super::test_support::entry_with;
-        use notema_core::Timestamp;
+        use notema_domain::Timestamp;
 
-        let dated = |created: &str, mood: i8, configure: fn(&mut notema_core::Entry)| {
+        let dated = |created: &str, mood: i8, configure: fn(&mut notema_domain::Entry)| {
             entry_with(|entry| {
                 entry.created_at = Some(Timestamp::parse(created));
                 entry.mood = Some(mood);
@@ -359,9 +364,9 @@ mod tests {
     #[test]
     fn drains_names_a_person_and_a_thing_that_lower_mood() {
         use super::test_support::entry_with;
-        use notema_core::Timestamp;
+        use notema_domain::Timestamp;
 
-        let dated = |created: &str, mood: i8, configure: fn(&mut notema_core::Entry)| {
+        let dated = |created: &str, mood: i8, configure: fn(&mut notema_domain::Entry)| {
             entry_with(|entry| {
                 entry.created_at = Some(Timestamp::parse(created));
                 entry.mood = Some(mood);
@@ -382,7 +387,7 @@ mod tests {
     #[test]
     fn a_lift_pick_rotates_daily_within_its_group() {
         use super::test_support::entry_with;
-        use notema_core::Timestamp;
+        use notema_domain::Timestamp;
 
         let with_person = |created: &str, mood: i8, person: &str| {
             let person = person.to_string();

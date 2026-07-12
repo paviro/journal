@@ -1,4 +1,4 @@
-use notema_core::{Entry, SearchHit, entry_group_date};
+use notema_domain::{Entry, SearchHit, entry_group_date};
 use notema_storage::parse_entry_timestamp;
 use ratatui::{
     style::Style,

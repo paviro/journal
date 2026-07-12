@@ -1,5 +1,5 @@
 use crate::AppResult;
-use notema_core::{Location, MetadataField};
+use notema_domain::{Location, MetadataField};
 use notema_storage::EditOutcome;
 use std::path::{Path, PathBuf};
 
@@ -83,6 +83,10 @@ fn reject_if_locked(app: &mut App, target: &EntryTarget) -> bool {
         return false;
     }
     true
+}
+
+fn reject_if_front_matter_invalid(app: &mut App) -> bool {
+    app.editor.is_some() || app.allow_selected_entry_edit()
 }
 
 /// The shared post-edit tail for an existing entry: ingest any new image assets
@@ -191,9 +195,9 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
             app.editor = None;
             if saved.outcome == EditOutcome::Deleted {
                 app.nav.focus = Focus::Entries;
-                app.nav.scroll.reset_entry_view();
+                app.nav.scroll.reset_reader();
             } else {
-                app.nav.focus = Focus::EntryView;
+                app.nav.focus = Focus::Reader;
             }
         }
         EditorTarget::New { journal } => {
@@ -211,7 +215,7 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
                     .unwrap_or_default();
                 let mut draft = notema_storage::EntryDraft::new(&journal, &text, &metadata);
                 draft.weather = environment.weather.as_ref();
-                draft.celestial = environment.celestial.as_ref();
+                draft.celestial = Some(&environment.celestial);
                 draft.air_quality = environment.air_quality.as_ref();
                 draft.writing_seconds = Some(elapsed.as_secs());
                 Some(app.store.create_entry(draft, asset_options(app))?)
@@ -227,13 +231,13 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
                     if let Some(id) = notema_storage::entry_id(&path)
                         && app.select_entry_by_id(&id, true)
                     {
-                        app.nav.focus = Focus::EntryView;
+                        app.nav.focus = Focus::Reader;
                     }
                     app.editor = None;
                 }
                 None => {
                     app.toast(ToastVariant::Info, "Nothing added");
-                    app.nav.entry_view_fullscreen = false;
+                    app.nav.reader_fullscreen = false;
                     app.nav.focus = Focus::Entries;
                     app.editor = None;
                 }
@@ -250,10 +254,41 @@ pub(super) fn view_selected(app: &mut App) -> AppResult<()> {
     if !reject_if_locked(app, &target) {
         return Ok(());
     }
+    if let Some(warning) = app.selected_entry_edit_warning() {
+        app.toast(
+            ToastVariant::Warning,
+            format!("{warning}. Showing the body only; editing is disabled."),
+        );
+    }
     // Opening an entry lands on the focused viewer; full screen is a second,
     // explicit step (multi-column) reached by pressing Enter again.
-    app.nav.entry_view_fullscreen = false;
-    app.nav.focus = Focus::EntryView;
+    app.nav.reader_fullscreen = false;
+    app.nav.focus = Focus::Reader;
+    Ok(())
+}
+
+pub(super) fn open_reader_link(app: &mut App, target: &str) -> AppResult<()> {
+    if let Some(anchor) = target.strip_prefix('#') {
+        let Some(line) = app.reader_heading_line(anchor) else {
+            app.toast(
+                ToastVariant::Warning,
+                format!("Heading not found: {anchor}"),
+            );
+            return Ok(());
+        };
+        app.nav.scroll.reader = line.min(u16::MAX as usize) as u16;
+        app.flash_reader_heading(line);
+        return Ok(());
+    }
+    if !(target.starts_with("https://")
+        || target.starts_with("http://")
+        || target.starts_with("mailto:"))
+    {
+        app.toast(ToastVariant::Warning, "Unsupported link target");
+        return Ok(());
+    }
+    open::that(target)?;
+    app.toast(ToastVariant::Info, "Opened link");
     Ok(())
 }
 
@@ -340,6 +375,9 @@ pub(super) fn set_metadata_on_entry(
     if !reject_if_locked(app, &target) {
         return Ok(());
     }
+    if !reject_if_front_matter_invalid(app) {
+        return Ok(());
+    }
 
     let field = match kind {
         MetadataKind::Tags => MetadataField::Tags(values.to_vec()),
@@ -361,6 +399,9 @@ pub(super) fn set_feelings_on_entry(app: &mut App, feelings: &[String]) -> AppRe
     if !reject_if_locked(app, &target) {
         return Ok(());
     }
+    if !reject_if_front_matter_invalid(app) {
+        return Ok(());
+    }
 
     app.store
         .set_entry_metadata_field(&target.path, MetadataField::Feelings(feelings.to_vec()))?;
@@ -378,6 +419,9 @@ pub(super) fn set_mood_on_entry(app: &mut App, mood: Option<i8>) -> AppResult<()
     if !reject_if_locked(app, &target) {
         return Ok(());
     }
+    if !reject_if_front_matter_invalid(app) {
+        return Ok(());
+    }
 
     app.store
         .set_entry_metadata_field(&target.path, MetadataField::Mood(mood))?;
@@ -393,6 +437,9 @@ pub(super) fn set_location_on_entry(app: &mut App, location: Option<Location>) -
     };
 
     if !reject_if_locked(app, &target) {
+        return Ok(());
+    }
+    if !reject_if_front_matter_invalid(app) {
         return Ok(());
     }
 
@@ -432,6 +479,9 @@ pub(super) fn toggle_starred_on_entry(app: &mut App) -> AppResult<()> {
     };
 
     if !reject_if_locked(app, &target) {
+        return Ok(());
+    }
+    if !reject_if_front_matter_invalid(app) {
         return Ok(());
     }
 
@@ -498,12 +548,43 @@ mod tests {
     }
 
     #[test]
+    fn internal_reader_link_scrolls_to_and_flashes_heading() {
+        let dir = tempdir().unwrap();
+        let config = Config::new(dir.path().to_path_buf());
+        let mut app = new_app(config);
+        app.reader_image_hits.headings = vec![crate::tui::app::ReaderHeading {
+            anchor: "details".to_string(),
+            line: 17,
+        }];
+
+        open_reader_link(&mut app, "#details").unwrap();
+
+        assert_eq!(app.nav.scroll.reader, 17);
+        assert_eq!(app.reader_anchor_flash.as_ref().unwrap().line, 17);
+    }
+
+    #[test]
+    fn unsupported_reader_link_is_rejected_without_launching() {
+        let dir = tempdir().unwrap();
+        let config = Config::new(dir.path().to_path_buf());
+        let mut app = new_app(config);
+
+        open_reader_link(&mut app, "file:///tmp/private").unwrap();
+
+        assert_eq!(last_toast(&app).0, "Unsupported link target");
+    }
+
+    #[test]
     fn set_feelings_on_entry_writes_front_matter_and_refreshes_app() {
         let dir = tempdir().unwrap();
         let entry_dir = dir.path().join("work").join("2026-07-01");
         fs::create_dir_all(&entry_dir).unwrap();
         let path = entry_dir.join("a.md");
-        fs::write(&path, "+++\ntags = []\nfeelings = []\n+++\n\n# A\n").unwrap();
+        fs::write(
+            &path,
+            "+++\nschema_version = 1\ntags = []\nfeelings = []\n+++\n\n# A\n",
+        )
+        .unwrap();
 
         let config = Config::new(dir.path().to_path_buf());
         let mut app = new_app(config);
@@ -521,7 +602,7 @@ mod tests {
         let entry_dir = dir.path().join("work").join("2026-07-01");
         fs::create_dir_all(&entry_dir).unwrap();
         let path = entry_dir.join("a.md");
-        fs::write(&path, "+++\ntags = []\n+++\n\n# A\n").unwrap();
+        fs::write(&path, "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n").unwrap();
 
         let config = Config::new(dir.path().to_path_buf());
         let mut app = new_app(config);
@@ -555,26 +636,59 @@ mod tests {
 
     #[test]
     fn open_editor_loads_body_and_focuses_view() {
-        let (_dir, mut app, _path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+        let (_dir, mut app, _path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
         let expected = app.resolved_selected_entry().unwrap().body.clone();
 
         app.open_editor_for_selected();
 
         assert!(app.editor.is_some());
-        assert_eq!(app.nav.focus, Focus::EntryView);
+        assert_eq!(app.nav.focus, Focus::Reader);
         assert_eq!(app.editor.as_ref().unwrap().text(), expected);
     }
 
     #[test]
+    fn malformed_entry_stays_readable_but_editor_does_not_open() {
+        let (_dir, mut app, _path) =
+            app_with_entry("+++\nactivities = [\"reading\"]\n+++\n\nDraft text\n");
+
+        let (title, reader) = app.selected_reader().unwrap();
+        assert!(title.starts_with("! "));
+        assert!(reader.contains("missing schema_version = 1"));
+        assert!(reader.contains("Draft text"));
+
+        app.open_editor_for_selected();
+
+        assert!(app.editor.is_none());
+        let (message, variant) = last_toast(&app);
+        assert_eq!(variant, ToastVariant::Error);
+        assert!(message.contains("missing schema_version = 1"));
+    }
+
+    #[test]
+    fn viewing_malformed_entry_warns_without_exiting() {
+        let (_dir, mut app, _path) =
+            app_with_entry("+++\nactivities = [\"reading\"]\n+++\n\nDraft text\n");
+
+        view_selected(&mut app).unwrap();
+
+        assert_eq!(app.nav.focus, Focus::Reader);
+        let (message, variant) = last_toast(&app);
+        assert_eq!(variant, ToastVariant::Warning);
+        assert!(message.contains("Showing the body only"));
+    }
+
+    #[test]
     fn save_internal_editor_writes_body_and_bumps_edited_at() {
-        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# Original\n");
+        let (_dir, mut app, path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# Original\n");
         let target = app.selected_entry_target().unwrap();
 
         let mut editor = EntryEditor::for_existing(
             target.path.clone(),
             target.title,
             "# Edited body",
-            notema_core::Metadata::default(),
+            notema_domain::Metadata::default(),
         );
         editor.original = "# Original".to_string();
         app.editor = Some(editor);
@@ -588,7 +702,8 @@ mod tests {
 
     #[test]
     fn save_internal_editor_unchanged_body_does_not_rewrite() {
-        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# Original\n");
+        let (_dir, mut app, path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# Original\n");
         let original = app.store.read_entry_content(&path).unwrap();
 
         app.open_editor_for_selected();
@@ -601,13 +716,14 @@ mod tests {
 
     #[test]
     fn save_internal_editor_error_keeps_buffer_open() {
-        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# Original\n");
+        let (_dir, mut app, path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# Original\n");
         let target = app.selected_entry_target().unwrap();
         let mut editor = EntryEditor::for_existing(
             path.with_file_name("missing.md"),
             target.title,
             "# Edited body",
-            notema_core::Metadata::default(),
+            notema_domain::Metadata::default(),
         );
         editor.original = "# Original".to_string();
         app.editor = Some(editor);
@@ -620,14 +736,15 @@ mod tests {
 
     #[test]
     fn save_internal_editor_empty_body_deletes_existing_entry() {
-        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+        let (_dir, mut app, path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
         let target = app.selected_entry_target().unwrap();
 
         app.editor = Some(EntryEditor::for_existing(
             target.path.clone(),
             target.title,
             "   \n  ",
-            notema_core::Metadata::default(),
+            notema_domain::Metadata::default(),
         ));
         save_internal_editor(&mut app).unwrap();
 
@@ -640,7 +757,8 @@ mod tests {
 
     #[test]
     fn save_internal_editor_creates_new_entry() {
-        let (_dir, mut app, _path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+        let (_dir, mut app, _path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
 
         let mut editor = EntryEditor::for_new("work".to_string());
         editor.textarea.insert_str("Brand new thoughts");
@@ -661,10 +779,11 @@ mod tests {
     #[test]
     fn new_entry_attaches_prefetched_environment() {
         use crate::tui::environment::Environment;
-        use notema_context_provider::compute_celestial;
-        use notema_core::Location;
+        use notema_context::compute_celestial;
+        use notema_domain::Location;
 
-        let (_dir, mut app, _path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+        let (_dir, mut app, _path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
 
         let datetime = chrono::Local::now().fixed_offset();
         let mut editor = EntryEditor::for_new("work".to_string());
@@ -676,9 +795,13 @@ mod tests {
         });
         // The background fetch already landed (celestial is offline, always present).
         editor.environment = Some(Environment {
-            celestial: Some(compute_celestial(52.52, 13.405, datetime)),
+            celestial: compute_celestial(
+                notema_domain::Coordinates::try_new(52.52, 13.405).unwrap(),
+                datetime,
+            ),
             weather: None,
             air_quality: None,
+            warnings: Vec::new(),
         });
         app.editor = Some(editor);
         save_internal_editor(&mut app).unwrap();
@@ -694,7 +817,8 @@ mod tests {
 
     #[test]
     fn new_entry_save_defers_while_context_pending() {
-        let (_dir, mut app, _path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+        let (_dir, mut app, _path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
 
         let mut editor = EntryEditor::for_new("work".to_string());
         editor.textarea.insert_str("Waiting on weather");
@@ -718,7 +842,7 @@ mod tests {
 
     #[test]
     fn located_entry_without_context_is_backfill_queued_once() {
-        let body = "+++\n[location]\nlatitude = 52.52\nlongitude = 13.405\n+++\n\n# A\n";
+        let body = "+++\nschema_version = 1\n[location]\nlatitude = 52.52\nlongitude = 13.405\n+++\n\n# A\n";
         let (_dir, app, _path) = app_with_entry(body);
 
         // Loading the store already scanned and queued the located, environment-less
@@ -733,7 +857,7 @@ mod tests {
     fn direct_location_set_claims_entry_so_backfill_cannot_duplicate() {
         // Dated (so a weather lookup can fire) but initially locationless, so it
         // starts off the backfill queue.
-        let body = "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+00:00\"\n+++\n\n# A\n";
+        let body = "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+00:00\"\n+++\n\n# A\n";
         let (_dir, mut app, path) = app_with_entry(body);
         assert!(app.backfill_queue.is_empty());
 
@@ -755,8 +879,8 @@ mod tests {
 
     #[test]
     fn backfill_dispatch_skips_entry_that_already_has_environment() {
-        use notema_context_provider::compute_celestial;
-        let body = "+++\n[location]\nlatitude = 52.52\nlongitude = 13.405\n+++\n\n# A\n";
+        use notema_context::compute_celestial;
+        let body = "+++\nschema_version = 1\n[location]\nlatitude = 52.52\nlongitude = 13.405\n+++\n\n# A\n";
         let (_dir, mut app, path) = app_with_entry(body);
         assert_eq!(app.backfill_queue.len(), 1);
 
@@ -765,7 +889,10 @@ mod tests {
         let datetime = chrono::Local::now().fixed_offset();
         for entry in &mut app.library.entries {
             if entry.path == path {
-                entry.celestial = Some(compute_celestial(52.52, 13.405, datetime));
+                entry.celestial = Some(compute_celestial(
+                    notema_domain::Coordinates::try_new(52.52, 13.405).unwrap(),
+                    datetime,
+                ));
             }
         }
 
@@ -777,7 +904,8 @@ mod tests {
 
     #[test]
     fn open_editor_seeds_buffered_metadata_from_entry() {
-        let (_dir, mut app, _path) = app_with_entry("+++\ntags = [\"seed\"]\n+++\n\n# A\n");
+        let (_dir, mut app, _path) =
+            app_with_entry("+++\nschema_version = 1\ntags = [\"seed\"]\n+++\n\n# A\n");
         app.open_editor_for_selected();
         assert_eq!(
             app.editor.as_ref().unwrap().metadata.tags,
@@ -787,7 +915,8 @@ mod tests {
 
     #[test]
     fn save_internal_editor_applies_buffered_metadata_to_existing_entry() {
-        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+        let (_dir, mut app, path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
         app.open_editor_for_selected();
         app.set_editor_metadata(
             MetadataKind::Tags,
@@ -803,7 +932,8 @@ mod tests {
 
     #[test]
     fn save_internal_editor_writes_buffered_metadata_for_new_entry() {
-        let (_dir, mut app, _path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+        let (_dir, mut app, _path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
 
         let mut editor = EntryEditor::for_new("work".to_string());
         editor.textarea.insert_str("New body");
@@ -825,7 +955,8 @@ mod tests {
 
     #[test]
     fn cancel_editor_discards_changes() {
-        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# A\n");
+        let (_dir, mut app, path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
 
         app.open_editor_for_selected();
         app.editor.as_mut().unwrap().textarea.insert_str("mutation");

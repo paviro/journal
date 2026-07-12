@@ -1,0 +1,83 @@
+schema_version = 1
+
+# Celadon — the cool blue-green of glazed porcelain. Ceramic-calm and
+# restrained.
+#
+# See journal.toml for the accepted color/style forms.
+
+[chrome]
+default_style = "flat"
+scrim = 0.45
+
+[surfaces]
+base    = { dark = "#12181a", light = "#eef3f0" }
+content = { dark = "#161e20", light = "#e2ebe6" }
+dialog  = { dark = "#1c2528", light = "#d6e2db" }
+element = { dark = "#202b2d", light = "#cbdad1" }
+
+[text]
+body  = { dark = "#d4e0dc", light = "#1c2825" }
+muted = { dark = "#7d9089", light = "#5f746c" }
+
+[accents]
+primary = { dark = "#7ba99c", light = "#3f7364" }
+
+[status]
+success = { dark = "#7f9d7a", light = "#4a6b46" }
+warning = { dark = "#c8a45c", light = "#8a6a1f" }
+error   = { dark = "#c07068", light = "#9a3b32" }
+info    = { dark = "#6f97ac", light = "#356a80" }
+
+[borders]
+style     = "rounded"
+normal    = { dark = "#2a3835", light = "#c2d2cb" }
+subtle    = { dark = "#202b2d", light = "#cbdad1" }
+focused   = { dark = "#7ba99c", light = "#3f7364" }
+unfocused = { dark = "#2a3835", light = "#c2d2cb" }
+
+[borders.glyphs]
+divider = "─"
+
+[interaction]
+selection = { bg = { dark = "#7ba99c", light = "#3f7364" }, fg = { dark = "#12181a", light = "#ffffff" }, bold = true }
+hover     = { bg = { dark = "#24312e", light = "#d3e0d9" } }
+key_hint  = { fg = { dark = "#d4e0dc", light = "#1c2825" }, bold = true }
+
+[scrollbar]
+track = { dark = "#202b2d", light = "#cbdad1" }
+
+[scrollbar.glyphs]
+thumb = "┃"
+track = "│"
+up    = "▵"
+down  = "▿"
+
+[charts]
+positive = { glyph = "▓", color = { dark = "#7f9d7a", light = "#4a6b46" } }
+neutral  = { glyph = "▓", color = { dark = "#7d9089", light = "#5f746c" } }
+negative = { glyph = "▓", color = { dark = "#c07068", light = "#9a3b32" } }
+bar      = { glyph = "▓", color = { dark = "#7ba99c", light = "#3f7364" } }
+track    = { glyph = "░", color = { dark = "#2a3835", light = "#c2d2cb" } }
+baseline = { color = { dark = "#2a3835", light = "#c2d2cb" } }
+
+[markdown]
+heading    = { fg = { dark = "#7ba99c", light = "#3f7364" }, bold = true }
+link       = { fg = { dark = "#6f97ac", light = "#356a80" }, underlined = true }
+code       = { dark = "#c8a06f", light = "#8a6238" }
+blockquote = { fg = { dark = "#7d9089", light = "#5f746c" } }
+
+[markdown.syntax]
+comment     = { dark = "#7d9089", light = "#5f746c" }
+keyword     = { dark = "#c8a45c", light = "#8a6a1f" }
+string      = { dark = "#7f9d7a", light = "#4a6b46" }
+string_escape = { dark = "#c8a06f", light = "#8a6238" }
+number      = { dark = "#c8a45c", light = "#8a6a1f" }
+constant    = { dark = "#c8a45c", light = "#8a6a1f" }
+function    = { dark = "#7ba99c", light = "#3f7364" }
+type        = { dark = "#6f97ac", light = "#356a80" }
+property    = { dark = "#6f97ac", light = "#356a80" }
+punctuation = { dark = "#7d9089", light = "#5f746c" }
+attribute   = { dark = "#c8a45c", light = "#8a6a1f" }
+tag         = { dark = "#7ba99c", light = "#3f7364" }
+label       = { dark = "#c07068", light = "#9a3b32" }
+error       = { dark = "#c07068", light = "#9a3b32" }

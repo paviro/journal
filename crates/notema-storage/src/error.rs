@@ -3,11 +3,8 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 /// Semantically-meaningful storage failures that in-process callers may want to
-/// branch on. Incidental IO failures stay as boxed [`AppResult`] errors, and
-/// encryption-specific failures live in [`EncryptionError`].
-///
-/// [`AppResult`]: notema_core::AppResult
-/// [`EncryptionError`]: crate::EncryptionError
+/// branch on. Incidental I/O failures stay as boxed errors, and
+/// encryption-specific failures live in `notema-encryption`.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum StorageError {
     /// A move would overwrite an existing path. `what` names the destination

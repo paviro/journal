@@ -52,9 +52,9 @@ mod macos {
     /// loop. `None` until a fix or error lands.
     type Shared = Arc<Mutex<Option<Result<Fix, String>>>>;
 
-    /// Print a diagnostic line to stderr when `JOURNAL_GPS_DEBUG` is set.
+    /// Print a diagnostic line to stderr when `NOTEMA_GPS_DEBUG` is set.
     fn debug(message: impl FnOnce() -> String) {
-        if std::env::var_os("JOURNAL_GPS_DEBUG").is_some() {
+        if std::env::var_os("NOTEMA_GPS_DEBUG").is_some() {
             eprintln!("[gps] {}", message());
         }
     }
@@ -79,7 +79,10 @@ mod macos {
                 locations: &NSArray<CLLocation>,
             ) {
                 if let Some(location) = locations.firstObject() {
+                    // SAFETY: CoreLocation supplied a live CLLocation in this
+                    // delegate callback; both selectors are valid for it.
                     let coord = unsafe { location.coordinate() };
+                    // SAFETY: The same callback-owned CLLocation remains live.
                     let accuracy = unsafe { location.horizontalAccuracy() };
                     debug(|| format!("didUpdateLocations {},{}", coord.latitude, coord.longitude));
                     self.finish(Ok((
@@ -88,6 +91,8 @@ mod macos {
                         // CoreLocation reports a negative accuracy for an invalid fix.
                         (accuracy >= 0.0).then_some(accuracy),
                     )));
+                    // SAFETY: CoreLocation supplied this live manager to the
+                    // delegate and the selector takes no borrowed arguments.
                     unsafe { manager.stopUpdatingLocation() };
                 }
             }
@@ -108,6 +113,7 @@ mod macos {
 
             #[unsafe(method(locationManagerDidChangeAuthorization:))]
             fn did_change_authorization(&self, manager: &CLLocationManager) {
+                // SAFETY: CoreLocation supplied a live manager to this callback.
                 let status = unsafe { manager.authorizationStatus() };
                 debug(|| format!("didChangeAuthorization status={status:?}"));
                 match status {
@@ -116,7 +122,11 @@ mod macos {
                         self.finish(Err(DENIED.into()));
                     }
                     // Authorized — make sure updates are flowing (a no-op if already).
-                    _ => unsafe { manager.startUpdatingLocation() },
+                    _ => {
+                        // SAFETY: The callback-owned manager is live and
+                        // authorization has left the undetermined state.
+                        unsafe { manager.startUpdatingLocation() }
+                    }
                 }
             }
         }
@@ -125,6 +135,8 @@ mod macos {
     impl Delegate {
         fn new(result: Shared) -> Retained<Self> {
             let this = Self::alloc().set_ivars(Ivars { result });
+            // SAFETY: `this` was allocated as Delegate with all Rust ivars set;
+            // NSObject's designated `init` returns the retained object.
             unsafe { msg_send![super(this), init] }
         }
 
@@ -140,23 +152,35 @@ mod macos {
     pub(crate) fn locate() -> Result<Fix, String> {
         let result: Shared = Arc::new(Mutex::new(None));
         let delegate = Delegate::new(result.clone());
+        // SAFETY: `new` is the designated constructor exposed by the generated
+        // CoreLocation binding and returns a retained manager.
         let manager = unsafe { CLLocationManager::new() };
         let protocol = ProtocolObject::from_ref(&*delegate);
+        // SAFETY: `protocol` is backed by `delegate`, which remains retained for
+        // the entire run loop below; the manager is live.
         unsafe { manager.setDelegate(Some(protocol)) };
 
         // requestWhenInUseAuthorization alone is unreliable; the prompt is raised
         // by actually starting location services. Request authorization (when
         // undetermined) and start updates — that presents the prompt and then
         // delivers fixes once authorized.
+        // SAFETY: `manager` is retained for the duration of `locate`.
         match unsafe { manager.authorizationStatus() } {
             CLAuthorizationStatus::Restricted | CLAuthorizationStatus::Denied => {
                 return Err(DENIED.into());
             }
-            CLAuthorizationStatus::NotDetermined => unsafe {
-                manager.requestWhenInUseAuthorization();
-                manager.startUpdatingLocation();
-            },
-            _ => unsafe { manager.startUpdatingLocation() },
+            CLAuthorizationStatus::NotDetermined => {
+                // SAFETY: The retained manager is live and both selectors take
+                // no borrowed Objective-C arguments.
+                unsafe {
+                    manager.requestWhenInUseAuthorization();
+                    manager.startUpdatingLocation();
+                }
+            }
+            _ => {
+                // SAFETY: The retained manager is live and already authorized.
+                unsafe { manager.startUpdatingLocation() }
+            }
         }
 
         // Pump this thread's run loop in slices until the delegate reports or the
@@ -171,6 +195,7 @@ mod macos {
             }
             if !authorized
                 && !matches!(
+                    // SAFETY: `manager` remains retained throughout this loop.
                     unsafe { manager.authorizationStatus() },
                     CLAuthorizationStatus::NotDetermined
                 )
@@ -182,6 +207,8 @@ mod macos {
                 return Err("timed out waiting for a location fix from CoreLocation".into());
             }
             let until = NSDate::dateWithTimeIntervalSinceNow(0.2);
+            // SAFETY: Foundation exports this process-lifetime run-loop mode
+            // constant as a valid NSString reference.
             let mode = unsafe { NSDefaultRunLoopMode };
             run_loop.runMode_beforeDate(mode, &until);
         }

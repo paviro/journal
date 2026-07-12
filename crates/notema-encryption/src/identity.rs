@@ -46,6 +46,7 @@ pub struct DeviceIdentityInfo {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SecretBundle {
+    schema_version: u32,
     x25519: Zeroizing<String>,
     ed25519: Zeroizing<String>,
 }
@@ -78,6 +79,7 @@ struct StoredIdentity {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredIdentityWire {
+    schema_version: u32,
     device_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     encrypted_keys: Option<Zeroizing<String>>,
@@ -89,6 +91,9 @@ impl TryFrom<StoredIdentityWire> for StoredIdentity {
     type Error = &'static str;
 
     fn try_from(wire: StoredIdentityWire) -> std::result::Result<Self, Self::Error> {
+        if wire.schema_version != 1 {
+            return Err("journal identity file has an unsupported schema version");
+        }
         let key = match (wire.encrypted_keys, wire.plain_keys) {
             (Some(armor), None) => KeyMaterial::Encrypted(armor),
             (None, Some(plain)) => KeyMaterial::Plain(plain),
@@ -219,6 +224,7 @@ pub(crate) fn write_stored_identity(
 ) -> Result<()> {
     reject_empty_passphrase(passphrase)?;
     let bundle = SecretBundle {
+        schema_version: 1,
         x25519: Zeroizing::new(identity.identity.to_string().expose_secret().to_string()),
         ed25519: Zeroizing::new(hex::encode(identity.signing.to_bytes())),
     };
@@ -231,6 +237,7 @@ pub(crate) fn write_stored_identity(
         None => (None, Some(bundle_toml.clone())),
     };
     let stored = StoredIdentityWire {
+        schema_version: 1,
         device_name: name.to_string(),
         encrypted_keys,
         plain_keys,
@@ -260,6 +267,12 @@ fn decrypt_identity(
         KeyMaterial::Plain(plain) => plain.clone(),
     };
     let bundle: SecretBundle = toml::from_str(&bundle_toml)?;
+    if bundle.schema_version != 1 {
+        return Err(EncryptionError::UnsupportedSchema {
+            kind: "secret identity bundle",
+            version: bundle.schema_version,
+        });
+    }
     let identity = x25519::Identity::from_str(bundle.x25519.trim())
         .map_err(|_| EncryptionError::MalformedStoredIdentity)?;
     let seed_bytes = Zeroizing::new(hex::decode(bundle.ed25519.trim())?);

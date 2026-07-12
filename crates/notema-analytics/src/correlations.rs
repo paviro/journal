@@ -4,13 +4,13 @@
 
 use std::collections::HashMap;
 
-use notema_core::Entry;
+use notema_domain::Entry;
 
 use crate::sort_by_count_desc;
 
 /// A person, activity, or tag with its co-occurring mood and feeling.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Correlate {
+pub struct Correlation {
     pub name: String,
     pub count: usize,
     /// Average mood across the co-occurring entries that carry a mood, or `None`
@@ -30,13 +30,13 @@ pub struct Correlate {
 /// first; use [`by_mood_delta_desc`] / [`by_mood_delta_asc`] for a mood ranking.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Correlations {
-    pub people: Vec<Correlate>,
-    pub activities: Vec<Correlate>,
-    pub tags: Vec<Correlate>,
+    pub people: Vec<Correlation>,
+    pub activities: Vec<Correlation>,
+    pub tags: Vec<Correlation>,
     /// Feelings treated as a correlated dimension: each feeling's co-occurring
     /// mood, so a mood ranking answers "which feeling rides with my best/worst
     /// mood". `top_feelings` here is usually the feeling itself and is unused.
-    pub feelings: Vec<Correlate>,
+    pub feelings: Vec<Correlation>,
 }
 
 /// Per-value accumulator for the correlation pass. Values are keyed
@@ -109,13 +109,13 @@ fn accumulate(
     }
 }
 
-fn finish(map: HashMap<String, Acc>, overall_mean: Option<f32>) -> Vec<Correlate> {
-    let mut correlates: Vec<Correlate> = map
+fn finish(map: HashMap<String, Acc>, overall_mean: Option<f32>) -> Vec<Correlation> {
+    let mut correlates: Vec<Correlation> = map
         .into_values()
         .map(|acc| {
             let avg_mood =
                 (acc.mood_count > 0).then(|| acc.mood_sum as f32 / acc.mood_count as f32);
-            Correlate {
+            Correlation {
                 name: pick_display_form(acc.forms),
                 count: acc.count,
                 avg_mood,
@@ -153,7 +153,7 @@ fn top_feelings(feelings: HashMap<String, usize>) -> Vec<(String, usize)> {
 
 /// Clone `correlates` ranked by `mood_delta` descending — the values that most
 /// lift the mood first. Entries without a `mood_delta` sort to the end.
-pub fn by_mood_delta_desc(correlates: &[Correlate]) -> Vec<Correlate> {
+pub fn by_mood_delta_desc(correlates: &[Correlation]) -> Vec<Correlation> {
     let mut ranked = correlates.to_vec();
     ranked.sort_by(|a, b| cmp_delta(a, b, true));
     ranked
@@ -161,7 +161,7 @@ pub fn by_mood_delta_desc(correlates: &[Correlate]) -> Vec<Correlate> {
 
 /// Clone `correlates` ranked by `mood_delta` ascending — the values that most
 /// drain the mood first. Entries without a `mood_delta` sort to the end.
-pub fn by_mood_delta_asc(correlates: &[Correlate]) -> Vec<Correlate> {
+pub fn by_mood_delta_asc(correlates: &[Correlation]) -> Vec<Correlation> {
     let mut ranked = correlates.to_vec();
     ranked.sort_by(|a, b| cmp_delta(a, b, false));
     ranked
@@ -169,7 +169,7 @@ pub fn by_mood_delta_asc(correlates: &[Correlate]) -> Vec<Correlate> {
 
 /// Order two correlates by `mood_delta`, keeping `None` deltas last in either
 /// direction and breaking ties by name.
-fn cmp_delta(a: &Correlate, b: &Correlate, desc: bool) -> std::cmp::Ordering {
+fn cmp_delta(a: &Correlation, b: &Correlation, desc: bool) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     match (a.mood_delta, b.mood_delta) {
         (Some(x), Some(y)) => {
@@ -188,7 +188,7 @@ mod tests {
     use super::*;
     use crate::analyze;
     use crate::test_support::{date, entry_with, refs};
-    use notema_core::Timestamp;
+    use notema_domain::Timestamp;
 
     /// An entry with a mood, people, and feelings.
     fn entry(created: &str, mood: Option<i8>, people: &[&str], feelings: &[&str]) -> Entry {

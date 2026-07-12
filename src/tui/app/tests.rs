@@ -12,22 +12,30 @@ use std::fs;
 use tempfile::tempdir;
 
 #[test]
-fn changing_selected_entry_resets_entry_view_scroll() {
+fn changing_selected_entry_resets_reader_scroll() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
-    fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
-    fs::write(entry_dir.join("b.md"), "+++\ntags = []\n+++\n\n# B\n").unwrap();
+    fs::write(
+        entry_dir.join("a.md"),
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+    )
+    .unwrap();
+    fs::write(
+        entry_dir.join("b.md"),
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# B\n",
+    )
+    .unwrap();
 
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.nav.focus = Focus::Entries;
-    app.nav.scroll.entry_view = 20;
+    app.nav.scroll.reader = 20;
 
     app.move_selection(1);
 
-    assert_eq!(app.nav.scroll.entry_view, 0);
+    assert_eq!(app.nav.scroll.reader, 0);
 }
 
 #[test]
@@ -35,25 +43,33 @@ fn scrolling_up_past_first_entry_deselects_and_shows_insights() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
-    fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
-    fs::write(entry_dir.join("b.md"), "+++\ntags = []\n+++\n\n# B\n").unwrap();
+    fs::write(
+        entry_dir.join("a.md"),
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+    )
+    .unwrap();
+    fs::write(
+        entry_dir.join("b.md"),
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# B\n",
+    )
+    .unwrap();
 
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     assert_eq!(app.nav.selected_entry_index, Some(0));
 
-    // Up from the first entry deselects, revealing the journal insights preview.
+    // Up from the first entry deselects, revealing the journal insights reader.
     app.move_selection(-1);
     assert_eq!(app.nav.selected_entry_index, None);
-    assert!(app.show_journal_insights_preview());
+    assert!(app.show_journal_insights());
     assert!(!app.entries_highlighted());
     assert!(app.selected_entry_target().is_none());
 
     // Down reselects the first entry.
     app.move_selection(1);
     assert_eq!(app.nav.selected_entry_index, Some(0));
-    assert!(!app.show_journal_insights_preview());
+    assert!(!app.show_journal_insights());
 }
 
 #[test]
@@ -61,15 +77,19 @@ fn focusing_journals_shows_insights_even_with_a_lingering_entry_selection() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
-    fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
+    fs::write(
+        entry_dir.join("a.md"),
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+    )
+    .unwrap();
 
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.select_entry_index(0);
     app.nav.focus = Focus::Entries;
-    // Focused on the entry, its preview shows and its row is highlighted.
-    assert!(!app.show_journal_insights_preview());
+    // Focused on the entry, its reader shows and its row is highlighted.
+    assert!(!app.show_journal_insights());
     assert!(app.entries_highlighted());
 
     // Moving focus back to the journal column (e.g. clicking the already-selected
@@ -78,7 +98,7 @@ fn focusing_journals_shows_insights_even_with_a_lingering_entry_selection() {
     // never disagree.
     app.nav.focus = Focus::Journals;
     assert_eq!(app.nav.selected_entry_index, Some(0));
-    assert!(app.show_journal_insights_preview());
+    assert!(app.show_journal_insights());
     assert!(!app.entries_highlighted());
 }
 
@@ -87,14 +107,18 @@ fn focusing_insights_shows_insights_even_with_a_lingering_entry_selection() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
-    fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
+    fs::write(
+        entry_dir.join("a.md"),
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+    )
+    .unwrap();
 
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.select_entry_index(0);
     app.nav.focus = Focus::Entries;
-    assert!(!app.show_journal_insights_preview());
+    assert!(!app.show_journal_insights());
     assert!(app.entries_highlighted());
 
     // Clicking the insights column focuses it but leaves the selection index
@@ -103,16 +127,20 @@ fn focusing_insights_shows_insights_even_with_a_lingering_entry_selection() {
     // the entry that was just closed.
     app.nav.focus = Focus::Insights;
     assert_eq!(app.nav.selected_entry_index, Some(0));
-    assert!(app.show_journal_insights_preview());
+    assert!(app.show_journal_insights());
     assert!(!app.entries_highlighted());
 }
 
 #[test]
-fn hidden_journals_launch_focuses_entries_with_insights_preview() {
+fn hidden_journals_launch_focuses_entries_with_insights_reader() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
-    fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
+    fs::write(
+        entry_dir.join("a.md"),
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+    )
+    .unwrap();
 
     let config = Config::new(dir.path().to_path_buf());
     let mut state = crate::config::State::default();
@@ -121,17 +149,17 @@ fn hidden_journals_launch_focuses_entries_with_insights_preview() {
 
     assert_eq!(app.nav.focus, Focus::Entries);
     assert_eq!(app.nav.selected_entry_index, None);
-    assert!(app.show_journal_insights_preview());
+    assert!(app.show_journal_insights());
 }
 
 #[test]
-fn selected_entry_view_title_uses_entry_timestamp() {
+fn selected_reader_title_uses_entry_timestamp() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
 
@@ -139,20 +167,20 @@ fn selected_entry_view_title_uses_entry_timestamp() {
     let mut app = new_app(config);
     app.select_journal_by_name("work");
 
-    let (title, content) = app.selected_entry_view().unwrap();
+    let (title, content) = app.selected_reader().unwrap();
 
     assert_eq!(title, "Wednesday, 1 July 2026, 10:23");
     assert_eq!(content, "# A\nBody\n");
 }
 
 #[test]
-fn search_entry_view_title_uses_entry_timestamp() {
+fn search_reader_title_uses_entry_timestamp() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nneedle\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nneedle\n",
     )
     .unwrap();
 
@@ -163,7 +191,7 @@ fn search_entry_view_title_uses_entry_timestamp() {
     app.search.query = "needle".into();
     app.update_search_results();
 
-    let (title, content) = app.selected_entry_view().unwrap();
+    let (title, content) = app.selected_reader().unwrap();
 
     assert_eq!(title, "Wednesday, 1 July 2026, 10:23");
     assert_eq!(content, "# A\nneedle\n");
@@ -174,7 +202,11 @@ fn journal_focus_does_not_make_entry_targets_actionable() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
-    fs::write(entry_dir.join("a.md"), "+++\ntags = []\n+++\n\n# A\n").unwrap();
+    fs::write(
+        entry_dir.join("a.md"),
+        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+    )
+    .unwrap();
 
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
@@ -188,19 +220,17 @@ fn journal_focus_does_not_make_entry_targets_actionable() {
 }
 
 #[test]
-fn compact_width_uses_single_panel_without_inline_entry_view() {
+fn compact_width_uses_single_panel_without_inline_reader() {
     assert!(single_panel_is_active(TWO_PANEL_MIN_WIDTH - 1));
-    assert!(!inline_entry_view_is_visible(TWO_PANEL_MIN_WIDTH - 1));
-    assert!(!entry_view_is_available(TWO_PANEL_MIN_WIDTH - 1));
-    assert!(entry_view_is_available(TWO_PANEL_MIN_WIDTH));
+    assert!(!inline_reader_is_visible(TWO_PANEL_MIN_WIDTH - 1));
+    assert!(!reader_is_available(TWO_PANEL_MIN_WIDTH - 1));
+    assert!(reader_is_available(TWO_PANEL_MIN_WIDTH));
 }
 
 #[test]
-fn inline_entry_view_uses_minimum_three_column_width() {
-    assert!(!inline_entry_view_is_visible(
-        INLINE_ENTRY_VIEW_MIN_WIDTH - 1
-    ));
-    assert!(inline_entry_view_is_visible(INLINE_ENTRY_VIEW_MIN_WIDTH));
+fn inline_reader_uses_minimum_three_column_width() {
+    assert!(!inline_reader_is_visible(INLINE_READER_MIN_WIDTH - 1));
+    assert!(inline_reader_is_visible(INLINE_READER_MIN_WIDTH));
 }
 
 #[test]
@@ -246,12 +276,12 @@ fn feelings_search_matches_exact_known_label() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nfeelings = [\"calm\"]\n+++\n\n# A\n",
+        "+++\nschema_version = 1\nfeelings = [\"calm\"]\n+++\n\n# A\n",
     )
     .unwrap();
     fs::write(
         entry_dir.join("b.md"),
-        "+++\nfeelings = [\"anxious\"]\n+++\n\n# B\n",
+        "+++\nschema_version = 1\nfeelings = [\"anxious\"]\n+++\n\n# B\n",
     )
     .unwrap();
 
@@ -273,10 +303,14 @@ fn starred_search_filters_by_flag() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nstarred = true\n+++\n\n# Fav\n",
+        "+++\nschema_version = 1\nstarred = true\n+++\n\n# Fav\n",
     )
     .unwrap();
-    fs::write(entry_dir.join("b.md"), "+++\n+++\n\n# Plain\n").unwrap();
+    fs::write(
+        entry_dir.join("b.md"),
+        "+++\nschema_version = 1\n+++\n\n# Plain\n",
+    )
+    .unwrap();
 
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
@@ -317,7 +351,7 @@ fn begin_edit_feelings_uses_fixed_list_and_selected_entry_values() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nfeelings = [\"calm\", \"excited\"]\n+++\n\n# A\n",
+        "+++\nschema_version = 1\nfeelings = [\"calm\", \"excited\"]\n+++\n\n# A\n",
     )
     .unwrap();
 
@@ -345,7 +379,7 @@ fn location_dialog_seeds_from_editor_draft_not_selected_entry() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[location]\nname = \"Home\"\nlatitude = 52.5\nlongitude = 13.4\n+++\n\n# A\n",
+        "+++\nschema_version = 1\n[location]\nname = \"Home\"\nlatitude = 52.5\nlongitude = 13.4\n+++\n\n# A\n",
     )
     .unwrap();
 
@@ -431,12 +465,12 @@ fn entry_rows_cache_is_reused_until_inputs_change() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     fs::write(
         entry_dir.join("b.md"),
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -463,7 +497,7 @@ fn search_typing_defers_hit_recompute_until_committed() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nneedle\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nneedle\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -489,7 +523,7 @@ fn write_entry(dir: &std::path::Path, name: &str, created: &str, body: &str) -> 
     let path = dir.join(name);
     fs::write(
         &path,
-        format!("+++\n[datetime]\ncreated_at = \"{created}\"\n+++\n\n{body}\n"),
+        format!("+++\nschema_version = 1\n[datetime]\ncreated_at = \"{created}\"\n+++\n\n{body}\n"),
     )
     .unwrap();
     path
@@ -605,16 +639,20 @@ fn entry_body_cache_is_reused_until_entry_or_width_changes() {
     app.select_journal_by_name("work");
     let path = app.selected_entry_target().map(|target| target.path);
 
-    let first = app.cached_entry_body(path.as_deref(), 40, || (vec![Line::from("x")], vec![]));
+    let body = |text| RenderedEntryBody {
+        lines: vec![Line::from(text)],
+        ..RenderedEntryBody::default()
+    };
+    let first = app.cached_entry_body(path.as_deref(), 40, || body("x"));
     // Same entry + width → cached rows returned, the builder isn't re-run.
-    let same = app.cached_entry_body(path.as_deref(), 40, || (vec![Line::from("y")], vec![]));
+    let same = app.cached_entry_body(path.as_deref(), 40, || body("y"));
     assert!(Rc::ptr_eq(&first, &same));
     // A different width rebuilds.
-    let narrower = app.cached_entry_body(path.as_deref(), 20, || (vec![Line::from("z")], vec![]));
+    let narrower = app.cached_entry_body(path.as_deref(), 20, || body("z"));
     assert!(!Rc::ptr_eq(&first, &narrower));
     // Reloading the store bumps entries_version, invalidating the cache.
     app.refresh().unwrap();
-    let after = app.cached_entry_body(path.as_deref(), 40, || (vec![Line::from("w")], vec![]));
+    let after = app.cached_entry_body(path.as_deref(), 40, || body("w"));
     assert!(!Rc::ptr_eq(&first, &after));
 }
 
@@ -630,7 +668,10 @@ fn search_recompute_keeps_body_and_analytics_caches_but_rebuilds_rows() {
     let path = app.selected_entry_target().map(|target| target.path);
 
     // Prime all three caches.
-    let body = app.cached_entry_body(path.as_deref(), 40, || (vec![Line::from("x")], vec![]));
+    let body = app.cached_entry_body(path.as_deref(), 40, || RenderedEntryBody {
+        lines: vec![Line::from("x")],
+        ..RenderedEntryBody::default()
+    });
     let analytics = app.cached_analytics().unwrap();
     let rows = app.entry_rows(30);
 
@@ -644,7 +685,10 @@ fn search_recompute_keeps_body_and_analytics_caches_but_rebuilds_rows() {
 
     // Body and analytics caches key on entries_version, which is untouched:
     // requerying returns the same Rc (builder skipped).
-    let body_after = app.cached_entry_body(path.as_deref(), 40, || (vec![Line::from("y")], vec![]));
+    let body_after = app.cached_entry_body(path.as_deref(), 40, || RenderedEntryBody {
+        lines: vec![Line::from("y")],
+        ..RenderedEntryBody::default()
+    });
     assert!(Rc::ptr_eq(&body, &body_after));
     let analytics_after = app.cached_analytics().unwrap();
     assert!(Rc::ptr_eq(&analytics, &analytics_after));
@@ -664,12 +708,12 @@ fn metadata_partitioned_excludes_archived_and_isolates_archived_only() {
     fs::create_dir_all(&archived_dir).unwrap();
     fs::write(
         active_dir.join("a.md"),
-        "+++\ntags = [\"berlin\", \"shared\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n",
+        "+++\nschema_version = 1\ntags = [\"berlin\", \"shared\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n",
     )
     .unwrap();
     fs::write(
         archived_dir.join("b.md"),
-        "+++\ntags = [\"wanderlust\", \"shared\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# B\n",
+        "+++\nschema_version = 1\ntags = [\"wanderlust\", \"shared\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# B\n",
     )
     .unwrap();
 
@@ -741,7 +785,7 @@ fn refresh_preserves_journal_pixel_scroll_offset() {
 #[test]
 fn theme_picker_opens_on_the_active_theme_with_bundled_entries() {
     let mut app = app_with_journals(&["work"]);
-    app.config.ui.theme = "e-ink".to_string();
+    app.config.ui.theme = "eclipse".to_string();
 
     app.open_theme_picker();
 
@@ -753,19 +797,22 @@ fn theme_picker_opens_on_the_active_theme_with_bundled_entries() {
         vec![
             "arcade",
             "blossom",
-            "catppuccin",
+            "celadon",
             "classic",
             "crt",
             "cyberpunk",
             "deep-space",
             "dungeon",
-            "e-ink",
+            "eclipse",
             "eldritch",
             "fjord",
             "gameboy",
             "grove",
             "hal",
+            "indigo",
             "journal",
+            "lavender",
+            "maple",
             "matcha",
             "matrix",
             "rose-pine",
@@ -780,9 +827,9 @@ fn theme_picker_opens_on_the_active_theme_with_bundled_entries() {
     // Selection seeds on the configured theme.
     assert_eq!(
         state.selected_index(),
-        names.iter().position(|n| *n == "e-ink")
+        names.iter().position(|n| *n == "eclipse")
     );
-    assert_eq!(state.previous_name, "e-ink");
+    assert_eq!(state.previous_name, "eclipse");
 }
 
 #[test]
@@ -818,16 +865,16 @@ fn theme_picker_cancel_reverts_the_preview_and_leaves_config_untouched() {
     let mut app = app_with_journals(&["work"]);
     app.open_theme_picker();
     let previous = app.theme_picker_state().unwrap().previous;
-    let eink = app
+    let eclipse = app
         .theme_picker_state()
         .unwrap()
         .entries
         .iter()
-        .position(|entry| entry.name == "e-ink")
+        .position(|entry| entry.name == "eclipse")
         .unwrap();
 
-    // Moving the selection previews immediately…
-    app.theme_picker_select(eink);
+    // Moving the selection shows the entry immediately…
+    app.theme_picker_select(eclipse);
     assert_ne!(crate::tui::theme::theme(), previous);
 
     // …and Esc restores the open-time theme without touching the config.
@@ -865,7 +912,7 @@ fn theme_picker_confirm_on_a_broken_theme_toasts_and_stays_open() {
 
     let before = crate::tui::theme::theme();
     app.theme_picker_select(busted);
-    // A broken row never previews.
+    // A broken row never shows an entry.
     assert_eq!(crate::tui::theme::theme(), before);
 
     app.theme_picker_confirm();

@@ -8,8 +8,10 @@ mod hit_test;
 mod image;
 mod render;
 mod scroll;
+mod search;
 mod state;
 mod surface;
+mod syntax_highlight;
 #[cfg(test)]
 mod test_support;
 mod text_input;
@@ -27,7 +29,8 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use notema_storage::{JournalStore, SecretString, StoreAccess};
+use notema_encryption::SecretString;
+use notema_storage::{JournalStore, StoreAccess};
 use ratatui::{Frame, Terminal, backend::CrosstermBackend};
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -48,7 +51,7 @@ const REFRESH_DEBOUNCE: Duration = Duration::from_millis(400);
 use app::App;
 use text_input::PassphraseInput;
 
-pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResult<()> {
+pub(crate) fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResult<()> {
     // Ensure the store exists before probing for a lock so identity checks
     // reflect on-disk state.
     store.ensure()?;
@@ -65,12 +68,12 @@ pub fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResu
 /// identity that *needs* a passphrase is left locked (writing a new entry needs
 /// only the recipients roster, so it works either way; the store's other entries
 /// simply stay locked placeholders behind the editor).
-pub fn run_compose(
+pub(crate) fn run_compose(
     config_path: PathBuf,
     config: Config,
     mut store: JournalStore,
     journal: String,
-    metadata: notema_core::Metadata,
+    metadata: notema_domain::Metadata,
 ) -> AppResult<()> {
     store.ensure()?;
     theme::init_from_config(&config_path, &config.ui);
@@ -396,10 +399,28 @@ fn restore_terminal(output: &mut impl Write) -> AppResult<()> {
 }
 
 fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App) -> AppResult<()> {
-    let watcher = watcher::FileWatcher::start(&app.config.journal.path);
+    let watcher = match watcher::FileWatcher::start(&app.config.journal.path) {
+        Ok(watcher) => Some(watcher),
+        Err(error) => {
+            app.toast(
+                state::ToastVariant::Warning,
+                format!("Live journal reload unavailable: {error}"),
+            );
+            None
+        }
+    };
     // Watch the themes directory too: edits to the active theme's file repaint
     // live, no restart needed. (The directory exists — startup materialized it.)
-    let theme_watcher = watcher::FileWatcher::start(&theme::themes_dir(&app.config_path));
+    let theme_watcher = match watcher::FileWatcher::start(&theme::themes_dir(&app.config_path)) {
+        Ok(watcher) => Some(watcher),
+        Err(error) => {
+            app.toast(
+                state::ToastVariant::Warning,
+                format!("Live theme reload unavailable: {error}"),
+            );
+            None
+        }
+    };
     let mut pending_theme_reload_at: Option<Instant> = None;
 
     terminal.draw(|frame| render::draw(frame, &mut app))?;
@@ -431,6 +452,7 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         // Route any finished weather/air fetches: attach to the editor draft or
         // write back to the entry file. Then pace out the next backfill job.
         let context_ready = app.apply_environment_results();
+        let reader_flash_changed = app.expire_reader_heading_flash();
         app.dispatch_environment_backfill();
         // Close the "Fetching…" modal and finish the deferred save once ready.
         let context_saved = events::poll_fetching_environment(&mut app)?;
@@ -438,6 +460,9 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
             .toast_deadline()
             .map(|t| t.min(Duration::from_millis(200)))
             .unwrap_or(Duration::from_millis(200));
+        if let Some(flash) = app.reader_anchor_flash.as_ref() {
+            poll_timeout = poll_timeout.min(flash.until.saturating_duration_since(Instant::now()));
+        }
         // Poll briefly while builds are pending so results paint promptly.
         if app.image.runtime.has_pending() {
             poll_timeout = poll_timeout.min(Duration::from_millis(30));
@@ -485,7 +510,7 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
                 app.clear_hover();
                 // No global Ctrl+C quit: `q` quits the app, and the editor forwards
                 // Ctrl+C to the textarea as copy.
-                if events::handle_key(terminal, &mut app, key)? {
+                if events::handle_key(terminal, &mut app, key)?.should_quit() {
                     break;
                 }
                 true
@@ -512,7 +537,7 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
                     _ => mouse,
                 };
                 let area = events::terminal_area(terminal)?;
-                events::handle_scroll(&mut app, last, area, net);
+                events::handle_scroll(terminal, &mut app, last, area, net)?;
                 true
             }
             Some(Event::Mouse(mouse)) if mouse.kind == MouseEventKind::Moved => {
@@ -530,10 +555,10 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
                     }
                 }
                 let area = events::terminal_area(terminal)?;
-                events::update_hover(&mut app, last.column, last.row, area)
+                events::update_hover(terminal, &mut app, last.column, last.row, area)?
             }
             Some(Event::Mouse(mouse)) => {
-                if events::handle_mouse(terminal, &mut app, mouse)? {
+                if events::handle_mouse(terminal, &mut app, mouse)?.should_quit() {
                     break;
                 }
                 true
@@ -546,7 +571,9 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         // Debounce watcher-driven reloads: each change pushes the deadline out and
         // accumulates the changed paths; the reload runs only once no change has
         // arrived for the quiet period, then re-reads just those entries.
-        let changed = watcher.poll_changes();
+        let changed = watcher
+            .as_ref()
+            .map_or_else(Vec::new, watcher::FileWatcher::poll_changes);
         if !changed.is_empty() {
             pending_paths.extend(changed);
             pending_refresh_at = Some(Instant::now() + REFRESH_DEBOUNCE);
@@ -554,7 +581,12 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         let refreshed = if pending_refresh_at.is_some_and(|at| Instant::now() >= at) {
             pending_refresh_at = None;
             let paths = std::mem::take(&mut pending_paths);
-            app.refresh_paths(&paths)?;
+            if let Err(error) = app.refresh_paths(&paths) {
+                app.toast(
+                    state::ToastVariant::Error,
+                    format!("Journal changes not reloaded: {error}"),
+                );
+            }
             true
         } else {
             false
@@ -563,12 +595,16 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         // Live theme reload, debounced the same way: only changes to the
         // active theme's file count (edits to other themes wait until they're
         // selected). A broken edit keeps the current theme and says so.
-        let active_theme_changed = theme_watcher.poll_changes().iter().any(|path| {
-            path.extension().is_some_and(|ext| ext == "toml")
-                && path
-                    .file_stem()
-                    .is_some_and(|stem| stem == app.config.ui.theme.as_str())
-        });
+        let active_theme_changed = theme_watcher
+            .as_ref()
+            .map_or_else(Vec::new, watcher::FileWatcher::poll_changes)
+            .iter()
+            .any(|path| {
+                path.extension().is_some_and(|ext| ext == "toml")
+                    && path
+                        .file_stem()
+                        .is_some_and(|stem| stem == app.config.ui.theme.as_str())
+            });
         if active_theme_changed {
             pending_theme_reload_at = Some(Instant::now() + REFRESH_DEBOUNCE);
         }
@@ -626,6 +662,7 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
             || geocode_ready
             || context_ready
             || context_saved
+            || reader_flash_changed
             || animate_loading
         {
             if overlay_closed && app.image.runtime.uses_graphics() {

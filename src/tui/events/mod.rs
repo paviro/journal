@@ -9,7 +9,7 @@ use std::io;
 use crate::{
     AppResult,
     tui::{
-        app::{App, Focus, entry_view_is_available},
+        app::{App, Focus, reader_is_available},
         editor_state::{EditorPrompt, EditorTarget},
         render,
         state::{ListNav, Overlay, ToastVariant},
@@ -17,16 +17,28 @@ use crate::{
 };
 use ratatui_textarea::CursorMove;
 
-use action::Action;
+use action::{Action, InsightsAction, ReaderAction};
 use actions::{
-    delete_selected, delete_selected_journal, save_internal_editor, set_feelings_on_entry,
-    set_location_on_entry, set_metadata_on_entry, set_mood_on_entry, submit_new_journal,
-    toggle_archive_selected_journal, toggle_starred_on_entry, view_selected,
+    delete_selected, delete_selected_journal, open_reader_link, save_internal_editor,
+    set_feelings_on_entry, set_location_on_entry, set_metadata_on_entry, set_mood_on_entry,
+    submit_new_journal, toggle_archive_selected_journal, toggle_starred_on_entry, view_selected,
 };
 use keyboard::{keep_selection_visible, move_focus_left, move_focus_right};
 
 pub(crate) use keyboard::handle_key;
 pub(crate) use mouse::{fold_leading_wheel, handle_mouse, handle_scroll, is_wheel, update_hover};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DispatchOutcome {
+    Continue,
+    Quit,
+}
+
+impl DispatchOutcome {
+    pub(crate) const fn should_quit(self) -> bool {
+        matches!(self, Self::Quit)
+    }
+}
 
 /// How long the "Fetching weather and air quality…" modal waits before giving up
 /// and saving without the data.
@@ -53,7 +65,9 @@ pub(crate) fn poll_fetching_environment(app: &mut App) -> AppResult<bool> {
         editor.pending_environment = None;
     }
     app.close_overlay();
-    save_internal_editor(app)?;
+    if let Err(error) = save_internal_editor(app) {
+        report_action_error(app, &error);
+    }
     Ok(true)
 }
 
@@ -61,35 +75,87 @@ pub(crate) fn dispatch_action(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     action: Action,
-) -> AppResult<bool> {
+) -> AppResult<DispatchOutcome> {
+    let result = apply_action(terminal, app, action);
+    recover_action_error(app, result)
+}
+
+fn recover_action_error(
+    app: &mut App,
+    result: AppResult<DispatchOutcome>,
+) -> AppResult<DispatchOutcome> {
+    match result {
+        Ok(outcome) => Ok(outcome),
+        Err(error) => {
+            report_action_error(app, &error);
+            Ok(DispatchOutcome::Continue)
+        }
+    }
+}
+
+fn report_action_error(app: &mut App, error: &anyhow::Error) {
+    let detail = error.to_string();
+    let first_line = detail.lines().next().unwrap_or("Unknown error");
+    let mut concise: String = first_line.chars().take(120).collect();
+    if first_line.chars().count() > 120 {
+        concise.push('…');
+    }
+    app.toast(ToastVariant::Error, format!("Action failed: {concise}"));
+}
+
+fn apply_action(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    action: Action,
+) -> AppResult<DispatchOutcome> {
     use crate::tui::app::EditMetadataFocus;
 
     match action {
-        Action::Quit => return Ok(true),
+        Action::PointerInput { event, area } => {
+            return mouse::apply_pointer(terminal, app, event, area);
+        }
+        Action::PointerScroll { event, area, delta } => {
+            mouse::apply_scroll(app, event, area, delta);
+        }
+        Action::PointerHover { column, row, area } => {
+            mouse::apply_hover(app, column, row, area);
+        }
+        Action::Quit => return Ok(DispatchOutcome::Quit),
 
         Action::FocusLeft => move_focus_left(app),
         Action::FocusRight => {
-            let available = entry_view_is_available(terminal.size()?.width);
+            let available = reader_is_available(terminal.size()?.width);
             move_focus_right(app, available);
         }
-        Action::MoveUp => {
-            app.move_selection(-1);
-            keep_selection_visible(terminal, app)?;
-        }
-        Action::MoveDown => {
-            app.move_selection(1);
+        Action::MoveSelection(delta) => {
+            app.move_selection(delta);
             keep_selection_visible(terminal, app)?;
         }
 
-        Action::ScrollEntryView(delta) => app.scroll_entry_view(delta),
-        Action::PageEntryView(delta) => app.page_entry_view(delta),
-        Action::ScrollEntryViewToStart => app.nav.scroll.entry_view = 0,
-        Action::ScrollEntryViewToEnd => app.nav.scroll.entry_view = u16::MAX,
-
-        Action::ScrollInsights(delta) => app.scroll_insights(delta),
-        Action::PageInsights(delta) => app.page_insights(delta),
-        Action::ScrollInsightsToStart => app.nav.scroll.insights = 0,
-        Action::ScrollInsightsToEnd => app.nav.scroll.insights = u16::MAX,
+        Action::Reader(action) => match action {
+            ReaderAction::ScrollLines(delta) => app.scroll_reader(delta),
+            ReaderAction::ScrollPages(delta) => app.page_reader(delta),
+            ReaderAction::ScrollToStart => app.nav.scroll.reader = 0,
+            ReaderAction::ScrollToEnd => app.nav.scroll.reader = u16::MAX,
+            ReaderAction::SetFullscreen(fullscreen) => app.nav.reader_fullscreen = fullscreen,
+        },
+        Action::Insights(action) => match action {
+            InsightsAction::ScrollLines(delta) => app.scroll_insights(delta),
+            InsightsAction::ScrollPages(delta) => app.page_insights(delta),
+            InsightsAction::ScrollToStart => app.nav.scroll.insights = 0,
+            InsightsAction::ScrollToEnd => app.nav.scroll.insights = u16::MAX,
+            InsightsAction::SetFullscreen(fullscreen) => {
+                app.nav.insights_fullscreen = fullscreen;
+            }
+            InsightsAction::ToggleScope => {
+                app.nav.insights_scope = app.nav.insights_scope.toggle();
+                app.nav.scroll.reset_insights();
+            }
+            InsightsAction::CycleTimeframe => {
+                app.nav.insights_timeframe = app.nav.insights_timeframe.next();
+                app.nav.scroll.reset_insights();
+            }
+        },
 
         Action::BeginSearch => {
             app.begin_search();
@@ -104,30 +170,22 @@ pub(crate) fn dispatch_action(
                 Some(EditorTarget::Existing { .. })
             );
             let snapshot = restore_existing
-                .then(|| EntryViewSnapshot::capture(app))
+                .then(|| ReaderSnapshot::capture(app))
                 .flatten();
             save_internal_editor(app)?;
             if restore_existing && app.editor.is_none() {
-                restore_entry_view_or_close(app, snapshot);
+                restore_reader_or_close(app, snapshot);
             }
         }
         Action::EditorRequestDiscard => request_editor_discard(app),
         Action::EditorDiscard => app.cancel_editor(),
         Action::EditorToggleFullscreen => {
-            app.nav.entry_view_fullscreen = !app.nav.entry_view_fullscreen;
+            app.nav.reader_fullscreen = !app.nav.reader_fullscreen;
         }
         Action::EditorOpenMetadataMenu => set_editor_prompt(app, EditorPrompt::MetadataMenu),
         Action::EditorOpenHelp => set_editor_prompt(app, EditorPrompt::Help { scroll: 0 }),
         Action::EditorClosePrompt => set_editor_prompt(app, EditorPrompt::None),
         Action::EditorScrollHelp(delta) => scroll_editor_help(app, delta),
-        Action::EditorBeginMetadata(kind) => {
-            set_editor_prompt(app, EditorPrompt::None);
-            match kind {
-                crate::tui::state::MetadataKind::Tags => app.begin_edit_tags(),
-                crate::tui::state::MetadataKind::People => app.begin_edit_people(),
-                crate::tui::state::MetadataKind::Activities => app.begin_edit_activities(),
-            }
-        }
         Action::EditorInput(key) => {
             if let Some(editor) = app.editor.as_mut() {
                 editor.textarea.input(key);
@@ -147,10 +205,7 @@ pub(crate) fn dispatch_action(
         Action::EditorDragSelection { col, row } => drag_editor_selection(app, col, row),
         Action::EditorEndSelection => end_editor_selection(app),
         Action::ViewSelected => view_selected(app)?,
-        Action::ExpandEntryView => app.nav.entry_view_fullscreen = true,
-        Action::CollapseEntryView => app.nav.entry_view_fullscreen = false,
-        Action::ExpandInsights => app.nav.insights_fullscreen = true,
-        Action::CollapseInsights => app.nav.insights_fullscreen = false,
+        Action::OpenReaderLink(target) => open_reader_link(app, &target)?,
         Action::BeginDelete => app.begin_confirm_delete(),
         Action::ConfirmDelete => confirm_delete(app)?,
         Action::CancelOverlay => {
@@ -162,19 +217,13 @@ pub(crate) fn dispatch_action(
             }
         }
         Action::OpenMetadataMenu => app.open_metadata_menu(),
-        Action::BeginEditTags => {
+        Action::BeginEditMetadata(kind) => {
             set_editor_prompt(app, EditorPrompt::None);
-            app.begin_edit_tags();
-            reveal_open_dialog_selection(terminal, app)?;
-        }
-        Action::BeginEditPeople => {
-            set_editor_prompt(app, EditorPrompt::None);
-            app.begin_edit_people();
-            reveal_open_dialog_selection(terminal, app)?;
-        }
-        Action::BeginEditActivities => {
-            set_editor_prompt(app, EditorPrompt::None);
-            app.begin_edit_activities();
+            match kind {
+                crate::tui::state::MetadataKind::Tags => app.begin_edit_tags(),
+                crate::tui::state::MetadataKind::People => app.begin_edit_people(),
+                crate::tui::state::MetadataKind::Activities => app.begin_edit_activities(),
+            }
             reveal_open_dialog_selection(terminal, app)?;
         }
         Action::BeginEditFeelings => {
@@ -190,14 +239,6 @@ pub(crate) fn dispatch_action(
         Action::ToggleStarred => commit_entry_edit(app, toggle_starred_on_entry)?,
         Action::NewEntry => app.open_editor_for_new(),
         Action::NewJournal => app.begin_new_journal_input(),
-        Action::ToggleInsightsScope => {
-            app.nav.insights_scope = app.nav.insights_scope.toggle();
-            app.nav.scroll.reset_insights();
-        }
-        Action::CycleInsightsTimeframe => {
-            app.nav.insights_timeframe = app.nav.insights_timeframe.next();
-            app.nav.scroll.reset_insights();
-        }
         Action::ToggleArchiveJournal => {
             toggle_archive_selected_journal(app)?;
             keep_selection_visible(terminal, app)?;
@@ -212,11 +253,18 @@ pub(crate) fn dispatch_action(
             }
         }
 
-        Action::MetadataMoveUp | Action::FeelingsMoveUp | Action::LocationMoveUp => {
-            navigate_open_dialog(terminal, app, |list| list.move_up())?;
-        }
-        Action::MetadataMoveDown | Action::FeelingsMoveDown | Action::LocationMoveDown => {
-            navigate_open_dialog(terminal, app, |list| list.move_down())?;
+        Action::MoveDialogSelection(delta) => {
+            let theme_picker = matches!(app.overlay, Overlay::ThemePicker(_));
+            navigate_open_dialog(terminal, app, |list| {
+                if delta < 0 {
+                    list.move_up();
+                } else if delta > 0 {
+                    list.move_down();
+                }
+            })?;
+            if theme_picker {
+                app.theme_picker_preview();
+            }
         }
         Action::MetadataToggle => {
             if let Some(state) = app.edit_metadata_state_mut() {
@@ -241,7 +289,7 @@ pub(crate) fn dispatch_action(
                 .edit_metadata_state()
                 .map(|s| (s.kind, s.selected.clone()))
             else {
-                return Ok(false);
+                return Ok(DispatchOutcome::Continue);
             };
             edit_or_commit(
                 app,
@@ -278,7 +326,7 @@ pub(crate) fn dispatch_action(
         }
         Action::FeelingsSave => {
             let Some(feelings) = app.edit_feeling_state().map(|s| s.selected.clone()) else {
-                return Ok(false);
+                return Ok(DispatchOutcome::Continue);
             };
             edit_or_commit(
                 app,
@@ -287,23 +335,14 @@ pub(crate) fn dispatch_action(
             )?;
         }
 
-        Action::MoodDecrease => {
-            if let Some(state) = app.edit_mood_state_mut()
-                && state.draft > -5
-            {
-                state.draft -= 1;
-            }
-        }
-        Action::MoodIncrease => {
-            if let Some(state) = app.edit_mood_state_mut()
-                && state.draft < 5
-            {
-                state.draft += 1;
+        Action::AdjustMood(delta) => {
+            if let Some(state) = app.edit_mood_state_mut() {
+                state.draft = state.draft.saturating_add(delta).clamp(-5, 5);
             }
         }
         Action::MoodSave => {
             let Some(mood) = app.edit_mood_state().map(|s| s.draft) else {
-                return Ok(false);
+                return Ok(DispatchOutcome::Continue);
             };
             edit_or_commit(
                 app,
@@ -343,7 +382,7 @@ pub(crate) fn dispatch_action(
                 state.select_row();
             }
             let Some(location) = app.edit_location_state().map(|state| state.composed()) else {
-                return Ok(false);
+                return Ok(DispatchOutcome::Continue);
             };
             edit_or_commit(
                 app,
@@ -353,7 +392,7 @@ pub(crate) fn dispatch_action(
         }
         Action::LocationSave => {
             let Some(location) = app.edit_location_state().map(|state| state.composed()) else {
-                return Ok(false);
+                return Ok(DispatchOutcome::Continue);
             };
             edit_or_commit(
                 app,
@@ -374,14 +413,6 @@ pub(crate) fn dispatch_action(
             app.open_theme_picker();
             reveal_open_dialog_selection(terminal, app)?;
         }
-        Action::ThemePickerMoveUp => {
-            navigate_open_dialog(terminal, app, |list| list.move_up())?;
-            app.theme_picker_preview();
-        }
-        Action::ThemePickerMoveDown => {
-            navigate_open_dialog(terminal, app, |list| list.move_down())?;
-            app.theme_picker_preview();
-        }
         Action::ThemePickerSelect(index) => app.theme_picker_select(index),
         Action::ThemePickerConfirm => app.theme_picker_confirm(),
         Action::ThemePickerCancel => app.theme_picker_cancel(),
@@ -389,8 +420,7 @@ pub(crate) fn dispatch_action(
         Action::ThemePickerCycleMode => app.theme_picker_cycle_mode(),
 
         Action::OpenImageViewer(index) => app.begin_image_viewer(index),
-        Action::ImageViewerNext => app.image_viewer_step(1),
-        Action::ImageViewerPrev => app.image_viewer_step(-1),
+        Action::StepImageViewer(delta) => app.image_viewer_step(delta),
 
         Action::ToggleHints => {
             app.state.ui.show_hints = !app.state.ui.show_hints;
@@ -413,27 +443,27 @@ pub(crate) fn dispatch_action(
     // One-shot compose (`notema log` with no body) quits as soon as its editor
     // closes — whether the entry was saved or discarded.
     if app.compose && app.editor.is_none() {
-        return Ok(true);
+        return Ok(DispatchOutcome::Quit);
     }
 
-    Ok(false)
+    Ok(DispatchOutcome::Continue)
 }
 
-struct EntryViewSnapshot {
+struct ReaderSnapshot {
     id: String,
     focus: Focus,
     fullscreen: bool,
-    entry_view_scroll: u16,
+    reader_scroll: u16,
 }
 
-impl EntryViewSnapshot {
+impl ReaderSnapshot {
     fn capture(app: &App) -> Option<Self> {
         let target = app.selected_entry_target()?;
         Some(Self {
             id: target.id,
             focus: app.nav.focus,
-            fullscreen: app.nav.entry_view_fullscreen,
-            entry_view_scroll: app.nav.scroll.entry_view,
+            fullscreen: app.nav.reader_fullscreen,
+            reader_scroll: app.nav.scroll.reader,
         })
     }
 
@@ -442,29 +472,29 @@ impl EntryViewSnapshot {
             return false;
         }
         app.nav.focus = self.focus;
-        app.nav.entry_view_fullscreen = self.fullscreen;
-        app.nav.scroll.entry_view = self.entry_view_scroll;
+        app.nav.reader_fullscreen = self.fullscreen;
+        app.nav.scroll.reader = self.reader_scroll;
         true
     }
 }
 
-fn restore_entry_view_or_close(app: &mut App, snapshot: Option<EntryViewSnapshot>) {
+fn restore_reader_or_close(app: &mut App, snapshot: Option<ReaderSnapshot>) {
     let Some(snapshot) = snapshot else {
         return;
     };
-    let was_in_viewer = snapshot.focus == Focus::EntryView;
+    let was_in_viewer = snapshot.focus == Focus::Reader;
     if !snapshot.restore(app) && was_in_viewer {
         app.nav.focus = Focus::Entries;
-        app.nav.scroll.reset_entry_view();
+        app.nav.scroll.reset_reader();
     }
 }
 
 /// Apply an edit-overlay change to the selected entry, then restore the entry
 /// view (the reload reorders entries) and close the overlay.
 fn commit_entry_edit(app: &mut App, edit: impl FnOnce(&mut App) -> AppResult<()>) -> AppResult<()> {
-    let snapshot = EntryViewSnapshot::capture(app);
+    let snapshot = ReaderSnapshot::capture(app);
     edit(app)?;
-    restore_entry_view_or_close(app, snapshot);
+    restore_reader_or_close(app, snapshot);
     app.close_overlay();
     Ok(())
 }
@@ -577,7 +607,7 @@ fn confirm_delete(app: &mut App) -> AppResult<()> {
     } else {
         Focus::Entries
     };
-    app.nav.scroll.reset_entry_view();
+    app.nav.scroll.reset_reader();
     app.refresh()
 }
 

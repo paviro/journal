@@ -4,16 +4,22 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 
 [dependencies]
-notema-core = { path = "../notema-core" }
-notema-storage = { path = "../notema-storage" }
-anyhow = "1"
-chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.10"
-regex = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+notema-domain.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+anyhow.workspace = true
+notema-storage.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

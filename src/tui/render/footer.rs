@@ -25,8 +25,8 @@ pub(crate) enum HintId {
     ToggleStarred,
     ExitSearch,
     CancelOverlay,
-    CloseEntryView,
-    ExpandEntryView,
+    CloseReader,
+    ExpandReader,
     MetadataToggle,
     MetadataSwitchFocus,
     MetadataAddFromInput,
@@ -495,14 +495,14 @@ fn search_footer_line(app: &App) -> HintLine {
     // The query now lives on the entry panel's top-right border (see
     // `draw_entry_list`), so the footer only carries the action hints.
     let hints = match app.nav.focus {
-        Focus::EntryView if app.has_selected_entry_target() => {
+        Focus::Reader if app.has_selected_entry_target() => {
             let mut hints = selected_entry_action_hints(Some(EXPAND_ENTER_HINT));
             hints.extend(image_hint(app));
             hints.push(Hint::new("exit search", "esc", HintId::ExitSearch));
             hints.push(Hint::new("quit", "q", HintId::Quit));
             hints
         }
-        Focus::EntryView => vec![
+        Focus::Reader => vec![
             Hint::new("exit search", "esc", HintId::ExitSearch),
             Hint::new("quit", "q", HintId::Quit),
         ],
@@ -565,7 +565,7 @@ fn browse_footer_line(app: &App) -> HintLine {
             hints.push(Hint::new("quit", "q", HintId::Quit));
             hints
         }
-        Focus::EntryView => {
+        Focus::Reader => {
             let mut hints = vec![Hint::new("new entry", "n", HintId::NewEntry)];
             if app.has_selected_entry_target() {
                 hints.extend(selected_entry_action_hints(Some(EXPAND_ENTER_HINT)));
@@ -632,17 +632,17 @@ fn selected_entry_action_hints(enter: Option<Hint>) -> Vec<Hint> {
 const VIEW_ENTER_HINT: Hint = Hint::new("view", "enter", HintId::ViewSelected);
 
 /// Enter expands the entry from the focused (multi-column) viewer.
-const EXPAND_ENTER_HINT: Hint = Hint::new("expand", "enter", HintId::ExpandEntryView);
+const EXPAND_ENTER_HINT: Hint = Hint::new("expand", "enter", HintId::ExpandReader);
 
 /// The `close` hint for the full-screen viewer. Enter and Esc always close it; in
 /// multi-column full screen Left is inert, while single-column also exits on Left.
-fn close_entry_view_hint(app: &App) -> Hint {
-    let keys = if app.nav.entry_view_fullscreen {
+fn close_reader_hint(app: &App) -> Hint {
+    let keys = if app.nav.reader_fullscreen {
         "enter/esc"
     } else {
         "enter/esc/←"
     };
-    Hint::new("close", keys, HintId::CloseEntryView)
+    Hint::new("close", keys, HintId::CloseReader)
 }
 
 fn expanded_footer_hints(app: &App) -> Vec<Hint> {
@@ -652,13 +652,13 @@ fn expanded_footer_hints(app: &App) -> Vec<Hint> {
     }
     if app.has_selected_entry_target() {
         hints.push(Hint::new("edit", "e", HintId::EditSelected));
-        hints.push(close_entry_view_hint(app));
+        hints.push(close_reader_hint(app));
         hints.push(Hint::new("del", "d", HintId::BeginDelete));
         hints.push(Hint::new("metadata", "ctrl+g", HintId::OpenMetadataMenu));
         hints.push(Hint::new("star", "s", HintId::ToggleStarred));
         hints.extend(image_hint(app));
     } else {
-        hints.push(close_entry_view_hint(app));
+        hints.push(close_reader_hint(app));
     }
     if app.nav.mode == Mode::Browse {
         hints.push(Hint::new("search", "/", HintId::BeginSearch));

@@ -1,19 +1,22 @@
-use notema_core::{
+use notema_domain::{
     AirQuality, Celestial, ImportSource, Location, Metadata, MetadataField, Weather,
 };
 use serde::{Deserialize, Serialize};
+
+pub(crate) const ENTRY_SCHEMA_VERSION: u32 = 1;
 
 /// Every entry front-matter field, parsed and serialized in a single TOML pass.
 /// The user metadata is the shared [`Metadata`] type, flattened so its fields
 /// sit at the top level of the front matter (mood clamped on read there). The
 /// system/provenance fields group into TOML tables, which — being tables — must
 /// all follow the flattened scalars: hence `metadata` comes first.
-#[derive(Serialize, Deserialize, Default, Clone)]
-pub struct FrontMatter {
+#[derive(Serialize, Deserialize, Clone)]
+pub(crate) struct FrontMatter {
+    pub schema_version: u32,
     #[serde(flatten)]
     pub metadata: Metadata,
-    #[serde(default, skip_serializing_if = "Datetime::is_empty")]
-    pub datetime: Datetime,
+    #[serde(default, skip_serializing_if = "EntryTimestamps::is_empty")]
+    pub datetime: EntryTimestamps,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import: Option<ImportSource>,
     /// Where the entry was written: set via the location dialog or captured on
@@ -35,13 +38,66 @@ pub struct FrontMatter {
     pub celestial: Option<Celestial>,
 }
 
+impl Default for FrontMatter {
+    fn default() -> Self {
+        Self {
+            schema_version: ENTRY_SCHEMA_VERSION,
+            metadata: Metadata::default(),
+            datetime: EntryTimestamps::default(),
+            import: None,
+            location: None,
+            weather: None,
+            air_quality: None,
+            celestial: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum FrontMatterError {
+    Malformed(toml::de::Error),
+    MissingVersion,
+    UnsupportedVersion(u32),
+}
+
+impl FrontMatterError {
+    pub(crate) fn user_message(&self) -> String {
+        match self {
+            Self::Malformed(_) => "Entry front matter is malformed".to_string(),
+            Self::MissingVersion => {
+                format!("Entry front matter is missing schema_version = {ENTRY_SCHEMA_VERSION}")
+            }
+            Self::UnsupportedVersion(version) => {
+                format!("Entry front matter uses unsupported schema version {version}")
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for FrontMatterError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Malformed(error) => write!(formatter, "malformed entry front matter: {error}"),
+            Self::MissingVersion => write!(
+                formatter,
+                "entry front matter is missing schema_version = {ENTRY_SCHEMA_VERSION}"
+            ),
+            Self::UnsupportedVersion(version) => {
+                write!(formatter, "unsupported entry schema version {version}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for FrontMatterError {}
+
 /// The `[datetime]` table: when an entry was created and last edited, the IANA
 /// zone it was authored in, and how long was spent editing it. `timezone` is
 /// capture-only — the offset already lives in `created_at`, but the zone *name* it
 /// can't recover, so we keep it. `writing_seconds` accumulates the editor-open
 /// time across edits (seeded from Day One's `editingTime` on import).
 #[derive(Serialize, Deserialize, Default, Clone)]
-pub struct Datetime {
+pub(crate) struct EntryTimestamps {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -52,7 +108,7 @@ pub struct Datetime {
     pub writing_seconds: Option<u64>,
 }
 
-impl Datetime {
+impl EntryTimestamps {
     fn is_empty(&self) -> bool {
         self.created_at.is_none()
             && self.edited_at.is_none()
@@ -61,7 +117,7 @@ impl Datetime {
     }
 }
 
-pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
+pub(crate) fn split_front_matter(content: &str) -> (Option<&str>, &str) {
     let Some(rest) = content.strip_prefix("+++\n") else {
         return (None, content);
     };
@@ -89,14 +145,15 @@ pub fn split_front_matter(content: &str) -> (Option<&str>, &str) {
 }
 
 /// Parse every front-matter field at once. Malformed TOML yields defaults.
-pub fn front_matter_fields(front_matter: &str) -> FrontMatter {
+#[cfg(test)]
+pub(crate) fn front_matter_fields(front_matter: &str) -> FrontMatter {
     parse_front_matter(front_matter).unwrap_or_default()
 }
 
 /// A one-line summary of the body: display lines collapsed onto a single line,
 /// with markdown markers stripped and space-wasting constructs redacted to short
 /// placeholders (fenced code -> `[code]`, images -> `[image]`, links -> `[link]`).
-pub fn display_preview(body: &str) -> String {
+pub(crate) fn display_preview(body: &str) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut in_code = false;
 
@@ -129,7 +186,7 @@ fn redact_inline(text: &str) -> String {
     while let Some(bracket) = rest.find('[') {
         let is_image = bracket > 0 && rest.as_bytes()[bracket - 1] == b'!';
         let marker = if is_image { bracket - 1 } else { bracket };
-        if let Some(span) = notema_core::markdown::parse_inline_at(&rest[marker..]) {
+        if let Some(span) = notema_domain::parse_inline_at(&rest[marker..]) {
             out.push_str(&rest[..marker]);
             out.push_str(if span.is_image { "[image]" } else { "[link]" });
             rest = &rest[marker + span.span.end..];
@@ -147,23 +204,79 @@ fn redact_inline(text: &str) -> String {
 /// Returns `None` when there is no front matter or it fails to parse.
 fn map_front_matter(content: &str, mutate: impl FnOnce(&mut FrontMatter)) -> Option<String> {
     let (front_matter, body) = split_front_matter(content);
-    let mut metadata = parse_front_matter(front_matter?)?;
-    mutate(&mut metadata);
-    Some(render_entry(&metadata, body))
+    let front_matter = front_matter?;
+    let mut raw: toml::Table = toml::from_str(front_matter).ok()?;
+    let before = parse_front_matter(front_matter).ok()?;
+    let mut after = before.clone();
+    mutate(&mut after);
+
+    let known_before = toml::Value::try_from(&before).ok()?.try_into().ok()?;
+    let known_after = toml::Value::try_from(&after).ok()?.try_into().ok()?;
+    apply_known_diff(&mut raw, &known_before, &known_after);
+
+    let front_matter = toml::to_string(&raw).ok()?;
+    Some(render_raw_entry(&front_matter, body))
+}
+
+/// Apply changes in Notema-owned fields to the original TOML tree. Keys that
+/// are absent from both typed snapshots are unknown to this version and remain
+/// untouched, including keys nested inside known tables.
+fn apply_known_diff(raw: &mut toml::Table, before: &toml::Table, after: &toml::Table) {
+    let keys = before
+        .keys()
+        .chain(after.keys())
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+
+    for key in keys {
+        match (before.get(&key), after.get(&key)) {
+            (Some(toml::Value::Table(before_table)), Some(toml::Value::Table(after_table))) => {
+                let raw_value = raw
+                    .entry(key)
+                    .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+                if let toml::Value::Table(raw_table) = raw_value {
+                    apply_known_diff(raw_table, before_table, after_table);
+                } else {
+                    *raw_value = toml::Value::Table(after_table.clone());
+                }
+            }
+            (Some(toml::Value::Table(before_table)), None) => {
+                let remove_table = if let Some(toml::Value::Table(raw_table)) = raw.get_mut(&key) {
+                    apply_known_diff(raw_table, before_table, &toml::Table::new());
+                    raw_table.is_empty()
+                } else {
+                    true
+                };
+                if remove_table {
+                    raw.remove(&key);
+                }
+            }
+            (_, Some(value)) => {
+                raw.insert(key, value.clone());
+            }
+            (Some(_), None) => {
+                raw.remove(&key);
+            }
+            (None, None) => {}
+        }
+    }
 }
 
 /// Return a copy of `content` with the given metadata fields applied in order in
 /// a single front-matter pass, and `edited_at` refreshed once. `None` when there
 /// is no front matter. Applying together (e.g. weather + air quality) shares one
 /// re-render instead of rewriting the file per field.
-pub fn with_metadata_fields(content: &str, fields: &[MetadataField]) -> Option<String> {
+pub(crate) fn with_metadata_fields(content: &str, fields: &[MetadataField]) -> Option<String> {
     with_metadata_fields_inner(content, fields, true)
 }
 
 /// Like [`with_metadata_fields`] but leaves `edited_at` untouched — for
 /// background enrichment (weather/celestial backfill) the user never triggered,
 /// which shouldn't mark the entry as freshly edited.
-pub fn with_metadata_fields_quiet(content: &str, fields: &[MetadataField]) -> Option<String> {
+pub(crate) fn with_metadata_fields_quiet(
+    content: &str,
+    fields: &[MetadataField],
+) -> Option<String> {
     with_metadata_fields_inner(content, fields, false)
 }
 
@@ -197,8 +310,16 @@ pub(crate) fn apply_metadata_field(fm: &mut FrontMatter, field: &MetadataField) 
     }
 }
 
-pub(crate) fn parse_front_matter(front_matter: &str) -> Option<FrontMatter> {
-    toml::from_str(front_matter).ok()
+pub(crate) fn parse_front_matter(front_matter: &str) -> Result<FrontMatter, FrontMatterError> {
+    let value: toml::Value = toml::from_str(front_matter).map_err(FrontMatterError::Malformed)?;
+    if value.get("schema_version").is_none() {
+        return Err(FrontMatterError::MissingVersion);
+    }
+    let parsed: FrontMatter = value.try_into().map_err(FrontMatterError::Malformed)?;
+    if parsed.schema_version != ENTRY_SCHEMA_VERSION {
+        return Err(FrontMatterError::UnsupportedVersion(parsed.schema_version));
+    }
+    Ok(parsed)
 }
 
 /// Render an entry from its front matter and body: the one canonical framing
@@ -207,7 +328,14 @@ pub(crate) fn parse_front_matter(front_matter: &str) -> Option<FrontMatter> {
 /// the body.
 pub(crate) fn render_entry(front_matter: &FrontMatter, body: &str) -> String {
     let toml = toml::to_string(front_matter).unwrap_or_default();
-    format!("+++\n{toml}+++\n\n{}", body.trim_start_matches('\n'))
+    render_raw_entry(&toml, body)
+}
+
+fn render_raw_entry(front_matter: &str, body: &str) -> String {
+    format!(
+        "+++\n{front_matter}+++\n\n{}",
+        body.trim_start_matches('\n')
+    )
 }
 
 fn display_line_text(line: &str) -> Option<&str> {
@@ -280,7 +408,7 @@ mod tests {
 
     #[test]
     fn front_matter_tags_reads_list() {
-        let tags = front_matter_fields("tags = [\"foo\", \"bar\"]\n")
+        let tags = front_matter_fields("schema_version = 1\ntags = [\"foo\", \"bar\"]\n")
             .metadata
             .tags;
 
@@ -289,7 +417,7 @@ mod tests {
 
     #[test]
     fn front_matter_tags_handles_commas_in_values() {
-        let tags = front_matter_fields("tags = [\"foo, bar\", \"baz\"]\n")
+        let tags = front_matter_fields("schema_version = 1\ntags = [\"foo, bar\", \"baz\"]\n")
             .metadata
             .tags;
 
@@ -298,27 +426,58 @@ mod tests {
 
     #[test]
     fn front_matter_feelings_reads_list() {
-        let feelings = front_matter_fields("feelings = [\"calm\", \"focused\"]\n")
-            .metadata
-            .feelings;
+        let feelings =
+            front_matter_fields("schema_version = 1\nfeelings = [\"calm\", \"focused\"]\n")
+                .metadata
+                .feelings;
 
         assert_eq!(feelings, vec!["calm", "focused"]);
     }
 
     #[test]
     fn mood_is_clamped_to_supported_range() {
-        assert_eq!(front_matter_fields("mood = 3\n").metadata.mood, Some(3));
-        assert_eq!(front_matter_fields("mood = -5\n").metadata.mood, Some(-5));
-        assert_eq!(front_matter_fields("mood = 5\n").metadata.mood, Some(5));
+        assert_eq!(
+            front_matter_fields("schema_version = 1\nmood = 3\n")
+                .metadata
+                .mood,
+            Some(3)
+        );
+        assert_eq!(
+            front_matter_fields("schema_version = 1\nmood = -5\n")
+                .metadata
+                .mood,
+            Some(-5)
+        );
+        assert_eq!(
+            front_matter_fields("schema_version = 1\nmood = 5\n")
+                .metadata
+                .mood,
+            Some(5)
+        );
         // Out of range or non-integer moods drop to None rather than failing.
-        assert_eq!(front_matter_fields("mood = 6\n").metadata.mood, None);
-        assert_eq!(front_matter_fields("mood = -42\n").metadata.mood, None);
-        assert_eq!(front_matter_fields("mood = 999\n").metadata.mood, None);
+        assert_eq!(
+            front_matter_fields("schema_version = 1\nmood = 6\n")
+                .metadata
+                .mood,
+            None
+        );
+        assert_eq!(
+            front_matter_fields("schema_version = 1\nmood = -42\n")
+                .metadata
+                .mood,
+            None
+        );
+        assert_eq!(
+            front_matter_fields("schema_version = 1\nmood = 999\n")
+                .metadata
+                .mood,
+            None
+        );
     }
 
     #[test]
     fn quiet_metadata_write_applies_field_without_stamping_edited_at() {
-        let content = "+++\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
         let fields = [MetadataField::Mood(Some(4))];
 
         // The loud write stamps edited_at; the quiet write (used for background
@@ -341,7 +500,7 @@ mod tests {
 
     #[test]
     fn with_metadata_field_writes_and_clears_mood() {
-        let content = "+++\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
 
         let with_mood = with_metadata_fields(content, &[MetadataField::Mood(Some(4))]).unwrap();
         assert_eq!(
@@ -362,7 +521,7 @@ mod tests {
 
     #[test]
     fn with_metadata_field_writes_and_clears_location() {
-        let content = "+++\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
 
         let location = Location {
             name: Some("Cafe".to_string()),
@@ -409,10 +568,10 @@ mod tests {
                 tags: vec!["dream".to_string()],
                 ..Metadata::default()
             },
-            datetime: Datetime {
+            datetime: EntryTimestamps {
                 created_at: Some("2021-04-03T08:30:05+02:00".to_string()),
                 timezone: Some("Europe/Berlin".to_string()),
-                ..Datetime::default()
+                ..EntryTimestamps::default()
             },
             import: Some(ImportSource {
                 source: "dayone".to_string(),
@@ -503,7 +662,7 @@ mod tests {
 
     #[test]
     fn timezone_is_preserved_across_metadata_edits() {
-        let content = "+++\n[datetime]\ncreated_at = \"2021-04-03T08:30:05+02:00\"\ntimezone = \"Europe/Berlin\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2021-04-03T08:30:05+02:00\"\ntimezone = \"Europe/Berlin\"\n+++\n\n# Body\n";
 
         // A metadata edit re-renders the whole front matter; the capture-only
         // timezone must survive untouched, like the import provenance does.
@@ -520,8 +679,7 @@ mod tests {
 
     #[test]
     fn starred_round_trips_and_omits_when_false() {
-        let content =
-            "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
 
         let starred = with_metadata_fields(content, &[MetadataField::Starred(true)]).unwrap();
         assert!(starred.contains("starred = true"));
@@ -574,7 +732,7 @@ mod tests {
 
     #[test]
     fn with_metadata_field_replaces_list_without_stale_entries() {
-        let content = "+++\ntags = [\"old\", \"stale\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\ntags = [\"old\", \"stale\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
         let tags = vec!["new".to_string(), "next".to_string()];
 
         let updated = with_metadata_fields(content, &[MetadataField::Tags(tags)]).unwrap();
@@ -592,8 +750,7 @@ mod tests {
 
     #[test]
     fn with_metadata_field_refreshes_edited_at_and_preserves_body() {
-        let content =
-            "+++\ntags = []\n\n[datetime]\ncreated_at = \"old\"\n+++\n\n# Body\n\nTrailing\n";
+        let content = "+++\nschema_version = 1\ntags = []\n\n[datetime]\ncreated_at = \"old\"\n+++\n\n# Body\n\nTrailing\n";
 
         let updated = with_metadata_fields(
             content,
@@ -615,6 +772,22 @@ mod tests {
                 .edited_at
                 .is_some()
         );
+    }
+
+    #[test]
+    fn metadata_edits_preserve_unknown_fields_recursively() {
+        let content = "+++\nschema_version = 1\ntags = [\"old\"]\nfuture_flag = true\n\n[datetime]\ncreated_at = \"old\"\nfuture_clock = \"keep\"\n\n[future]\nvalue = 42\n+++\n\n# Body\n";
+
+        let updated =
+            with_metadata_fields(content, &[MetadataField::Tags(vec!["new".to_string()])]).unwrap();
+
+        let (front_matter, body) = split_front_matter(&updated);
+        let raw: toml::Value = toml::from_str(front_matter.unwrap()).unwrap();
+        assert_eq!(raw["future_flag"].as_bool(), Some(true));
+        assert_eq!(raw["datetime"]["future_clock"].as_str(), Some("keep"));
+        assert_eq!(raw["future"]["value"].as_integer(), Some(42));
+        assert_eq!(raw["tags"][0].as_str(), Some("new"));
+        assert_eq!(body, "\n# Body\n");
     }
 
     #[test]

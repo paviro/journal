@@ -112,15 +112,13 @@ fn pending_request_round_trips_and_clears() {
 }
 
 #[test]
-fn malformed_pending_request_is_ignored() {
+fn malformed_pending_request_fails_closed() {
     let dir = tempdir().unwrap();
     let paths = paths_in(dir.path());
     fs::create_dir_all(&paths.age_dir).unwrap();
     fs::write(paths.age_dir.join("pending-bad.toml"), "not valid = [").unwrap();
 
-    let pending = read_pending(&paths).unwrap();
-
-    assert!(pending.is_empty());
+    assert!(read_pending(&paths).is_err());
 }
 
 #[test]

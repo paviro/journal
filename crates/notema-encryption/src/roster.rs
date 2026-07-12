@@ -54,7 +54,7 @@ const DOMAIN: &[u8] = b"notema.roster.v1";
 /// stay `genesis`/`add`/`revoke`/`rename` for existing rosters to keep verifying.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum OpKind {
+pub(crate) enum OpKind {
     Genesis,
     Add,
     Revoke,
@@ -87,7 +87,7 @@ const DEVICES_HEADER: &str = "\
 /// public key and its Ed25519 signature over the op's canonical bytes).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RosterOp {
+pub(crate) struct RosterOp {
     pub seq: u64,
     /// Hex SHA-256 of the previous op's canonical bytes; empty for the genesis.
     pub prev_hash: String,
@@ -109,23 +109,23 @@ impl RosterOp {
     /// concatenation of every field except the signature itself. Explicit framing
     /// (not the TOML text) so formatting or field reordering can never change what
     /// was signed.
-    fn signing_bytes(&self) -> Vec<u8> {
+    fn signing_bytes(&self) -> Result<Vec<u8>> {
         let mut buf = Vec::new();
-        push_field(&mut buf, DOMAIN);
+        push_field(&mut buf, DOMAIN)?;
         buf.extend_from_slice(&self.seq.to_le_bytes());
-        push_field(&mut buf, self.prev_hash.as_bytes());
-        push_field(&mut buf, self.kind.as_bytes());
-        push_field(&mut buf, self.name.as_bytes());
-        push_field(&mut buf, self.enc_key.as_bytes());
-        push_field(&mut buf, self.sign_key.as_bytes());
-        push_field(&mut buf, self.signer_key.as_bytes());
-        buf
+        push_field(&mut buf, self.prev_hash.as_bytes())?;
+        push_field(&mut buf, self.kind.as_bytes())?;
+        push_field(&mut buf, self.name.as_bytes())?;
+        push_field(&mut buf, self.enc_key.as_bytes())?;
+        push_field(&mut buf, self.sign_key.as_bytes())?;
+        push_field(&mut buf, self.signer_key.as_bytes())?;
+        Ok(buf)
     }
 
     /// This op's position in the chain: hex SHA-256 of its canonical bytes. The
     /// next op's `prev_hash` and the head pin are both this value.
-    fn hash(&self) -> String {
-        hex::encode(Sha256::digest(self.signing_bytes()))
+    fn hash(&self) -> Result<String> {
+        Ok(hex::encode(Sha256::digest(self.signing_bytes()?)))
     }
 
     fn recipient(&self) -> Recipient {
@@ -141,15 +141,19 @@ impl RosterOp {
 /// length followed by the bytes. Shared by every signed payload in the crate so
 /// there is a single, unambiguous framing (fields can't run together or be
 /// reordered without changing the bytes).
-pub(crate) fn push_field(buf: &mut Vec<u8>, bytes: &[u8]) {
-    buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+pub(crate) fn push_field(buf: &mut Vec<u8>, bytes: &[u8]) -> Result<()> {
+    let length = u32::try_from(bytes.len()).map_err(|_| EncryptionError::SignedFieldTooLarge {
+        length: bytes.len(),
+    })?;
+    buf.extend_from_slice(&length.to_le_bytes());
     buf.extend_from_slice(bytes);
+    Ok(())
 }
 
 /// The local, per-device trust anchors. Both `None` on a device that has not yet
 /// seen a valid roster (first sync / store creation) — the trust-on-first-use case.
 #[derive(Debug, Clone, Default)]
-pub struct TrustPins {
+pub(crate) struct TrustPins {
     pub genesis_hash: Option<String>,
     pub head_hash: Option<String>,
 }
@@ -157,7 +161,7 @@ pub struct TrustPins {
 /// The outcome of a successful [`verify`]: the current recipient set plus the
 /// genesis/head hashes to pin.
 #[derive(Debug, Clone)]
-pub struct Verified {
+pub(crate) struct Verified {
     pub recipients: Vec<Recipient>,
     pub genesis_hash: String,
     pub head_hash: String,
@@ -166,7 +170,7 @@ pub struct Verified {
 /// Replay and authenticate the whole log against the local pins. Returns the
 /// current recipient set on success, or [`EncryptionError::RosterUnverified`] on any
 /// failure — callers must treat that as "do not encrypt/decrypt".
-pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
+pub(crate) fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
     let Some(genesis_op) = ops.first() else {
         return Err(unverified("the roster is empty"));
     };
@@ -179,7 +183,7 @@ pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
     }
     verify_op_sig(genesis_op)?;
 
-    let genesis_hash = genesis_op.hash();
+    let genesis_hash = genesis_op.hash()?;
     if let Some(pinned) = &pins.genesis_hash
         && pinned != &genesis_hash
     {
@@ -193,7 +197,7 @@ pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
     let mut hashes: Vec<String> = vec![genesis_hash.clone()];
 
     for (index, op) in ops.iter().enumerate().skip(1) {
-        if op.seq != index as u64 {
+        if op.seq != u64::try_from(index).map_err(|_| unverified("the roster is too large"))? {
             return Err(unverified("an op is out of sequence"));
         }
         if op.prev_hash != hashes[index - 1] {
@@ -226,7 +230,7 @@ pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
             }
             OpKind::Genesis => return Err(unverified("a second genesis op appears in the log")),
         }
-        hashes.push(op.hash());
+        hashes.push(op.hash()?);
     }
 
     if recipients.is_empty() {
@@ -256,7 +260,7 @@ pub fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
 /// Append a new op to the log, signed by `signer_key` via `sign_bytes`, and write
 /// the file back. `sign_bytes` produces the hex Ed25519 signature over the op's
 /// canonical bytes (supplied by the caller's unlocked identity).
-pub fn append(
+pub(crate) fn append(
     path: &Path,
     kind: OpKind,
     name: &str,
@@ -267,7 +271,7 @@ pub fn append(
 ) -> Result<RosterOp> {
     let ops = read_ops(path)?;
     let (seq, prev_hash) = match ops.last() {
-        Some(last) => (last.seq + 1, last.hash()),
+        Some(last) => (last.seq + 1, last.hash()?),
         None => (0, String::new()),
     };
     let mut op = RosterOp {
@@ -280,7 +284,7 @@ pub fn append(
         signer_key: signer_key.to_string(),
         sig: String::new(),
     };
-    op.sig = sign_bytes(&op.signing_bytes());
+    op.sig = sign_bytes(&op.signing_bytes()?);
 
     let mut all = ops;
     all.push(op.clone());
@@ -291,30 +295,42 @@ pub fn append(
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RosterFile {
+    schema_version: u32,
     #[serde(default, rename = "operation")]
     ops: Vec<RosterOp>,
 }
 
 #[derive(Serialize)]
 struct RosterFileRef<'a> {
+    schema_version: u32,
     #[serde(rename = "operation")]
     operations: &'a [RosterOp],
 }
 
 /// The raw ops in file order, or empty when the store isn't encrypted.
-pub fn read_ops(path: &Path) -> Result<Vec<RosterOp>> {
+pub(crate) fn read_ops(path: &Path) -> Result<Vec<RosterOp>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
     let text = fs::read_to_string(path)?;
-    Ok(toml::from_str::<RosterFile>(&text)?.ops)
+    let file = toml::from_str::<RosterFile>(&text)?;
+    if file.schema_version != 1 {
+        return Err(EncryptionError::UnsupportedSchema {
+            kind: "device roster",
+            version: file.schema_version,
+        });
+    }
+    Ok(file.ops)
 }
 
 fn write_ops(path: &Path, ops: &[RosterOp]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let document = RosterFileRef { operations: ops };
+    let document = RosterFileRef {
+        schema_version: 1,
+        operations: ops,
+    };
     let body = format!("{DEVICES_HEADER}\n{}", toml::to_string_pretty(&document)?);
     crate::atomic_write(path, body.as_bytes())
 }
@@ -324,25 +340,33 @@ fn write_ops(path: &Path, ops: &[RosterOp]) -> Result<()> {
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PinsFile {
+    schema_version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     genesis_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     head_hash: Option<String>,
 }
 
-pub fn read_pins(path: &Path) -> Result<TrustPins> {
+pub(crate) fn read_pins(path: &Path) -> Result<TrustPins> {
     if !path.exists() {
         return Ok(TrustPins::default());
     }
     let parsed: PinsFile = toml::from_str(&fs::read_to_string(path)?)?;
+    if parsed.schema_version != 1 {
+        return Err(EncryptionError::UnsupportedSchema {
+            kind: "device trust pins",
+            version: parsed.schema_version,
+        });
+    }
     Ok(TrustPins {
         genesis_hash: parsed.genesis_hash,
         head_hash: parsed.head_hash,
     })
 }
 
-pub fn write_pins(path: &Path, genesis_hash: &str, head_hash: &str) -> Result<()> {
+pub(crate) fn write_pins(path: &Path, genesis_hash: &str, head_hash: &str) -> Result<()> {
     let document = PinsFile {
+        schema_version: 1,
         genesis_hash: Some(genesis_hash.to_string()),
         head_hash: Some(head_hash.to_string()),
     };
@@ -352,7 +376,7 @@ pub fn write_pins(path: &Path, genesis_hash: &str, head_hash: &str) -> Result<()
 /// A short, human-comparable fingerprint of a device, covering *both* its
 /// encryption and signing keys so tampering with either shows up. Displayed at
 /// approval time for an out-of-band check against what the joining device shows.
-pub fn fingerprint(enc_key: &str, sign_key: &str) -> String {
+pub(crate) fn fingerprint(enc_key: &str, sign_key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(enc_key.as_bytes());
     hasher.update([0u8]);
@@ -368,7 +392,7 @@ pub fn fingerprint(enc_key: &str, sign_key: &str) -> String {
 }
 
 fn verify_op_sig(op: &RosterOp) -> Result<()> {
-    if crate::signing::verify_signature(&op.signer_key, &op.signing_bytes(), &op.sig) {
+    if crate::signing::verify_signature(&op.signer_key, &op.signing_bytes()?, &op.sig) {
         Ok(())
     } else {
         Err(unverified(&format!(

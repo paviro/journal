@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Gauge, Paragraph, Wrap},
 };
 
-use notema_storage::PendingRequest;
+use notema_encryption::PendingRequest;
 
 use crate::tui::entry_rows::wrap_text;
 use crate::tui::theme::theme;

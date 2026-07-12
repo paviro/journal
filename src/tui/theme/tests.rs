@@ -2,6 +2,14 @@ use super::*;
 use schema::parse_color;
 use tempfile::tempdir;
 
+fn parse(text: &str, mode: Mode) -> anyhow::Result<Theme> {
+    if text.starts_with("schema_version = ") {
+        super::parse(text, mode)
+    } else {
+        super::parse(&format!("schema_version = 1\n{text}"), mode)
+    }
+}
+
 fn bundled(name: &str) -> &'static str {
     BUNDLED
         .iter()
@@ -575,25 +583,25 @@ fn signed_distinguishes_positive_from_negative() {
 }
 
 #[test]
-fn eink_is_monochrome_high_contrast_in_both_modes() {
+fn eclipse_is_monochrome_high_contrast_in_both_modes() {
     let ink_or_paper =
         |color: Color| color == Color::Rgb(0, 0, 0) || color == Color::Rgb(255, 255, 255);
     for mode in [Mode::Dark, Mode::Light] {
-        let theme = parse(bundled("e-ink"), mode).unwrap();
+        let theme = parse(bundled("eclipse"), mode).unwrap();
         for (name, style) in theme.all_styles() {
             for color in [style.fg, style.bg].into_iter().flatten() {
                 assert!(
                     ink_or_paper(color),
-                    "e-ink `{name}` uses non-monochrome {color:?} ({mode:?})"
+                    "eclipse `{name}` uses non-monochrome {color:?} ({mode:?})"
                 );
             }
         }
         for color in [theme.base, theme.content, theme.element, theme.footer] {
-            assert!(ink_or_paper(color), "e-ink surface {color:?} ({mode:?})");
+            assert!(ink_or_paper(color), "eclipse surface {color:?} ({mode:?})");
         }
         assert_ne!(
             theme.dialog, theme.base,
-            "e-ink dialog should lift off the base surface ({mode:?})"
+            "eclipse dialog should lift off the base surface ({mode:?})"
         );
         assert_eq!(
             theme.dialog,
@@ -614,7 +622,7 @@ fn eink_is_monochrome_high_contrast_in_both_modes() {
                 .iter()
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
-            "e-ink chart series share a glyph"
+            "eclipse chart series share a glyph"
         );
         // Selection must be a true inversion, not a same-on-same smear.
         assert_ne!(theme.selection.fg, theme.selection.bg);

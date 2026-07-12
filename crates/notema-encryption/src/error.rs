@@ -102,6 +102,12 @@ pub enum EncryptionError {
     #[error("failed to gather randomness for signing key: {0}")]
     Randomness(String),
 
+    #[error("signed metadata field is too large ({length} bytes)")]
+    SignedFieldTooLarge { length: usize },
+
+    #[error("unsupported {kind} schema version {version}; expected 1")]
+    UnsupportedSchema { kind: &'static str, version: u32 },
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 

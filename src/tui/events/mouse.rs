@@ -6,14 +6,15 @@ use std::io;
 use crate::tui::{
     app::{
         App, EditLocationFocus, EditMetadataFocus, Focus, Mode, ScrollbarDrag,
-        inline_entry_view_is_visible,
+        inline_reader_is_visible,
     },
     editor_state::EditorPrompt,
     render,
     state::{HoverTarget, ListNav, MetadataKind, Overlay},
 };
 
-use super::action::Action;
+use super::DispatchOutcome;
+use super::action::{Action, InsightsAction, ReaderAction};
 use super::actions::view_selected;
 
 fn editor_mouse_action(app: &App, mouse: MouseEvent) -> Option<Action> {
@@ -68,7 +69,7 @@ fn editor_prompt_mouse_action(app: &App, mouse: MouseEvent, area: Rect) -> Optio
                 }
                 match render::metadata_menu_choice_at_point(area, mode, mouse.column, mouse.row) {
                     Some(render::MetadataChoice::Metadata(kind)) => {
-                        Some(Action::EditorBeginMetadata(kind))
+                        Some(Action::BeginEditMetadata(kind))
                     }
                     Some(render::MetadataChoice::Feelings) => Some(Action::BeginEditFeelings),
                     Some(render::MetadataChoice::Mood) => Some(Action::BeginEditMood),
@@ -98,22 +99,30 @@ pub(crate) fn handle_mouse(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     mouse: MouseEvent,
-) -> AppResult<bool> {
+) -> AppResult<DispatchOutcome> {
     let area = super::terminal_area(terminal)?;
+    super::dispatch_action(terminal, app, Action::PointerInput { event: mouse, area })
+}
 
+pub(super) fn apply_pointer(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    mouse: MouseEvent,
+    area: Rect,
+) -> AppResult<DispatchOutcome> {
     if try_toast_dismiss(app, mouse, area) {
-        return Ok(false);
+        return Ok(DispatchOutcome::Continue);
     }
 
     if app.has_overlay() {
         handle_overlay_mouse(Some(terminal), app, mouse, area)?;
-        return Ok(false);
+        return Ok(DispatchOutcome::Continue);
     }
 
     if let Some(action) = editor_prompt_mouse_action(app, mouse, area) {
         return super::dispatch_action(terminal, app, action);
     } else if editor_prompt_is_open(app) {
-        return Ok(false);
+        return Ok(DispatchOutcome::Continue);
     }
 
     if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
@@ -122,12 +131,15 @@ pub(crate) fn handle_mouse(
             if let Some(action) = footer_click_to_action(app, mouse, footer) {
                 return super::dispatch_action(terminal, app, action);
             }
-            return Ok(false);
+            return Ok(DispatchOutcome::Continue);
         }
         // Clicking an entry-view `[Image N …]` label opens the viewer via the
         // same action as the footer hint and keyboard shortcut.
         if let Some(index) = app.image_label_at(mouse.column, mouse.row) {
             return super::dispatch_action(terminal, app, Action::OpenImageViewer(index));
+        }
+        if let Some(target) = app.reader_link_at(mouse.column, mouse.row) {
+            return super::dispatch_action(terminal, app, Action::OpenReaderLink(target));
         }
     }
 
@@ -135,11 +147,11 @@ pub(crate) fn handle_mouse(
         if let Some(action) = editor_mouse_action(app, mouse) {
             return super::dispatch_action(terminal, app, action);
         }
-        return Ok(false);
+        return Ok(DispatchOutcome::Continue);
     }
 
-    handle_mouse_in_area(app, mouse, area)?;
-    Ok(false)
+    apply_pointer_in_area(app, mouse, area)?;
+    Ok(DispatchOutcome::Continue)
 }
 
 /// A left press on a toast dismisses it. Probed before everything else —
@@ -156,7 +168,7 @@ fn try_toast_dismiss(app: &mut App, mouse: MouseEvent, area: Rect) -> bool {
     true
 }
 
-pub(super) fn handle_mouse_in_area(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
+pub(super) fn apply_pointer_in_area(app: &mut App, mouse: MouseEvent, area: Rect) -> AppResult<()> {
     if try_toast_dismiss(app, mouse, area) {
         return Ok(());
     }
@@ -221,8 +233,27 @@ pub(crate) fn fold_leading_wheel(events: &[Event]) -> (i16, usize) {
 }
 
 /// Apply a coalesced wheel delta at `mouse`'s position. Mirrors the non-overlay
-/// wheel path of `handle_mouse_in_area`; the caller guarantees no overlay is open.
-pub(crate) fn handle_scroll(app: &mut App, mouse: MouseEvent, area: Rect, net_delta: i16) {
+/// wheel path of `apply_pointer_in_area`; the caller guarantees no overlay is open.
+pub(crate) fn handle_scroll(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    mouse: MouseEvent,
+    area: Rect,
+    net_delta: i16,
+) -> AppResult<()> {
+    super::dispatch_action(
+        terminal,
+        app,
+        Action::PointerScroll {
+            event: mouse,
+            area,
+            delta: net_delta,
+        },
+    )?;
+    Ok(())
+}
+
+pub(super) fn apply_scroll(app: &mut App, mouse: MouseEvent, area: Rect, net_delta: i16) {
     let layout = render::tui_layout(area, app);
     handle_wheel(app, mouse, layout, net_delta);
 }
@@ -261,14 +292,14 @@ fn pane_target(
     layout: &render::TuiLayout,
 ) -> Option<ScrollbarTarget> {
     let (area, content_length, viewport, scroll) = match which {
-        ScrollbarDrag::EntryView => {
-            let area = layout.entry_view?;
-            let hits = &app.entry_view_image_hits;
+        ScrollbarDrag::Reader => {
+            let area = layout.reader?;
+            let hits = &app.reader_image_hits;
             (
                 area.area,
                 hits.line_count,
                 hits.content_rect.height,
-                app.nav.scroll.entry_view as usize,
+                app.nav.scroll.reader as usize,
             )
         }
         ScrollbarDrag::EntryList => {
@@ -332,7 +363,7 @@ fn scrollbar_target_at(
     layout: &render::TuiLayout,
 ) -> Option<ScrollbarTarget> {
     [
-        ScrollbarDrag::EntryView,
+        ScrollbarDrag::Reader,
         ScrollbarDrag::EntryList,
         ScrollbarDrag::Journals,
         ScrollbarDrag::Insights,
@@ -364,9 +395,9 @@ fn set_pane_scroll(app: &mut App, which: ScrollbarDrag, offset: usize) {
             *app.nav.entry_list.offset_mut() = offset;
             app.focus_entries();
         }
-        ScrollbarDrag::EntryView => {
-            app.nav.scroll.entry_view = offset.min(u16::MAX as usize) as u16;
-            app.focus_entry_view_from_click();
+        ScrollbarDrag::Reader => {
+            app.nav.scroll.reader = offset.min(u16::MAX as usize) as u16;
+            app.focus_reader_from_click();
         }
         ScrollbarDrag::Insights => {
             app.nav.scroll.insights = offset.min(u16::MAX as usize) as u16;
@@ -386,9 +417,9 @@ fn step_pane_scroll(app: &mut App, target: &ScrollbarTarget, delta: i16) {
             app.scroll_entry_list(delta, target.content_length, target.viewport);
             app.focus_entries();
         }
-        ScrollbarDrag::EntryView => {
-            app.scroll_entry_view(delta);
-            app.focus_entry_view_from_click();
+        ScrollbarDrag::Reader => {
+            app.scroll_reader(delta);
+            app.focus_reader_from_click();
         }
         ScrollbarDrag::Insights => {
             app.scroll_insights(delta);
@@ -490,7 +521,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             &cache.meta,
         ) {
             app.select_entry_index(index);
-            if !inline_entry_view_is_visible(layout.content.width) {
+            if !inline_reader_is_visible(layout.content.width) {
                 view_selected(app)?;
             }
         } else if app.nav.mode == Mode::Browse {
@@ -512,7 +543,7 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
         return Ok(());
     }
 
-    if let Some(area) = layout.entry_view
+    if let Some(area) = layout.reader
         && render::point_in_rect(area.area, mouse.column, mouse.row)
         && app.has_selected_entry_target()
     {
@@ -542,9 +573,9 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
             return Ok(());
         }
         // Focus the viewer on the pane. A click already inside a full-screen viewer
-        // must not collapse it, so `focus_entry_view_from_click` only resets fullscreen
+        // must not collapse it, so `focus_reader_from_click` only resets fullscreen
         // when focus enters from another column.
-        app.focus_entry_view_from_click();
+        app.focus_reader_from_click();
     }
 
     Ok(())
@@ -557,18 +588,20 @@ const WHEEL_PIXELS_PER_NOTCH: i16 = 2;
 
 fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, delta: i16) {
     // Probed first, and via the rendered geometry rather than a layout slot, so it
-    // also catches the insights shown in the preview column when no entry is selected.
+    // also catches the insights shown in the reader column when no entry is selected.
     if app.insights_scroll.total > 0
         && render::point_in_rect(app.insights_scroll.area, mouse.column, mouse.row)
     {
+        app.focus_insights();
         app.scroll_insights(delta);
         return;
     }
 
-    if let Some(area) = layout.entry_view
+    if let Some(area) = layout.reader
         && render::point_in_rect(area.area, mouse.column, mouse.row)
     {
-        app.scroll_entry_view(delta);
+        app.focus_reader_from_click();
+        app.scroll_reader(delta);
         return;
     }
 
@@ -603,10 +636,30 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
 /// Track what's under the cursor. Returns whether the hover target changed —
 /// the run loop only repaints then, so motion inside one row costs nothing.
 /// Hovering never moves the main panels' selection (selecting has side
-/// effects — journal switch, preview swap — that stay click-only), but overlay
+/// effects — journal switch, reader swap — that stay click-only), but overlay
 /// menus follow the cursor: the theme picker moves its selection so the
 /// hovered theme live-previews, like its arrow keys.
-pub(crate) fn update_hover(app: &mut App, col: u16, row: u16, area: Rect) -> bool {
+pub(crate) fn update_hover(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    col: u16,
+    row: u16,
+    area: Rect,
+) -> AppResult<bool> {
+    let previous = app.hover;
+    super::dispatch_action(
+        terminal,
+        app,
+        Action::PointerHover {
+            column: col,
+            row,
+            area,
+        },
+    )?;
+    Ok(previous != app.hover)
+}
+
+pub(super) fn apply_hover(app: &mut App, col: u16, row: u16, area: Rect) -> bool {
     let target = hover_target_at(app, col, row, area);
     if target == app.hover {
         return false;
@@ -653,6 +706,15 @@ fn hover_target_at(app: &App, col: u16, row: u16, area: Rect) -> HoverTarget {
     // over the panel probe below.
     if let Some(target) = text_field_hover_at(app, col, row) {
         return target;
+    }
+
+    // Reader links and image labels, matching the click path's priority
+    // (labels before links). Both self-bound-check the reader's content rect.
+    if let Some(line) = app.reader_image_line_at(col, row) {
+        return HoverTarget::ReaderImage(line);
+    }
+    if let Some((line, start, end)) = app.reader_link_hit_at(col, row) {
+        return HoverTarget::ReaderLink { line, start, end };
     }
 
     let layout = render::tui_layout(area, app);
@@ -848,7 +910,7 @@ fn editor_prompt_hover_target(app: &App, col: u16, row: u16, area: Rect) -> Hove
 
 /// The footer hint under `(col, row)`, in whichever footer form is showing.
 fn footer_hint_at(app: &App, footer: Rect, col: u16, row: u16) -> Option<render::HintId> {
-    if app.entry_view_is_fullscreen(footer.width) {
+    if app.reader_is_fullscreen(footer.width) {
         render::expanded_footer_hint_id_at_point(app, footer.x, footer.y, footer.width, col, row)
     } else {
         render::footer_hint_id_at_point(app, footer.x, footer.y, footer.width, col, row)
@@ -860,7 +922,7 @@ fn footer_click_to_action(app: &App, mouse: MouseEvent, footer: Rect) -> Option<
 }
 
 fn footer_area(app: &App, area: Rect) -> Rect {
-    if app.entry_view_is_fullscreen(area.width) {
+    if app.reader_is_fullscreen(area.width) {
         let height = render::expanded_footer_height(app, area.width).min(area.height);
         return Rect {
             x: area.x,
@@ -1015,10 +1077,14 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
             return Some(Action::CancelOverlay);
         }
         return match render::metadata_menu_choice_at_point(area, mode, col, row)? {
-            render::MetadataChoice::Metadata(MetadataKind::Tags) => Some(Action::BeginEditTags),
-            render::MetadataChoice::Metadata(MetadataKind::People) => Some(Action::BeginEditPeople),
+            render::MetadataChoice::Metadata(MetadataKind::Tags) => {
+                Some(Action::BeginEditMetadata(MetadataKind::Tags))
+            }
+            render::MetadataChoice::Metadata(MetadataKind::People) => {
+                Some(Action::BeginEditMetadata(MetadataKind::People))
+            }
             render::MetadataChoice::Metadata(MetadataKind::Activities) => {
-                Some(Action::BeginEditActivities)
+                Some(Action::BeginEditMetadata(MetadataKind::Activities))
             }
             render::MetadataChoice::Feelings => Some(Action::BeginEditFeelings),
             render::MetadataChoice::Mood => Some(Action::BeginEditMood),
@@ -1053,7 +1119,7 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
         if render::point_in_rect(layout.list, col, row)
             && let Some(index) = list_row_at(layout.list, col, row, offset, len)
         {
-            // First click selects (and previews); a second click on the
+            // First click selects (and shows it); a second click on the
             // already-selected row confirms, like Enter.
             return Some(if Some(index) == selected {
                 Action::ThemePickerConfirm
@@ -1312,14 +1378,14 @@ pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action>
         render::HintId::CancelOverlay => Some(Action::CancelOverlay),
         // In multi-column full screen the flag is set, so collapse back to the pane;
         // otherwise (single-column) exit the viewer to the entries list.
-        render::HintId::CloseEntryView => Some(if app.nav.entry_view_fullscreen {
-            Action::CollapseEntryView
+        render::HintId::CloseReader => Some(if app.nav.reader_fullscreen {
+            Action::Reader(ReaderAction::SetFullscreen(false))
         } else {
             Action::FocusLeft
         }),
         // The focused-viewer "enter" chip expands to full screen, matching the key.
-        render::HintId::ExpandEntryView if app.nav.focus == Focus::EntryView => {
-            Some(Action::ExpandEntryView)
+        render::HintId::ExpandReader if app.nav.focus == Focus::Reader => {
+            Some(Action::Reader(ReaderAction::SetFullscreen(true)))
         }
         render::HintId::MetadataToggle
             if app
@@ -1336,8 +1402,8 @@ pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action>
         render::HintId::FeelingsCollapse => Some(Action::FeelingsCollapse),
         render::HintId::FeelingsSwitchFocus => Some(Action::FeelingsSwitchFocus),
         render::HintId::FeelingsSave => Some(Action::FeelingsSave),
-        render::HintId::MoodDecrease => Some(Action::MoodDecrease),
-        render::HintId::MoodIncrease => Some(Action::MoodIncrease),
+        render::HintId::MoodDecrease => Some(Action::AdjustMood(-1)),
+        render::HintId::MoodIncrease => Some(Action::AdjustMood(1)),
         render::HintId::MoodSave => Some(Action::MoodSave),
         render::HintId::MoodClear => Some(Action::MoodClear),
         render::HintId::LocationSwitchFocus => Some(Action::LocationSwitchFocus),
@@ -1363,16 +1429,16 @@ pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action>
         // toggles — both only while the insights panel is focused.
         render::HintId::InsightsTab if app.insights_panel_focused() => Some(Action::FocusRight),
         render::HintId::InsightsScope if app.insights_panel_focused() => {
-            Some(Action::ToggleInsightsScope)
+            Some(Action::Insights(InsightsAction::ToggleScope))
         }
         render::HintId::InsightsTimeframe if app.insights_panel_focused() => {
-            Some(Action::CycleInsightsTimeframe)
+            Some(Action::Insights(InsightsAction::CycleTimeframe))
         }
         render::HintId::ExpandInsights if app.insights_panel_focused() => {
-            Some(Action::ExpandInsights)
+            Some(Action::Insights(InsightsAction::SetFullscreen(true)))
         }
         render::HintId::CloseInsights if app.insights_panel_focused() => {
-            Some(Action::CollapseInsights)
+            Some(Action::Insights(InsightsAction::SetFullscreen(false)))
         }
         render::HintId::EditorSave => Some(Action::EditorSave),
         render::HintId::EditorDiscard => Some(Action::EditorRequestDiscard),

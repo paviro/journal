@@ -2,8 +2,8 @@ use super::*;
 use crate::tui::geocode::{GeocodeQuery, GeocodeRequest};
 use crate::tui::state::{ListNav, SelectableList};
 use chrono::{DateTime, FixedOffset};
-use notema_context_provider::{DeviceFix, GeocodeHit};
-use notema_core::Location;
+use notema_context::{DeviceFix, GeocodeHit};
+use notema_domain::Location;
 use std::collections::HashMap;
 
 /// How many of the most-recent distinct places lead the preset list before it
@@ -37,6 +37,9 @@ impl App {
     }
 
     pub(crate) fn begin_edit_location(&mut self) {
+        if self.editor.is_none() && !self.allow_selected_entry_edit() {
+            return;
+        }
         let current = self.editing_location();
         let presets = self.location_presets();
         self.overlay = Overlay::EditLocation(Box::new(EditLocationState::new(current, presets)));
@@ -127,14 +130,13 @@ impl App {
             state.pending_request_id = Some(id);
             state.status = LocationResolveStatus::Resolving;
             let query = match parse_coordinates(&query) {
-                Some((lat, lon)) => {
+                Some(coordinates) => {
                     // Coordinates are already valid; keep them as the resolved value
                     // so the entry can be saved even before names come back.
                     let mut location = state.resolved.clone().unwrap_or_default();
-                    location.latitude = Some(lat);
-                    location.longitude = Some(lon);
+                    location.set_coordinates(coordinates);
                     state.resolved = Some(location);
-                    GeocodeQuery::Coords { lat, lon }
+                    GeocodeQuery::Coordinates(coordinates)
                 }
                 None => GeocodeQuery::Address(query),
             };
@@ -381,14 +383,18 @@ impl EditLocationState {
     /// names for this new spot arrive next, via
     /// [`apply_reverse`](Self::apply_reverse).
     pub(crate) fn seed_device_fix(&mut self, fix: &DeviceFix) {
-        self.query = TextInput::from(format!("{}, {}", fix.latitude, fix.longitude));
-        self.resolved = Some(Location {
-            latitude: Some(fix.latitude),
-            longitude: Some(fix.longitude),
+        self.query = TextInput::from(format!(
+            "{}, {}",
+            fix.coordinates.latitude(),
+            fix.coordinates.longitude()
+        ));
+        let mut location = Location {
             accuracy_m: fix.accuracy_m,
             source: Some(fix.source.to_string()),
             ..Location::default()
-        });
+        };
+        location.set_coordinates(fix.coordinates);
+        self.resolved = Some(location);
     }
 
     /// Fold a finished reverse-geocode reply into the dialog: enrich the resolved
@@ -487,11 +493,11 @@ fn query_seed(location: &Location) -> String {
 /// Parse `"lat, lon"` into validated coordinates. `None` when it isn't two
 /// comma-separated numbers within the valid latitude/longitude ranges — the
 /// signal to treat the input as an address instead.
-pub(crate) fn parse_coordinates(input: &str) -> Option<(f64, f64)> {
+pub(crate) fn parse_coordinates(input: &str) -> Option<notema_domain::Coordinates> {
     let (lat, lon) = input.split_once(',')?;
     let lat: f64 = lat.trim().parse().ok()?;
     let lon: f64 = lon.trim().parse().ok()?;
-    ((-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon)).then_some((lat, lon))
+    notema_domain::Coordinates::try_new(lat, lon).ok()
 }
 
 #[cfg(test)]
@@ -500,8 +506,14 @@ mod tests {
 
     #[test]
     fn parse_coordinates_accepts_valid_and_rejects_out_of_range() {
-        assert_eq!(parse_coordinates("52.52, 13.405"), Some((52.52, 13.405)));
-        assert_eq!(parse_coordinates("  -33.8, 151.2 "), Some((-33.8, 151.2)));
+        assert_eq!(
+            parse_coordinates("52.52, 13.405"),
+            notema_domain::Coordinates::try_new(52.52, 13.405).ok()
+        );
+        assert_eq!(
+            parse_coordinates("  -33.8, 151.2 "),
+            notema_domain::Coordinates::try_new(-33.8, 151.2).ok()
+        );
         // Out of range.
         assert_eq!(parse_coordinates("91, 0"), None);
         assert_eq!(parse_coordinates("0, 181"), None);
@@ -525,10 +537,9 @@ mod tests {
 
     fn device_fix(lat: f64, lon: f64) -> DeviceFix {
         DeviceFix {
-            latitude: lat,
-            longitude: lon,
+            coordinates: notema_domain::Coordinates::try_new(lat, lon).unwrap(),
             accuracy_m: Some(12.0),
-            source: notema_context_provider::DeviceLocationSource::CoreLocation,
+            source: notema_context::DeviceLocationSource::CoreLocation,
         }
     }
 

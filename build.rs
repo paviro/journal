@@ -2,7 +2,7 @@
 //!
 //! Runs `cargo-about` over the dependency tree, groups crates by their license
 //! text, and writes a gzipped JSON blob into `OUT_DIR` that the binary embeds
-//! via `include_bytes!`. Set `JOURNAL_SKIP_LICENSE_GENERATION=1` to skip the
+//! via `include_bytes!`. Set `NOTEMA_SKIP_LICENSE_GENERATION=1` to skip the
 //! `cargo-about` call (writing an empty report) when the tool isn't installed —
 //! the `notema licenses` command still prints the data-source attributions.
 
@@ -55,15 +55,15 @@ fn main() {
     // Regenerate only when the dependency set or the allowlist changes.
     println!("cargo:rerun-if-changed=Cargo.lock");
     println!("cargo:rerun-if-changed=about.toml");
-    println!("cargo:rerun-if-env-changed=JOURNAL_SKIP_LICENSE_GENERATION");
+    println!("cargo:rerun-if-env-changed=NOTEMA_SKIP_LICENSE_GENERATION");
 
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
     let output_path = Path::new(&out_dir).join("LICENSES.json.gz");
 
-    if env::var_os("JOURNAL_SKIP_LICENSE_GENERATION").is_some() {
+    if env::var_os("NOTEMA_SKIP_LICENSE_GENERATION").is_some() {
         println!(
             "cargo:warning=Skipping third-party license generation \
-             (JOURNAL_SKIP_LICENSE_GENERATION set); `notema licenses` will list no dependencies."
+             (NOTEMA_SKIP_LICENSE_GENERATION set); `notema licenses` will list no dependencies."
         );
         write_gzipped(&output_path, b"[]");
         return;
@@ -82,7 +82,7 @@ fn main() {
         ),
         Err(err) => panic!(
             "failed to run cargo-about (install it with `cargo install cargo-about`, \
-             or set JOURNAL_SKIP_LICENSE_GENERATION=1 to skip): {err}"
+             or set NOTEMA_SKIP_LICENSE_GENERATION=1 to skip): {err}"
         ),
     };
 

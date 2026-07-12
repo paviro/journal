@@ -8,8 +8,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const CONFIG_SCHEMA_VERSION: u32 = 1;
+const STATE_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Config {
+#[serde(deny_unknown_fields)]
+pub(crate) struct Config {
+    pub(crate) schema_version: u32,
     pub journal: JournalSection,
     #[serde(default)]
     pub attachments: AttachmentsSection,
@@ -21,7 +26,8 @@ pub struct Config {
 
 /// Which journals to open and where they live on disk.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct JournalSection {
+#[serde(deny_unknown_fields)]
+pub(crate) struct JournalSection {
     /// Directory holding every journal.
     pub path: PathBuf,
     /// Journal selected on startup when the previous session didn't record one.
@@ -31,7 +37,8 @@ pub struct JournalSection {
 
 /// How entry attachments are handled.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AttachmentsSection {
+#[serde(deny_unknown_fields)]
+pub(crate) struct AttachmentsSection {
     /// Fetch images referenced by remote URLs into local attachments on import.
     #[serde(default = "default_true")]
     pub download_remote_images: bool,
@@ -39,7 +46,8 @@ pub struct AttachmentsSection {
 
 /// Editor behaviour.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct EditorSection {
+#[serde(deny_unknown_fields)]
+pub(crate) struct EditorSection {
     /// Open the entry editor in fullscreen (hiding the other columns) instead
     /// of in-pane.
     #[serde(default)]
@@ -48,7 +56,8 @@ pub struct EditorSection {
 
 /// TUI presentation preferences.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct UiSection {
+#[serde(deny_unknown_fields)]
+pub(crate) struct UiSection {
     /// Name of the theme file (without `.toml`) in the config directory's
     /// `themes/` folder. The bundled themes are materialized there on launch.
     #[serde(default = "default_theme")]
@@ -84,7 +93,7 @@ fn default_theme() -> String {
 /// terminal for its background color at startup and falls back to dark.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum ColorMode {
+pub(crate) enum ColorMode {
     #[default]
     Auto,
     Dark,
@@ -95,7 +104,7 @@ pub enum ColorMode {
 /// `chrome.default_style`; `flat`/`bordered` force that chrome on every theme.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum ChromeMode {
+pub(crate) enum ChromeMode {
     #[default]
     Default,
     Flat,
@@ -114,24 +123,30 @@ impl ChromeMode {
 }
 
 /// Layout geometry: how the panels and their contents are sized. Column-width and
-/// breakpoint knobs would live directly here; entry-viewer settings sit in their
+/// breakpoint knobs would live directly here; reader settings sit in their
 /// own sub-table to keep the two concerns separate.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LayoutSection {
+#[serde(deny_unknown_fields)]
+pub(crate) struct LayoutSection {
     #[serde(default)]
-    pub entry_viewer: EntryViewerSection,
+    pub reader: ReaderSection,
 }
 
-/// How the entry-viewer pane presents an entry.
+/// How the reader pane presents an entry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct EntryViewerSection {
-    /// Vertically center the body in the viewer when it fits without scrolling.
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReaderSection {
+    /// Vertically center the body in the reader when it fits without scrolling.
     #[serde(default = "default_true")]
     pub body_center_vertically: bool,
     /// Max width, in cells, of the entry body; wider panels gutter the sides so
     /// long-form text stays readable. Metadata keeps the full width.
     #[serde(default = "default_body_max_width")]
     pub body_max_width: u16,
+    /// Show each link's target URL as a faint `(url)` after its name. Off by
+    /// default — the name is clickable either way, so the URL is just noise.
+    #[serde(default)]
+    pub show_link_urls: bool,
 }
 
 impl Default for AttachmentsSection {
@@ -142,11 +157,12 @@ impl Default for AttachmentsSection {
     }
 }
 
-impl Default for EntryViewerSection {
+impl Default for ReaderSection {
     fn default() -> Self {
         Self {
             body_center_vertically: true,
             body_max_width: default_body_max_width(),
+            show_link_urls: false,
         }
     }
 }
@@ -160,8 +176,9 @@ fn default_body_max_width() -> u16 {
 }
 
 impl Config {
-    pub fn new(journal_root: PathBuf) -> Self {
+    pub(crate) fn new(journal_root: PathBuf) -> Self {
         Self {
+            schema_version: CONFIG_SCHEMA_VERSION,
             journal: JournalSection {
                 path: expand_tilde(journal_root),
                 default: None,
@@ -177,8 +194,10 @@ impl Config {
 /// (never synced). Separated from [`Config`] so the user's hand-edited settings
 /// stay free of values the app rewrites on its own — and so the file has room to
 /// grow as more session state is remembered.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct State {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct State {
+    pub(crate) schema_version: u32,
     /// The journal selected when the TUI last exited, restored on next launch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_journal: Option<String>,
@@ -186,10 +205,21 @@ pub struct State {
     pub ui: UiState,
 }
 
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            schema_version: STATE_SCHEMA_VERSION,
+            last_journal: None,
+            ui: UiState::default(),
+        }
+    }
+}
+
 /// Toggle states for optional TUI chrome, flipped by keybindings and remembered
 /// across launches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct UiState {
+#[serde(deny_unknown_fields)]
+pub(crate) struct UiState {
     /// Whether the footer keybinding hints are shown.
     #[serde(default = "default_true")]
     pub show_hints: bool,
@@ -207,7 +237,7 @@ impl Default for UiState {
     }
 }
 
-pub fn default_config_path() -> AppResult<PathBuf> {
+pub(crate) fn default_config_path() -> AppResult<PathBuf> {
     // An explicit XDG_CONFIG_HOME always wins, on every platform.
     if let Ok(config_home) = env::var("XDG_CONFIG_HOME") {
         return Ok(PathBuf::from(config_home)
@@ -218,7 +248,10 @@ pub fn default_config_path() -> AppResult<PathBuf> {
     // macOS keeps app data under Application Support; other Unixes use ~/.config,
     // where the app name is already the namespace.
     #[cfg(target_os = "macos")]
-    let dir = notema_core::paths::macos_support_dir().context("HOME is not set")?;
+    let dir = env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join("Library/Application Support/de.paviro.notema"))
+        .context("HOME is not set")?;
     #[cfg(not(target_os = "macos"))]
     let dir = dirs::home_dir()
         .context("could not determine home directory")?
@@ -227,34 +260,58 @@ pub fn default_config_path() -> AppResult<PathBuf> {
     Ok(dir.join("config.toml"))
 }
 
-pub fn load_config(path: &Path) -> AppResult<Config> {
+pub(crate) fn load_config(path: &Path) -> AppResult<Config> {
     let text =
         fs::read_to_string(path).with_context(|| format!("reading config {}", path.display()))?;
     let mut config: Config =
         toml::from_str(&text).with_context(|| format!("parsing config {}", path.display()))?;
+    if config.schema_version != CONFIG_SCHEMA_VERSION {
+        bail!(
+            "unsupported config schema version {}; expected {CONFIG_SCHEMA_VERSION}",
+            config.schema_version
+        );
+    }
     config.journal.path = expand_tilde(config.journal.path);
     Ok(config)
 }
 
-pub fn save_config(path: &Path, config: &Config) -> AppResult<()> {
+pub(crate) fn save_config(path: &Path, config: &Config) -> AppResult<()> {
     write_toml_atomic(path, &toml::to_string_pretty(config)?)
 }
 
 /// The device's `state.toml`, kept beside `config.toml` in the same directory.
-pub fn state_path(config_path: &Path) -> PathBuf {
+pub(crate) fn state_path(config_path: &Path) -> PathBuf {
     config_path.with_file_name("state.toml")
 }
 
 /// Load this device's UI state, defaulting when `state.toml` doesn't exist yet.
-pub fn load_state(config_path: &Path) -> AppResult<State> {
+pub(crate) fn load_state(config_path: &Path) -> AppResult<State> {
     let path = state_path(config_path);
     if !path.exists() {
         return Ok(State::default());
     }
-    Ok(toml::from_str(&fs::read_to_string(&path)?)?)
+    let text = fs::read_to_string(&path)?;
+    match toml::from_str::<State>(&text) {
+        Ok(state) if state.schema_version == STATE_SCHEMA_VERSION => Ok(state),
+        Ok(state) => reset_invalid_state(
+            &path,
+            format!("unsupported schema version {}", state.schema_version),
+        ),
+        Err(error) => reset_invalid_state(&path, error.to_string()),
+    }
 }
 
-pub fn save_state(config_path: &Path, state: &State) -> AppResult<()> {
+fn reset_invalid_state(path: &Path, reason: String) -> AppResult<State> {
+    let backup = path.with_extension("toml.invalid");
+    fs::rename(path, &backup)?;
+    eprintln!(
+        "Ignored invalid UI state ({reason}); backup saved to {}",
+        backup.display()
+    );
+    Ok(State::default())
+}
+
+pub(crate) fn save_state(config_path: &Path, state: &State) -> AppResult<()> {
     write_toml_atomic(&state_path(config_path), &toml::to_string_pretty(state)?)
 }
 
@@ -274,13 +331,13 @@ pub(crate) fn write_toml_atomic(path: &Path, text: &str) -> AppResult<()> {
 /// What `load_or_setup_with_path` resolved: a store ready to open in the TUI. An
 /// encrypted store this device can't yet read is opened too — the TUI shows the
 /// enroll/awaiting notice rather than the CLI printing it.
-pub struct Startup {
+pub(crate) struct Startup {
     pub config_path: PathBuf,
     pub config: Config,
     pub store: Box<JournalStore>,
 }
 
-pub fn load_or_setup_with_path(path_override: Option<&Path>) -> AppResult<Startup> {
+pub(crate) fn load_or_setup_with_path(path_override: Option<&Path>) -> AppResult<Startup> {
     let config_path = config_path(path_override)?;
 
     // An encrypted store this device can't yet read (no key, awaiting approval, or
@@ -304,7 +361,7 @@ pub fn load_or_setup_with_path(path_override: Option<&Path>) -> AppResult<Startu
     })
 }
 
-pub fn load_existing(path_override: Option<&Path>) -> AppResult<(PathBuf, Config)> {
+pub(crate) fn load_existing(path_override: Option<&Path>) -> AppResult<(PathBuf, Config)> {
     let config_path = config_path(path_override)?;
     if !config_path.exists() {
         bail!(
@@ -369,14 +426,14 @@ fn interactive_setup(config_path: &Path) -> AppResult<(Config, JournalStore)> {
 
     let mut config = Config::new(journal_root);
 
-    // E-ink and other monochrome displays get the high-contrast black-and-white
-    // theme; everything else starts on the default color theme.
+    // E-ink and other limited-palette displays get `classic`, which renders on
+    // terminals without true-color; everything else starts on the default theme.
     write!(stdout, "Is this an e-ink / monochrome display? [y/N]: ")?;
     stdout.flush()?;
     let mut eink_input = String::new();
     io::stdin().read_line(&mut eink_input)?;
     if is_yes(&eink_input) {
-        config.ui.theme = "e-ink".to_string();
+        config.ui.theme = "classic".to_string();
     }
     let store = JournalStore::for_config(config_path, &config.journal.path)?;
     store.ensure()?;
@@ -421,7 +478,7 @@ fn offer_encryption(stdout: &mut impl Write, store: &JournalStore) -> AppResult<
     writeln!(
         stdout,
         "Identity file: {}. Back it up; without it encrypted journal files cannot be decrypted.",
-        store.paths().keys.identity_file.display()
+        store.identity_path().display()
     )?;
     if passphrase.is_none() {
         writeln!(
@@ -442,7 +499,7 @@ fn is_yes(input: &str) -> bool {
     matches!(input.trim(), "y" | "Y" | "yes" | "YES" | "Yes")
 }
 
-pub fn expand_tilde(path: PathBuf) -> PathBuf {
+pub(crate) fn expand_tilde(path: PathBuf) -> PathBuf {
     let text = path.to_string_lossy();
     if text == "~" {
         return dirs::home_dir().unwrap_or(path);
@@ -502,7 +559,11 @@ mod tests {
     fn save_and_load_config_expands_tilde_root() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        fs::write(&path, "[journal]\npath = \"~/Journals\"\n").unwrap();
+        fs::write(
+            &path,
+            "schema_version = 1\n\n[journal]\npath = \"~/Journals\"\n",
+        )
+        .unwrap();
 
         let config = load_config(&path).unwrap();
 
@@ -518,10 +579,10 @@ mod tests {
         let mut config = Config::new(dir.path().join("root"));
         config.journal.default = Some("work".to_string());
         config.attachments.download_remote_images = false;
-        config.ui.theme = "e-ink".to_string();
+        config.ui.theme = "eclipse".to_string();
         config.ui.color_mode = ColorMode::Light;
-        config.ui.layout.entry_viewer.body_center_vertically = false;
-        config.ui.layout.entry_viewer.body_max_width = 80;
+        config.ui.layout.reader.body_center_vertically = false;
+        config.ui.layout.reader.body_max_width = 80;
 
         save_config(&path, &config).unwrap();
         let loaded = load_config(&path).unwrap();
@@ -533,15 +594,19 @@ mod tests {
     fn missing_optional_fields_use_defaults() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        fs::write(&path, "[journal]\npath = \"~/Journals\"\n").unwrap();
+        fs::write(
+            &path,
+            "schema_version = 1\n\n[journal]\npath = \"~/Journals\"\n",
+        )
+        .unwrap();
 
         let config = load_config(&path).unwrap();
 
         assert!(config.attachments.download_remote_images);
         assert_eq!(config.ui.theme, crate::tui::theme::DEFAULT_THEME);
         assert_eq!(config.ui.color_mode, ColorMode::Auto);
-        assert!(config.ui.layout.entry_viewer.body_center_vertically);
-        assert_eq!(config.ui.layout.entry_viewer.body_max_width, 100);
+        assert!(config.ui.layout.reader.body_center_vertically);
+        assert_eq!(config.ui.layout.reader.body_max_width, 100);
     }
 
     #[test]
@@ -556,6 +621,7 @@ mod tests {
         assert!(default.ui.show_journals);
 
         let state = State {
+            schema_version: STATE_SCHEMA_VERSION,
             last_journal: Some("home".to_string()),
             ui: UiState {
                 show_hints: false,

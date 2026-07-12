@@ -146,7 +146,9 @@ fn draw_title_box(
         .chain(std::iter::once(Line::from(spans)))
         .collect::<Vec<_>>();
     frame.render_widget(
-        Paragraph::new(lines).alignment(Alignment::Center).block(block),
+        Paragraph::new(lines)
+            .alignment(Alignment::Center)
+            .block(block),
         area,
     );
 }

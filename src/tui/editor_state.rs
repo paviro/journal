@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use notema_core::Metadata;
+use notema_domain::Metadata;
 use ratatui::layout::Rect;
 use ratatui_textarea::{DataCursor, TextArea, WrapMode};
 

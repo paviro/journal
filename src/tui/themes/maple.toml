@@ -1,0 +1,83 @@
+schema_version = 1
+
+# Maple — muted autumn foliage: soft red, persimmon, and fallen-leaf ochre
+# over warm earth.
+#
+# See journal.toml for the accepted color/style forms.
+
+[chrome]
+default_style = "flat"
+scrim = 0.45
+
+[surfaces]
+base    = { dark = "#1a1210", light = "#f6ede4" }
+content = { dark = "#201613", light = "#efe1d4" }
+dialog  = { dark = "#281c17", light = "#ead8c7" }
+element = { dark = "#2d201a", light = "#e4cfba" }
+
+[text]
+body  = { dark = "#ecdcd2", light = "#33231c" }
+muted = { dark = "#9c8579", light = "#8a6f5f" }
+
+[accents]
+primary = { dark = "#c9564b", light = "#9c3b32" }
+
+[status]
+success = { dark = "#8a9a5e", light = "#5c6b2a" }
+warning = { dark = "#d98a4e", light = "#a9601f" }
+error   = { dark = "#c0483f", light = "#8a2f27" }
+info    = { dark = "#6f92a8", light = "#365f78" }
+
+[borders]
+style     = "rounded"
+normal    = { dark = "#3d2c24", light = "#dcc4ac" }
+subtle    = { dark = "#2d201a", light = "#e4cfba" }
+focused   = { dark = "#c9564b", light = "#9c3b32" }
+unfocused = { dark = "#3d2c24", light = "#dcc4ac" }
+
+[borders.glyphs]
+divider = "─"
+
+[interaction]
+selection = { bg = { dark = "#c9564b", light = "#9c3b32" }, fg = { dark = "#1a1210", light = "#ffffff" }, bold = true }
+hover     = { bg = { dark = "#33241d", light = "#ead4bd" } }
+key_hint  = { fg = { dark = "#ecdcd2", light = "#33231c" }, bold = true }
+
+[scrollbar]
+track = { dark = "#2d201a", light = "#e4cfba" }
+
+[scrollbar.glyphs]
+thumb = "┃"
+track = "│"
+up    = "▵"
+down  = "▿"
+
+[charts]
+positive = { glyph = "▓", color = { dark = "#8a9a5e", light = "#5c6b2a" } }
+neutral  = { glyph = "▓", color = { dark = "#9c8579", light = "#8a6f5f" } }
+negative = { glyph = "▓", color = { dark = "#c0483f", light = "#8a2f27" } }
+bar      = { glyph = "▓", color = { dark = "#c9564b", light = "#9c3b32" } }
+track    = { glyph = "░", color = { dark = "#3d2c24", light = "#dcc4ac" } }
+baseline = { color = { dark = "#3d2c24", light = "#dcc4ac" } }
+
+[markdown]
+heading    = { fg = { dark = "#c9564b", light = "#9c3b32" }, bold = true }
+link       = { fg = { dark = "#6f92a8", light = "#365f78" }, underlined = true }
+code       = { dark = "#c69a5e", light = "#8a6a3a" }
+blockquote = { fg = { dark = "#9c8579", light = "#8a6f5f" } }
+
+[markdown.syntax]
+comment     = { dark = "#9c8579", light = "#8a6f5f" }
+keyword     = { dark = "#d98a4e", light = "#a9601f" }
+string      = { dark = "#8a9a5e", light = "#5c6b2a" }
+string_escape = { dark = "#c69a5e", light = "#8a6a3a" }
+number      = { dark = "#c69a5e", light = "#8a6a3a" }
+constant    = { dark = "#c69a5e", light = "#8a6a3a" }
+function    = { dark = "#c9564b", light = "#9c3b32" }
+type        = { dark = "#6f92a8", light = "#365f78" }
+property    = { dark = "#6f92a8", light = "#365f78" }
+punctuation = { dark = "#9c8579", light = "#8a6f5f" }
+attribute   = { dark = "#d98a4e", light = "#a9601f" }
+tag         = { dark = "#c9564b", light = "#9c3b32" }
+label       = { dark = "#c0483f", light = "#8a2f27" }
+error       = { dark = "#c0483f", light = "#8a2f27" }

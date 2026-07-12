@@ -3,8 +3,9 @@
 //! `decrypt_store` restores readable plaintext, drops the recipients file,
 //! disables the identity, and leaves a backup.
 
-use notema_core::Metadata;
-use notema_storage::{JournalStore, SecretString};
+use notema_domain::Metadata;
+use notema_encryption::{EncryptionError, SecretString};
+use notema_storage::JournalStore;
 
 fn store_at(dir: &std::path::Path) -> JournalStore {
     JournalStore::new(dir.join("journals"), dir)
@@ -74,8 +75,8 @@ fn decrypt_store_requires_an_unlocked_identity() {
     let error = store.decrypt_store(|_, _| {}).unwrap_err();
     assert!(
         error
-            .downcast_ref::<notema_storage::EncryptionError>()
-            .is_some_and(|e| matches!(e, notema_storage::EncryptionError::Locked { .. }))
+            .downcast_ref::<EncryptionError>()
+            .is_some_and(|e| matches!(e, EncryptionError::Locked { .. }))
     );
 }
 
@@ -465,7 +466,7 @@ fn non_recipient_device_reads_locked_placeholders_and_knows_it_is_pending() {
     assert_eq!(entries.len(), 1);
     assert!(matches!(
         entries[0].encryption_state,
-        notema_core::EntryEncryptionState::EncryptedLocked
+        notema_domain::EntryEncryptionState::EncryptedLocked
     ));
 }
 
@@ -528,7 +529,8 @@ fn write_store_file_reencrypts_entries_and_assets() {
     assert!(store.encrypts_new_files());
 
     // Rewrite the entry through the byte-level API, as the mount's commit does.
-    let edited = b"+++\ntags = [\"edited\"]\n+++\n\nnew body through the mount\n";
+    let edited =
+        b"+++\nschema_version = 1\ntags = [\"edited\"]\n+++\n\nnew body through the mount\n";
     store
         .write_store_file(&path, notema_storage::StoreFileEncoding::Encrypted, edited)
         .unwrap();
@@ -554,11 +556,7 @@ fn write_store_file_reencrypts_entries_and_assets() {
     let asset = path.with_extension("").with_extension("jpg.age");
     let bytes: Vec<u8> = (0u8..=255).cycle().take(1024).collect();
     store
-        .write_store_file(
-            &asset,
-            notema_storage::StoreFileEncoding::Encrypted,
-            &bytes,
-        )
+        .write_store_file(&asset, notema_storage::StoreFileEncoding::Encrypted, &bytes)
         .unwrap();
     assert_eq!(
         store

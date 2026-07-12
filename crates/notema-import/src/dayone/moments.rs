@@ -15,7 +15,7 @@ use super::model::{DayOneEntry, Moment};
 /// Identifier → on-disk location for an entry's media, split by kind. Photos map
 /// to an absolute path (only files that exist); the other kinds are identifier
 /// sets used to classify and count skipped attachments.
-pub struct MediaIndex {
+pub(crate) struct MediaIndex {
     pub photos: HashMap<String, PathBuf>,
     pub audio: HashSet<String>,
     pub video: HashSet<String>,
@@ -23,7 +23,7 @@ pub struct MediaIndex {
 }
 
 impl MediaIndex {
-    pub fn build(entry: &DayOneEntry, media_root: &Path) -> Self {
+    pub(crate) fn build(entry: &DayOneEntry, media_root: &Path) -> Self {
         let mut photos = HashMap::new();
         for photo in &entry.photos {
             if let Some(path) = moment_path(photo, media_root, "photos")
@@ -53,7 +53,7 @@ fn moment_path(moment: &Moment, media_root: &Path, folder: &str) -> Option<PathB
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct MomentRewrite {
+pub(crate) struct MomentRewrite {
     pub body: String,
     pub skipped_audio: usize,
     pub skipped_video: usize,
@@ -65,7 +65,7 @@ pub struct MomentRewrite {
 }
 
 impl MomentRewrite {
-    pub fn skipped_attachments(&self) -> usize {
+    pub(crate) fn skipped_attachments(&self) -> usize {
         self.skipped_audio + self.skipped_video + self.skipped_pdf
     }
 }
@@ -79,7 +79,7 @@ impl MomentRewrite {
 ///
 /// Classification is by identifier membership in the entry's media arrays, not
 /// by the moment URL shape, which Day One has spelled inconsistently over time.
-pub fn rewrite_moments(text: &str, media: &MediaIndex) -> MomentRewrite {
+pub(crate) fn rewrite_moments(text: &str, media: &MediaIndex) -> MomentRewrite {
     let mut result = MomentRewrite::default();
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
@@ -128,7 +128,7 @@ struct ParsedImage<'a> {
 /// Parse a `![alt](target)` starting at `s[0] == '!'`. Returns `None` if `s`
 /// does not begin a well-formed image tag.
 fn parse_image(s: &str) -> Option<ParsedImage<'_>> {
-    let span = notema_core::markdown::parse_inline_at(s)?;
+    let span = notema_domain::parse_inline_at(s)?;
     if !span.is_image {
         return None;
     }

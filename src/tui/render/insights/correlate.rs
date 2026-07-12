@@ -13,7 +13,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use notema_analytics::Correlate;
+use notema_analytics::Correlation;
 
 use super::signed;
 use crate::tui::entry_rows::truncate_ellipsis;
@@ -44,7 +44,7 @@ pub(super) struct InsightsListMetrics {
 pub(super) fn draw(
     frame: &mut Frame<'_>,
     area: Rect,
-    items: &[Correlate],
+    items: &[Correlation],
     empty_msg: &str,
     feeling_header: &str,
     scroll: &mut u16,
@@ -81,7 +81,7 @@ fn visible_range(total: usize, viewport: usize, scroll: &mut u16) -> std::ops::R
 fn draw_compact(
     frame: &mut Frame<'_>,
     area: Rect,
-    items: &[Correlate],
+    items: &[Correlation],
     scroll: &mut u16,
 ) -> InsightsListMetrics {
     let viewport = area.height as usize;
@@ -105,7 +105,7 @@ fn draw_compact(
 fn draw_table(
     frame: &mut Frame<'_>,
     area: Rect,
-    items: &[Correlate],
+    items: &[Correlation],
     scroll: &mut u16,
     columns: &Columns,
     feeling_header: &str,
@@ -252,7 +252,7 @@ impl Columns {
 
     /// One data row: name, count, avg mood, delta, an optional diverging bar, and
     /// the top feeling — each boxed by the `│` column borders.
-    fn data_row(&self, correlate: &Correlate, max_abs: f32) -> Line<'static> {
+    fn data_row(&self, correlate: &Correlation, max_abs: f32) -> Line<'static> {
         let mut spans = vec![border()];
         push_cell(
             &mut spans,
@@ -309,7 +309,7 @@ impl Columns {
 }
 
 /// The associated feelings as `calm (5), grateful (3)`, or `—` when there are none.
-fn feelings_label(correlate: &Correlate) -> String {
+fn feelings_label(correlate: &Correlation) -> String {
     if correlate.top_feelings.is_empty() {
         return "—".to_string();
     }
@@ -387,7 +387,7 @@ fn cell_span(filled: bool, style: ratatui::style::Style) -> Span<'static> {
 /// columns are tinted by sign. Set `show_feeling` off where the top feeling would
 /// just be the row itself (the Feelings tab's mood ranking).
 pub(super) fn correlate_line(
-    correlate: &Correlate,
+    correlate: &Correlation,
     name_w: usize,
     show_feeling: bool,
 ) -> Line<'static> {
@@ -486,7 +486,7 @@ mod tests {
             );
             assert_eq!(width(columns.header_row("Feelings")), panel);
 
-            let sample = Correlate {
+            let sample = Correlation {
                 name: "alex".to_string(),
                 count: 3,
                 avg_mood: Some(2.0),

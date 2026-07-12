@@ -4,21 +4,22 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 
 use crate::tui::{
-    app::{App, EditLocationFocus, EditMetadataFocus, Focus, Mode, entry_view_is_available},
+    app::{App, EditLocationFocus, EditMetadataFocus, Focus, Mode, reader_is_available},
     editor_state::EditorPrompt,
     image::image_for_digit,
     render,
     render::insights::InsightsTab,
-    state::Overlay,
+    state::{MetadataKind, Overlay},
 };
 
-use super::action::Action;
+use super::DispatchOutcome;
+use super::action::{Action, InsightsAction, ReaderAction};
 
 pub(crate) fn handle_key(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     key: KeyEvent,
-) -> AppResult<bool> {
+) -> AppResult<DispatchOutcome> {
     // While the internal editor is open (and no metadata dialog is layered over
     // it), keystrokes go to the textarea — only a few control keys are intercepted
     // — bypassing the char-only Action enum so typing `q`, `/`, `n`, etc. inserts
@@ -27,12 +28,12 @@ pub(crate) fn handle_key(
         return handle_editor_key(terminal, app, key);
     }
 
-    let entry_view_available = entry_view_is_available(terminal.size()?.width);
+    let reader_available = reader_is_available(terminal.size()?.width);
 
-    if let Some(action) = key_to_action(app, key, entry_view_available) {
+    if let Some(action) = key_to_action(app, key, reader_available) {
         super::dispatch_action(terminal, app, action)
     } else {
-        Ok(false)
+        Ok(DispatchOutcome::Continue)
     }
 }
 
@@ -43,7 +44,7 @@ fn handle_editor_key(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     key: KeyEvent,
-) -> AppResult<bool> {
+) -> AppResult<DispatchOutcome> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
     if matches!(editor_prompt(app), Some(EditorPrompt::ConfirmDiscard)) {
@@ -55,7 +56,7 @@ fn handle_editor_key(
         if let Some(action) = action {
             return super::dispatch_action(terminal, app, action);
         }
-        return Ok(false);
+        return Ok(DispatchOutcome::Continue);
     }
 
     if matches!(editor_prompt(app), Some(EditorPrompt::Help { .. })) {
@@ -73,14 +74,12 @@ fn handle_editor_key(
 
     if matches!(editor_prompt(app), Some(EditorPrompt::MetadataMenu)) {
         let action = match key.code {
-            KeyCode::Char('t') => {
-                Action::EditorBeginMetadata(crate::tui::state::MetadataKind::Tags)
-            }
+            KeyCode::Char('t') => Action::BeginEditMetadata(crate::tui::state::MetadataKind::Tags),
             KeyCode::Char('p') => {
-                Action::EditorBeginMetadata(crate::tui::state::MetadataKind::People)
+                Action::BeginEditMetadata(crate::tui::state::MetadataKind::People)
             }
             KeyCode::Char('a') => {
-                Action::EditorBeginMetadata(crate::tui::state::MetadataKind::Activities)
+                Action::BeginEditMetadata(crate::tui::state::MetadataKind::Activities)
             }
             KeyCode::Char('f') => Action::BeginEditFeelings,
             KeyCode::Char('m') => Action::BeginEditMood,
@@ -127,16 +126,12 @@ fn editor_prompt(app: &App) -> Option<&EditorPrompt> {
     app.editor.as_ref().map(|ed| &ed.prompt)
 }
 
-pub(super) fn key_to_action(
-    app: &App,
-    key: KeyEvent,
-    entry_view_available: bool,
-) -> Option<Action> {
+pub(super) fn key_to_action(app: &App, key: KeyEvent, reader_available: bool) -> Option<Action> {
     match &app.overlay {
         Overlay::None if app.nav.mode == Mode::Search => {
-            search_key_to_action(app, key, entry_view_available)
+            search_key_to_action(app, key, reader_available)
         }
-        Overlay::None => browse_key_to_action(app, key, entry_view_available),
+        Overlay::None => browse_key_to_action(app, key, reader_available),
         Overlay::MetadataMenu => metadata_menu_key_to_action(key),
         Overlay::SettingsMenu => settings_menu_key_to_action(key),
         Overlay::ThemePicker(_) => theme_picker_key_to_action(key),
@@ -157,9 +152,9 @@ pub(super) fn key_to_action(
 /// work directly on the viewer, so this popup is only a discovery aid.
 fn metadata_menu_key_to_action(key: KeyEvent) -> Option<Action> {
     Some(match key.code {
-        KeyCode::Char('t') => Action::BeginEditTags,
-        KeyCode::Char('p') => Action::BeginEditPeople,
-        KeyCode::Char('a') => Action::BeginEditActivities,
+        KeyCode::Char('t') => Action::BeginEditMetadata(MetadataKind::Tags),
+        KeyCode::Char('p') => Action::BeginEditMetadata(MetadataKind::People),
+        KeyCode::Char('a') => Action::BeginEditMetadata(MetadataKind::Activities),
         KeyCode::Char('f') => Action::BeginEditFeelings,
         KeyCode::Char('m') => Action::BeginEditMood,
         KeyCode::Char('l') => Action::BeginEditLocation,
@@ -183,8 +178,8 @@ fn theme_picker_key_to_action(key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Esc => Some(Action::ThemePickerCancel),
         KeyCode::Enter => Some(Action::ThemePickerConfirm),
-        KeyCode::Up => Some(Action::ThemePickerMoveUp),
-        KeyCode::Down => Some(Action::ThemePickerMoveDown),
+        KeyCode::Up => Some(Action::MoveDialogSelection(-1)),
+        KeyCode::Down => Some(Action::MoveDialogSelection(1)),
         KeyCode::Char('b') => Some(Action::ThemePickerCycleChrome),
         KeyCode::Char('m') => Some(Action::ThemePickerCycleMode),
         _ => None,
@@ -208,12 +203,12 @@ fn image_shortcut(app: &App, key: KeyEvent) -> Option<Action> {
 
 fn scroll_key_to_action(key: KeyCode) -> Option<Action> {
     match key {
-        KeyCode::Up => Some(Action::ScrollEntryView(-1)),
-        KeyCode::Down => Some(Action::ScrollEntryView(1)),
-        KeyCode::PageUp => Some(Action::PageEntryView(-1)),
-        KeyCode::PageDown => Some(Action::PageEntryView(1)),
-        KeyCode::Home => Some(Action::ScrollEntryViewToStart),
-        KeyCode::End => Some(Action::ScrollEntryViewToEnd),
+        KeyCode::Up => Some(Action::Reader(ReaderAction::ScrollLines(-1))),
+        KeyCode::Down => Some(Action::Reader(ReaderAction::ScrollLines(1))),
+        KeyCode::PageUp => Some(Action::Reader(ReaderAction::ScrollPages(-1))),
+        KeyCode::PageDown => Some(Action::Reader(ReaderAction::ScrollPages(1))),
+        KeyCode::Home => Some(Action::Reader(ReaderAction::ScrollToStart)),
+        KeyCode::End => Some(Action::Reader(ReaderAction::ScrollToEnd)),
         _ => None,
     }
 }
@@ -222,18 +217,18 @@ fn scroll_key_to_action(key: KeyCode) -> Option<Action> {
 /// [`scroll_key_to_action`] but driving the insights offset.
 fn insights_scroll_key_to_action(key: KeyCode) -> Option<Action> {
     match key {
-        KeyCode::Up => Some(Action::ScrollInsights(-1)),
-        KeyCode::Down => Some(Action::ScrollInsights(1)),
-        KeyCode::PageUp => Some(Action::PageInsights(-1)),
-        KeyCode::PageDown => Some(Action::PageInsights(1)),
-        KeyCode::Home => Some(Action::ScrollInsightsToStart),
-        KeyCode::End => Some(Action::ScrollInsightsToEnd),
+        KeyCode::Up => Some(Action::Insights(InsightsAction::ScrollLines(-1))),
+        KeyCode::Down => Some(Action::Insights(InsightsAction::ScrollLines(1))),
+        KeyCode::PageUp => Some(Action::Insights(InsightsAction::ScrollPages(-1))),
+        KeyCode::PageDown => Some(Action::Insights(InsightsAction::ScrollPages(1))),
+        KeyCode::Home => Some(Action::Insights(InsightsAction::ScrollToStart)),
+        KeyCode::End => Some(Action::Insights(InsightsAction::ScrollToEnd)),
         _ => None,
     }
 }
 
-fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) -> Option<Action> {
-    if app.nav.focus == Focus::EntryView
+fn browse_key_to_action(app: &App, key: KeyEvent, reader_available: bool) -> Option<Action> {
+    if app.nav.focus == Focus::Reader
         && let Some(action) = scroll_key_to_action(key.code)
     {
         return Some(action);
@@ -250,17 +245,17 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
         KeyCode::Char('q') => Some(Action::Quit),
         KeyCode::Char('/') => Some(Action::BeginSearch),
         // Left backs out one level, but does nothing in multi-column full screen —
-        // there, Esc collapses back to the focused preview pane instead.
+        // there, Esc collapses back to the focused reader pane instead.
         KeyCode::Left
-            if !(app.nav.focus == Focus::EntryView
-                && app.nav.entry_view_fullscreen
-                && entry_view_available) =>
+            if !(app.nav.focus == Focus::Reader
+                && app.nav.reader_fullscreen
+                && reader_available) =>
         {
             Some(Action::FocusLeft)
         }
         KeyCode::Right
             if app.nav.focus == Focus::Entries
-                && !entry_view_available
+                && !reader_available
                 && app.has_selected_entry_target() =>
         {
             Some(Action::ViewSelected)
@@ -269,46 +264,48 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
         // Second Enter on the focused viewer expands it to full screen (multi-column
         // only; single-column already renders it full screen).
         KeyCode::Enter
-            if app.nav.focus == Focus::EntryView
-                && entry_view_available
-                && !app.nav.entry_view_fullscreen =>
+            if app.nav.focus == Focus::Reader && reader_available && !app.nav.reader_fullscreen =>
         {
-            Some(Action::ExpandEntryView)
+            Some(Action::Reader(ReaderAction::SetFullscreen(true)))
         }
         // Enter again closes the full-screen viewer: back to the focused pane in
         // multi-column, or out to the entries column in single-column.
-        KeyCode::Enter if app.nav.focus == Focus::EntryView && app.nav.entry_view_fullscreen => {
-            Some(Action::CollapseEntryView)
+        KeyCode::Enter if app.nav.focus == Focus::Reader && app.nav.reader_fullscreen => {
+            Some(Action::Reader(ReaderAction::SetFullscreen(false)))
         }
-        KeyCode::Enter if app.nav.focus == Focus::EntryView => Some(Action::FocusLeft),
+        KeyCode::Enter if app.nav.focus == Focus::Reader => Some(Action::FocusLeft),
         // Esc collapses full screen back to the focused pane; otherwise it exits the
         // viewer to the entries column.
-        KeyCode::Esc if app.nav.focus == Focus::EntryView && app.nav.entry_view_fullscreen => {
-            Some(Action::CollapseEntryView)
+        KeyCode::Esc if app.nav.focus == Focus::Reader && app.nav.reader_fullscreen => {
+            Some(Action::Reader(ReaderAction::SetFullscreen(false)))
         }
-        KeyCode::Esc if app.nav.focus == Focus::EntryView => Some(Action::FocusLeft),
+        KeyCode::Esc if app.nav.focus == Focus::Reader => Some(Action::FocusLeft),
         // Enter expands the focused insights panel to full screen; a second Enter
         // (or Esc) collapses it. Left/Right keep cycling tabs either way.
         KeyCode::Enter if app.nav.focus == Focus::Insights && !app.nav.insights_fullscreen => {
-            Some(Action::ExpandInsights)
+            Some(Action::Insights(InsightsAction::SetFullscreen(true)))
         }
-        KeyCode::Enter if app.nav.focus == Focus::Insights => Some(Action::CollapseInsights),
+        KeyCode::Enter if app.nav.focus == Focus::Insights => {
+            Some(Action::Insights(InsightsAction::SetFullscreen(false)))
+        }
         KeyCode::Esc if app.nav.focus == Focus::Insights && app.nav.insights_fullscreen => {
-            Some(Action::CollapseInsights)
+            Some(Action::Insights(InsightsAction::SetFullscreen(false)))
         }
         KeyCode::Enter if app.nav.focus == Focus::Journals => Some(Action::FocusRight),
         KeyCode::Enter if app.can_act_on_selected_entry() => Some(Action::ViewSelected),
-        KeyCode::Up => Some(Action::MoveUp),
-        KeyCode::Down => Some(Action::MoveDown),
+        KeyCode::Up => Some(Action::MoveSelection(-1)),
+        KeyCode::Down => Some(Action::MoveSelection(1)),
         KeyCode::Char('e') if app.can_act_on_selected_entry() => Some(Action::EditSelected),
         // Toggle the insights scope while its panel is focused (its tabs switch
         // with Left/Right, handled through FocusLeft/FocusRight).
-        KeyCode::Char('g') if app.nav.focus == Focus::Insights => Some(Action::ToggleInsightsScope),
+        KeyCode::Char('g') if app.nav.focus == Focus::Insights => {
+            Some(Action::Insights(InsightsAction::ToggleScope))
+        }
         // Cycle the rolling window on the mood-driver tabs; inert elsewhere.
         KeyCode::Char('w')
             if app.nav.focus == Focus::Insights && app.nav.insights_tab.uses_timeframe() =>
         {
-            Some(Action::CycleInsightsTimeframe)
+            Some(Action::Insights(InsightsAction::CycleTimeframe))
         }
         KeyCode::Char('n') if app.nav.focus == Focus::Journals => Some(Action::NewJournal),
         KeyCode::Char('n') => Some(Action::NewEntry),
@@ -328,15 +325,21 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
         {
             Some(Action::OpenMetadataMenu)
         }
-        KeyCode::Char('t') if app.can_act_on_selected_entry() => Some(Action::BeginEditTags),
-        KeyCode::Char('p') if app.can_act_on_selected_entry() => Some(Action::BeginEditPeople),
-        KeyCode::Char('a') if app.can_act_on_selected_entry() => Some(Action::BeginEditActivities),
+        KeyCode::Char('t') if app.can_act_on_selected_entry() => {
+            Some(Action::BeginEditMetadata(MetadataKind::Tags))
+        }
+        KeyCode::Char('p') if app.can_act_on_selected_entry() => {
+            Some(Action::BeginEditMetadata(MetadataKind::People))
+        }
+        KeyCode::Char('a') if app.can_act_on_selected_entry() => {
+            Some(Action::BeginEditMetadata(MetadataKind::Activities))
+        }
         KeyCode::Char('f') if app.can_act_on_selected_entry() => Some(Action::BeginEditFeelings),
         KeyCode::Char('m') if app.can_act_on_selected_entry() => Some(Action::BeginEditMood),
         KeyCode::Char('l') if app.can_act_on_selected_entry() => Some(Action::BeginEditLocation),
         KeyCode::Char('s') if app.can_act_on_selected_entry() => Some(Action::ToggleStarred),
         KeyCode::Char('i' | '0'..='9')
-            if app.nav.focus == Focus::EntryView && app.has_selected_entry_target() =>
+            if app.nav.focus == Focus::Reader && app.has_selected_entry_target() =>
         {
             image_shortcut(app, key)
         }
@@ -350,16 +353,16 @@ fn browse_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
 /// Actions available on the focused entry view when it holds an actionable
 /// target: edit, delete, the metadata/mood editors, and image shortcuts. Callers
 /// apply the shared focus+target guard once rather than on every key.
-fn entry_view_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
+fn reader_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Char('e') => Some(Action::EditSelected),
         KeyCode::Char('d') => Some(Action::BeginDelete),
         KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::OpenMetadataMenu)
         }
-        KeyCode::Char('t') => Some(Action::BeginEditTags),
-        KeyCode::Char('p') => Some(Action::BeginEditPeople),
-        KeyCode::Char('a') => Some(Action::BeginEditActivities),
+        KeyCode::Char('t') => Some(Action::BeginEditMetadata(MetadataKind::Tags)),
+        KeyCode::Char('p') => Some(Action::BeginEditMetadata(MetadataKind::People)),
+        KeyCode::Char('a') => Some(Action::BeginEditMetadata(MetadataKind::Activities)),
         KeyCode::Char('f') => Some(Action::BeginEditFeelings),
         KeyCode::Char('m') => Some(Action::BeginEditMood),
         KeyCode::Char('l') => Some(Action::BeginEditLocation),
@@ -369,13 +372,13 @@ fn entry_view_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn search_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) -> Option<Action> {
-    if app.nav.focus == Focus::EntryView {
+fn search_key_to_action(app: &App, key: KeyEvent, reader_available: bool) -> Option<Action> {
+    if app.nav.focus == Focus::Reader {
         if let Some(action) = scroll_key_to_action(key.code) {
             return Some(action);
         }
         if app.has_selected_entry_target()
-            && let Some(action) = entry_view_key_to_action(app, key)
+            && let Some(action) = reader_key_to_action(app, key)
         {
             return Some(action);
         }
@@ -383,29 +386,27 @@ fn search_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
     match key.code {
         // Second Enter on the focused viewer expands it to full screen (multi-column).
         KeyCode::Enter
-            if app.nav.focus == Focus::EntryView
-                && entry_view_available
-                && !app.nav.entry_view_fullscreen =>
+            if app.nav.focus == Focus::Reader && reader_available && !app.nav.reader_fullscreen =>
         {
-            Some(Action::ExpandEntryView)
+            Some(Action::Reader(ReaderAction::SetFullscreen(true)))
         }
         // Enter again closes the full-screen viewer (collapse in multi-column, or
         // back to the results list in single-column).
-        KeyCode::Enter if app.nav.focus == Focus::EntryView && app.nav.entry_view_fullscreen => {
-            Some(Action::CollapseEntryView)
+        KeyCode::Enter if app.nav.focus == Focus::Reader && app.nav.reader_fullscreen => {
+            Some(Action::Reader(ReaderAction::SetFullscreen(false)))
         }
-        KeyCode::Enter if app.nav.focus == Focus::EntryView => Some(Action::FocusLeft),
+        KeyCode::Enter if app.nav.focus == Focus::Reader => Some(Action::FocusLeft),
         // Esc collapses full screen back to the focused pane before it exits search.
-        KeyCode::Esc if app.nav.focus == Focus::EntryView && app.nav.entry_view_fullscreen => {
-            Some(Action::CollapseEntryView)
+        KeyCode::Esc if app.nav.focus == Focus::Reader && app.nav.reader_fullscreen => {
+            Some(Action::Reader(ReaderAction::SetFullscreen(false)))
         }
         KeyCode::Esc => Some(Action::ExitSearch),
         KeyCode::Char('q') if app.nav.focus != Focus::Entries => Some(Action::Quit),
         // Left backs the viewer out to the results list, but is inert in multi-column
         // full screen (Esc collapses that).
         KeyCode::Left
-            if app.nav.focus == Focus::EntryView
-                && !(app.nav.entry_view_fullscreen && entry_view_available) =>
+            if app.nav.focus == Focus::Reader
+                && !(app.nav.reader_fullscreen && reader_available) =>
         {
             Some(Action::FocusLeft)
         }
@@ -424,17 +425,17 @@ fn search_key_to_action(app: &App, key: KeyEvent, entry_view_available: bool) ->
         }
         KeyCode::Right
             if app.nav.focus == Focus::Entries
-                && !entry_view_available
+                && !reader_available
                 && app.has_selected_entry_target() =>
         {
             Some(Action::ViewSelected)
         }
-        KeyCode::Right if app.nav.focus == Focus::Entries && entry_view_available => {
+        KeyCode::Right if app.nav.focus == Focus::Entries && reader_available => {
             Some(Action::FocusRight)
         }
         KeyCode::Enter if app.can_act_on_selected_entry() => Some(Action::ViewSelected),
-        KeyCode::Up => Some(Action::MoveUp),
-        KeyCode::Down => Some(Action::MoveDown),
+        KeyCode::Up => Some(Action::MoveSelection(-1)),
+        KeyCode::Down => Some(Action::MoveSelection(1)),
         // Everything else typed while the search field is focused edits it —
         // including 'q', which quits only from the other panes.
         _ if app.nav.focus == Focus::Entries => Some(Action::InputKey(key)),
@@ -467,8 +468,8 @@ fn tags_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
         KeyCode::Enter if focus == EditMetadataFocus::List => Some(Action::MetadataSave),
         KeyCode::Enter if state.input.as_str().trim().is_empty() => Some(Action::MetadataSave),
         KeyCode::Enter => Some(Action::MetadataAddFromInput),
-        KeyCode::Up if focus == EditMetadataFocus::List => Some(Action::MetadataMoveUp),
-        KeyCode::Down if focus == EditMetadataFocus::List => Some(Action::MetadataMoveDown),
+        KeyCode::Up if focus == EditMetadataFocus::List => Some(Action::MoveDialogSelection(-1)),
+        KeyCode::Down if focus == EditMetadataFocus::List => Some(Action::MoveDialogSelection(1)),
         KeyCode::Char(' ') if focus == EditMetadataFocus::List => Some(Action::MetadataToggle),
         _ if focus == EditMetadataFocus::Input => Some(Action::InputKey(key)),
         _ => None,
@@ -481,8 +482,8 @@ fn feelings_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
         KeyCode::Esc => Some(Action::CancelOverlay),
         KeyCode::Tab => Some(Action::FeelingsSwitchFocus),
         KeyCode::Enter => Some(Action::FeelingsSave),
-        KeyCode::Up if focus == EditMetadataFocus::List => Some(Action::FeelingsMoveUp),
-        KeyCode::Down if focus == EditMetadataFocus::List => Some(Action::FeelingsMoveDown),
+        KeyCode::Up if focus == EditMetadataFocus::List => Some(Action::MoveDialogSelection(-1)),
+        KeyCode::Down if focus == EditMetadataFocus::List => Some(Action::MoveDialogSelection(1)),
         KeyCode::Right if focus == EditMetadataFocus::List => Some(Action::FeelingsExpand),
         KeyCode::Left if focus == EditMetadataFocus::List => Some(Action::FeelingsCollapse),
         KeyCode::Char(' ') if focus == EditMetadataFocus::List => Some(Action::FeelingsToggle),
@@ -496,8 +497,8 @@ fn mood_key_to_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Esc => Some(Action::CancelOverlay),
         KeyCode::Enter => Some(Action::MoodSave),
         KeyCode::Delete | KeyCode::Backspace => Some(Action::MoodClear),
-        KeyCode::Left => Some(Action::MoodDecrease),
-        KeyCode::Right => Some(Action::MoodIncrease),
+        KeyCode::Left => Some(Action::AdjustMood(-1)),
+        KeyCode::Right => Some(Action::AdjustMood(1)),
         _ => None,
     }
 }
@@ -517,8 +518,8 @@ fn location_key_to_action(app: &App, key: KeyEvent) -> Option<Action> {
         // Delete clears the entry's location only from the list; in the text
         // fields it forward-deletes at the caret like any editor.
         KeyCode::Delete if focus == EditLocationFocus::List => Some(Action::LocationClear),
-        KeyCode::Up if focus == EditLocationFocus::List => Some(Action::LocationMoveUp),
-        KeyCode::Down if focus == EditLocationFocus::List => Some(Action::LocationMoveDown),
+        KeyCode::Up if focus == EditLocationFocus::List => Some(Action::MoveDialogSelection(-1)),
+        KeyCode::Down if focus == EditLocationFocus::List => Some(Action::MoveDialogSelection(1)),
         // On the list, Enter/Space adopt the highlighted preset or match and save.
         KeyCode::Enter | KeyCode::Char(' ') if focus == EditLocationFocus::List => {
             Some(Action::LocationSelectRow)
@@ -541,8 +542,8 @@ fn image_viewer_key_to_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') | KeyCode::Char('i') => {
             Some(Action::CancelOverlay)
         }
-        KeyCode::Left | KeyCode::Up => Some(Action::ImageViewerPrev),
-        KeyCode::Right | KeyCode::Down => Some(Action::ImageViewerNext),
+        KeyCode::Left | KeyCode::Up => Some(Action::StepImageViewer(-1)),
+        KeyCode::Right | KeyCode::Down => Some(Action::StepImageViewer(1)),
         _ => None,
     }
 }
@@ -551,8 +552,8 @@ fn image_viewer_key_to_action(key: KeyEvent) -> Option<Action> {
 
 pub(super) fn move_focus_left(app: &mut App) {
     // Leaving the viewer always drops full-screen mode so re-entering starts from
-    // the focused preview pane again.
-    app.nav.entry_view_fullscreen = false;
+    // the focused reader pane again.
+    app.nav.reader_fullscreen = false;
     app.nav.focus = match app.nav.focus {
         // Left steps back through the insights tabs (staying expanded if it was);
         // from the first tab it leaves the panel back to the entries column, which
@@ -566,7 +567,7 @@ pub(super) fn move_focus_left(app: &mut App) {
             app.nav.scroll.reset_insights();
             Focus::Insights
         }
-        Focus::EntryView => Focus::Entries,
+        Focus::Reader => Focus::Entries,
         // When the journal list is hidden, Left stops at Entries so focus never
         // lands on a pane that isn't rendered — use `j` to bring the list back.
         Focus::Entries if app.state.ui.show_journals => Focus::Journals,
@@ -574,22 +575,22 @@ pub(super) fn move_focus_left(app: &mut App) {
     };
 }
 
-pub(super) fn move_focus_right(app: &mut App, entry_view_available: bool) {
+pub(super) fn move_focus_right(app: &mut App, reader_available: bool) {
     app.nav.focus = match app.nav.focus {
         // Entering the entries column keeps whatever selection was there (none by
-        // default), so the insights preview stays put until an entry is picked and
+        // default), so the insights panel stays put until an entry is picked and
         // Right can carry on to the insights panel.
         Focus::Journals => Focus::Entries,
-        Focus::Entries if entry_view_available && app.has_selected_entry_target() => {
-            // Focusing the viewer lands on the preview pane; full screen is a
+        Focus::Entries if reader_available && app.has_selected_entry_target() => {
+            // Focusing the viewer lands on the reader pane; full screen is a
             // separate, explicit Enter away.
-            app.nav.entry_view_fullscreen = false;
-            Focus::EntryView
+            app.nav.reader_fullscreen = false;
+            Focus::Reader
         }
-        // With no entry to preview, the right column is the insights panel; Right
+        // With no entry to show, the right column is the insights panel; Right
         // focuses it (landing on the first tab). Reachable at single-panel width
         // too, where it takes over the full screen.
-        Focus::Entries if app.show_journal_insights_preview() => Focus::Insights,
+        Focus::Entries if app.show_journal_insights() => Focus::Insights,
         // Right steps forward through the tabs, stopping at the last.
         Focus::Insights => {
             if app.nav.insights_tab.index() + 1 < InsightsTab::ALL.len() {
@@ -598,7 +599,7 @@ pub(super) fn move_focus_right(app: &mut App, entry_view_available: bool) {
             }
             Focus::Insights
         }
-        Focus::Entries | Focus::EntryView => app.nav.focus,
+        Focus::Entries | Focus::Reader => app.nav.focus,
     };
 }
 

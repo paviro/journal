@@ -2,13 +2,13 @@ use super::*;
 use crate::{
     config::Config,
     tui::{
-        app::{EditMetadataFocus, EditMetadataState, Focus, INLINE_ENTRY_VIEW_MIN_WIDTH, Mode},
+        app::{EditMetadataFocus, EditMetadataState, Focus, INLINE_READER_MIN_WIDTH, Mode},
         state::MetadataKind,
         test_support::{app_with_entries, app_with_entry, app_with_journals, new_app},
         theme,
     },
 };
-use notema_core::{Entry, EntryEncryptionState, SearchHit};
+use notema_domain::{Entry, EntryEncryptionState, SearchHit};
 use ratatui::{Frame, Terminal, backend::TestBackend, layout::Rect, style::Modifier, text::Line};
 use std::fs;
 use std::path::PathBuf;
@@ -90,7 +90,7 @@ fn layout_places_hit_targets_in_three_columns() {
     let layout = tui_layout(Rect::new(0, 0, 140, 20), &app);
 
     assert!(!layout.single_panel);
-    assert!(layout.entry_view.is_some());
+    assert!(layout.reader.is_some());
     assert!(layout.insights.is_none());
     // The three columns share the rows the footer doesn't take.
     let footer_h = footer_height(&app, 140);
@@ -103,10 +103,7 @@ fn layout_places_hit_targets_in_three_columns() {
         layout.entries.unwrap().panel.area,
         Rect::new(27, 0, 47, content_h)
     );
-    assert_eq!(
-        layout.entry_view.unwrap().area,
-        Rect::new(74, 0, 66, content_h)
-    );
+    assert_eq!(layout.reader.unwrap().area, Rect::new(74, 0, 66, content_h));
     assert_eq!(layout.footer, Rect::new(0, content_h, 140, footer_h));
 }
 
@@ -115,26 +112,26 @@ fn layout_keeps_three_columns_at_minimum_inline_width() {
     let mut app = app_with_entry();
     app.nav.focus = Focus::Entries;
 
-    let layout = tui_layout(Rect::new(0, 0, INLINE_ENTRY_VIEW_MIN_WIDTH, 20), &app);
+    let layout = tui_layout(Rect::new(0, 0, INLINE_READER_MIN_WIDTH, 20), &app);
 
     assert!(!layout.single_panel);
-    assert!(layout.entry_view.is_some());
+    assert!(layout.reader.is_some());
     assert!(layout.insights.is_none());
-    let ch = 20 - footer_height(&app, INLINE_ENTRY_VIEW_MIN_WIDTH);
+    let ch = 20 - footer_height(&app, INLINE_READER_MIN_WIDTH);
     assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 27, ch));
     assert_eq!(layout.entries.unwrap().panel.area, Rect::new(27, 0, 47, ch));
-    assert_eq!(layout.entry_view.unwrap().area, Rect::new(74, 0, 51, ch));
+    assert_eq!(layout.reader.unwrap().area, Rect::new(74, 0, 51, ch));
 }
 
 #[test]
-fn layout_places_hit_targets_in_two_columns_without_inline_entry_view() {
+fn layout_places_hit_targets_in_two_columns_without_inline_reader() {
     let mut app = app_with_entry();
     app.nav.focus = Focus::Journals;
 
     let layout = tui_layout(Rect::new(0, 0, 90, 20), &app);
 
     assert!(!layout.single_panel);
-    assert!(layout.entry_view.is_none());
+    assert!(layout.reader.is_none());
     assert!(layout.insights.is_none());
     let ch = 20 - footer_height(&app, 90);
     assert_eq!(layout.journals.unwrap().area, Rect::new(0, 0, 27, ch));
@@ -142,14 +139,14 @@ fn layout_places_hit_targets_in_two_columns_without_inline_entry_view() {
 }
 
 #[test]
-fn layout_shifts_two_columns_to_entries_and_preview_when_entries_are_active() {
+fn layout_shifts_two_columns_to_entries_and_reader_when_entries_are_active() {
     let mut app = app_with_entry();
     app.nav.focus = Focus::Entries;
 
     let layout = tui_layout(Rect::new(0, 0, 90, 20), &app);
 
     assert!(!layout.single_panel);
-    assert!(layout.entry_view.is_some());
+    assert!(layout.reader.is_some());
     assert!(layout.insights.is_none());
     assert!(layout.journals.is_none());
     let content_height = 20 - footer_height(&app, 90);
@@ -158,7 +155,7 @@ fn layout_shifts_two_columns_to_entries_and_preview_when_entries_are_active() {
         Rect::new(0, 0, 47, content_height)
     );
     assert_eq!(
-        layout.entry_view.unwrap().area,
+        layout.reader.unwrap().area,
         Rect::new(47, 0, 43, content_height)
     );
 }
@@ -403,21 +400,21 @@ fn location_row_height_reflects_wrapped_lines() {
 }
 
 #[test]
-fn entry_view_wraps_long_location_with_flush_left_continuation() {
+fn reader_wraps_long_location_with_flush_left_continuation() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Grand Central Station Cafe\"\n+++\n\n# A\nBody\n",
+            "+++\nschema_version = 1\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Grand Central Station Cafe\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
 
-    let entry_view = Rect::new(0, 0, 24, 60 - expanded_footer_height(&app, 24));
+    let reader = Rect::new(0, 0, 24, 60 - expanded_footer_height(&app, 24));
     let values = EntryMetadataValues {
         tags: &[],
         people: &[],
@@ -426,7 +423,7 @@ fn entry_view_wraps_long_location_with_flush_left_continuation() {
         mood: None,
         location: Some("Grand Central Station Cafe"),
     };
-    let metadata = crate::tui::surface::entry_metadata_layout(entry_view, values);
+    let metadata = crate::tui::surface::entry_metadata_layout(reader, values);
     let location_row = metadata.location.expect("location row is laid out");
 
     // Expected wrapping at the row's real (border-inset) width.
@@ -504,19 +501,19 @@ fn metadata_rows_wrap_without_leading_separator() {
 }
 
 #[test]
-fn entry_view_wraps_metadata_rows_without_leading_space_or_separator() {
+fn reader_wraps_metadata_rows_without_leading_space_or_separator() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\ntags = [\"work\", \"personal\", \"health\"]\nfeelings = [\"calm\", \"focused\", \"tired\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+            "+++\nschema_version = 1\ntags = [\"work\", \"personal\", \"health\"]\nfeelings = [\"calm\", \"focused\", \"tired\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
 
     let tags = vec![
         "work".to_string(),
@@ -528,9 +525,9 @@ fn entry_view_wraps_metadata_rows_without_leading_space_or_separator() {
         "focused".to_string(),
         "tired".to_string(),
     ];
-    let entry_view = Rect::new(0, 0, 24, 60 - expanded_footer_height(&app, 24));
+    let reader = Rect::new(0, 0, 24, 60 - expanded_footer_height(&app, 24));
     let values = metadata_values(&tags, &feelings, None);
-    let metadata = crate::tui::surface::entry_metadata_layout(entry_view, values);
+    let metadata = crate::tui::surface::entry_metadata_layout(reader, values);
     let feelings_row = metadata.feelings.unwrap();
     let tags_row = metadata.tags.unwrap();
 
@@ -554,22 +551,17 @@ fn entry_view_wraps_metadata_rows_without_leading_space_or_separator() {
         "p"
     );
     assert_eq!(
-        metadata_at_point(
-            entry_view,
-            feelings_row.rect.x,
-            feelings_row.rect.y + 1,
-            values
-        ),
+        metadata_at_point(reader, feelings_row.rect.x, feelings_row.rect.y + 1, values),
         Some((MetadataChip::Feelings, "focused".to_string()))
     );
     assert_eq!(
-        metadata_at_point(entry_view, tags_row.rect.x, tags_row.rect.y + 1, values),
+        metadata_at_point(reader, tags_row.rect.x, tags_row.rect.y + 1, values),
         Some((MetadataChip::Tags, "personal".to_string()))
     );
 }
 
 #[test]
-fn short_entry_view_scrolls_metadata_after_body() {
+fn short_reader_scrolls_metadata_after_body() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
@@ -580,22 +572,22 @@ fn short_entry_view_scrolls_metadata_after_body() {
     fs::write(
             entry_dir.join("a.md"),
             format!(
-                "+++\ntags = [\"tiny-screen\"]\nfeelings = [\"focused\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n{body}\n",
+                "+++\nschema_version = 1\ntags = [\"tiny-screen\"]\nfeelings = [\"focused\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n{body}\n",
             ),
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
 
     let top = render_text(app, 80, 20);
     assert!(!top.contains("Tags: tiny-screen"));
 
     let mut app = new_app(Config::new(dir.path().to_path_buf()));
     app.select_journal_by_name("work");
-    app.nav.focus = Focus::EntryView;
-    app.nav.scroll.entry_view = u16::MAX;
+    app.nav.focus = Focus::Reader;
+    app.nav.scroll.reader = u16::MAX;
 
     let bottom = render_text(app, 80, 20);
     assert!(bottom.contains("Feelings: focused"));
@@ -749,7 +741,7 @@ fn list_dialogs_keep_preferred_width_until_they_hit_edges() {
 #[test]
 fn feelings_dialog_folds_groups_and_marks_disclosure() {
     use crate::tui::app::EditFeelingState;
-    use notema_core::feelings::{Feeling, FeelingGroup};
+    use notema_domain::{Feeling, FeelingGroup};
 
     static GROUPS: &[FeelingGroup] = &[
         FeelingGroup {
@@ -806,7 +798,7 @@ fn feelings_dialog_folds_groups_and_marks_disclosure() {
 #[test]
 fn feelings_dialog_shows_no_matches_when_filter_is_empty() {
     use crate::tui::app::EditFeelingState;
-    use notema_core::feelings::{Feeling, FeelingGroup};
+    use notema_domain::{Feeling, FeelingGroup};
 
     static GROUPS: &[FeelingGroup] = &[FeelingGroup {
         name: "Peaceful",
@@ -943,12 +935,12 @@ fn entry_hit_testing_ignores_month_divider_and_maps_boxed_entries() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nFirst preview\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nFirst preview\n",
     )
     .unwrap();
     fs::write(
         entry_dir.join("b.md"),
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nSecond preview\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nSecond preview\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -1011,7 +1003,7 @@ fn first_month_rides_border_and_next_month_takes_over_after_scrolling() {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join(format!("e{index}.md")),
-            format!("+++\n[datetime]\ncreated_at = \"{ts}\"\n+++\n\n# e{index}\nBody text\n"),
+            format!("+++\nschema_version = 1\n[datetime]\ncreated_at = \"{ts}\"\n+++\n\n# e{index}\nBody text\n"),
         )
         .unwrap();
     }
@@ -1046,19 +1038,19 @@ fn render_top_border(app: App, width: u16, height: u16) -> String {
 }
 
 #[test]
-fn entry_view_renders_feelings_metadata() {
+fn reader_renders_feelings_metadata() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\nfeelings = [\"calm\", \"focused\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+            "+++\nschema_version = 1\nfeelings = [\"calm\", \"focused\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
 
     let rendered = render_text(app, 120, 20);
 
@@ -1066,19 +1058,19 @@ fn entry_view_renders_feelings_metadata() {
 }
 
 #[test]
-fn entry_view_renders_indented_mermaid_diagram() {
+fn reader_renders_indented_mermaid_diagram() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n```mermaid\n  graph TD\n      A[Open journal] --> B[Write entry]\n      B --> C{Preview}\n      C -->|looks good| D[Save]\n      C -->|needs work| B\n  ```\n",
+            "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n```mermaid\n  graph TD\n      A[Open journal] --> B[Write entry]\n      B --> C{Preview}\n      C -->|looks good| D[Save]\n      C -->|needs work| B\n  ```\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
 
     let rendered = render_text(app, 140, 28);
 
@@ -1095,12 +1087,12 @@ fn list_panels_show_counts_in_bottom_titles() {
     fs::create_dir_all(&work_entry_dir).unwrap();
     fs::write(
         work_entry_dir.join("a.md"),
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     fs::write(
         work_entry_dir.join("b.md"),
-        "+++\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
+        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
     )
     .unwrap();
     fs::create_dir_all(root.join("personal")).unwrap();
@@ -1132,12 +1124,12 @@ fn compact_render_shows_only_the_active_step() {
     assert!(!entries.contains(" Journals "));
     assert!(!entries.contains("2026-07-01 10:00"));
 
-    let mut entry_view_focus_app = app_with_entry();
-    entry_view_focus_app.nav.focus = Focus::EntryView;
-    let entry_view_focus = render_text(entry_view_focus_app, 57, 16);
-    assert!(!entry_view_focus.contains(" Entries "));
-    assert!(!entry_view_focus.contains(" Journals "));
-    assert!(entry_view_focus.contains("Body"));
+    let mut reader_focus_app = app_with_entry();
+    reader_focus_app.nav.focus = Focus::Reader;
+    let reader_focus = render_text(reader_focus_app, 57, 16);
+    assert!(!reader_focus.contains(" Entries "));
+    assert!(!reader_focus.contains(" Journals "));
+    assert!(reader_focus.contains("Body"));
 }
 
 #[test]
@@ -1158,9 +1150,9 @@ fn two_column_render_follows_active_column_pair() {
 }
 
 #[test]
-fn selected_journal_and_entry_remain_reversed_when_entry_view_is_focused() {
+fn selected_journal_and_entry_remain_reversed_when_reader_is_focused() {
     let mut app = app_with_entry();
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
 
     let backend = render_app(app, 130, 20);
     let buffer = backend.buffer();
@@ -1186,13 +1178,13 @@ fn selected_journal_and_entry_remain_reversed_when_entry_view_is_focused() {
 #[test]
 fn multi_col_fullscreen_takes_the_whole_width_and_hides_columns() {
     let mut app = app_with_entry();
-    app.nav.focus = Focus::EntryView;
-    app.nav.entry_view_fullscreen = true;
+    app.nav.focus = Focus::Reader;
+    app.nav.reader_fullscreen = true;
 
     let layout = tui_layout(Rect::new(0, 0, 130, 20), &app);
     assert!(layout.journals.is_none());
     assert!(layout.entries.is_none());
-    assert_eq!(layout.entry_view.unwrap().area.width, 130);
+    assert_eq!(layout.reader.unwrap().area.width, 130);
 
     let text = render_text(app, 130, 20);
     assert!(!text.contains(" Journals "));
@@ -1235,7 +1227,7 @@ fn app_with_metadata_entry() -> App {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\ntags = [\"work\"]\nfeelings = [\"calm\"]\npeople = [\"alex\"]\nactivities = [\"running\"]\nmood = 3\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\ntags = [\"work\"]\nfeelings = [\"calm\"]\npeople = [\"alex\"]\nactivities = [\"running\"]\nmood = 3\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -1324,7 +1316,7 @@ fn app_with_drivers() -> App {
         fs::write(
             entry_dir.join("a.md"),
             format!(
-                "+++\n{meta}\nmood = {mood}\n[datetime]\ncreated_at = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# E\nBody\n"
+                "+++\nschema_version = 1\n{meta}\nmood = {mood}\n[datetime]\ncreated_at = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# E\nBody\n"
             ),
         )
         .unwrap();
@@ -1395,7 +1387,7 @@ fn app_with_many_drivers(count: usize) -> App {
         fs::write(
             entry_dir.join("a.md"),
             format!(
-                "+++\n{meta}mood = {mood}\n[datetime]\ncreated_at = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# A\nBody\n"
+                "+++\nschema_version = 1\n{meta}mood = {mood}\n[datetime]\ncreated_at = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# A\nBody\n"
             ),
         )
         .unwrap();
@@ -1585,7 +1577,7 @@ fn entries_footer_includes_entry_actions_when_an_entry_is_selected() {
 #[test]
 fn expanded_entry_footer_includes_inline_entry_actions() {
     let mut app = app_with_entry();
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
 
     let inline_text = footer_text(&app, 200);
     let expanded_text = expanded_footer_text(&app, 200);
@@ -1620,14 +1612,14 @@ fn expanded_entry_footer_includes_inline_entry_actions() {
 
     // Multi-column full screen: Left is inert (Esc collapses), so it drops from the
     // close hint.
-    app.nav.entry_view_fullscreen = true;
+    app.nav.reader_fullscreen = true;
     assert!(expanded_footer_text(&app, 200).contains("enter/esc  close"));
 }
 
 #[test]
 fn expanded_entry_draws_confirm_delete_overlay() {
     let mut app = app_with_entry();
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
     app.begin_confirm_delete();
 
     let text = render_text(app, 80, 20);
@@ -1732,7 +1724,7 @@ fn footer_hint_routing_uses_typed_ids() {
 #[test]
 fn expanded_footer_hint_routing_uses_typed_ids() {
     let mut app = app_with_entry();
-    app.nav.focus = Focus::EntryView;
+    app.nav.focus = Focus::Reader;
     let width = 120;
     let origin_y = 19;
     let text = expanded_footer_text(&app, width);
@@ -1812,7 +1804,7 @@ fn plain_entry(created_at: Option<&str>, preview: &str) -> Entry {
         journal: "work".to_string(),
         path: PathBuf::from("id.md"),
         encryption_state: EntryEncryptionState::Plain,
-        created_at: created_at.map(notema_core::Timestamp::parse),
+        created_at: created_at.map(notema_domain::Timestamp::parse),
         edited_at: None,
         preview: preview.to_string(),
         activities: Vec::new(),
@@ -1829,6 +1821,7 @@ fn plain_entry(created_at: Option<&str>, preview: &str) -> Entry {
         body: String::new(),
         word_count: 0,
         search_haystack: String::new(),
+        warning: None,
     }
 }
 
@@ -1893,7 +1886,7 @@ fn entry_group_labels_use_created_timestamp() {
         journal: "work".to_string(),
         path: PathBuf::from("work/2026-01-01/id.md"),
         encryption_state: EntryEncryptionState::Plain,
-        created_at: Some(notema_core::Timestamp::parse("2026-07-01T10:23:00+02:00")),
+        created_at: Some(notema_domain::Timestamp::parse("2026-07-01T10:23:00+02:00")),
         edited_at: None,
         preview: String::new(),
         activities: Vec::new(),
@@ -1910,6 +1903,7 @@ fn entry_group_labels_use_created_timestamp() {
         body: String::new(),
         word_count: 0,
         search_haystack: String::new(),
+        warning: None,
     };
 
     assert_eq!(entry_month_label(&entry), Some("July 2026".to_string()));
@@ -1940,6 +1934,7 @@ fn entry_group_labels_fall_back_to_filename_date() {
         body: String::new(),
         word_count: 0,
         search_haystack: String::new(),
+        warning: None,
     };
 
     assert_eq!(entry_month_label(&entry), Some("July 2026".to_string()));
@@ -2060,10 +2055,10 @@ fn disable_notice_renders_in_the_journal_chrome_frame() {
 }
 
 #[test]
-fn internal_editor_renders_in_entry_view_pane() {
+fn internal_editor_renders_in_reader_pane() {
     let mut app = app_with_entry();
     app.open_editor_for_selected();
-    let text = render_text(app, INLINE_ENTRY_VIEW_MIN_WIDTH, 30);
+    let text = render_text(app, INLINE_READER_MIN_WIDTH, 30);
     // The textarea shows the raw markdown source (with the leading `#`), unlike
     // the viewer which renders the heading, so the literal `# A` proves the
     // editor drew in the pane.
@@ -2076,8 +2071,8 @@ fn internal_editor_renders_in_entry_view_pane() {
 fn internal_editor_renders_full_screen() {
     let mut app = app_with_entry();
     app.open_editor_for_selected();
-    app.nav.entry_view_fullscreen = true;
-    let text = render_text(app, INLINE_ENTRY_VIEW_MIN_WIDTH, 30);
+    app.nav.reader_fullscreen = true;
+    let text = render_text(app, INLINE_READER_MIN_WIDTH, 30);
     assert!(text.contains("# A"));
     assert!(text.contains("ctrl+s"));
 }
@@ -2088,7 +2083,7 @@ fn internal_editor_new_entry_renders_in_pane_not_insights() {
     app.select_journal_by_name("work");
     app.open_editor_for_new();
     // Not fullscreen: the entry list column is still present alongside the editor.
-    let text = render_text(app, INLINE_ENTRY_VIEW_MIN_WIDTH, 30);
+    let text = render_text(app, INLINE_READER_MIN_WIDTH, 30);
     assert!(text.contains("New entry")); // editor pane title, not the insights panel
     assert!(text.contains("ctrl+s")); // editor footer
 }
@@ -2098,7 +2093,7 @@ fn internal_editor_metadata_menu_renders() {
     let mut app = app_with_entry();
     app.open_editor_for_selected();
     app.editor.as_mut().unwrap().prompt = crate::tui::editor_state::EditorPrompt::MetadataMenu;
-    let text = render_text(app, INLINE_ENTRY_VIEW_MIN_WIDTH, 30);
+    let text = render_text(app, INLINE_READER_MIN_WIDTH, 30);
     assert!(text.contains("Add Metadata"));
     assert!(text.contains("Feelings"));
 }
@@ -2113,14 +2108,14 @@ fn internal_editor_shows_entry_location() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Testville Cafe\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Testville Cafe\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     let mut app = new_app(Config::new(dir.path().to_path_buf()));
     app.select_journal_by_name("work");
     app.open_editor_for_selected();
 
-    let text = render_text(app, INLINE_ENTRY_VIEW_MIN_WIDTH, 30);
+    let text = render_text(app, INLINE_READER_MIN_WIDTH, 30);
     assert!(text.contains("Testville Cafe"), "editor pane was:\n{text}");
 }
 
@@ -2224,7 +2219,7 @@ fn theme_picker_lists_bundled_themes_with_the_active_row_marked() {
     assert!(text.contains("enter  apply"));
     assert!(text.contains("esc  revert"));
     // Every bundled theme is listed; the configured one carries the ● marker.
-    for name in ["blossom", "classic", "e-ink", "fjord", "grove", "journal"] {
+    for name in ["blossom", "classic", "eclipse", "fjord", "grove", "journal"] {
         assert!(text.contains(name), "theme '{name}' missing:\n{text}");
     }
     assert!(text.contains("● blossom"), "active marker missing:\n{text}");
@@ -2438,7 +2433,7 @@ mod flat_chrome_tests {
         app.nav.mode = crate::tui::app::Mode::Search;
         app.search.scope = crate::tui::app::SearchScope::AllJournals;
 
-        // ≥ INLINE_ENTRY_VIEW_MIN_WIDTH so the journal column stays visible in
+        // ≥ INLINE_READER_MIN_WIDTH so the journal column stays visible in
         // search mode.
         let layout = tui_layout(Rect::new(0, 0, 140, 30), &app);
         let journals = layout.journals.unwrap();
@@ -2664,12 +2659,12 @@ mod flat_chrome_tests {
         let builds = std::cell::Cell::new(0);
         let build = || {
             builds.set(builds.get() + 1);
-            (Vec::new(), Vec::new())
+            crate::tui::app::RenderedEntryBody::default()
         };
         app.cached_entry_body(None, 80, build);
         app.cached_entry_body(None, 80, build);
         assert_eq!(builds.get(), 1, "same theme must hit the cache");
-        theme::set_test_theme(theme::test_eink_theme());
+        theme::set_test_theme(theme::test_eclipse_theme());
         app.cached_entry_body(None, 80, build);
         assert_eq!(builds.get(), 2, "a theme change must rebuild the body");
     }

@@ -10,7 +10,7 @@ pub(crate) struct FileWatcher {
 }
 
 impl FileWatcher {
-    pub(crate) fn start(root: &Path) -> Self {
+    pub(crate) fn start(root: &Path) -> notify::Result<Self> {
         let (tx, rx) = mpsc::channel();
 
         let filter_root = root.to_path_buf();
@@ -29,17 +29,14 @@ impl FileWatcher {
                 }
             },
             Config::default(),
-        )
-        .expect("init file watcher");
+        )?;
 
-        watcher
-            .watch(root, RecursiveMode::Recursive)
-            .expect("watch journal root");
+        watcher.watch(root, RecursiveMode::Recursive)?;
 
-        Self {
+        Ok(Self {
             rx,
             _watcher: watcher,
-        }
+        })
     }
 
     /// Drain and return every changed path seen since the last poll (empty when

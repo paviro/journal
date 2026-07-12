@@ -8,20 +8,22 @@ mod read;
 #[cfg(test)]
 mod tests;
 
-pub use notema_core::{Entry, EntryEncryptionState, EntryPath, ImportSource, Metadata, Timestamp};
+pub(crate) use notema_domain::{
+    Entry, EntryEncryptionState, EntryPath, ImportSource, Metadata, Timestamp,
+};
 
 pub(crate) use assets::resolve_entry_asset_path;
 pub use assets::{AssetFailure, AssetReport, sole_stored_image, stored_image_reference};
 pub(crate) use codec::EntryCodec;
-pub use create::{EntryAssetOptions, EntryCreateOutcome, EntryDraft, create_entry};
-pub use edit::{
-    EditOutcome, EntryEdit, EntryEditOutcome, delete_empty_entry, delete_journal,
-    move_entry_to_trash, save_entry_edit,
-};
+pub(crate) use create::create_entry;
+pub use create::{EntryAssetOptions, EntryCreateOutcome, EntryDraft};
+pub use edit::{EditOutcome, EntryEdit, EntryEditOutcome};
+pub(crate) use edit::{delete_empty_entry, delete_journal, move_entry_to_trash, save_entry_edit};
 #[cfg(test)]
-pub use paths::entry_path;
-pub use paths::{entry_id, is_encrypted_entry_file, is_entry_file, is_plain_entry_file};
-pub use read::{
+pub(super) use paths::entry_path;
+pub use paths::{entry_id, is_entry_file};
+pub(crate) use paths::{is_encrypted_entry_file, is_plain_entry_file};
+pub(crate) use read::{
     collect_entry_paths, read_entries, read_entry, read_entry_content, scan_entries,
     scan_import_sources,
 };

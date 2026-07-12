@@ -4,17 +4,22 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 
 [dependencies]
-age = { version = "0.11.3", default-features = false, features = ["armor"] }
-ed25519-dalek = { version = "2", features = ["zeroize"] }
-getrandom = "0.2"
-hex = "0.4"
-serde = { version = "1", features = ["derive"] }
-sha2 = "0.10"
-thiserror = "2"
-toml = "1.1"
-zeroize = { version = "1", features = ["serde"] }
+age.workspace = true
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
+
+[lints]
+workspace = true
