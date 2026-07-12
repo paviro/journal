@@ -1466,7 +1466,7 @@ fn hover_tracks_insights_tabs_without_switching_tabs() {
 }
 
 #[test]
-fn theme_picker_hover_moves_selection_for_live_preview() {
+fn theme_picker_hover_targets_rows_without_selecting() {
     let mut app = app_with_journals(&["work"]);
     app.open_theme_picker();
     let area = Rect::new(0, 0, 90, 30);
@@ -1484,13 +1484,10 @@ fn theme_picker_hover_moves_selection_for_live_preview() {
 
     let row = layout.list.y + (target - offset) as u16;
     assert!(mouse::apply_hover(&mut app, layout.list.x + 1, row, area));
-    assert_eq!(app.hover, HoverTarget::ThemePickerRow(target));
-    // Overlay menus follow the cursor: the hovered row becomes the selection,
-    // which live-previews the theme (same path as the arrow keys).
-    assert_eq!(
-        app.theme_picker_state().unwrap().selected_index(),
-        Some(target)
-    );
+    // Like every other dialog, hover only highlights the row — it neither
+    // moves the selection nor previews the theme (that's click's job).
+    assert_eq!(app.hover, HoverTarget::DialogRow(target));
+    assert_eq!(app.theme_picker_state().unwrap().selected_index(), initial);
 }
 
 #[test]

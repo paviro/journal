@@ -590,10 +590,7 @@ pub(super) fn draw_theme_picker(
     state: &mut ThemePickerState,
     hover: HoverTarget,
 ) {
-    let hovered_row = match hover {
-        HoverTarget::ThemePickerRow(index) => Some(index),
-        _ => None,
-    };
+    let hovered_row = hovered_dialog_row(hover);
     let layout = theme_picker_layout(frame.area(), state.entries.len(), state.mode_switchable());
 
     state.normalize_list_state();

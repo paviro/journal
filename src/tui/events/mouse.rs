@@ -635,10 +635,10 @@ fn handle_wheel(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout, del
 
 /// Track what's under the cursor. Returns whether the hover target changed —
 /// the run loop only repaints then, so motion inside one row costs nothing.
-/// Hovering never moves the main panels' selection (selecting has side
-/// effects — journal switch, reader swap — that stay click-only), but overlay
-/// menus follow the cursor: the theme picker moves its selection so the
-/// hovered theme live-previews, like its arrow keys.
+/// Hovering never moves a selection — not in the main panels (selecting has
+/// side effects: journal switch, reader swap) and not in dialogs (the theme
+/// picker previews on click, not hover). It only highlights the row under the
+/// cursor.
 pub(crate) fn update_hover(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
@@ -665,9 +665,6 @@ pub(super) fn apply_hover(app: &mut App, col: u16, row: u16, area: Rect) -> bool
         return false;
     }
     app.hover = target;
-    if let HoverTarget::ThemePickerRow(index) = target {
-        app.theme_picker_select(index);
-    }
     true
 }
 
@@ -827,7 +824,7 @@ fn overlay_hover_target(app: &App, col: u16, row: u16, area: Rect) -> HoverTarge
             && let Some(index) =
                 list_row_at(layout.list, col, row, state.offset(), state.entries.len())
         {
-            return HoverTarget::ThemePickerRow(index);
+            return HoverTarget::DialogRow(index);
         }
         return hint(
             layout.hints,
@@ -1103,7 +1100,6 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
 
     if let Some(state) = app.theme_picker_state() {
         let len = state.entries.len();
-        let selected = state.selected_index();
         let offset = state.offset();
         let mode_switchable = state.mode_switchable();
         let layout = render::theme_picker_layout(area, len, mode_switchable);
@@ -1119,13 +1115,7 @@ fn overlay_left_click(app: &mut App, mouse: MouseEvent, area: Rect) -> Option<Ac
         if render::point_in_rect(layout.list, col, row)
             && let Some(index) = list_row_at(layout.list, col, row, offset, len)
         {
-            // First click selects (and shows it); a second click on the
-            // already-selected row confirms, like Enter.
-            return Some(if Some(index) == selected {
-                Action::ThemePickerConfirm
-            } else {
-                Action::ThemePickerSelect(index)
-            });
+            return Some(Action::ThemePickerSelect(index));
         }
         return None;
     }
