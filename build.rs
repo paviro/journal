@@ -2,9 +2,10 @@
 //!
 //! Runs `cargo-about` over the dependency tree, groups crates by their license
 //! text, and writes a gzipped JSON blob into `OUT_DIR` that the binary embeds
-//! via `include_bytes!`. Set `NOTEMA_SKIP_LICENSE_GENERATION=1` to skip the
-//! `cargo-about` call (writing an empty report) when the tool isn't installed —
-//! the `notema licenses` command still prints the data-source attributions.
+//! via `include_bytes!`. cargo-about is optional: if it isn't installed (or
+//! `NOTEMA_SKIP_LICENSE_GENERATION=1` is set) the build still succeeds with an
+//! empty report and a warning, and `notema licenses` still prints the
+//! data-source attributions — only the third-party dependency list is omitted.
 
 use flate2::{Compression, write::GzEncoder};
 use serde::{Deserialize, Serialize};
@@ -74,16 +75,29 @@ fn main() {
         .args(["about", "generate", "--format", "json", "--target", &target])
         .output();
 
+    // cargo-about is only needed to populate `notema licenses`. A fresh clone
+    // without it must still build, so a missing or failing tool degrades to an
+    // empty report with a warning rather than breaking the build. Release builds
+    // install cargo-about, so their reports stay complete.
     let json = match output {
         Ok(result) if result.status.success() => result.stdout,
-        Ok(result) => panic!(
-            "cargo-about failed to generate license data:\n{}",
-            String::from_utf8_lossy(&result.stderr)
-        ),
-        Err(err) => panic!(
-            "failed to run cargo-about (install it with `cargo install cargo-about`, \
-             or set NOTEMA_SKIP_LICENSE_GENERATION=1 to skip): {err}"
-        ),
+        Ok(result) => {
+            println!(
+                "cargo:warning=cargo-about failed; `notema licenses` will list no \
+                 dependencies. Install it with `cargo install cargo-about`. Details: {}",
+                String::from_utf8_lossy(&result.stderr).trim()
+            );
+            write_gzipped(&output_path, b"[]");
+            return;
+        }
+        Err(err) => {
+            println!(
+                "cargo:warning=cargo-about not found ({err}); `notema licenses` will list \
+                 no dependencies. Install it with `cargo install cargo-about`."
+            );
+            write_gzipped(&output_path, b"[]");
+            return;
+        }
     };
 
     let parsed: AboutOutput =
