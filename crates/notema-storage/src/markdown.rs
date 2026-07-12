@@ -118,7 +118,10 @@ impl EntryTimestamps {
 }
 
 pub(crate) fn split_front_matter(content: &str) -> (Option<&str>, &str) {
-    let Some(rest) = content.strip_prefix("+++\n") else {
+    let Some(rest) = content
+        .strip_prefix("+++\n")
+        .or_else(|| content.strip_prefix("+++\r\n"))
+    else {
         return (None, content);
     };
 
@@ -404,6 +407,15 @@ mod tests {
 
         assert_eq!(front_matter, Some("title = \"A\""));
         assert_eq!(body, "\n# Body\n");
+    }
+
+    #[test]
+    fn split_front_matter_accepts_crlf_opening_fence() {
+        let (front_matter, body) =
+            split_front_matter("+++\r\ntitle = \"A\"\r\n+++\r\n\r\n# Body\r\n");
+
+        assert_eq!(front_matter, Some("title = \"A\""));
+        assert_eq!(body, "\r\n# Body\r\n");
     }
 
     #[test]

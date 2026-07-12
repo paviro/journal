@@ -770,8 +770,8 @@ impl JournalStore {
     }
 
     /// Replace one metadata field of an entry's front matter (and refresh
-    /// `edited_at`), leaving the body untouched. A no-op if the file has no
-    /// front matter.
+    /// `edited_at`), leaving the body untouched. Errors if the file has no front
+    /// matter to update.
     pub fn set_entry_metadata_field(&self, path: &Path, field: MetadataField) -> AppResult<()> {
         self.set_entry_metadata_fields(path, &[field])
     }
@@ -779,8 +779,8 @@ impl JournalStore {
     /// Replace several metadata fields in one file rewrite, applying them in
     /// order and refreshing `edited_at` once. Preferred when fields land together
     /// (e.g. weather + air quality) so the entry is read, re-rendered, and
-    /// re-encrypted a single time. A no-op if `fields` is empty or the file has no
-    /// front matter.
+    /// re-encrypted a single time. A no-op if `fields` is empty; errors if the
+    /// file has no front matter to update.
     pub fn set_entry_metadata_fields(
         &self,
         path: &Path,
@@ -795,7 +795,10 @@ impl JournalStore {
             markdown::parse_front_matter(front_matter).map_err(anyhow::Error::new)?;
         }
         let Some(new_content) = markdown::with_metadata_fields(&content, fields) else {
-            return Ok(());
+            // The file has no front matter to update. Report it instead of
+            // silently succeeding, which would let the UI claim a save that
+            // never touched disk.
+            anyhow::bail!("entry has no front matter; metadata cannot be updated");
         };
         codec.write_existing(path, &new_content)
     }
