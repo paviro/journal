@@ -95,6 +95,9 @@ fn with_terminal(
     inner: impl FnOnce(&mut Terminal<CrosstermBackend<io::Stdout>>) -> AppResult<()>,
 ) -> AppResult<()> {
     enable_raw_mode()?;
+    // Arm the restore guard before entering the alternate screen so a failure in
+    // the execute! below can't leave the shell stuck in raw mode.
+    let mut terminal_guard = TerminalRestoreGuard::new();
     let mut stdout = io::stdout();
     execute!(
         stdout,
@@ -102,7 +105,6 @@ fn with_terminal(
         EnableMouseCapture,
         SetCursorStyle::BlinkingBar
     )?;
-    let mut terminal_guard = TerminalRestoreGuard::new();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
