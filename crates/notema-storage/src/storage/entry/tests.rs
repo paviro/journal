@@ -44,12 +44,8 @@ fn entry_path_uses_year_month_day_folder_and_datetime_short_id_filename() {
     assert!(path.starts_with(dir.path().join("work").join("2026").join("07").join("01")));
     let stem = path.file_stem().unwrap().to_str().unwrap();
     let short_id = stem.strip_prefix("2026-07-01T23-30-00-").unwrap();
-    assert_eq!(short_id.len(), 12);
-    assert!(
-        short_id
-            .chars()
-            .all(|ch| nanoid::alphabet::SAFE.contains(&ch))
-    );
+    assert_eq!(short_id.len(), 4);
+    assert!(short_id.chars().all(|ch| ch.is_ascii_alphanumeric()));
 }
 
 #[test]

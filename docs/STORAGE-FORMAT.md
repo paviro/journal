@@ -20,8 +20,8 @@ without this app.
     └── pending-<id>.toml                      # join requests awaiting approval
 ```
 
-- Filename: `<YYYY-MM-DDTHH-MM-SS>-<id>.md`. `<id>` is a 12-character
-  [nanoid](https://github.com/ai/nanoid); the timestamp is the creation time.
+- Filename: `<YYYY-MM-DDTHH-MM-SS>-<id>.md`. `<id>` is a 4-character random
+  alphanumeric suffix; the timestamp is the creation time.
 - Encrypted entries are `age`-encrypted and named `.md.age`.
 - Each entry's assets sit in a sibling `<entry-stem>.assets/` directory.
 - A journal is archived by appending `.archived` to its directory name; the name

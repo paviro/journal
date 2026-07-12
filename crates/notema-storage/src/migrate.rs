@@ -1,7 +1,6 @@
 use crate::{AppResult, JournalStore, storage};
 use anyhow::{Context, bail};
 use chrono::Local;
-use nanoid::nanoid;
 use notema_encryption::{self as crypto, KeyPaths};
 use std::{
     ffi::OsStr,
@@ -614,7 +613,8 @@ fn disabled_path_for_timestamp(path: &Path, stem: &str, ext: &str, timestamp: &s
     }
 
     for _ in 0..32 {
-        let candidate = parent.join(format!("{stem}.disabled-{timestamp}-{}.{ext}", nanoid!(6)));
+        let candidate =
+            parent.join(format!("{stem}.disabled-{timestamp}-{}.{ext}", storage::random_id(6)));
         if !candidate.exists() {
             return candidate;
         }

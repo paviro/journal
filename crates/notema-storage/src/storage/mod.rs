@@ -16,8 +16,8 @@ pub use entry::{
 };
 pub(crate) use entry::{
     EntryCodec, collect_entry_paths, create_entry, delete_empty_entry, delete_journal,
-    is_encrypted_entry_file, is_plain_entry_file, move_entry_to_trash, read_entries, read_entry,
-    read_entry_content, resolve_entry_asset_path, save_entry_edit, scan_entries,
+    is_encrypted_entry_file, is_plain_entry_file, move_entry_to_trash, random_id, read_entries,
+    read_entry, read_entry_content, resolve_entry_asset_path, save_entry_edit, scan_entries,
     scan_import_sources,
 };
 pub use journals::{ARCHIVED_SUFFIX, Journal, is_archived_name, journal_display_name};

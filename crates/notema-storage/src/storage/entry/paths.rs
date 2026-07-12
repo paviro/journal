@@ -1,16 +1,25 @@
 use chrono::{DateTime, FixedOffset};
-#[cfg(test)]
-use nanoid::nanoid;
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
 };
 
-pub(crate) const ENTRY_ID_LEN: usize = 12;
+pub(crate) const ENTRY_ID_LEN: usize = 4;
+
+/// Random alphanumeric id (`A–Z a–z 0–9`) of the given length, used as the
+/// filename stem suffix for entries and assets.
+pub(crate) fn random_id(len: usize) -> String {
+    use rand::{Rng, distr::Alphanumeric};
+    rand::rng()
+        .sample_iter(Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect()
+}
 
 #[cfg(test)]
 pub(crate) fn entry_path(root: &Path, journal: &str, now: DateTime<FixedOffset>) -> PathBuf {
-    entry_path_with_id(root, journal, now, &nanoid!(ENTRY_ID_LEN))
+    entry_path_with_id(root, journal, now, &random_id(ENTRY_ID_LEN))
 }
 
 pub(crate) fn entry_path_with_id(

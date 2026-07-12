@@ -12,10 +12,9 @@
 
 mod net;
 
-use super::paths::{entry_assets_dir, entry_assets_dir_name};
+use super::paths::{entry_assets_dir, entry_assets_dir_name, random_id};
 use crate::AppResult;
 use anyhow::bail;
-use nanoid::nanoid;
 use net::{FetchError, fetch_source};
 use notema_encryption::{self as crypto, KeyPaths};
 use std::{
@@ -26,7 +25,7 @@ use std::{
 };
 
 /// Length of the random id used as an asset's filename stem.
-const ASSET_ID_LEN: usize = 4;
+const ASSET_ID_LEN: usize = 8;
 /// Bounded retry count when allocating a collision-free asset id.
 const ASSET_ID_ATTEMPTS: usize = 32;
 
@@ -285,7 +284,7 @@ fn write_asset(ctx: &mut IngestContext<'_>, bytes: &[u8], ext: &str) -> AppResul
     fs::create_dir_all(ctx.assets_dir)?;
 
     for _ in 0..ASSET_ID_ATTEMPTS {
-        let id = nanoid!(ASSET_ID_LEN);
+        let id = random_id(ASSET_ID_LEN);
         if !ctx.asset_ids.insert(id.clone()) {
             continue;
         }

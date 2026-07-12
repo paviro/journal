@@ -2,12 +2,11 @@ use super::Metadata;
 use super::assets::{AssetReport, ingest_and_cleanup_opts};
 use super::codec::EntryCodec;
 use super::paths::{
-    ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_assets_dir, entry_path_with_id,
+    ENTRY_ID_LEN, encrypted_entry_path_with_id, entry_assets_dir, entry_path_with_id, random_id,
 };
 use crate::AppResult;
 use anyhow::bail;
 use chrono::{DateTime, FixedOffset, Local};
-use nanoid::nanoid;
 use notema_domain::{AirQuality, Celestial, ImportSource, Location, Weather};
 use std::{
     fs::{self, OpenOptions},
@@ -83,7 +82,7 @@ pub(crate) fn create_entry(
         .or_else(|| local_timezone.as_ref().and_then(Option::as_deref));
 
     for _ in 0..ENTRY_CREATE_ATTEMPTS {
-        let id = nanoid!(ENTRY_ID_LEN);
+        let id = random_id(ENTRY_ID_LEN);
         let path = if codec.encrypts_new_entries() {
             encrypted_entry_path_with_id(root, draft.journal, created_at, &id)
         } else {

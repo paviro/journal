@@ -39,7 +39,6 @@ image = { version = "0.25", default-features = false }
 indicatif = "0.18.4"
 libc = "0.2"
 moxcms = "0.8"
-nanoid = "0.5.0"
 notify = "8.2.0"
 nucleo = "0.5.0"
 open = "5"

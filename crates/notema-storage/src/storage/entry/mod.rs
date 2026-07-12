@@ -22,7 +22,7 @@ pub(crate) use edit::{delete_empty_entry, delete_journal, move_entry_to_trash, s
 #[cfg(test)]
 pub(super) use paths::entry_path;
 pub use paths::{entry_id, is_entry_file};
-pub(crate) use paths::{is_encrypted_entry_file, is_plain_entry_file};
+pub(crate) use paths::{is_encrypted_entry_file, is_plain_entry_file, random_id};
 pub(crate) use read::{
     collect_entry_paths, read_entries, read_entry, read_entry_content, scan_entries,
     scan_import_sources,

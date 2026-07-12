@@ -15,7 +15,7 @@ chrono.workspace = true
 iana-time-zone.workspace = true
 image = { workspace = true, features = ["jpeg", "png", "gif", "webp", "bmp"] }
 moxcms.workspace = true
-nanoid.workspace = true
+rand.workspace = true
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
