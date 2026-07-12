@@ -117,6 +117,7 @@ impl App {
     /// resolved immediately and enriched with names in the background; anything
     /// else is treated as an address. No-op on an empty query.
     pub(crate) fn resolve_location_query(&mut self) {
+        let id = self.next_geocode_id;
         let dispatch = {
             let Some(state) = self.edit_location_state_mut() else {
                 return;
@@ -125,8 +126,6 @@ impl App {
             if query.is_empty() {
                 return;
             }
-            let id = state.next_request_id;
-            state.next_request_id += 1;
             state.pending_request_id = Some(id);
             state.status = LocationResolveStatus::Resolving;
             let query = match parse_coordinates(&query) {
@@ -142,6 +141,7 @@ impl App {
             };
             GeocodeRequest { id, query }
         };
+        self.next_geocode_id += 1;
         self.geocode.request(dispatch, crate::tui::geocode::resolve);
     }
 
@@ -149,12 +149,11 @@ impl App {
     /// The grab and the reverse lookup both run on the worker thread, so the dialog
     /// just shows "Resolving…" until the fix (or a failure) comes back.
     pub(crate) fn grab_device_location(&mut self) {
+        let id = self.next_geocode_id;
         let dispatch = {
             let Some(state) = self.edit_location_state_mut() else {
                 return;
             };
-            let id = state.next_request_id;
-            state.next_request_id += 1;
             state.pending_request_id = Some(id);
             state.status = LocationResolveStatus::Resolving;
             GeocodeRequest {
@@ -162,6 +161,7 @@ impl App {
                 query: GeocodeQuery::Device,
             }
         };
+        self.next_geocode_id += 1;
         self.geocode.request(dispatch, crate::tui::geocode::resolve);
     }
 
@@ -248,9 +248,8 @@ pub(crate) struct EditLocationState {
     /// in the address field commits instead of re-querying; editing the query
     /// clears it (and the shown result), flipping Enter back to "look up".
     pub(crate) query_looked_up: bool,
-    /// Id assigned to the next dispatched request; the in-flight one is kept in
-    /// `pending_request_id` so a late reply for an older query can be dropped.
-    pub(crate) next_request_id: u64,
+    /// The in-flight request's id (allocated from the app-level counter) so a late
+    /// reply for an older query can be dropped.
     pub(crate) pending_request_id: Option<u64>,
 }
 
@@ -278,7 +277,6 @@ impl EditLocationState {
             list: SelectableList::default(),
             focus: EditLocationFocus::Query,
             status: LocationResolveStatus::Idle,
-            next_request_id: 0,
             pending_request_id: None,
         };
         state.normalize_list_state();

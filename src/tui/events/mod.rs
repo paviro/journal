@@ -65,10 +65,29 @@ pub(crate) fn poll_fetching_environment(app: &mut App) -> AppResult<bool> {
         editor.pending_environment = None;
     }
     app.close_overlay();
-    if let Err(error) = save_internal_editor(app) {
+    if let Err(error) = save_editor_with_reader_restore(app) {
         report_action_error(app, &error);
     }
     Ok(true)
+}
+
+/// Save the open editor and, for an edit of an existing entry, restore the
+/// reader's selection/scroll/fullscreen afterward (the reload can reorder
+/// entries). Shared by the direct `EditorSave` action and the deferred re-run
+/// after a pending environment fetch, so both restore the reader identically.
+fn save_editor_with_reader_restore(app: &mut App) -> AppResult<()> {
+    let restore_existing = matches!(
+        app.editor.as_ref().map(|editor| &editor.target),
+        Some(EditorTarget::Existing { .. })
+    );
+    let snapshot = restore_existing
+        .then(|| ReaderSnapshot::capture(app))
+        .flatten();
+    save_internal_editor(app)?;
+    if restore_existing && app.editor.is_none() {
+        restore_reader_or_close(app, snapshot);
+    }
+    Ok(())
 }
 
 pub(crate) fn dispatch_action(
@@ -164,19 +183,7 @@ fn apply_action(
             app.exit_search();
         }
         Action::EditSelected => app.open_editor_for_selected(),
-        Action::EditorSave => {
-            let restore_existing = matches!(
-                app.editor.as_ref().map(|editor| &editor.target),
-                Some(EditorTarget::Existing { .. })
-            );
-            let snapshot = restore_existing
-                .then(|| ReaderSnapshot::capture(app))
-                .flatten();
-            save_internal_editor(app)?;
-            if restore_existing && app.editor.is_none() {
-                restore_reader_or_close(app, snapshot);
-            }
-        }
+        Action::EditorSave => save_editor_with_reader_restore(app)?,
         Action::EditorRequestDiscard => request_editor_discard(app),
         Action::EditorDiscard => app.cancel_editor(),
         Action::EditorToggleFullscreen => {

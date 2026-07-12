@@ -23,7 +23,7 @@ use ratatui::{
     widgets::{ListState, Paragraph},
 };
 
-use super::app::{App, ReaderImageHits, single_panel_is_active};
+use super::app::{App, InsightsScrollGeometry, ReaderImageHits, single_panel_is_active};
 use super::editor_state::EditorPrompt;
 #[cfg(test)]
 pub(crate) use super::entry_rows::entry_row_metadata;
@@ -127,6 +127,12 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App) {
     // Cleared each frame; the entry-view render repopulates it when an entry is
     // shown, so a stale hit-map can't leak onto insights or empty views.
     app.reader_image_hits = ReaderImageHits::default();
+
+    // Same reasoning for the insights scroll geometry: only re-recorded while
+    // insights is drawn, so without this reset its stale rect (which overlaps the
+    // reader) would keep capturing wheel/scrollbar input over the reader and flip
+    // focus back to insights.
+    app.insights_scroll = InsightsScrollGeometry::default();
 
     if app.reader_is_fullscreen(area.width) {
         let footer_height = expanded_footer_height(app, area.width).min(area.height);

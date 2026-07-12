@@ -440,9 +440,13 @@ pub(crate) struct App {
     pub(crate) backfill_inflight: Option<u64>,
     /// When the last backfill request was dispatched, for throttling.
     pub(crate) backfill_last_dispatch: Option<Instant>,
-    /// Id counter for environment requests not tied to the editor (backfill,
-    /// direct location-set write-backs).
+    /// Id counter for environment requests (editor fetches, backfill, direct
+    /// location-set write-backs) — app-level so ids never repeat across editor
+    /// sessions and a stale result can't be adopted by a later one.
     pub(crate) next_environment_id: u64,
+    /// Id counter for geocode requests, app-level for the same reason: a dialog
+    /// reopened while an earlier lookup is still in flight must not reuse its id.
+    pub(crate) next_geocode_id: u64,
     /// Clickable `[Image N …]` label positions from the last entry-view render.
     pub(crate) reader_image_hits: ReaderImageHits,
     pub(crate) reader_anchor_flash: Option<ReaderAnchorFlash>,
@@ -535,6 +539,7 @@ impl App {
             backfill_inflight: None,
             backfill_last_dispatch: None,
             next_environment_id: 0,
+            next_geocode_id: 0,
             reader_image_hits: ReaderImageHits::default(),
             reader_anchor_flash: None,
             insights_scroll: InsightsScrollGeometry::default(),

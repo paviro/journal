@@ -53,10 +53,8 @@ pub(crate) struct EntryEditor {
     pub(crate) text_rect: Rect,
     /// Whether a left-button drag is currently extending a selection.
     pub(crate) mouse_selecting: bool,
-    /// Id assigned to the next background environment fetch, bumped each time the
-    /// location changes so a stale reply for an older location is ignored.
-    pub(crate) environment_request_id: u64,
-    /// The in-flight environment fetch's id, or `None` when nothing is outstanding.
+    /// The in-flight environment fetch's id (allocated from the app-level counter),
+    /// or `None` when nothing is outstanding.
     pub(crate) pending_environment: Option<u64>,
     /// The landed environment for the current location, attached to the entry on save.
     pub(crate) environment: Option<crate::tui::environment::Environment>,
@@ -82,7 +80,6 @@ impl EntryEditor {
             prompt: EditorPrompt::None,
             text_rect: Rect::default(),
             mouse_selecting: false,
-            environment_request_id: 0,
             pending_environment: None,
             environment: None,
             last_highlight_src: None,
@@ -100,7 +97,6 @@ impl EntryEditor {
             prompt: EditorPrompt::None,
             text_rect: Rect::default(),
             mouse_selecting: false,
-            environment_request_id: 0,
             pending_environment: None,
             environment: None,
             last_highlight_src: None,

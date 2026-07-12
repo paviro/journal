@@ -39,7 +39,7 @@ impl App {
     /// A cleared or coordless location just abandons any pending fetch and result.
     pub(crate) fn spawn_editor_environment(&mut self) {
         let datetime = self.editor_context_datetime();
-        let request = {
+        let coordinates = {
             let Some(editor) = self.editor.as_mut() else {
                 return;
             };
@@ -48,18 +48,25 @@ impl App {
                 editor.environment = None;
                 return;
             };
-            editor.environment_request_id += 1;
-            let id = editor.environment_request_id;
+            coordinates
+        };
+        // Allocate from the app-level counter so a stale result from a discarded
+        // editor session can't share an id with this one and be mistaken for it.
+        self.next_environment_id += 1;
+        let id = self.next_environment_id;
+        if let Some(editor) = self.editor.as_mut() {
             editor.pending_environment = Some(id);
             editor.environment = None;
+        }
+        self.environment.request(
             EnvironmentRequest {
                 id,
                 coordinates,
                 datetime,
                 target: EnvironmentTarget::Editor,
-            }
-        };
-        self.environment.request(request, resolve);
+            },
+            resolve,
+        );
     }
 
     /// Spawn a background environment fetch whose result is written back to `path`
