@@ -27,6 +27,7 @@ mod signing;
 mod tests;
 
 pub use age::secrecy::{ExposeSecret, SecretString};
+pub use zeroize::Zeroizing;
 
 pub use cipher::{
     CiphertextBytes, EncryptionRecipients, PlaintextBytes, decrypt_file_bytes, encrypt_bytes,

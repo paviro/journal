@@ -259,10 +259,14 @@ fn decrypt_identity(
         KeyMaterial::Encrypted(armor) => {
             let passphrase = passphrase.ok_or(EncryptionError::PassphraseRequired)?;
             let identity = age::scrypt::Identity::new(passphrase.clone());
-            Zeroizing::new(String::from_utf8(age::decrypt(
-                &identity,
-                armor.as_bytes(),
-            )?)?)
+            let plaintext = age::decrypt(&identity, armor.as_bytes())?;
+            // On invalid UTF-8, FromUtf8Error would carry the decrypted secret
+            // bundle unzeroized (and expose it via Debug); drop those bytes inside
+            // a Zeroizing and report a plain malformed-identity error instead.
+            Zeroizing::new(String::from_utf8(plaintext).map_err(|error| {
+                drop(Zeroizing::new(error.into_bytes()));
+                EncryptionError::MalformedStoredIdentity
+            })?)
         }
         KeyMaterial::Plain(plain) => plain.clone(),
     };

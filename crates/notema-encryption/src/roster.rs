@@ -271,7 +271,14 @@ pub(crate) fn append(
 ) -> Result<RosterOp> {
     let ops = read_ops(path)?;
     let (seq, prev_hash) = match ops.last() {
-        Some(last) => (last.seq + 1, last.hash()?),
+        Some(last) => (
+            last.seq
+                .checked_add(1)
+                .ok_or(EncryptionError::RosterUnverified {
+                    detail: "roster sequence overflow".to_string(),
+                })?,
+            last.hash()?,
+        ),
         None => (0, String::new()),
     };
     let mut op = RosterOp {

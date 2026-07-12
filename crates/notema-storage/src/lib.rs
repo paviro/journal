@@ -495,8 +495,13 @@ impl JournalStore {
         let old_key = old.public_key();
         let root = self.paths.journal_root.clone();
 
-        let identity_backup = crypto::read_identity_file_bytes(&self.paths.keys)?;
-        let trust_backup = fs::read(&self.paths.keys.trust_file).ok();
+        // The identity file holds this device's private key (plaintext in the
+        // no-passphrase case); keep the rotation backup zeroized. Use
+        // read_optional_file so a transient read error isn't mistaken for "no
+        // pins" and then delete the rollback pins on restore.
+        let identity_backup =
+            crypto::Zeroizing::new(crypto::read_identity_file_bytes(&self.paths.keys)?);
+        let trust_backup = read_optional_file(&self.paths.keys.trust_file)?;
         let backup = migrate::backup_store(&root)?;
 
         let result = (|| -> AppResult<MigrationSummary> {
