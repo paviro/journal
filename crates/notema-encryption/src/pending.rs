@@ -64,24 +64,28 @@ pub fn read_pending(paths: &KeyPaths) -> Result<Vec<PendingRequest>> {
         else {
             continue;
         };
-        let text = fs::read_to_string(entry.path())?;
-        let parsed = toml::from_str::<PendingFile>(&text)?;
+        // Anyone who can write the synced `.age/` folder can drop a malformed or
+        // forged `pending-*.toml`; a request grants nothing until a current
+        // recipient approves it, so a bad file is skipped rather than allowed to
+        // deny access on every device that lists pending requests. Directory-read
+        // errors above still propagate — those are local and not attacker-planted.
+        let Ok(text) = fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let Ok(parsed) = toml::from_str::<PendingFile>(&text) else {
+            continue;
+        };
         if parsed.schema_version != 1 {
-            return Err(crate::EncryptionError::UnsupportedSchema {
-                kind: "pending request",
-                version: parsed.schema_version,
-            });
+            continue;
         }
-        // Drop a request whose self-signature doesn't check out: it was corrupted
+        // Skip a request whose self-signature doesn't check out: it was corrupted
         // or forged in the synced folder. A genuine device can re-submit.
         if !verify_signature(
             &parsed.recipient.sign_key,
             &pending_signing_bytes(&parsed.recipient)?,
             &parsed.sig,
         ) {
-            return Err(crate::EncryptionError::RosterUnverified {
-                detail: format!("pending request {id} has an invalid self-signature"),
-            });
+            continue;
         }
         requests.push(PendingRequest {
             id: id.to_string(),

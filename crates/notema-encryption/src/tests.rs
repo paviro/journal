@@ -112,13 +112,25 @@ fn pending_request_round_trips_and_clears() {
 }
 
 #[test]
-fn malformed_pending_request_fails_closed() {
+fn malformed_pending_request_is_skipped_not_fatal() {
     let dir = tempdir().unwrap();
-    let paths = paths_in(dir.path());
-    fs::create_dir_all(&paths.age_dir).unwrap();
-    fs::write(paths.age_dir.join("pending-bad.toml"), "not valid = [").unwrap();
+    let laptop = paths_in(dir.path());
+    let phone = KeyPaths::for_config(
+        &dir.path().join("phone").join("config.toml"),
+        &dir.path().join("journals"),
+    )
+    .unwrap();
 
-    assert!(read_pending(&paths).is_err());
+    initialize_store_identity(&laptop, "laptop", Some(&SecretString::from("pw"))).unwrap();
+    request_store_access(&phone, "phone", None).unwrap();
+
+    // A junk file dropped into the synced folder (corrupt, forged, or a
+    // sync-conflict copy) must not deny access — it is skipped, and the genuine
+    // request still lists.
+    fs::write(laptop.age_dir.join("pending-bad.toml"), "not valid = [").unwrap();
+    let pending = read_pending(&laptop).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].recipient.name, "phone");
 }
 
 #[test]
