@@ -1,6 +1,6 @@
 use pulldown_cmark::{
-    Alignment as MarkdownAlignment, CodeBlockKind, Event as MarkdownEvent, HeadingLevel,
-    Options as MarkdownOptions, Parser as MarkdownParser, Tag as MarkdownTag,
+    Alignment as MarkdownAlignment, BlockQuoteKind, CodeBlockKind, Event as MarkdownEvent,
+    HeadingLevel, Options as MarkdownOptions, Parser as MarkdownParser, Tag as MarkdownTag,
     TagEnd as MarkdownTagEnd,
 };
 use ratatui::{
@@ -72,8 +72,22 @@ struct MarkdownTerminalRenderer {
 }
 
 enum Container {
-    Quote,
+    /// A blockquote. `Some(kind)` is a GitHub-style alert (`> [!NOTE]` …), which
+    /// recolors the rail and carries a header; `None` is a plain quote.
+    Quote(Option<BlockQuoteKind>),
     List(MarkdownList),
+}
+
+/// The icon, label, and role style for a GitHub-style alert kind. Icons stay
+/// ASCII (guaranteed width 1) so the rail's column math never drifts.
+fn alert_meta(kind: BlockQuoteKind) -> (&'static str, &'static str, Style) {
+    match kind {
+        BlockQuoteKind::Note => ("i", "NOTE", theme().info()),
+        BlockQuoteKind::Tip => ("*", "TIP", theme().success()),
+        BlockQuoteKind::Important => ("!", "IMPORTANT", theme().primary()),
+        BlockQuoteKind::Warning => ("!", "WARNING", theme().warning()),
+        BlockQuoteKind::Caution => ("!", "CAUTION", theme().error()),
+    }
 }
 
 struct MarkdownList {
@@ -212,9 +226,17 @@ impl MarkdownTerminalRenderer {
                 self.push_style(style);
                 self.push_span(&format!("{} ", "#".repeat(level as usize)), style);
             }
-            MarkdownTag::BlockQuote(_) => {
+            MarkdownTag::BlockQuote(kind) => {
                 self.begin_block();
-                self.containers.push(Container::Quote);
+                self.containers.push(Container::Quote(kind));
+                if let Some(kind) = kind {
+                    let (icon, label, style) = alert_meta(kind);
+                    self.push_span(
+                        &format!("{icon} {label}"),
+                        style.add_modifier(Modifier::BOLD),
+                    );
+                    self.finish_current(false);
+                }
             }
             MarkdownTag::CodeBlock(kind) => {
                 self.begin_block();
@@ -493,7 +515,7 @@ impl MarkdownTerminalRenderer {
             .rev()
             .find_map(|container| match container {
                 Container::List(list) => Some(list),
-                Container::Quote => None,
+                Container::Quote(_) => None,
             })
     }
 
@@ -507,8 +529,10 @@ impl MarkdownTerminalRenderer {
         let mut spans = Vec::new();
         for container in &mut self.containers {
             match container {
-                Container::Quote => {
-                    spans.push(Span::styled("│ ", theme().md_blockquote()));
+                Container::Quote(kind) => {
+                    let style =
+                        kind.map_or_else(|| theme().md_blockquote(), |kind| alert_meta(kind).2);
+                    spans.push(Span::styled("│ ", style));
                 }
                 Container::List(list) if list.in_item => {
                     if markers && list.first_line {
@@ -1184,6 +1208,64 @@ mod wrap_tests {
                 .any(|line| line == "  │ This is a blockquote"),
             "{visible:?}"
         );
+    }
+
+    #[test]
+    fn gfm_alert_renders_a_header_and_recolors_the_rail() {
+        let lines = render_lines("> [!WARNING]\n> Critical content here.", 40);
+        let visible: Vec<String> = lines.iter().map(text).collect();
+
+        assert_eq!(visible[0], "│ ! WARNING");
+        assert_eq!(visible[1], "│ Critical content here.");
+        // The parser consumed the marker — it never leaks into the body.
+        assert!(!visible.iter().any(|line| line.contains("[!WARNING]")));
+        // Rail and header both carry the warning role; the header is bold.
+        assert_eq!(lines[0].spans[0].style, theme().warning());
+        assert_eq!(
+            lines[0].spans[1].style,
+            theme().warning().add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(lines[1].spans[0].style, theme().warning());
+    }
+
+    #[test]
+    fn every_gfm_alert_kind_gets_its_label() {
+        for (marker, header) in [
+            ("NOTE", "i NOTE"),
+            ("TIP", "* TIP"),
+            ("IMPORTANT", "! IMPORTANT"),
+            ("WARNING", "! WARNING"),
+            ("CAUTION", "! CAUTION"),
+        ] {
+            let visible: Vec<String> = render_lines(&format!("> [!{marker}]\n> body"), 40)
+                .iter()
+                .map(text)
+                .collect();
+            assert_eq!(visible[0], format!("│ {header}"));
+            assert_eq!(visible[1], "│ body");
+        }
+    }
+
+    #[test]
+    fn plain_blockquote_keeps_its_neutral_rail_and_no_header() {
+        let lines = render_lines("> just a quote", 40);
+        let visible: Vec<String> = lines.iter().map(text).collect();
+
+        assert_eq!(visible, ["│ just a quote"]);
+        assert_eq!(lines[0].spans[0].style, theme().md_blockquote());
+    }
+
+    #[test]
+    fn gfm_alert_body_wraps_under_a_continuing_rail() {
+        let visible: Vec<String> = render_lines("> [!NOTE]\n> alpha beta gamma delta", 10)
+            .iter()
+            .map(text)
+            .collect();
+
+        assert_eq!(visible[0], "│ i NOTE");
+        assert!(visible[1..].iter().all(|line| line.starts_with("│ ")));
+        assert!(visible.iter().any(|line| line.contains("alpha")));
+        assert!(visible.iter().any(|line| line.contains("delta")));
     }
 
     #[test]

@@ -442,7 +442,7 @@ impl App {
             return Some((
                 format!("! {title}"),
                 format!(
-                    "> [! WARNING] {warning}. Editing is disabled.\n\n{}",
+                    "> [!WARNING]\n> {warning}. Editing is disabled.\n\n{}",
                     entry.body
                 ),
             ));
