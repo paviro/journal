@@ -11,7 +11,7 @@ use zeroize::Zeroizing;
 
 use crate::path_policy::{
     BackingFile, backing_for_new_file, existing_file, is_directory, is_protected_path,
-    is_rejected_system_name, visible_entries, with_age,
+    is_rejected_system_name, is_shadowed_age_alias, visible_entries, with_age,
 };
 
 /// An open file: the whole file buffered as plaintext bytes, its on-disk path
@@ -381,6 +381,12 @@ fn create(
         return -libc::ENOENT;
     }
     let base = base_of(ctx, path);
+    // Never let a raw `.age` alias of an encrypted entry be created directly;
+    // readdir hides it and a write through it would land plaintext beside the
+    // real ciphertext.
+    if is_shadowed_age_alias(&base) {
+        return -libc::EACCES;
+    }
     if existing_file(&base).is_some() {
         return -libc::EEXIST;
     }
@@ -706,6 +712,12 @@ fn rename(ctx: *mut c_void, from: *const c_char, to: *const c_char, flags: u32) 
     }
     let from_base = base_of(ctx, from);
     let to_base = base_of(ctx, to);
+    // Reject either side being a raw `.age` alias of an encrypted entry: the
+    // source would be an invisible file, the destination a plaintext shadow of
+    // the real ciphertext.
+    if is_shadowed_age_alias(&from_base) || is_shadowed_age_alias(&to_base) {
+        return -libc::EACCES;
+    }
     // Honor RENAME_NOREPLACE: never clobber an existing destination when the
     // caller asked us not to. std::fs::rename overwrites unconditionally.
     if flags & RENAME_NOREPLACE != 0

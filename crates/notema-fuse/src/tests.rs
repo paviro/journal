@@ -250,6 +250,56 @@ fn create_write_release_encrypts_and_round_trips() {
 }
 
 #[test]
+fn shadowed_age_alias_is_not_addressable() {
+    let dir = tempfile::tempdir().unwrap();
+    // The raw ciphertext name of an encrypted entry is hidden…
+    let entry = dir.path().join("x.md.age");
+    std::fs::write(&entry, b"age-encryption.org/ ...").unwrap();
+    assert_eq!(existing_file(&dir.path().join("x.md.age")), None);
+    // …but a plain sidecar like foo.txt.age stays a real, resolvable file.
+    let plain = dir.path().join("foo.txt.age");
+    std::fs::write(&plain, b"ct").unwrap();
+    assert_eq!(
+        existing_file(&plain),
+        Some(BackingFile {
+            path: plain,
+            encoding: StoreFileEncoding::Plain,
+        })
+    );
+}
+
+#[test]
+fn writing_through_age_alias_cannot_overwrite_ciphertext_with_plaintext() {
+    let fx = Fixture::new();
+    fx.mkdir_p("diary");
+    write_new(&fx, "/diary/note.md", b"secret body");
+    let disk = fx.root().join("diary/note.md.age");
+    let ciphertext = std::fs::read(&disk).unwrap();
+
+    // getattr, open, and create through the raw .age name must all be refused,
+    // so no writable handle onto the ciphertext can ever exist.
+    let alias = cpath("/diary/note.md.age");
+    let mut stat = empty_stat();
+    assert_eq!(
+        jf_getattr(fx.ctx, alias.as_ptr(), &mut stat),
+        -libc::ENOENT
+    );
+    let mut fh = 0u64;
+    assert_eq!(
+        jf_open(fx.ctx, alias.as_ptr(), libc::O_RDWR, &mut fh),
+        -libc::ENOENT
+    );
+    assert_eq!(
+        jf_create(fx.ctx, alias.as_ptr(), 0o644, libc::O_WRONLY, &mut fh),
+        -libc::EACCES
+    );
+
+    // The ciphertext is untouched and still decrypts.
+    assert_eq!(std::fs::read(&disk).unwrap(), ciphertext);
+    assert_eq!(fx.read_disk(&disk), b"secret body");
+}
+
+#[test]
 fn open_reads_at_offset() {
     let fx = Fixture::new();
     fx.mkdir_p("diary");

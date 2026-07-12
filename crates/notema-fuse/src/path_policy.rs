@@ -35,9 +35,21 @@ pub(super) fn is_directory(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// A mounted path that is itself the raw `.age` name of an entry the store
+/// encrypts (`x.md.age`, not `foo.txt.age`). Readdir hides these behind their
+/// stripped name, so resolving them would expose a second, writable handle onto
+/// the ciphertext — through which a plain write would overwrite it with
+/// plaintext. Such aliases must read as if they do not exist.
+pub(super) fn is_shadowed_age_alias(base: &Path) -> bool {
+    strip_age_path(base).is_some_and(|stripped| should_encrypt_new_file(&stripped))
+}
+
 /// Resolve a mounted file's actual on-disk path: the encrypted `<base>.age` if
 /// it exists, else the plain `<base>`, else `None` when neither exists.
 pub(super) fn existing_file(base: &Path) -> Option<BackingFile> {
+    if is_shadowed_age_alias(base) {
+        return None;
+    }
     let encrypted = with_age(base);
     if is_regular_file(&encrypted) {
         Some(BackingFile {
