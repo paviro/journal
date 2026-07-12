@@ -10,20 +10,40 @@ env:
   RUSTDOCFLAGS: "-D warnings"
 
 jobs:
-  quality:
+  fmt:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.96.0
-          components: clippy, rustfmt
-      - run: sudo apt-get update && sudo apt-get install --yes libfuse3-dev pkg-config
+          components: rustfmt
       - run: cargo fmt --all --check
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.96.0
+          components: clippy
+      - run: sudo apt-get update && sudo apt-get install --yes libfuse3-dev pkg-config
       - run: cargo check --workspace --all-targets --locked
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
-      - run: cargo doc --workspace --no-deps --locked
+      - if: ${{ !cancelled() }}
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - if: ${{ !cancelled() }}
+        run: cargo test --workspace --locked
+      - if: ${{ !cancelled() }}
+        run: cargo doc --workspace --no-deps --locked
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.96.0
       - run: cargo install cargo-audit --version 0.22.1 --locked
       - run: cargo audit --deny warnings --ignore RUSTSEC-2026-0173
 
@@ -34,8 +54,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.96.0
-      - run: brew install fuse-t pkg-config
-      - run: PKG_CONFIG_PATH="$(brew --prefix fuse-t)/lib/pkgconfig" cargo check --workspace --all-targets --locked
+      - run: brew install pkg-config
+      - run: brew install --cask fuse-t
+      - run: cargo check --workspace --all-targets --locked
 
   android-check:
     runs-on: ubuntu-latest
