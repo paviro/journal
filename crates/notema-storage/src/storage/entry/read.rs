@@ -182,23 +182,23 @@ pub(crate) fn read_entry(
     })
 }
 
+/// The `[import]` provenance of one entry, for dedupe during a re-import. An
+/// entry that can't be read (undecryptable, IO error) or whose front matter is
+/// malformed contributes no provenance rather than aborting the whole scan — a
+/// single bad file must not block importing everything else. The trade-off is
+/// that such an entry isn't matched for dedup, so it could re-import as a
+/// duplicate; that is preferable to failing the import outright.
 fn read_entry_import_source(
     path: &Path,
     identity: Option<&crypto::UnlockedIdentity>,
 ) -> AppResult<Option<ImportSource>> {
-    let content = match read_entry_content(path, identity) {
-        Ok(content) => content,
-        Err(_) if is_encrypted_entry_file(path) => return Ok(None),
-        Err(error) => return Err(error),
+    let Ok(content) = read_entry_content(path, identity) else {
+        return Ok(None);
     };
     let (front_matter, _) = split_front_matter(&content);
-    front_matter
-        .map(|front_matter| {
-            crate::markdown::parse_front_matter(front_matter)
-                .map(|parsed| parsed.import)
-                .map_err(anyhow::Error::new)
-        })
-        .unwrap_or(Ok(None))
+    Ok(front_matter
+        .and_then(|front_matter| crate::markdown::parse_front_matter(front_matter).ok())
+        .and_then(|parsed| parsed.import))
 }
 
 fn locked_entry(journal: &str, path: &Path) -> AppResult<Entry> {

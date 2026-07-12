@@ -109,7 +109,10 @@ pub(crate) fn highlight(language: &str, code: &str) -> Option<Vec<Line<'static>>
                     .last()
                     .map(|index| style_for(*index, syntax))
                     .unwrap_or_else(|| theme().md_code());
-                push_source(&mut lines, &code[start..end], style);
+                // Tree-sitter byte offsets are char-aligned in practice, but a
+                // non-boundary slice would panic mid-draw and take down the TUI;
+                // fall back to unhighlighted rendering instead.
+                push_source(&mut lines, code.get(start..end)?, style);
             }
             HighlightEvent::HighlightStart(Highlight(index)) => active.push(index),
             HighlightEvent::HighlightEnd => {

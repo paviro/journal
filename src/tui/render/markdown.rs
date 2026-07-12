@@ -622,7 +622,13 @@ impl MarkdownTerminalRenderer {
         let Some(code) = self.code.take() else {
             return;
         };
-        let language = code.language.split_whitespace().next().unwrap_or_default();
+        // GitHub info strings can carry attributes after the language, comma- or
+        // space-separated (```rust,ignore); take just the language token.
+        let language = code
+            .language
+            .split([' ', '\t', ','])
+            .next()
+            .unwrap_or_default();
         let header = if language.is_empty() {
             "╭─".to_string()
         } else {
