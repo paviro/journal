@@ -76,7 +76,13 @@ fn base_of(ctx: &Ctx, path: *const c_char) -> PathBuf {
 
 impl Ctx {
     pub(super) fn new(store: JournalStore) -> Self {
-        let root = store.root().to_path_buf();
+        // Canonicalize so a symlinked journal root (iCloud/Dropbox setups) still
+        // resolves: getattr("/") rejects a symlink, which would make the whole
+        // mount unusable otherwise. Fall back to the raw path if it can't resolve.
+        let root = store
+            .root()
+            .canonicalize()
+            .unwrap_or_else(|_| store.root().to_path_buf());
         Self {
             store,
             root,
@@ -114,7 +120,11 @@ impl Ctx {
     /// live buffer so `stat` stays consistent mid-edit.
     fn file_size(&self, file: &BackingFile) -> AppResult<u64> {
         let inner = self.lock();
-        if let Some(handle) = inner.handles.values().find(|h| h.on_disk == file.path) {
+        if let Some(handle) = inner
+            .handles
+            .values()
+            .find(|h| h.on_disk == file.path && !h.deleted)
+        {
             return Ok(u64::try_from(handle.buf.len())?);
         }
         drop(inner);
@@ -551,19 +561,25 @@ fn truncate(ctx: *mut c_void, path: *const c_char, size: i64, _fh: u64, _has_fh:
     // `>`-style truncation as a standalone SETATTR, decoupled from the write's
     // open handle — without this, a shorter rewrite would leave the old tail.
     let mut inner = ctx.lock();
-    let mut touched = false;
+    let mut committed = false;
     if let Some(file) = &file {
         for handle in inner
             .handles
             .values_mut()
-            .filter(|handle| handle.on_disk == file.path)
+            .filter(|handle| handle.on_disk == file.path && !handle.deleted)
         {
             handle.buf.resize(size, 0);
-            handle.dirty = true;
-            touched = true;
+            // Only a writable handle will actually flush this on release; count
+            // the truncation as committed just for those. A read-only handle is
+            // resized for view consistency but can't persist it, so if that's all
+            // we have we must still rewrite the file on disk below.
+            if handle.writable {
+                handle.dirty = true;
+                committed = true;
+            }
         }
     }
-    if touched {
+    if committed {
         return 0;
     }
     drop(inner);

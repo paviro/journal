@@ -9,6 +9,7 @@
 // layout. Directory entries are emitted through `bridge_fill` for the same reason.
 
 #include <fuse.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/statvfs.h>
@@ -20,11 +21,15 @@ extern int jf_readdir(void *ctx, const char *path, void *buf, void *filler);
 extern int jf_open(void *ctx, const char *path, int flags, unsigned long long *fh_out);
 extern int jf_create(void *ctx, const char *path, unsigned int mode, int flags,
                      unsigned long long *fh_out);
-extern int jf_read(void *ctx, const char *path, char *buf, unsigned long size, long off,
+// Fixed-width off/size so the declarations match Rust's usize/i64 exactly on
+// every target: with _FILE_OFFSET_BITS=64 off_t is 64-bit even on ILP32, where a
+// bare `long` would be 32-bit and silently truncate the offset before the call.
+extern int jf_read(void *ctx, const char *path, char *buf, size_t size, int64_t off,
                    unsigned long long fh);
-extern int jf_write(void *ctx, const char *path, const char *buf, unsigned long size, long off,
+extern int jf_write(void *ctx, const char *path, const char *buf, size_t size, int64_t off,
                     unsigned long long fh);
-extern int jf_truncate(void *ctx, const char *path, long size, unsigned long long fh, int has_fh);
+extern int jf_truncate(void *ctx, const char *path, int64_t size, unsigned long long fh,
+                       int has_fh);
 extern int jf_unlink(void *ctx, const char *path);
 extern int jf_mkdir(void *ctx, const char *path, unsigned int mode);
 extern int jf_rmdir(void *ctx, const char *path);
