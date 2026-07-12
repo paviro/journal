@@ -344,9 +344,7 @@ dependencies = [
     "notarize-macos-intel",
     "notarize-macos-silicon",
     "notarize-macos-universal",
-    "notarize-fuse-macos-intel",
-    "notarize-fuse-macos-silicon",
-    "notarize-fuse-macos-universal"
+    "notarize-fuse-macos-silicon"
 ]
 
 # A release is signed and notarized, so refuse to start one without the Apple
@@ -466,14 +464,11 @@ xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$AP
 # journal as a decrypted filesystem). Links libfuse3, so it needs macFUSE or
 # fuse-t installed to build and run. Zips are `<platform>-fuse.zip`; builds go to
 # `target/fuse/` so they don't clobber the standard artifacts.
+#
+# `release` builds only the Apple Silicon FUSE artifact: pkg-config can't
+# cross-compile libfuse3, so an Intel or universal FUSE binary can't be built
+# from an Apple Silicon host. Intel Macs build `build-fuse-macos-intel` natively.
 # ------------------------------------------------------------------------------
-
-[tasks.build-fuse-macos-intel]
-description = "Build Intel macOS with FUSE"
-command = "cargo"
-args = ["build", "--release", "--features", "fuse", "--target", "x86_64-apple-darwin"]
-env = { CARGO_TARGET_DIR = "target/fuse" }
-env_files = ["./.env"]
 
 [tasks.build-fuse-macos-silicon]
 description = "Build Apple Silicon macOS with FUSE"
@@ -482,36 +477,11 @@ args = ["build", "--release", "--features", "fuse", "--target", "aarch64-apple-d
 env = { CARGO_TARGET_DIR = "target/fuse" }
 env_files = ["./.env"]
 
-[tasks.build-fuse-macos-universal]
-description = "Build universal macOS FUSE binary (Intel + Apple Silicon)"
-dependencies = ["build-fuse-macos-intel", "build-fuse-macos-silicon"]
-script = '''
-mkdir -p target/fuse/universal-apple-darwin/release
-lipo -create \
-    target/fuse/x86_64-apple-darwin/release/notema \
-    target/fuse/aarch64-apple-darwin/release/notema \
-    -output target/fuse/universal-apple-darwin/release/notema
-'''
-
 # macOS only: releases are built on a Mac, and the FUSE feature links libfuse3
 # (C), which doesn't cross-compile to Linux without a sysroot. Build the Linux
 # FUSE binary natively on Linux (see README).
 
 # Signing (macOS FUSE binaries)
-[tasks.sign-fuse-macos-intel]
-description = "Sign Intel macOS FUSE binary if APPLE_DEVELOPER_ID is set"
-dependencies = ["build-fuse-macos-intel"]
-env_files = ["./.env"]
-condition = { files_exist = ["./.env"] }
-script = '''
-BINARY_PATH="target/fuse/x86_64-apple-darwin/release/notema"
-if [ -z "$APPLE_DEVELOPER_ID" ]; then
-    echo "APPLE_DEVELOPER_ID not set, cannot sign Intel macOS FUSE binary." >&2
-    exit 1
-fi
-codesign --sign "$APPLE_DEVELOPER_ID" --timestamp --options runtime "$BINARY_PATH"
-'''
-
 [tasks.sign-fuse-macos-silicon]
 description = "Sign Apple Silicon macOS FUSE binary if APPLE_DEVELOPER_ID is set"
 dependencies = ["build-fuse-macos-silicon"]
@@ -526,33 +496,7 @@ fi
 codesign --sign "$APPLE_DEVELOPER_ID" --timestamp --options runtime "$BINARY_PATH"
 '''
 
-[tasks.sign-fuse-macos-universal]
-description = "Sign Universal macOS FUSE binary if APPLE_DEVELOPER_ID is set"
-dependencies = ["build-fuse-macos-universal"]
-env_files = ["./.env"]
-condition = { files_exist = ["./.env"] }
-script = '''
-BINARY_PATH="target/fuse/universal-apple-darwin/release/notema"
-if [ -z "$APPLE_DEVELOPER_ID" ]; then
-    echo "APPLE_DEVELOPER_ID not set, cannot sign Universal macOS FUSE binary." >&2
-    exit 1
-fi
-codesign --sign "$APPLE_DEVELOPER_ID" --timestamp --options runtime "$BINARY_PATH"
-'''
-
 # Packaging (FUSE): same `notema` binary, `<platform>-fuse.zip` name.
-[tasks.package-fuse-macos-intel]
-description = "Package Intel macOS FUSE binary"
-dependencies = ["create-release-dir", "sign-fuse-macos-intel"]
-script = '''
-BINARY_NAME="notema"
-PLATFORM="apple-darwin-x86_64-fuse"
-cp "target/fuse/x86_64-apple-darwin/release/${BINARY_NAME}" "release/"
-cd release
-zip "${PLATFORM}.zip" "${BINARY_NAME}"
-rm "${BINARY_NAME}"
-'''
-
 [tasks.package-fuse-macos-silicon]
 description = "Package Apple Silicon macOS FUSE binary"
 dependencies = ["create-release-dir", "sign-fuse-macos-silicon"]
@@ -565,34 +509,7 @@ zip "${PLATFORM}.zip" "${BINARY_NAME}"
 rm "${BINARY_NAME}"
 '''
 
-[tasks.package-fuse-macos-universal]
-description = "Package Universal macOS FUSE binary"
-dependencies = ["create-release-dir", "sign-fuse-macos-universal"]
-script = '''
-BINARY_NAME="notema"
-PLATFORM="apple-darwin-universal-fuse"
-cp "target/fuse/universal-apple-darwin/release/${BINARY_NAME}" "release/"
-cd release
-zip "${PLATFORM}.zip" "${BINARY_NAME}"
-rm "${BINARY_NAME}"
-'''
-
 # Notarization (macOS FUSE zips)
-[tasks.notarize-fuse-macos-intel]
-description = "Notarize Intel macOS FUSE zip"
-dependencies = ["package-fuse-macos-intel"]
-env_files = ["./.env"]
-condition = { files_exist = ["./.env"] }
-script = '''
-ZIP_PATH="release/apple-darwin-x86_64-fuse.zip"
-TEAM_ID=$(echo "$APPLE_DEVELOPER_ID" | sed -n 's/.*(\(.*\)).*/\1/p')
-if [ -z "$APPLE_USERNAME" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$TEAM_ID" ]; then
-    echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID team id not set, cannot notarize Intel macOS FUSE zip." >&2
-    exit 1
-fi
-xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
-'''
-
 [tasks.notarize-fuse-macos-silicon]
 description = "Notarize Apple Silicon macOS FUSE zip"
 dependencies = ["package-fuse-macos-silicon"]
@@ -608,36 +525,17 @@ fi
 xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
 '''
 
-[tasks.notarize-fuse-macos-universal]
-description = "Notarize Universal macOS FUSE zip"
-dependencies = ["package-fuse-macos-universal"]
-env_files = ["./.env"]
-condition = { files_exist = ["./.env"] }
-script = '''
-ZIP_PATH="release/apple-darwin-universal-fuse.zip"
-TEAM_ID=$(echo "$APPLE_DEVELOPER_ID" | sed -n 's/.*(\(.*\)).*/\1/p')
-if [ -z "$APPLE_USERNAME" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$TEAM_ID" ]; then
-    echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID team id not set, cannot notarize Universal macOS FUSE zip." >&2
-    exit 1
-fi
-xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
-'''
-
 # Combined FUSE build/package/release
 [tasks.build-fuse-macos-all]
 description = "Build all macOS FUSE targets"
 dependencies = [
-    "build-fuse-macos-intel",
-    "build-fuse-macos-silicon",
-    "build-fuse-macos-universal"
+    "build-fuse-macos-silicon"
 ]
 
 [tasks.package-fuse-macos-all]
 description = "Package all macOS FUSE binaries"
 dependencies = [
-    "package-fuse-macos-intel",
-    "package-fuse-macos-silicon",
-    "package-fuse-macos-universal"
+    "package-fuse-macos-silicon"
 ]
 
 # Build and package the macOS FUSE release: signed + notarized `-fuse` zips.
@@ -648,10 +546,30 @@ dependencies = [
     "run-tests",
     "build-fuse-macos-all",
     "package-fuse-macos-all",
-    "notarize-fuse-macos-intel",
-    "notarize-fuse-macos-silicon",
-    "notarize-fuse-macos-universal"
+    "notarize-fuse-macos-silicon"
 ]
+
+# Intel macOS FUSE, built natively on an Intel Mac (needs macFUSE or fuse-t).
+# Not in the release aggregates: libfuse3 can't cross-compile to x86_64. Unsigned
+# zip, like the Linux FUSE tasks.
+[tasks.build-fuse-macos-intel]
+description = "Build Intel macOS with FUSE (run on an Intel Mac)"
+command = "cargo"
+args = ["build", "--release", "--features", "fuse", "--target", "x86_64-apple-darwin"]
+env = { CARGO_TARGET_DIR = "target/fuse" }
+env_files = ["./.env"]
+
+[tasks.package-fuse-macos-intel]
+description = "Package Intel macOS FUSE binary (unsigned)"
+dependencies = ["create-release-dir", "build-fuse-macos-intel"]
+script = '''
+BINARY_NAME="notema"
+PLATFORM="apple-darwin-x86_64-fuse"
+cp "target/fuse/x86_64-apple-darwin/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
 
 # ------------------------------------------------------------------------------
 # Linux FUSE builds — run natively on Linux (needs libfuse3-dev). Not part of the
