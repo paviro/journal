@@ -1,42 +1,27 @@
-use notema_domain::{Entry, EntryEncryptionState, SearchHit, SearchScope};
-use nucleo::pattern::{CaseMatching, Normalization, Pattern};
-use nucleo::{Config, Matcher, Utf32Str};
-
-/// Minimum fuzzy score per matched query char for a hit to show. nucleo awards
-/// ~16 points per matched char, so this floor drops the most scattered
-/// subsequence matches; raise for stricter matching, lower for looser.
-const MIN_SCORE_PER_CHAR: u32 = 12;
+use notema_domain::{Entry, EntryEncryptionState, SearchHit, SearchScope, normalize_for_search};
 
 /// Filter already-loaded entries in memory. No disk I/O or decryption — the
 /// caller's `Entry` cache already holds decrypted `content` for every entry.
 ///
-/// A prefix-less query is matched fuzzily against the entry body and every
-/// metadata field (tags, people, activities, feelings) merged into one
-/// haystack. Whitespace splits the query into atoms that must all match (AND),
-/// and small typos are tolerated. Field-specific (`tags:` etc.) searches stay
-/// exact and are handled by the caller before reaching here.
+/// A prefix-less query matches against the entry body and every metadata field
+/// (tags, people, activities, feelings) merged into one haystack. Whitespace
+/// splits the query into terms that must all match (AND). Each term is matched
+/// against whole *words* in the haystack — as an exact word, a prefix, a
+/// substring, or within a small edit distance for typos — never as a scattered
+/// subsequence, so a search only surfaces entries that actually contain the
+/// word. Matching is case- and accent-insensitive. Field-specific (`tags:` etc.)
+/// searches stay exact and are handled by the caller before reaching here.
 ///
-/// Results are ordered by fuzzy relevance; ties keep their incoming date order.
+/// Results are ordered by match quality; ties keep their incoming date order.
 pub(crate) fn search_loaded_entries(
     entries: &[Entry],
     query: &str,
     scope: &SearchScope,
 ) -> Vec<SearchHit> {
-    let trimmed = query.trim();
-    if trimmed.is_empty() {
+    let terms: Vec<String> = query.split_whitespace().map(normalize_for_search).collect();
+    if terms.is_empty() {
         return Vec::new();
     }
-
-    let pattern = Pattern::parse(trimmed, CaseMatching::Ignore, Normalization::Smart);
-    let mut matcher = Matcher::new(Config::DEFAULT);
-    // Reused scratch buffer for the UTF-32 transcode so scoring each entry
-    // doesn't reallocate. The haystack string itself is precomputed per entry
-    // (`Entry::search_haystack`), so this loop never rebuilds it.
-    let mut char_buf = Vec::new();
-
-    // Score floor scaled by the number of query characters we expect to match.
-    let query_chars = trimmed.chars().filter(|c| !c.is_whitespace()).count() as u32;
-    let min_score = query_chars * MIN_SCORE_PER_CHAR;
 
     let mut scored = Vec::new();
     for entry in entries {
@@ -50,11 +35,7 @@ pub(crate) fn search_loaded_entries(
             continue;
         }
 
-        let candidate = Utf32Str::new(&entry.search_haystack, &mut char_buf);
-        if let Some(score) = pattern
-            .score(candidate, &mut matcher)
-            .filter(|&s| s >= min_score)
-        {
+        if let Some(score) = score_entry(&entry.search_haystack, &terms) {
             scored.push((score, SearchHit::from_entry(entry)));
         }
     }
@@ -62,6 +43,115 @@ pub(crate) fn search_loaded_entries(
     // Stable sort by descending score keeps the date order among ties.
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
     scored.into_iter().map(|(_, hit)| hit).collect()
+}
+
+/// A word boundary: anything that isn't alphanumeric. The haystack is
+/// pre-normalized and largely ASCII, so the ASCII range check (no Unicode table
+/// lookup) carries the hot path; non-ASCII chars fall back to `is_alphanumeric`.
+#[inline]
+fn is_separator(c: char) -> bool {
+    if c.is_ascii() {
+        !c.is_ascii_alphanumeric()
+    } else {
+        !c.is_alphanumeric()
+    }
+}
+
+/// Score a pre-normalized `haystack` against every `term` (also normalized).
+/// Every term must match (AND); the entry score is the sum of each term's best
+/// match quality. Returns `None` if any term matches nothing.
+fn score_entry(haystack: &str, terms: &[String]) -> Option<u32> {
+    let mut total = 0;
+    for term in terms {
+        let quality = term_quality(haystack, term);
+        if quality == 0 {
+            return None;
+        }
+        total += quality;
+    }
+    Some(total)
+}
+
+/// How well `term` matches, higher is better; `0` means no match. Prefers a
+/// whole-word hit, then a prefix, then a contiguous substring (which also
+/// covers terms spanning a word boundary, e.g. a hyphenated `project-x`), then
+/// a small typo. A substring is contiguous — never a scattered subsequence — so
+/// this only matches entries that actually contain the term.
+///
+/// One lazy pass over the words, returning early the moment a whole word matches
+/// exactly (the common case) so most of the haystack is never tokenized. The
+/// costlier substring and edit-distance checks run only as fallbacks when no
+/// word matched exactly or by prefix.
+fn term_quality(haystack: &str, term: &str) -> u32 {
+    let mut best = 0;
+    for word in haystack.split(is_separator) {
+        if word == term {
+            return 4; // exact word — nothing ranks higher
+        } else if !word.is_empty() && word.starts_with(term) {
+            best = 3; // prefix — covers incremental typing
+        }
+    }
+    if best >= 3 {
+        return best;
+    }
+    // A substring (incl. one spanning a word boundary) beats a typo but not a
+    // prefix; the SIMD-optimized scan runs only when no prefix hit was found.
+    if haystack.contains(term) {
+        return 2;
+    }
+    // Typo tolerance is the last resort — a second pass that only pays the
+    // edit-distance cost when the term appears nowhere as a substring.
+    let budget = typo_budget(term);
+    if budget > 0
+        && haystack
+            .split(is_separator)
+            .any(|word| within_edit_distance(word, term, budget))
+    {
+        return 1;
+    }
+    best
+}
+
+/// Allowed edit distance for a term, scaled by length so short terms stay
+/// exact (avoiding `cat`↔`car` collisions) while long ones tolerate real typos.
+fn typo_budget(term: &str) -> usize {
+    match term.chars().count() {
+        0..=3 => 0,
+        4..=6 => 1,
+        _ => 2,
+    }
+}
+
+/// Whether `a` and `b` are within `k` single-char edits (Levenshtein). Skips
+/// the full computation when the length gap alone already exceeds `k`, and
+/// short-circuits once every cell in a row passes `k`.
+fn within_edit_distance(a: &str, b: &str, k: usize) -> bool {
+    if k == 0 {
+        return a == b;
+    }
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.len().abs_diff(b.len()) > k {
+        return false;
+    }
+
+    // Classic two-row Levenshtein over the shorter axis.
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0; b.len() + 1];
+    for (i, &ca) in a.iter().enumerate() {
+        curr[0] = i + 1;
+        let mut row_min = curr[0];
+        for (j, &cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            curr[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(curr[j] + 1);
+            row_min = row_min.min(curr[j + 1]);
+        }
+        if row_min > k {
+            return false;
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()] <= k
 }
 
 #[cfg(test)]
@@ -273,9 +363,9 @@ mod tests {
     #[test]
     fn results_are_ranked_by_relevance() {
         let entries = vec![
-            // Looser match: the word is split by a gap.
-            plain_entry("a", "work", "pro ject notes"),
-            // Exact contiguous match should rank higher.
+            // Looser match: the term is only a prefix of a longer word.
+            plain_entry("a", "work", "projections for the quarter"),
+            // Exact whole-word match should rank higher.
             plain_entry("b", "work", "project status update"),
         ];
 
@@ -292,5 +382,182 @@ mod tests {
         let hits = search_loaded_entries(&entries, "", &SearchScope::AllJournals);
 
         assert!(hits.is_empty());
+    }
+
+    // --- Accent folding ----------------------------------------------------
+
+    #[test]
+    fn accent_insensitive_both_directions() {
+        let accented = plain_entry("a", "work", "un café à la fenêtre");
+        let plain = plain_entry("b", "work", "just cafe here");
+
+        // Unaccented query finds the accented entry, and vice versa.
+        assert_eq!(
+            search_loaded_entries(
+                std::slice::from_ref(&accented),
+                "cafe",
+                &SearchScope::AllJournals
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            search_loaded_entries(&[plain], "café", &SearchScope::AllJournals).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn german_umlaut_and_eszett_fold() {
+        let entry = plain_entry("a", "work", "über die Straße gegangen");
+
+        assert_eq!(
+            search_loaded_entries(
+                std::slice::from_ref(&entry),
+                "uber",
+                &SearchScope::AllJournals
+            )
+            .len(),
+            1
+        );
+        // ß ↔ ss, either direction.
+        assert_eq!(
+            search_loaded_entries(
+                std::slice::from_ref(&entry),
+                "strasse",
+                &SearchScope::AllJournals
+            )
+            .len(),
+            1
+        );
+    }
+
+    // --- Seeded stress corpus ---------------------------------------------
+    //
+    // A large deterministic corpus of common-word bodies. Because those words
+    // share letters with any query, the old subsequence matcher lit up a huge
+    // fraction of the corpus for a single unique word; these guard that a query
+    // now only surfaces entries that actually contain it.
+
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+
+    /// Plain, mutually non-overlapping words (none a substring, prefix, or small
+    /// typo of another) so a query for one is an unambiguous ground truth.
+    const LEXICON: &[&str] = &[
+        "river", "garden", "planet", "window", "coffee", "silver", "market", "pencil", "rocket",
+        "jungle", "castle", "yellow", "bridge", "summer", "winter", "orange", "basket", "candle",
+        "lantern", "harbor",
+    ];
+
+    /// A word that appears in no body except the one we plant it in.
+    const SENTINEL: &str = "kaleidoscope";
+
+    /// Build `count` entries of random lexicon-word bodies under `seed`, then
+    /// plant [`SENTINEL`] in exactly one entry. That entry's id is returned.
+    fn seeded_corpus(count: usize, seed: u64) -> (Vec<Entry>, String) {
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut entries: Vec<Entry> = (0..count)
+            .map(|i| {
+                let len = rng.random_range(8..=20);
+                let body: String = (0..len)
+                    .map(|_| LEXICON[rng.random_range(0..LEXICON.len())])
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                plain_entry(&format!("e{i}"), "work", &body)
+            })
+            .collect();
+
+        let target = count / 2;
+        let id = format!("e{target}");
+        entries[target] = plain_entry(&id, "work", &format!("today held a {SENTINEL} of colour"));
+        (entries, id)
+    }
+
+    #[test]
+    fn unique_word_surfaces_exactly_its_entry() {
+        let (entries, sentinel_id) = seeded_corpus(5_000, 42);
+
+        let hits = search_loaded_entries(&entries, SENTINEL, &SearchScope::AllJournals);
+
+        assert_eq!(hits.len(), 1, "a unique word must surface only its entry");
+        assert_eq!(hits[0].id, sentinel_id);
+    }
+
+    #[test]
+    fn scattered_subsequence_matches_nothing() {
+        let (entries, _) = seeded_corpus(5_000, 42);
+
+        // "kldsc" is a subsequence of "kaleidoscope" but appears as a
+        // contiguous substring nowhere — the old matcher would have matched the
+        // sentinel entry (and others); the word matcher matches none.
+        let hits = search_loaded_entries(&entries, "kldsc", &SearchScope::AllJournals);
+
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn typo_still_finds_the_unique_entry() {
+        let (entries, sentinel_id) = seeded_corpus(5_000, 42);
+
+        // One dropped letter from "kaleidoscope".
+        let hits = search_loaded_entries(&entries, "kaleidoscpe", &SearchScope::AllJournals);
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, sentinel_id);
+    }
+
+    #[test]
+    fn common_word_matches_exactly_its_ground_truth() {
+        let (entries, _) = seeded_corpus(5_000, 42);
+        let query = "planet";
+
+        // Ground truth: entries whose body contains the whole word. The lexicon
+        // is built so no other word is a prefix, substring, or small typo of it,
+        // so the matcher's decision reduces to exactly this.
+        let mut expected: Vec<String> = entries
+            .iter()
+            .filter(|entry| entry.body.split_whitespace().any(|word| word == query))
+            .map(|entry| entry.id.clone())
+            .collect();
+        expected.sort();
+
+        assert!(
+            !expected.is_empty() && expected.len() < entries.len(),
+            "the query should hit some but not all entries"
+        );
+
+        let mut got: Vec<String> = search_loaded_entries(&entries, query, &SearchScope::AllJournals)
+            .into_iter()
+            .map(|hit| hit.id)
+            .collect();
+        got.sort();
+
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn same_seed_is_reproducible() {
+        let ids = |seed| {
+            let (entries, _) = seeded_corpus(500, seed);
+            let mut ids: Vec<String> =
+                search_loaded_entries(&entries, "garden", &SearchScope::AllJournals)
+                    .into_iter()
+                    .map(|hit| hit.id)
+                    .collect();
+            ids.sort();
+            ids
+        };
+        assert_eq!(ids(7), ids(7));
+    }
+
+    // --- Edit distance -----------------------------------------------------
+
+    #[test]
+    fn edit_distance_respects_the_budget() {
+        assert!(within_edit_distance("quick", "quik", 1)); // one deletion
+        assert!(within_edit_distance("color", "colour", 1)); // one insertion
+        assert!(!within_edit_distance("cat", "car", 0)); // no budget, differ
+        assert!(!within_edit_distance("kitten", "sitting", 2)); // distance 3
+        assert!(!within_edit_distance("a", "abcdef", 2)); // length gap alone exceeds k
     }
 }

@@ -413,9 +413,10 @@ pub struct Entry {
     /// Word count of `body`, computed once at load so the entry-list row
     /// builder never tokenizes the full body on the render path.
     pub word_count: usize,
-    /// `body` plus every metadata value merged into one string, built once at
-    /// load ([`build_search_haystack`]) so whole-corpus fuzzy search never
-    /// rebuilds the haystack per entry per keystroke.
+    /// `body` plus every metadata value merged into one normalized (lowercased,
+    /// accent-folded) string, built once at load ([`build_search_haystack`]) so
+    /// whole-corpus word search never rebuilds or re-normalizes the haystack per
+    /// entry per keystroke.
     pub search_haystack: String,
     /// A non-fatal load problem. The body remains readable, but metadata edits
     /// are blocked until the front matter is repaired.
@@ -465,11 +466,12 @@ impl Entry {
 }
 
 /// Merge the body and every metadata value into one space-separated string, the
-/// haystack a prefix-less fuzzy query is scored against. Precomputed at load into
-/// [`Entry::search_haystack`].
+/// haystack a prefix-less word query is matched against. Normalized (lowercased,
+/// accent-folded) so search never has to re-normalize it. Precomputed at load
+/// into [`Entry::search_haystack`].
 pub fn build_search_haystack(content: &str, metadata: &Metadata) -> String {
     let mut buf = String::with_capacity(content.len() + 16);
-    buf.push_str(content);
+    push_normalized(content, &mut buf);
     for value in metadata
         .activities
         .iter()
@@ -478,9 +480,58 @@ pub fn build_search_haystack(content: &str, metadata: &Metadata) -> String {
         .chain(&metadata.tags)
     {
         buf.push(' ');
-        buf.push_str(value);
+        push_normalized(value, &mut buf);
     }
     buf
+}
+
+/// Lowercase and accent-fold `s`, returning a fresh `String`. Used to normalize
+/// a search query so it matches the pre-normalized [`Entry::search_haystack`].
+pub fn normalize_for_search(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    push_normalized(s, &mut out);
+    out
+}
+
+/// Append `s`, lowercased and accent-folded, to `out`. ASCII takes a branch-only
+/// fast path (the overwhelming majority of text); only non-ASCII chars consult
+/// the diacritic table.
+fn push_normalized(s: &str, out: &mut String) {
+    for c in s.chars() {
+        if c.is_ascii() {
+            out.push(c.to_ascii_lowercase());
+        } else {
+            for lc in c.to_lowercase() {
+                match fold_diacritic(lc) {
+                    Some(base) => out.push_str(base),
+                    None => out.push(lc),
+                }
+            }
+        }
+    }
+}
+
+/// Map a lowercased Latin accented letter to its ASCII base, so `café`↔`cafe`,
+/// `über`↔`uber`, and `straße`↔`strasse` match. Chars absent from the table
+/// (incl. non-Latin scripts) are matched unchanged.
+fn fold_diacritic(c: char) -> Option<&'static str> {
+    Some(match c {
+        'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' | 'ā' | 'ą' => "a",
+        'æ' => "ae",
+        'ç' | 'ć' | 'č' => "c",
+        'é' | 'è' | 'ê' | 'ë' | 'ē' | 'ę' | 'ě' => "e",
+        'í' | 'ì' | 'î' | 'ï' | 'ī' => "i",
+        'ñ' | 'ń' => "n",
+        'ó' | 'ò' | 'ô' | 'ö' | 'õ' | 'ø' | 'ō' => "o",
+        'œ' => "oe",
+        'ß' => "ss",
+        'ú' | 'ù' | 'û' | 'ü' | 'ū' => "u",
+        'ý' | 'ÿ' => "y",
+        'ź' | 'ż' | 'ž' => "z",
+        'ś' | 'š' => "s",
+        'ł' => "l",
+        _ => return None,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,4 +1,4 @@
-//! TUI hot-path benchmarks: in-memory fuzzy search and a full-frame render over
+//! TUI hot-path benchmarks: in-memory word search and a full-frame render over
 //! deterministic 1k/10k/25k corpora. Plain `Instant` timing (`harness = false`),
 //! matching the analytics and storage scan benches. Needs `--features bench`,
 //! which the `[[bench]]` entry requires automatically.
@@ -21,7 +21,7 @@ fn main() {
         }
         println!("render_frame/{size}: {:?}", started.elapsed() / iterations);
 
-        // In-memory fuzzy search across every loaded entry.
+        // In-memory word search across every loaded entry.
         let _ = black_box(search(&app, "representative"));
         let started = Instant::now();
         for _ in 0..iterations {

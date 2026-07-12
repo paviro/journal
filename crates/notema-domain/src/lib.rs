@@ -11,7 +11,7 @@ pub use dates::{entry_date_from_path, entry_group_date};
 pub use entry::{
     AirQuality, Celestial, Entry, EntryEncryptionState, EntryPath, ImportSource, Location,
     MOOD_RANGE, Metadata, MetadataField, SearchHit, SearchScope, Timestamp, Weather,
-    build_search_haystack,
+    build_search_haystack, normalize_for_search,
 };
 pub use feelings::{
     FEELING_GROUPS, Feeling, FeelingGroup, feelings, normalize_feeling, normalize_feelings,

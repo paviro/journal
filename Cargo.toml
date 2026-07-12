@@ -40,7 +40,6 @@ indicatif = "0.18.4"
 libc = "0.2"
 moxcms = "0.8"
 notify = "8.2.0"
-nucleo = "0.5.0"
 open = "5"
 objc2 = "0.6"
 objc2-core-location = { version = "0.3", default-features = false, features = ["std", "CLLocation", "CLLocationManager", "CLLocationManagerDelegate", "CLError"] }
@@ -124,7 +123,6 @@ notema-encryption.workspace = true
 notema-import.workspace = true
 notema-storage.workspace = true
 notify.workspace = true
-nucleo.workspace = true
 open.workspace = true
 pulldown-cmark.workspace = true
 ratatui.workspace = true
@@ -173,6 +171,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+rand.workspace = true
 tempfile.workspace = true
 
 [lints]

@@ -68,7 +68,7 @@ pub fn draw_frame(app: &mut BenchApp, width: u16, height: u16) {
         .unwrap();
 }
 
-/// Fuzzy-search the loaded entries, returning the hit count.
+/// Word-search the loaded entries, returning the hit count.
 pub fn search(app: &BenchApp, query: &str) -> usize {
     search_loaded_entries(&app.0.library.entries, query, &SearchScope::AllJournals).len()
 }
