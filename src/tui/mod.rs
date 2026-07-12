@@ -568,8 +568,10 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
                 }
                 let (net, consumed) = events::fold_leading_wheel(&batch);
                 // Non-wheel events after the run are handled on later iterations.
-                for ev in batch.split_off(consumed).into_iter().rev() {
-                    pending_events.push_front(ev);
+                // They were just polled, so they're newer than anything already
+                // queued — append them after, don't jump them ahead.
+                for ev in batch.split_off(consumed) {
+                    pending_events.push_back(ev);
                 }
                 let last = match batch.last() {
                     Some(Event::Mouse(m)) => *m,
@@ -604,8 +606,14 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
             }
             Some(Event::Resize(_, _)) => true,
             Some(_) => false,
-            None => app.expire_toasts(),
+            None => false,
         };
+
+        // Expire toasts every iteration, not just on an idle poll: under a
+        // continuous event stream (a drag, a held key) an idle tick may never
+        // come, and an expired toast would otherwise linger until it did.
+        let toasts_expired = app.expire_toasts();
+        let redraw = redraw || toasts_expired;
 
         // Debounce watcher-driven reloads: each change pushes the deadline out and
         // accumulates the changed paths; the reload runs only once no change has
