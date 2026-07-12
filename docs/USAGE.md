@@ -51,7 +51,7 @@ address. The provider is platform-specific and only ever produces
 
 ## Themes
 
-`,` opens settings; `t` opens the theme picker. Up/Down previews live, `b` cycles
+`,` opens settings, then `t` opens the theme picker. Up/Down previews live, `b` cycles
 chrome (default → flat → bordered), `m` cycles color mode (auto → dark → light;
 hidden on themes without variants), Enter applies and saves, Esc reverts. Broken
 themes are listed but can't be applied.
