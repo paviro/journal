@@ -369,6 +369,21 @@ impl JournalStore {
     /// a side effect so the user only has to re-enroll — reported via
     /// [`StoreAccess::NeedsEnroll`]'s `retired_key`.
     pub fn resolve_access(&self) -> AppResult<StoreAccess> {
+        // Fail closed when the roster is gone but this device previously pinned
+        // one and encrypted entries still exist: without this the store would be
+        // treated as unencrypted and new entries written as plaintext into a
+        // folder an attacker just tampered with. A genuine remote-disable removes
+        // the encrypted entries first, so `reconcile_disabled_encryption` has
+        // already completed the transition before we get here.
+        if !self.encryption_enabled()
+            && self.paths.keys.trust_file.exists()
+            && migrate::store_has_encrypted_entry_files(self)?
+        {
+            return Err(EncryptionError::RecipientsMissing {
+                path: self.paths.keys.devices_file.clone(),
+            }
+            .into());
+        }
         if !self.encryption_enabled() || self.is_current_recipient()? {
             return Ok(StoreAccess::Ready);
         }

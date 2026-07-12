@@ -63,6 +63,42 @@ fn decrypt_store_restores_plaintext_and_disables_encryption() {
 }
 
 #[test]
+fn deleting_the_roster_with_encrypted_entries_fails_access_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = store_at(dir.path());
+    store.ensure().unwrap();
+    store
+        .initialize_encryption("laptop", Some(&pw("passphrase")))
+        .unwrap();
+    store.unlock(Some(&pw("passphrase"))).unwrap();
+    store.create_journal("diary").unwrap();
+    create_entry(&store, "diary", "# Secret\nhidden body");
+
+    // Simulate an attacker (or sync glitch) deleting only the roster from the
+    // synced folder while the encrypted entry and this device's trust pins remain.
+    std::fs::remove_file(
+        dir.path()
+            .join("journals")
+            .join(".age")
+            .join("devices.toml"),
+    )
+    .unwrap();
+
+    // The store must refuse access rather than silently treat itself as plaintext
+    // and start writing new entries in the clear.
+    let reopened = store_at(dir.path());
+    let error = match reopened.resolve_access() {
+        Ok(_) => panic!("resolve_access must fail closed when the roster is gone"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .downcast_ref::<EncryptionError>()
+            .is_some_and(|e| matches!(e, EncryptionError::RecipientsMissing { .. }))
+    );
+}
+
+#[test]
 fn decrypt_store_requires_an_unlocked_identity() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_at(dir.path());
