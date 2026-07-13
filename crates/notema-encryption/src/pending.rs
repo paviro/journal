@@ -117,7 +117,9 @@ fn write_pending(
         recipient,
         sig: &sig,
     };
-    let path = paths.age_dir.join(pending_file_name(&recipient.encryption_key));
+    let path = paths
+        .age_dir
+        .join(pending_file_name(&recipient.encryption_key));
     atomic_write(&path, toml::to_string_pretty(&document)?.as_bytes())
 }
 

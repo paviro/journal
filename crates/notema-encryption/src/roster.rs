@@ -212,7 +212,10 @@ pub(crate) fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
 
         match op.kind {
             OpKind::Add => {
-                if !recipients.iter().any(|r| r.encryption_key == op.encryption_key) {
+                if !recipients
+                    .iter()
+                    .any(|r| r.encryption_key == op.encryption_key)
+                {
                     recipients.push(op.recipient());
                 }
                 if !trusted.iter().any(|key| key == &op.signing_key) {
@@ -224,7 +227,10 @@ pub(crate) fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
                 trusted.retain(|key| key != &op.signing_key);
             }
             OpKind::Rename => {
-                if let Some(target) = recipients.iter_mut().find(|r| r.encryption_key == op.encryption_key) {
+                if let Some(target) = recipients
+                    .iter_mut()
+                    .find(|r| r.encryption_key == op.encryption_key)
+                {
                     target.name = op.name.clone();
                 }
             }

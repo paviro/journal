@@ -105,7 +105,10 @@ pub fn add_recipient(
 ) -> Result<()> {
     validate_recipient(recipient)?;
     let recipients = read_recipients(paths)?;
-    if recipients.iter().any(|r| r.encryption_key == recipient.encryption_key) {
+    if recipients
+        .iter()
+        .any(|r| r.encryption_key == recipient.encryption_key)
+    {
         return Err(EncryptionError::RecipientExists {
             name: recipient.name.clone(),
         });

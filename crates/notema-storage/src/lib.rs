@@ -278,7 +278,10 @@ impl JournalStore {
         passphrase: Option<&SecretString>,
     ) -> AppResult<String> {
         entry_cache::invalidate(&self.paths)?;
-        Ok(crypto::initialize_store_identity(&self.paths.keys, device_name, passphrase)?.encryption_key)
+        Ok(
+            crypto::initialize_store_identity(&self.paths.keys, device_name, passphrase)?
+                .encryption_key,
+        )
     }
 
     /// Create this device's identity, write the initial roster, and encrypt the

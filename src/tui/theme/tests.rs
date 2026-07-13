@@ -5,7 +5,10 @@ use tempfile::tempdir;
 fn parse(text: &str, mode: Mode) -> anyhow::Result<Theme> {
     // Bundled themes carry their own `schema_version` (below the file's lead
     // comment); bare inline snippets don't, so prepend one for them.
-    if text.lines().any(|line| line.starts_with("schema_version = ")) {
+    if text
+        .lines()
+        .any(|line| line.starts_with("schema_version = "))
+    {
         super::parse(text, mode)
     } else {
         super::parse(&format!("schema_version = 1\n{text}"), mode)
@@ -176,10 +179,7 @@ fn new_tokens_resolve_explicit_values() {
     assert_eq!(theme.cursor_line().bg, Some(Color::Rgb(0x18, 0x18, 0x18)));
     assert_eq!(theme.divider().fg, Some(Color::Rgb(0x10, 0x10, 0x10)));
     assert_eq!(theme.card_border().fg, Some(Color::Rgb(0x20, 0x20, 0x20)));
-    assert_eq!(
-        theme.tab_separator().fg,
-        Some(Color::Rgb(0x30, 0x30, 0x30))
-    );
+    assert_eq!(theme.tab_separator().fg, Some(Color::Rgb(0x30, 0x30, 0x30)));
     assert_eq!(
         theme.scrollbar_thumb(true).fg,
         Some(Color::Rgb(0x77, 0x88, 0x99))
@@ -215,10 +215,7 @@ fn accents_are_referenceable_by_name_in_any_token() {
     )
     .unwrap();
     assert_eq!(theme.divider().fg, Some(Color::Rgb(0x2d, 0xe2, 0xe6)));
-    assert_eq!(
-        theme.tab_separator().fg,
-        Some(Color::Rgb(0xa0, 0x6b, 0xff))
-    );
+    assert_eq!(theme.tab_separator().fg, Some(Color::Rgb(0xa0, 0x6b, 0xff)));
     assert_eq!(theme.heading().fg, Some(Color::Rgb(0xff, 0x2f, 0x92)));
 
     // A theme's own [palette] entry of the same name wins over the seed.
@@ -232,10 +229,7 @@ fn accents_are_referenceable_by_name_in_any_token() {
         Mode::Dark,
     )
     .unwrap();
-    assert_eq!(
-        overridden.divider().fg,
-        Some(Color::Rgb(0x01, 0x02, 0x03))
-    );
+    assert_eq!(overridden.divider().fg, Some(Color::Rgb(0x01, 0x02, 0x03)));
 }
 
 #[test]

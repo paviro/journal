@@ -722,11 +722,7 @@ mod tests {
         let entry_dir = dir.path().join("work").join("2026-07-01");
         fs::create_dir_all(&entry_dir).unwrap();
         let path = entry_dir.join("a.md");
-        fs::write(
-            &path,
-            "+++\nschema_version = 1\n+++\n\n# A\n",
-        )
-        .unwrap();
+        fs::write(&path, "+++\nschema_version = 1\n+++\n\n# A\n").unwrap();
 
         let config = Config::new(dir.path().to_path_buf());
         let mut app = new_app(config);
@@ -778,8 +774,7 @@ mod tests {
 
     #[test]
     fn open_editor_loads_body_and_focuses_view() {
-        let (_dir, mut app, _path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
+        let (_dir, mut app, _path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
         let expected = app.resolved_selected_entry().unwrap().body.clone();
 
         app.open_editor_for_selected().unwrap();
@@ -791,13 +786,8 @@ mod tests {
 
     #[test]
     fn open_editor_reloads_entry_from_disk() {
-        let (_dir, mut app, path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# Cached\n");
-        fs::write(
-            path,
-            "+++\nschema_version = 1\n+++\n\n# Changed on disk\n",
-        )
-        .unwrap();
+        let (_dir, mut app, path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# Cached\n");
+        fs::write(path, "+++\nschema_version = 1\n+++\n\n# Changed on disk\n").unwrap();
 
         app.open_editor_for_selected().unwrap();
 
@@ -841,8 +831,7 @@ mod tests {
 
     #[test]
     fn save_internal_editor_writes_body_and_bumps_edited_at() {
-        let (_dir, mut app, path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# Original\n");
+        let (_dir, mut app, path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# Original\n");
         let target = app.selected_entry_target().unwrap();
         let journal = app.resolved_selected_entry().unwrap().journal.clone();
         let (_, revision) = app
@@ -870,8 +859,7 @@ mod tests {
 
     #[test]
     fn save_internal_editor_unchanged_body_does_not_rewrite() {
-        let (_dir, mut app, path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# Original\n");
+        let (_dir, mut app, path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# Original\n");
         let original = app.store.read_entry_content(&path).unwrap();
 
         app.open_editor_for_selected().unwrap();
@@ -908,8 +896,7 @@ mod tests {
 
     #[test]
     fn external_edit_saves_buffer_as_new_entry_without_overwriting_original() {
-        let (_dir, mut app, path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# Original\n");
+        let (_dir, mut app, path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# Original\n");
         app.open_editor_for_selected().unwrap();
         app.editor
             .as_mut()
@@ -937,8 +924,7 @@ mod tests {
 
     #[test]
     fn unchanged_editor_does_not_copy_an_externally_changed_entry() {
-        let (_dir, mut app, path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# Original\n");
+        let (_dir, mut app, path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# Original\n");
         app.open_editor_for_selected().unwrap();
         let external = "+++\nschema_version = 1\n+++\n\n# External\n";
         fs::write(&path, external).unwrap();
@@ -954,8 +940,7 @@ mod tests {
 
     #[test]
     fn save_internal_editor_empty_body_deletes_existing_entry() {
-        let (_dir, mut app, path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
+        let (_dir, mut app, path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
         let target = app.selected_entry_target().unwrap();
         let journal = app.resolved_selected_entry().unwrap().journal.clone();
         let (_, revision) = app
@@ -984,8 +969,7 @@ mod tests {
 
     #[test]
     fn save_internal_editor_creates_new_entry() {
-        let (_dir, mut app, _path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
+        let (_dir, mut app, _path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
 
         let mut editor = EntryEditor::for_new("work".to_string());
         editor.textarea.insert_str("Brand new thoughts");
@@ -1009,8 +993,7 @@ mod tests {
         use notema_context::compute_celestial;
         use notema_domain::Location;
 
-        let (_dir, mut app, _path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
+        let (_dir, mut app, _path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
 
         let datetime = chrono::Local::now().fixed_offset();
         let mut editor = EntryEditor::for_new("work".to_string());
@@ -1044,8 +1027,7 @@ mod tests {
 
     #[test]
     fn new_entry_save_defers_while_context_pending() {
-        let (_dir, mut app, _path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
+        let (_dir, mut app, _path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
 
         let mut editor = EntryEditor::for_new("work".to_string());
         editor.textarea.insert_str("Waiting on weather");
@@ -1142,8 +1124,7 @@ mod tests {
 
     #[test]
     fn save_internal_editor_applies_buffered_metadata_to_existing_entry() {
-        let (_dir, mut app, path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
+        let (_dir, mut app, path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
         app.open_editor_for_selected().unwrap();
         app.set_editor_metadata(
             MetadataKind::Tags,
@@ -1159,8 +1140,7 @@ mod tests {
 
     #[test]
     fn save_internal_editor_writes_buffered_metadata_for_new_entry() {
-        let (_dir, mut app, _path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
+        let (_dir, mut app, _path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
 
         let mut editor = EntryEditor::for_new("work".to_string());
         editor.textarea.insert_str("New body");
@@ -1182,8 +1162,7 @@ mod tests {
 
     #[test]
     fn cancel_editor_discards_changes() {
-        let (_dir, mut app, path) =
-            app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
+        let (_dir, mut app, path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
 
         app.open_editor_for_selected().unwrap();
         app.editor.as_mut().unwrap().textarea.insert_str("mutation");

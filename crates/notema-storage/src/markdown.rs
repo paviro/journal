@@ -15,7 +15,11 @@ pub(crate) struct FrontMatter {
     pub schema_version: u32,
     #[serde(rename = "entry", default, skip_serializing_if = "metadata_is_empty")]
     pub metadata: Metadata,
-    #[serde(rename = "time", default, skip_serializing_if = "EntryTimestamps::is_empty")]
+    #[serde(
+        rename = "time",
+        default,
+        skip_serializing_if = "EntryTimestamps::is_empty"
+    )]
     pub datetime: EntryTimestamps,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import: Option<ImportSource>,
@@ -433,28 +437,31 @@ mod tests {
 
     #[test]
     fn front_matter_tags_reads_list() {
-        let tags = front_matter_fields("schema_version = 1\n\n[entry]\ntags = [\"foo\", \"bar\"]\n")
-            .metadata
-            .tags;
+        let tags =
+            front_matter_fields("schema_version = 1\n\n[entry]\ntags = [\"foo\", \"bar\"]\n")
+                .metadata
+                .tags;
 
         assert_eq!(tags, vec!["foo", "bar"]);
     }
 
     #[test]
     fn front_matter_tags_handles_commas_in_values() {
-        let tags = front_matter_fields("schema_version = 1\n\n[entry]\ntags = [\"foo, bar\", \"baz\"]\n")
-            .metadata
-            .tags;
+        let tags =
+            front_matter_fields("schema_version = 1\n\n[entry]\ntags = [\"foo, bar\", \"baz\"]\n")
+                .metadata
+                .tags;
 
         assert_eq!(tags, vec!["foo, bar", "baz"]);
     }
 
     #[test]
     fn front_matter_feelings_reads_list() {
-        let feelings =
-            front_matter_fields("schema_version = 1\n\n[entry]\nfeelings = [\"calm\", \"focused\"]\n")
-                .metadata
-                .feelings;
+        let feelings = front_matter_fields(
+            "schema_version = 1\n\n[entry]\nfeelings = [\"calm\", \"focused\"]\n",
+        )
+        .metadata
+        .feelings;
 
         assert_eq!(feelings, vec!["calm", "focused"]);
     }
@@ -778,7 +785,8 @@ mod tests {
 
     #[test]
     fn with_metadata_field_refreshes_edited_at_and_preserves_body() {
-        let content = "+++\nschema_version = 1\n\n[time]\ncreated_at = \"old\"\n+++\n\n# Body\n\nTrailing\n";
+        let content =
+            "+++\nschema_version = 1\n\n[time]\ncreated_at = \"old\"\n+++\n\n# Body\n\nTrailing\n";
 
         let updated = with_metadata_fields(
             content,
