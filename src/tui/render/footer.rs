@@ -319,11 +319,11 @@ fn editor_footer_line() -> HintLine {
 
 pub(crate) fn footer_lines(app: &App, width: u16) -> Text<'static> {
     let hovered = app.hovered_footer_hint();
-    if app.editor.is_some() {
-        return Text::from(editor_footer_line().lines(width, hovered));
-    }
     if !app.state.ui.show_hints {
         return Text::default();
+    }
+    if app.editor.is_some() {
+        return Text::from(editor_footer_line().lines(width, hovered));
     }
 
     let lines = match app.nav.mode {
@@ -334,11 +334,11 @@ pub(crate) fn footer_lines(app: &App, width: u16) -> Text<'static> {
 }
 
 pub(crate) fn footer_height(app: &App, width: u16) -> u16 {
-    if app.editor.is_some() {
-        return editor_footer_line().height(width);
-    }
     if !app.state.ui.show_hints {
         return 0;
+    }
+    if app.editor.is_some() {
+        return editor_footer_line().height(width);
     }
 
     match app.nav.mode {
@@ -372,11 +372,11 @@ pub(crate) fn footer_hint_id_at_point(
     col: u16,
     row: u16,
 ) -> Option<HintId> {
-    if app.editor.is_some() {
-        return editor_footer_line().hint_id_at_point(origin_x, origin_y, width, col, row);
-    }
     if !app.state.ui.show_hints {
         return None;
+    }
+    if app.editor.is_some() {
+        return editor_footer_line().hint_id_at_point(origin_x, origin_y, width, col, row);
     }
 
     match app.nav.mode {
@@ -409,11 +409,11 @@ pub(crate) fn expanded_footer_text(app: &App, width: u16) -> String {
 
 pub(crate) fn expanded_footer_lines(app: &App, width: u16) -> Text<'static> {
     let hovered = app.hovered_footer_hint();
-    if app.editor.is_some() {
-        return Text::from(editor_footer_line().lines(width, hovered));
-    }
     if !app.state.ui.show_hints {
         return Text::default();
+    }
+    if app.editor.is_some() {
+        return Text::from(editor_footer_line().lines(width, hovered));
     }
     Text::from(hint_lines(
         &expanded_footer_hints(app),
@@ -423,11 +423,11 @@ pub(crate) fn expanded_footer_lines(app: &App, width: u16) -> Text<'static> {
 }
 
 pub(crate) fn expanded_footer_height(app: &App, width: u16) -> u16 {
-    if app.editor.is_some() {
-        return editor_footer_line().height(width);
-    }
     if !app.state.ui.show_hints {
         return 0;
+    }
+    if app.editor.is_some() {
+        return editor_footer_line().height(width);
     }
     hint_height(&expanded_footer_hints(app), width.saturating_sub(1))
 }
@@ -440,11 +440,11 @@ pub(crate) fn expanded_footer_hint_id_at_point(
     col: u16,
     row: u16,
 ) -> Option<HintId> {
-    if app.editor.is_some() {
-        return editor_footer_line().hint_id_at_point(origin_x, origin_y, width, col, row);
-    }
     if !app.state.ui.show_hints {
         return None;
+    }
+    if app.editor.is_some() {
+        return editor_footer_line().hint_id_at_point(origin_x, origin_y, width, col, row);
     }
     hint_id_at_wrapped(
         &expanded_footer_hints(app),
