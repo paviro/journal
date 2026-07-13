@@ -83,12 +83,13 @@ fn build_store(root: &std::path::Path, size: usize) -> JournalStore {
 fn entry_text(index: usize) -> String {
     format!(
         "+++\n\
-         schema_version = 1\n\
+         schema_version = 1\n\n\
+         [entry]\n\
          tags = [\"tag-{}\", \"tag-{}\"]\n\
          people = [\"person-{}\"]\n\
          activities = [\"activity-{}\"]\n\
-         mood = {}\n\
-         [datetime]\n\
+         mood = {}\n\n\
+         [time]\n\
          created_at = \"2020-01-01T08:00:00+00:00\"\n\
          +++\n\n\
          # Entry {index}\n\n\

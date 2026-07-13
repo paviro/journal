@@ -255,7 +255,7 @@ fn entry_id_and_journal_come_from_path_not_front_matter() {
     let path = dir.path().join("id-from-file.md");
     fs::write(
         &path,
-        "+++\nschema_version = 1\nid = \"wrong\"\njournal = \"wrong\"\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
+        "+++\nschema_version = 1\nid = \"wrong\"\njournal = \"wrong\"\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Title\n",
     )
     .unwrap();
 
@@ -271,7 +271,7 @@ fn entry_preview_collapses_body_with_markdown_stripped() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Hi how is it going?\nThis is a test entry\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Hi how is it going?\nThis is a test entry\n",
     )
     .unwrap();
 
@@ -286,7 +286,7 @@ fn entry_tags_read_toml_list() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\nschema_version = 1\ntags = [\"work\", \"deep focus\"]\n+++\n\n# Tagged\n",
+        "+++\nschema_version = 1\n\n[entry]\ntags = [\"work\", \"deep focus\"]\n+++\n\n# Tagged\n",
     )
     .unwrap();
 
@@ -301,7 +301,7 @@ fn entry_feelings_read_known_values_only() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\nschema_version = 1\nfeelings = [\"Calm\", \"nope\", \"focused\"]\n+++\n\n# Feeling\n",
+        "+++\nschema_version = 1\n\n[entry]\nfeelings = [\"Calm\", \"nope\", \"focused\"]\n+++\n\n# Feeling\n",
     )
     .unwrap();
 
@@ -391,7 +391,7 @@ fn plain_entry_preview_is_the_whole_body() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\nPlain title\nPlain preview\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\nPlain title\nPlain preview\n",
     )
     .unwrap();
 
@@ -407,7 +407,7 @@ fn empty_entry_preview_is_empty_and_label_falls_back_to_timestamp() {
     let path = dir.path().join("entry.md");
     fs::write(
         &path,
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n",
     )
     .unwrap();
 
@@ -432,12 +432,12 @@ fn scan_entries_skips_trash() {
     fs::create_dir_all(&trash_dir).unwrap();
     fs::write(
         entry_dir.join("entry.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# Active\n",
+        "+++\nschema_version = 1\n+++\n\n# Active\n",
     )
     .unwrap();
     fs::write(
         trash_dir.join("trashed.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# Trashed\n",
+        "+++\nschema_version = 1\n+++\n\n# Trashed\n",
     )
     .unwrap();
 

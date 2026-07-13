@@ -407,7 +407,7 @@ fn reader_wraps_long_location_with_flush_left_continuation() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\nschema_version = 1\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Grand Central Station Cafe\"\n+++\n\n# A\nBody\n",
+            "+++\nschema_version = 1\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Grand Central Station Cafe\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -508,7 +508,7 @@ fn reader_wraps_metadata_rows_without_leading_space_or_separator() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\nschema_version = 1\ntags = [\"work\", \"personal\", \"health\"]\nfeelings = [\"calm\", \"focused\", \"tired\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+            "+++\nschema_version = 1\n\n[entry]\ntags = [\"work\", \"personal\", \"health\"]\nfeelings = [\"calm\", \"focused\", \"tired\"]\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -573,7 +573,7 @@ fn short_reader_scrolls_metadata_after_body() {
     fs::write(
             entry_dir.join("a.md"),
             format!(
-                "+++\nschema_version = 1\ntags = [\"tiny-screen\"]\nfeelings = [\"focused\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n{body}\n",
+                "+++\nschema_version = 1\n\n[entry]\ntags = [\"tiny-screen\"]\nfeelings = [\"focused\"]\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n{body}\n",
             ),
         )
         .unwrap();
@@ -936,12 +936,12 @@ fn entry_hit_testing_ignores_month_divider_and_maps_boxed_entries() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nFirst preview\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nFirst preview\n",
     )
     .unwrap();
     fs::write(
         entry_dir.join("b.md"),
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nSecond preview\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nSecond preview\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -1004,7 +1004,7 @@ fn first_month_rides_border_and_next_month_takes_over_after_scrolling() {
         fs::create_dir_all(&entry_dir).unwrap();
         fs::write(
             entry_dir.join(format!("e{index}.md")),
-            format!("+++\nschema_version = 1\n[datetime]\ncreated_at = \"{ts}\"\n+++\n\n# e{index}\nBody text\n"),
+            format!("+++\nschema_version = 1\n[time]\ncreated_at = \"{ts}\"\n+++\n\n# e{index}\nBody text\n"),
         )
         .unwrap();
     }
@@ -1045,7 +1045,7 @@ fn reader_renders_feelings_metadata() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\nschema_version = 1\nfeelings = [\"calm\", \"focused\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+            "+++\nschema_version = 1\n\n[entry]\nfeelings = [\"calm\", \"focused\"]\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -1065,7 +1065,7 @@ fn reader_renders_indented_mermaid_diagram() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
             entry_dir.join("a.md"),
-            "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n```mermaid\n  graph TD\n      A[Open journal] --> B[Write entry]\n      B --> C{Preview}\n      C -->|looks good| D[Save]\n      C -->|needs work| B\n  ```\n",
+            "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n```mermaid\n  graph TD\n      A[Open journal] --> B[Write entry]\n      B --> C{Preview}\n      C -->|looks good| D[Save]\n      C -->|needs work| B\n  ```\n",
         )
         .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -1088,12 +1088,12 @@ fn list_panels_show_counts_in_bottom_titles() {
     fs::create_dir_all(&work_entry_dir).unwrap();
     fs::write(
         work_entry_dir.join("a.md"),
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     fs::write(
         work_entry_dir.join("b.md"),
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
     )
     .unwrap();
     fs::create_dir_all(root.join("personal")).unwrap();
@@ -1228,7 +1228,7 @@ fn app_with_metadata_entry() -> App {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\ntags = [\"work\"]\nfeelings = [\"calm\"]\npeople = [\"alex\"]\nactivities = [\"running\"]\nmood = 3\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n\n[entry]\ntags = [\"work\"]\nfeelings = [\"calm\"]\npeople = [\"alex\"]\nactivities = [\"running\"]\nmood = 3\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -1317,7 +1317,7 @@ fn app_with_drivers() -> App {
         fs::write(
             entry_dir.join("a.md"),
             format!(
-                "+++\nschema_version = 1\n{meta}\nmood = {mood}\n[datetime]\ncreated_at = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# E\nBody\n"
+                "+++\nschema_version = 1\n\n[entry]\n{meta}\nmood = {mood}\n\n[time]\ncreated_at = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# E\nBody\n"
             ),
         )
         .unwrap();
@@ -1388,7 +1388,7 @@ fn app_with_many_drivers(count: usize) -> App {
         fs::write(
             entry_dir.join("a.md"),
             format!(
-                "+++\nschema_version = 1\n{meta}mood = {mood}\n[datetime]\ncreated_at = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# A\nBody\n"
+                "+++\nschema_version = 1\n\n[entry]\n{meta}mood = {mood}\n\n[time]\ncreated_at = \"2026-07-{day:02}T10:00:00+02:00\"\n+++\n\n# A\nBody\n"
             ),
         )
         .unwrap();
@@ -2109,7 +2109,7 @@ fn internal_editor_shows_entry_location() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Testville Cafe\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Testville Cafe\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     let mut app = new_app(Config::new(dir.path().to_path_buf()));

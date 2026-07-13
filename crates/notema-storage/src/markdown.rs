@@ -6,16 +6,16 @@ use serde::{Deserialize, Serialize};
 pub(crate) const ENTRY_SCHEMA_VERSION: u32 = 1;
 
 /// Every entry front-matter field, parsed and serialized in a single TOML pass.
-/// The user metadata is the shared [`Metadata`] type, flattened so its fields
-/// sit at the top level of the front matter (mood clamped on read there). The
-/// system/provenance fields group into TOML tables, which — being tables — must
-/// all follow the flattened scalars: hence `metadata` comes first.
+/// `schema_version` is the lone top-level scalar; everything else groups into
+/// TOML tables. The user's own metadata is the shared [`Metadata`] type under
+/// `[entry]` (mood clamped on read there); the system/provenance fields follow
+/// in their own tables.
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct FrontMatter {
     pub schema_version: u32,
-    #[serde(flatten)]
+    #[serde(rename = "entry", default, skip_serializing_if = "metadata_is_empty")]
     pub metadata: Metadata,
-    #[serde(default, skip_serializing_if = "EntryTimestamps::is_empty")]
+    #[serde(rename = "time", default, skip_serializing_if = "EntryTimestamps::is_empty")]
     pub datetime: EntryTimestamps,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import: Option<ImportSource>,
@@ -51,6 +51,19 @@ impl Default for FrontMatter {
             celestial: None,
         }
     }
+}
+
+/// Whether `[entry]` has nothing worth writing, so the table is omitted rather
+/// than left as a bare header. Mirrors `Metadata`'s per-field
+/// `skip_serializing_if`s; `location` is skipped from this table entirely (the
+/// codec owns the top-level `[location]`), so it doesn't count.
+fn metadata_is_empty(metadata: &Metadata) -> bool {
+    metadata.activities.is_empty()
+        && metadata.feelings.is_empty()
+        && metadata.people.is_empty()
+        && metadata.tags.is_empty()
+        && metadata.mood.is_none()
+        && !metadata.starred
 }
 
 #[derive(Debug)]
@@ -91,7 +104,7 @@ impl std::fmt::Display for FrontMatterError {
 
 impl std::error::Error for FrontMatterError {}
 
-/// The `[datetime]` table: when an entry was created and last edited, the IANA
+/// The `[time]` table: when an entry was created and last edited, the IANA
 /// zone it was authored in, and how long was spent editing it. `timezone` is
 /// capture-only — the offset already lives in `created_at`, but the zone *name* it
 /// can't recover, so we keep it. `writing_seconds` accumulates the editor-open
@@ -420,7 +433,7 @@ mod tests {
 
     #[test]
     fn front_matter_tags_reads_list() {
-        let tags = front_matter_fields("schema_version = 1\ntags = [\"foo\", \"bar\"]\n")
+        let tags = front_matter_fields("schema_version = 1\n\n[entry]\ntags = [\"foo\", \"bar\"]\n")
             .metadata
             .tags;
 
@@ -429,7 +442,7 @@ mod tests {
 
     #[test]
     fn front_matter_tags_handles_commas_in_values() {
-        let tags = front_matter_fields("schema_version = 1\ntags = [\"foo, bar\", \"baz\"]\n")
+        let tags = front_matter_fields("schema_version = 1\n\n[entry]\ntags = [\"foo, bar\", \"baz\"]\n")
             .metadata
             .tags;
 
@@ -439,7 +452,7 @@ mod tests {
     #[test]
     fn front_matter_feelings_reads_list() {
         let feelings =
-            front_matter_fields("schema_version = 1\nfeelings = [\"calm\", \"focused\"]\n")
+            front_matter_fields("schema_version = 1\n\n[entry]\nfeelings = [\"calm\", \"focused\"]\n")
                 .metadata
                 .feelings;
 
@@ -449,38 +462,38 @@ mod tests {
     #[test]
     fn mood_is_clamped_to_supported_range() {
         assert_eq!(
-            front_matter_fields("schema_version = 1\nmood = 3\n")
+            front_matter_fields("schema_version = 1\n\n[entry]\nmood = 3\n")
                 .metadata
                 .mood,
             Some(3)
         );
         assert_eq!(
-            front_matter_fields("schema_version = 1\nmood = -5\n")
+            front_matter_fields("schema_version = 1\n\n[entry]\nmood = -5\n")
                 .metadata
                 .mood,
             Some(-5)
         );
         assert_eq!(
-            front_matter_fields("schema_version = 1\nmood = 5\n")
+            front_matter_fields("schema_version = 1\n\n[entry]\nmood = 5\n")
                 .metadata
                 .mood,
             Some(5)
         );
         // Out of range or non-integer moods drop to None rather than failing.
         assert_eq!(
-            front_matter_fields("schema_version = 1\nmood = 6\n")
+            front_matter_fields("schema_version = 1\n\n[entry]\nmood = 6\n")
                 .metadata
                 .mood,
             None
         );
         assert_eq!(
-            front_matter_fields("schema_version = 1\nmood = -42\n")
+            front_matter_fields("schema_version = 1\n\n[entry]\nmood = -42\n")
                 .metadata
                 .mood,
             None
         );
         assert_eq!(
-            front_matter_fields("schema_version = 1\nmood = 999\n")
+            front_matter_fields("schema_version = 1\n\n[entry]\nmood = 999\n")
                 .metadata
                 .mood,
             None
@@ -489,7 +502,7 @@ mod tests {
 
     #[test]
     fn quiet_metadata_write_applies_field_without_stamping_edited_at() {
-        let content = "+++\nschema_version = 1\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\n[time]\ncreated_at = \"x\"\n+++\n\n# Body\n";
         let fields = [MetadataField::Mood(Some(4))];
 
         // The loud write stamps edited_at; the quiet write (used for background
@@ -512,7 +525,7 @@ mod tests {
 
     #[test]
     fn with_metadata_field_writes_and_clears_mood() {
-        let content = "+++\nschema_version = 1\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\n[time]\ncreated_at = \"x\"\n+++\n\n# Body\n";
 
         let with_mood = with_metadata_fields(content, &[MetadataField::Mood(Some(4))]).unwrap();
         assert_eq!(
@@ -533,7 +546,7 @@ mod tests {
 
     #[test]
     fn with_metadata_field_writes_and_clears_location() {
-        let content = "+++\nschema_version = 1\n[datetime]\ncreated_at = \"x\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\n[time]\ncreated_at = \"x\"\n+++\n\n# Body\n";
 
         let location = Location {
             name: Some("Cafe".to_string()),
@@ -571,9 +584,9 @@ mod tests {
 
     #[test]
     fn tables_serialize_after_flattened_scalars_and_round_trip() {
-        // The gate: the `[datetime]`, `[import]`, and `[location]` tables must
-        // serialize *after* the flattened `metadata` scalars (TOML requires
-        // tables last) and re-parse. render_entry swallows a serialize failure
+        // The gate: everything except `schema_version` is a TOML table, with the
+        // user's `[entry]` metadata first, then `[time]`, `[import]`, and
+        // `[location]` in struct order. render_entry swallows a serialize failure
         // into empty output, so assert the tables are actually there.
         let fm = FrontMatter {
             metadata: Metadata {
@@ -601,13 +614,16 @@ mod tests {
 
         let rendered = render_entry(&fm, "# Body\n");
         assert!(rendered.contains("[location]"), "table missing: {rendered}");
-        // The flattened `tags` scalar precedes every table (valid TOML), and the
-        // tables keep struct order: [datetime], [import], [location].
+        // `tags` now lives inside `[entry]`, the first table, and the tables keep
+        // struct order: [entry], [time], [import], [location].
+        let entry_at = rendered.find("[entry]").unwrap();
         let tags_at = rendered.find("tags = ").unwrap();
-        let dates_at = rendered.find("[datetime]").unwrap();
+        let dates_at = rendered.find("[time]").unwrap();
         let import_at = rendered.find("[import]").unwrap();
         let location_at = rendered.find("[location]").unwrap();
+        assert!(entry_at < tags_at);
         assert!(tags_at < dates_at);
+        assert!(entry_at < dates_at);
         assert!(dates_at < import_at);
         assert!(import_at < location_at);
         assert!(rendered.contains("\n+++\n\n# Body\n"));
@@ -674,7 +690,7 @@ mod tests {
 
     #[test]
     fn timezone_is_preserved_across_metadata_edits() {
-        let content = "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2021-04-03T08:30:05+02:00\"\ntimezone = \"Europe/Berlin\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\n[time]\ncreated_at = \"2021-04-03T08:30:05+02:00\"\ntimezone = \"Europe/Berlin\"\n+++\n\n# Body\n";
 
         // A metadata edit re-renders the whole front matter; the capture-only
         // timezone must survive untouched, like the import provenance does.
@@ -691,7 +707,7 @@ mod tests {
 
     #[test]
     fn starred_round_trips_and_omits_when_false() {
-        let content = "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
 
         let starred = with_metadata_fields(content, &[MetadataField::Starred(true)]).unwrap();
         assert!(starred.contains("starred = true"));
@@ -735,7 +751,7 @@ mod tests {
             Vec::<String>::new()
         );
         assert_eq!(
-            front_matter_fields("[datetime]\ncreated_at = [unterminated")
+            front_matter_fields("[time]\ncreated_at = [unterminated")
                 .datetime
                 .created_at,
             None
@@ -744,7 +760,7 @@ mod tests {
 
     #[test]
     fn with_metadata_field_replaces_list_without_stale_entries() {
-        let content = "+++\nschema_version = 1\ntags = [\"old\", \"stale\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\n\n[entry]\ntags = [\"old\", \"stale\"]\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# Body\n";
         let tags = vec!["new".to_string(), "next".to_string()];
 
         let updated = with_metadata_fields(content, &[MetadataField::Tags(tags)]).unwrap();
@@ -762,7 +778,7 @@ mod tests {
 
     #[test]
     fn with_metadata_field_refreshes_edited_at_and_preserves_body() {
-        let content = "+++\nschema_version = 1\ntags = []\n\n[datetime]\ncreated_at = \"old\"\n+++\n\n# Body\n\nTrailing\n";
+        let content = "+++\nschema_version = 1\n\n[time]\ncreated_at = \"old\"\n+++\n\n# Body\n\nTrailing\n";
 
         let updated = with_metadata_fields(
             content,
@@ -788,7 +804,7 @@ mod tests {
 
     #[test]
     fn metadata_edits_preserve_unknown_fields_recursively() {
-        let content = "+++\nschema_version = 1\ntags = [\"old\"]\nfuture_flag = true\n\n[datetime]\ncreated_at = \"old\"\nfuture_clock = \"keep\"\n\n[future]\nvalue = 42\n+++\n\n# Body\n";
+        let content = "+++\nschema_version = 1\nfuture_flag = true\n\n[entry]\ntags = [\"old\"]\n\n[time]\ncreated_at = \"old\"\nfuture_clock = \"keep\"\n\n[future]\nvalue = 42\n+++\n\n# Body\n";
 
         let updated =
             with_metadata_fields(content, &[MetadataField::Tags(vec!["new".to_string()])]).unwrap();
@@ -796,9 +812,9 @@ mod tests {
         let (front_matter, body) = split_front_matter(&updated);
         let raw: toml::Value = toml::from_str(front_matter.unwrap()).unwrap();
         assert_eq!(raw["future_flag"].as_bool(), Some(true));
-        assert_eq!(raw["datetime"]["future_clock"].as_str(), Some("keep"));
+        assert_eq!(raw["time"]["future_clock"].as_str(), Some("keep"));
         assert_eq!(raw["future"]["value"].as_integer(), Some(42));
-        assert_eq!(raw["tags"][0].as_str(), Some("new"));
+        assert_eq!(raw["entry"]["tags"][0].as_str(), Some("new"));
         assert_eq!(body, "\n# Body\n");
     }
 

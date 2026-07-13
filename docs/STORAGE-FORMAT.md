@@ -71,6 +71,8 @@ body.
 ```markdown
 +++
 schema_version = 1
+
+[entry]
 tags = ["work", "release"]
 feelings = ["focused", "proud"]
 people = ["Alice"]
@@ -78,7 +80,7 @@ activities = ["coding"]
 mood = 3
 starred = true
 
-[datetime]
+[time]
 created_at = "2026-07-05T14:30:00+02:00"
 edited_at = "2026-07-05T14:30:00+02:00"
 timezone = "Europe/Berlin"
@@ -153,16 +155,15 @@ Parsing rules:
 
 ### Fields
 
-The plain top-level fields come first, then the `[table]` sections.
+`schema_version` is the one top-level key; everything else lives in a `[table]`.
+The `[entry]` table holds what you write about the entry; the rest is
+app-captured context. Empty fields (and empty tables) are omitted.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `schema_version` | int | Required; `1`. |
-| `tags`, `people`, `activities` | string[] | Free-form. |
-| `feelings` | string[] | Fixed vocabulary (below); unknown values dropped on read. |
-| `mood` | int | Clamped to `-5..=5`; invalid values become "no mood". |
-| `starred` | bool | Favorite flag; omitted when false. |
-| `[datetime]` | table | `created_at`, `edited_at` (RFC 3339; `edited_at` moves only on real body/metadata edits, not on re-encryption), `timezone` (IANA zone name), `writing_seconds` (accumulated editor-open time). |
+| `[entry]` | table | Your own metadata: `tags`/`people`/`activities` (free-form string[]), `feelings` (string[], fixed vocabulary below; unknown values dropped on read), `mood` (int clamped to `-5..=5`; invalid becomes "no mood"), `starred` (bool, omitted when false). |
+| `[time]` | table | `created_at`, `edited_at` (RFC 3339; `edited_at` moves only on real body/metadata edits, not on re-encryption), `timezone` (IANA zone name), `writing_seconds` (accumulated editor-open time). |
 | `[location]` | table | OpenStreetMap / Nominatim address keys (`name`, `road`, `city`, `state`, `country`, …) plus `latitude`, `longitude`. A device GPS grab also sets `accuracy_m` and `source`. Displayed, not searched. |
 | `[weather]` | table | Captured from Open-Meteo when a location is set: `condition`, temperatures, `humidity`, `pressure_mb`, wind, precipitation, `source`. Capture-only. |
 | `[air_quality]` | table | Open-Meteo air-quality endpoint: `european_aqi`/`us_aqi`, `pm2_5`/`pm10`, gases, `uv_index`, pollen (Europe), `source`. Capture-only. |

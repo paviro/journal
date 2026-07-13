@@ -55,12 +55,12 @@ fn changing_selected_entry_resets_reader_scroll() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+        "+++\nschema_version = 1\n+++\n\n# A\n",
     )
     .unwrap();
     fs::write(
         entry_dir.join("b.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# B\n",
+        "+++\nschema_version = 1\n+++\n\n# B\n",
     )
     .unwrap();
 
@@ -82,12 +82,12 @@ fn scrolling_up_past_first_entry_deselects_and_shows_insights() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+        "+++\nschema_version = 1\n+++\n\n# A\n",
     )
     .unwrap();
     fs::write(
         entry_dir.join("b.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# B\n",
+        "+++\nschema_version = 1\n+++\n\n# B\n",
     )
     .unwrap();
 
@@ -116,7 +116,7 @@ fn focusing_journals_shows_insights_even_with_a_lingering_entry_selection() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+        "+++\nschema_version = 1\n+++\n\n# A\n",
     )
     .unwrap();
 
@@ -146,7 +146,7 @@ fn focusing_insights_shows_insights_even_with_a_lingering_entry_selection() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+        "+++\nschema_version = 1\n+++\n\n# A\n",
     )
     .unwrap();
 
@@ -175,7 +175,7 @@ fn hidden_journals_launch_focuses_entries_with_insights_reader() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+        "+++\nschema_version = 1\n+++\n\n# A\n",
     )
     .unwrap();
 
@@ -196,7 +196,7 @@ fn selected_reader_title_uses_entry_timestamp() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
 
@@ -217,7 +217,7 @@ fn search_reader_title_uses_entry_timestamp() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nneedle\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nneedle\n",
     )
     .unwrap();
 
@@ -241,7 +241,7 @@ fn journal_focus_does_not_make_entry_targets_actionable() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\n",
+        "+++\nschema_version = 1\n+++\n\n# A\n",
     )
     .unwrap();
 
@@ -313,12 +313,12 @@ fn feelings_search_matches_exact_known_label() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\nfeelings = [\"calm\"]\n+++\n\n# A\n",
+        "+++\nschema_version = 1\n\n[entry]\nfeelings = [\"calm\"]\n+++\n\n# A\n",
     )
     .unwrap();
     fs::write(
         entry_dir.join("b.md"),
-        "+++\nschema_version = 1\nfeelings = [\"anxious\"]\n+++\n\n# B\n",
+        "+++\nschema_version = 1\n\n[entry]\nfeelings = [\"anxious\"]\n+++\n\n# B\n",
     )
     .unwrap();
 
@@ -340,7 +340,7 @@ fn starred_search_filters_by_flag() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\nstarred = true\n+++\n\n# Fav\n",
+        "+++\nschema_version = 1\n\n[entry]\nstarred = true\n+++\n\n# Fav\n",
     )
     .unwrap();
     fs::write(
@@ -388,7 +388,7 @@ fn begin_edit_feelings_uses_fixed_list_and_selected_entry_values() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\nfeelings = [\"calm\", \"excited\"]\n+++\n\n# A\n",
+        "+++\nschema_version = 1\n\n[entry]\nfeelings = [\"calm\", \"excited\"]\n+++\n\n# A\n",
     )
     .unwrap();
 
@@ -546,12 +546,12 @@ fn entry_rows_cache_is_reused_until_inputs_change() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     fs::write(
         entry_dir.join("b.md"),
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T11:00:00+02:00\"\n+++\n\n# B\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -578,7 +578,7 @@ fn search_typing_defers_hit_recompute_until_committed() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nneedle\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\nneedle\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -604,7 +604,7 @@ fn write_entry(dir: &std::path::Path, name: &str, created: &str, body: &str) -> 
     let path = dir.join(name);
     fs::write(
         &path,
-        format!("+++\nschema_version = 1\n[datetime]\ncreated_at = \"{created}\"\n+++\n\n{body}\n"),
+        format!("+++\nschema_version = 1\n[time]\ncreated_at = \"{created}\"\n+++\n\n{body}\n"),
     )
     .unwrap();
     path
@@ -789,12 +789,12 @@ fn metadata_partitioned_excludes_archived_and_isolates_archived_only() {
     fs::create_dir_all(&archived_dir).unwrap();
     fs::write(
         active_dir.join("a.md"),
-        "+++\nschema_version = 1\ntags = [\"berlin\", \"shared\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n",
+        "+++\nschema_version = 1\n\n[entry]\ntags = [\"berlin\", \"shared\"]\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# A\n",
     )
     .unwrap();
     fs::write(
         archived_dir.join("b.md"),
-        "+++\nschema_version = 1\ntags = [\"wanderlust\", \"shared\"]\n\n[datetime]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# B\n",
+        "+++\nschema_version = 1\n\n[entry]\ntags = [\"wanderlust\", \"shared\"]\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n+++\n\n# B\n",
     )
     .unwrap();
 

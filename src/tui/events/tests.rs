@@ -103,7 +103,7 @@ fn right_on_entry_expands_when_inline_reader_is_hidden() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -124,7 +124,7 @@ fn expanded_entry_title_matches_reader_timestamp_title() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\n[datetime]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:23:00+02:00\"\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -145,7 +145,7 @@ fn right_on_entry_focuses_reader_when_reader_is_available() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# A\nBody\n",
+        "+++\nschema_version = 1\n+++\n\n# A\nBody\n",
     )
     .unwrap();
     let config = Config::new(dir.path().to_path_buf());
@@ -929,7 +929,7 @@ fn select_created_entry_path_opens_expanded_reader() {
     fs::create_dir_all(&entry_dir).unwrap();
     fs::write(
         entry_dir.join("a.md"),
-        "+++\nschema_version = 1\ntags = []\n+++\n\n# Existing\nBody\n",
+        "+++\nschema_version = 1\n+++\n\n# Existing\nBody\n",
     )
     .unwrap();
 
