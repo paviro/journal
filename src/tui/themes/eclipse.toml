@@ -1,11 +1,11 @@
-schema_version = 1
-
 # Eclipse — pure black-and-white at maximum contrast. Meaning is carried by
 # weight, glyph, and inversion, never by hue: chart series differ by fill glyph
 # (█ ▒ ░), selection is a true ink/paper swap. Needs a true-color terminal; on
 # a limited-palette display, prefer `classic`.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "bordered"

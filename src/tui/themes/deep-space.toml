@@ -1,10 +1,10 @@
-schema_version = 1
-
 # Deep Space — drifting through a nebula: deep navy void, soft off-white stars,
 # with cyan and magenta glowing at the edges of sight. Flat chrome, calm and
 # roomy. Light mode is a pale ice-field. The quiet, "serious but fun" option.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"
@@ -36,7 +36,7 @@ normal        = { dark = "#22304a", light = "#bcc8dc" }
 subtle        = { dark = "#121a2c", light = "#d4dcea" }
 focused       = { dark = "#6cc6ff", light = "#1f6fa8" }
 unfocused     = { dark = "#22304a", light = "#bcc8dc" }
-divider_style = "tertiary"
+divider = "tertiary"
 
 [interaction]
 selection = { bg = { dark = "#6cc6ff", light = "#1f6fa8" }, fg = { dark = "#060a16", light = "#ffffff" }, bold = true }

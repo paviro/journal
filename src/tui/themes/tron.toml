@@ -1,9 +1,9 @@
-schema_version = 1
-
 # Tron — inside the Grid: electric-cyan light-cycle trails on black glass, with
 # a program-orange antagonist accent. Flat chrome, cold blue-black surfaces.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"
@@ -35,7 +35,7 @@ normal        = { dark = "#1c3a4a", light = "#b8cad8" }
 subtle        = { dark = "#10222c", light = "#d0dce6" }
 focused       = { dark = "#00e0ff", light = "#0077a0" }
 unfocused     = { dark = "#1c3a4a", light = "#b8cad8" }
-divider_style = "secondary"
+divider = "secondary"
 
 [interaction]
 selection = { bg = { dark = "#00e0ff", light = "#0077a0" }, fg = { dark = "#05080d", light = "#ffffff" }, bold = true }

@@ -1,11 +1,11 @@
-schema_version = 1
-
 # Matrix — digital rain: neon green code cascading down pure-black glass, with
 # a near-white "rain head" leading each column. Flat chrome, glass-black
 # surfaces. Cousin of crt, but crt is a cozy bordered single-phosphor terminal;
 # this one is starker — flat, pure black, brighter green, and the white head.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"
@@ -37,7 +37,7 @@ normal        = { dark = "#163a1e", light = "#b8d8c0" }
 subtle        = { dark = "#0d220f", light = "#d0e6d4" }
 focused       = { dark = "#00ff66", light = "#0a6f30" }
 unfocused     = { dark = "#163a1e", light = "#b8d8c0" }
-divider_style = "tertiary"
+divider = "tertiary"
 
 [borders.glyphs]
 divider = "╌"

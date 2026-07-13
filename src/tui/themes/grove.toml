@@ -1,8 +1,8 @@
-schema_version = 1
-
 # Grove — deep forest greens with warm amber accents.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"

@@ -1,9 +1,9 @@
-schema_version = 1
-
 # Synthwave — neon on near-black purple: hot pink, cyan, and violet with
 # ✦-cornered heavy borders. Light mode is a washed-out miami daylight.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"
@@ -35,7 +35,7 @@ normal        = { dark = "#452a6e", light = "#c2a8dd" }
 subtle        = { dark = "#2b1a47", light = "#d8c6ea" }
 focused       = { dark = "#ff2e97", light = "#c4157a" }
 unfocused     = { dark = "#452a6e", light = "#c2a8dd" }
-divider_style = "tertiary"
+divider = "tertiary"
 
 [borders.glyphs]
 top_left     = "✦"
@@ -88,4 +88,4 @@ error       = { dark = "#ff5c7a", light = "#c41f45" }
 edge = "▐"
 
 [tabs]
-separator_style = "secondary"
+separator = "secondary"

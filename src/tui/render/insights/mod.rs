@@ -250,7 +250,7 @@ fn tabs_title_line(
         if index > 0 {
             spans.push(Span::styled(
                 format!(" {} ", theme().glyphs().tab_separator),
-                theme().tab_separator_style(),
+                theme().tab_separator(),
             ));
         }
         let mut style = if *tab == active {

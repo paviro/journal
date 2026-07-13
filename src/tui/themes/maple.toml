@@ -1,9 +1,9 @@
-schema_version = 1
-
 # Maple — muted autumn foliage: soft red, persimmon, and fallen-leaf ochre
 # over warm earth.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"

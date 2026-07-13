@@ -256,7 +256,7 @@ struct BordersSection {
     unfocused: Option<TokenSpec>,
     /// The rule of section dividers (month headers, "Archived"). Defaults to the
     /// muted ink the divider has always used.
-    divider_style: Option<TokenSpec>,
+    divider: Option<TokenSpec>,
     /// The outline of entry/journal/stat cards. Defaults to `normal`.
     card: Option<TokenSpec>,
 }
@@ -517,7 +517,7 @@ struct ToastGlyphsSection {
 #[serde(default, deny_unknown_fields)]
 struct TabsSection {
     /// The separator glyph's ink between tab labels. Defaults to the muted ink.
-    separator_style: Option<TokenSpec>,
+    separator: Option<TokenSpec>,
     glyphs: TabsGlyphsSection,
 }
 
@@ -626,13 +626,9 @@ impl ThemeFile {
         // cards have used the normal border. Each is now a token that keeps that
         // default.
         let muted_ink = muted.add_modifier(Modifier::DIM);
-        let divider_style = style(&borders.divider_style, muted_ink, "borders.divider_style")?;
+        let divider = style(&borders.divider, muted_ink, "borders.divider")?;
         let card_border = style(&borders.card, border, "borders.card")?;
-        let tab_separator_style = style(
-            &self.tabs.separator_style,
-            muted_ink,
-            "tabs.separator_style",
-        )?;
+        let tab_separator = style(&self.tabs.separator, muted_ink, "tabs.separator")?;
         // The thumb inherits the focused-border hue (it marks the scrollable,
         // interactable panel); the track stays terminal-default quiet.
         let scrollbar_thumb = style(&self.scrollbar.thumb, border_active, "scrollbar.thumb")?;
@@ -824,9 +820,9 @@ impl ThemeFile {
             secondary,
             border,
             border_subtle,
-            divider_style,
+            divider,
             card_border,
-            tab_separator_style,
+            tab_separator,
             border_active,
             border_inactive,
             success: style(

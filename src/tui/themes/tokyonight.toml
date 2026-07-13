@@ -1,8 +1,8 @@
-schema_version = 1
-
 # Tokyo Night — based on folke/tokyonight.nvim (Night / Day variants).
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"

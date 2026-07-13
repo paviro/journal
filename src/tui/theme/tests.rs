@@ -3,7 +3,9 @@ use schema::parse_color;
 use tempfile::tempdir;
 
 fn parse(text: &str, mode: Mode) -> anyhow::Result<Theme> {
-    if text.starts_with("schema_version = ") {
+    // Bundled themes carry their own `schema_version` (below the file's lead
+    // comment); bare inline snippets don't, so prepend one for them.
+    if text.lines().any(|line| line.starts_with("schema_version = ")) {
         super::parse(text, mode)
     } else {
         super::parse(&format!("schema_version = 1\n{text}"), mode)
@@ -101,8 +103,8 @@ fn new_tokens_chain_to_their_parents() {
     // Accents: secondary chains to primary (here still the cyan default).
     assert_eq!(theme.secondary(), theme.primary());
     // Structural furniture keeps the ink it has always used.
-    assert_eq!(theme.divider_style(), theme.muted());
-    assert_eq!(theme.tab_separator_style(), theme.muted());
+    assert_eq!(theme.divider(), theme.muted());
+    assert_eq!(theme.tab_separator(), theme.muted());
     assert_eq!(
         theme.card_border(),
         Style::default().fg(Color::Indexed(244))
@@ -152,10 +154,10 @@ fn new_tokens_resolve_explicit_values() {
          cursor = { reversed = true }\n\
          cursor_line = { bg = \"#181818\" }\n\
          [borders]\n\
-         divider_style = \"#101010\"\n\
+         divider = \"#101010\"\n\
          card = \"#202020\"\n\
          [tabs]\n\
-         separator_style = \"#303030\"\n\
+         separator = \"#303030\"\n\
          [scrollbar]\n\
          thumb = \"#778899\"\n\
          track = \"#223344\"\n\
@@ -172,10 +174,10 @@ fn new_tokens_resolve_explicit_values() {
     assert!(theme.button_hover().add_modifier.contains(Modifier::BOLD));
     assert!(theme.cursor().add_modifier.contains(Modifier::REVERSED));
     assert_eq!(theme.cursor_line().bg, Some(Color::Rgb(0x18, 0x18, 0x18)));
-    assert_eq!(theme.divider_style().fg, Some(Color::Rgb(0x10, 0x10, 0x10)));
+    assert_eq!(theme.divider().fg, Some(Color::Rgb(0x10, 0x10, 0x10)));
     assert_eq!(theme.card_border().fg, Some(Color::Rgb(0x20, 0x20, 0x20)));
     assert_eq!(
-        theme.tab_separator_style().fg,
+        theme.tab_separator().fg,
         Some(Color::Rgb(0x30, 0x30, 0x30))
     );
     assert_eq!(
@@ -204,17 +206,17 @@ fn accents_are_referenceable_by_name_in_any_token() {
          secondary = \"#2de2e6\"\n\
          tertiary = \"#a06bff\"\n\
          [borders]\n\
-         divider_style = \"secondary\"\n\
+         divider = \"secondary\"\n\
          [tabs]\n\
-         separator_style = \"tertiary\"\n\
+         separator = \"tertiary\"\n\
          [text]\n\
          heading = \"primary\"",
         Mode::Dark,
     )
     .unwrap();
-    assert_eq!(theme.divider_style().fg, Some(Color::Rgb(0x2d, 0xe2, 0xe6)));
+    assert_eq!(theme.divider().fg, Some(Color::Rgb(0x2d, 0xe2, 0xe6)));
     assert_eq!(
-        theme.tab_separator_style().fg,
+        theme.tab_separator().fg,
         Some(Color::Rgb(0xa0, 0x6b, 0xff))
     );
     assert_eq!(theme.heading().fg, Some(Color::Rgb(0xff, 0x2f, 0x92)));
@@ -226,12 +228,12 @@ fn accents_are_referenceable_by_name_in_any_token() {
          [accents]\n\
          secondary = \"#2de2e6\"\n\
          [borders]\n\
-         divider_style = \"secondary\"",
+         divider = \"secondary\"",
         Mode::Dark,
     )
     .unwrap();
     assert_eq!(
-        overridden.divider_style().fg,
+        overridden.divider().fg,
         Some(Color::Rgb(0x01, 0x02, 0x03))
     );
 }
@@ -247,11 +249,11 @@ fn palette_references_resolve_transitively() {
          [accents]\n\
          tertiary = \"hero\"\n\
          [borders]\n\
-         divider_style = \"tertiary\"",
+         divider = \"tertiary\"",
         Mode::Dark,
     )
     .unwrap();
-    assert_eq!(theme.divider_style().fg, Some(Color::Rgb(0xff, 0x2d, 0x95)));
+    assert_eq!(theme.divider().fg, Some(Color::Rgb(0xff, 0x2d, 0x95)));
 
     // A reference cycle can't loop forever; it falls through to a parse error.
     assert!(
@@ -260,7 +262,7 @@ fn palette_references_resolve_transitively() {
              a = \"b\"\n\
              b = \"a\"\n\
              [borders]\n\
-             divider_style = \"a\"",
+             divider = \"a\"",
             Mode::Dark,
         )
         .is_err()

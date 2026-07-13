@@ -1,10 +1,10 @@
-schema_version = 1
-
 # Eldritch — cosmic horror: a damp teal-black void, sickly pale-green ink, and
 # unnatural accents of void-violet and acid-green. Flat chrome. Light mode is a
 # faded, mildewed parchment. Something is wrong here, and it is beautiful.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"
@@ -36,7 +36,7 @@ normal        = { dark = "#2e2a3e", light = "#c0c8b8" }
 subtle        = { dark = "#1a1826", light = "#d4dccb" }
 focused       = { dark = "#7b5cff", light = "#5a3fd6" }
 unfocused     = { dark = "#2e2a3e", light = "#c0c8b8" }
-divider_style = "tertiary"
+divider = "tertiary"
 
 [interaction]
 selection = { bg = { dark = "#7b5cff", light = "#5a3fd6" }, fg = { dark = "#0a0e12", light = "#f4f6f0" }, bold = true }

@@ -1,9 +1,9 @@
-schema_version = 1
-
 # Indigo — deep dye-blue softened by a cornflower accent and near-white ink.
 # Calm, with real depth.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"

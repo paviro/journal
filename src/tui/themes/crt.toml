@@ -1,10 +1,10 @@
-schema_version = 1
-
 # CRT — green phosphor on black glass, ASCII borders like a real dumb
 # terminal. Single-hue like eclipse: meaning rides weight, glyph, and inversion
 # (chart series differ by fill glyph). Light mode is a paper terminal.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "bordered"

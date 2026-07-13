@@ -307,9 +307,9 @@ pub(crate) struct Theme {
     border_subtle: Style,
     border_active: Style,
     border_inactive: Style,
-    divider_style: Style,
+    divider: Style,
     card_border: Style,
-    tab_separator_style: Style,
+    tab_separator: Style,
     success: Style,
     warning: Style,
     error: Style,
@@ -716,9 +716,9 @@ impl Theme {
     }
 
     /// The ink of the separator glyph between tab labels. Defaults to the muted
-    /// ink unless a theme sets `tabs.separator_style`.
-    pub(crate) fn tab_separator_style(self) -> Style {
-        self.tab_separator_style
+    /// ink unless a theme sets `tabs.separator`.
+    pub(crate) fn tab_separator(self) -> Style {
+        self.tab_separator
     }
 
     // --- borders ---
@@ -749,9 +749,9 @@ impl Theme {
 
     /// The rule of a section divider (month headers, the "Archived" break).
     /// Defaults to the muted ink; a theme can give it a hue via
-    /// `borders.divider_style`.
-    pub(crate) fn divider_style(self) -> Style {
-        self.divider_style
+    /// `borders.divider`.
+    pub(crate) fn divider(self) -> Style {
+        self.divider
     }
 
     /// A recessed box outline — a touch brighter than [`Self::faint_rule`] so

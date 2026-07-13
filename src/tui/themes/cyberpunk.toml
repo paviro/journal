@@ -1,9 +1,9 @@
-schema_version = 1
-
 # Cyberpunk — Night City yellow on black glass, red glitches, pink chrome.
 # Heavy borders with quadrant-block corners for that angular HUD look.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"
@@ -35,7 +35,7 @@ normal        = { dark = "#453d57", light = "#c3bba3" }
 subtle        = { dark = "#2a2536", light = "#d9d3c0" }
 focused       = { dark = "#fcee0a", light = "#7a6f00" }
 unfocused     = { dark = "#453d57", light = "#c3bba3" }
-divider_style = "tertiary"
+divider = "tertiary"
 
 [borders.glyphs]
 top_left     = "▛"
@@ -93,7 +93,7 @@ error       = { dark = "#ff003c", light = "#c40030" }
 edge = "▌"
 
 [tabs]
-separator_style = "secondary"
+separator = "secondary"
 
 [tabs.glyphs]
 separator = "/"

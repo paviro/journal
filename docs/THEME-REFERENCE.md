@@ -96,7 +96,7 @@ as palette names, so any token can reference them by name (a theme's own
 | `subtle` | token | ANSI `240` |
 | `focused` | token | terminal ink (BOLD) |
 | `unfocused` | token | terminal ink |
-| `divider_style` | token | ← `text.muted` dimmed |
+| `divider` | token | ← `text.muted` dimmed |
 | `card` | token | ← `normal` |
 
 `style` picks the box-drawing set for panels, cards, and tables. Focused panels
@@ -108,7 +108,7 @@ choosing. `subtle` draws inter-row table rules.
 `vertical`); omitted keys inherit the base style, and table junctions
 (`├ ┤ ┬ ┴ ┼`) always do. Two standalone glyphs live here: `focus_stripe` (`┃`, the
 flat-chrome focused edge, in the `focused` color) and `divider` (`━`, the month /
-"Archived" rule, in `divider_style`). Setting only those keeps the base `style`;
+"Archived" rule, in the `borders.divider` color). Setting only those keeps the base `style`;
 switching to a custom set needs a real box glyph. See `synthwave.toml` and
 `vaporwave.toml`.
 
@@ -172,7 +172,7 @@ disables highlighting.
 
 `[toast.glyphs]`: `edge` (`┃`, toast accents on flat chrome) and `progress` (`─`,
 the dismissal countdown line along the bottom edge). `[tabs]` sets
-`separator_style` (← `text.muted` dimmed); `[tabs.glyphs]`: `separator` (`·`).
+`separator` (← `text.muted` dimmed); `[tabs.glyphs]`: `separator` (`·`).
 
 ## Monochrome contract
 

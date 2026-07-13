@@ -1,8 +1,8 @@
-schema_version = 1
-
 # Lavender — soft mauve pastels. Mocha (dark) / Latte (light).
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"

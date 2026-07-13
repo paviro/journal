@@ -1,8 +1,8 @@
-schema_version = 1
-
 # Matcha — a warm paper theme with a soft green accent.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "flat"

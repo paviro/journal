@@ -1,11 +1,11 @@
-schema_version = 1
-
 # Arcade — the coin-op cabinet: true-black CRT glass, Pac-Man yellow as the
 # hero, and the ghost quartet (red, cyan, pink, orange) for everything else.
 # Bordered chrome with chunky quadrant-block bezels and █ pixel furniture, so it
 # reads like sprite art in a dark arcade. Light mode is a sun-faded flyer.
 #
 # See journal.toml for the accepted color/style forms.
+
+schema_version = 1
 
 [chrome]
 default_style = "bordered"
@@ -47,7 +47,7 @@ normal        = { dark = "#3a3a4a", light = "#c4c0b2" }
 subtle        = { dark = "#1e1e28", light = "#d8d4c6" }
 focused       = "blinky"
 unfocused     = { dark = "#3a3a4a", light = "#c4c0b2" }
-divider_style = "tertiary"
+divider = "tertiary"
 
 [borders.glyphs]
 top_left     = "▛"
@@ -105,7 +105,7 @@ error       = "blinky"
 edge = "█"
 
 [tabs]
-separator_style = "secondary"
+separator = "secondary"
 
 [tabs.glyphs]
 separator = "▪"
