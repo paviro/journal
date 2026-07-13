@@ -66,6 +66,24 @@ an error toast and keeps the current theme; the next valid save loads. Writing y
 own themes is covered in [THEME-REFERENCE.md](THEME-REFERENCE.md); see
 [THEMES.md](THEMES.md) for the bundled gallery.
 
+## Images and attachments
+
+Add an image or file to an entry in the editor by putting its path on its own line
+— drag a file onto the terminal and most terminals (including macOS Terminal and
+iTerm) paste its path — or by writing a Markdown link `[label](/path/to/file.pdf)`.
+
+On save, the file is copied into the entry's own `<entry>.assets/` folder and the
+reference is rewritten to point there; the original file is left untouched. In an
+encrypted journal the copy is encrypted alongside the entry.
+
+- Images appear in the reader as a numbered `[Image N …]` label — click it or press
+  its number to open the fullscreen viewer.
+- Other files (PDF, audio, video, …) become a link labelled by the file name. In an
+  unencrypted journal, clicking the link opens the file in your OS default app. In an
+  encrypted journal the file is stored encrypted and can't be handed to the OS, so the
+  link is shown but not clickable for now — in-app viewing of more file types may come
+  later.
+
 ## Import from Day One
 
 ```bash
@@ -73,5 +91,6 @@ notema import dayone ./export/personal.json --journal personal
 notema import dayone ./export/personal.json --journal personal --download-images   # also fetch remote image links
 ```
 
-Already-imported entries are skipped on re-run. Audio/video/PDF attachments are not
-yet supported and are reported and skipped.
+Already-imported entries are skipped on re-run. Photos are imported inline; audio,
+video, and PDF attachments are copied into the entry's asset folder and linked (see
+[Images and attachments](#images-and-attachments)).

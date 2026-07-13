@@ -1,14 +1,17 @@
-//! Per-entry image assets.
+//! Per-entry assets.
 //!
 //! [`ingest_and_cleanup`] copies/downloads external images (local paths or
-//! `http(s)` URLs, in `![alt](target)` tags or bare on their own line) into the
-//! entry's sibling `<stem>.assets/` folder, age-encrypting when the store is
-//! encrypted, and rewrites references to the stored copy. Assets no longer
-//! referenced by the rewritten body are deleted.
+//! `http(s)` URLs, in `![alt](target)` tags or bare on their own line) and
+//! non-image file attachments (existing local files in `[label](target)` links)
+//! into the entry's sibling `<stem>.assets/` folder, age-encrypting when the
+//! store is encrypted, and rewrites references to the stored copy. Assets no
+//! longer referenced by the rewritten body are deleted.
 //!
-//! Stored references are always canonical markdown
-//! `![alt](<stem>.assets/<id>.<ext>[.age])`, so plaintext entries stay viewable
-//! in external markdown tools.
+//! Stored references are always canonical markdown pointing inside the entry's
+//! own asset folder — `![alt](<stem>.assets/<id>.<ext>)` for images,
+//! `[label](<stem>.assets/<id>.<ext>)` for attachments (the file on disk carries
+//! an extra `.age` suffix when encrypted) — so plaintext entries stay viewable in
+//! external markdown tools.
 
 mod net;
 
@@ -20,7 +23,7 @@ use notema_encryption::{self as crypto, KeyPaths};
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
-    io::Write,
+    io::{self, Cursor, Write},
     path::{Component, Path, PathBuf},
 };
 
@@ -34,8 +37,10 @@ const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct AssetReport {
-    /// Images copied/downloaded into the asset folder.
+    /// Files copied/downloaded into the asset folder.
     pub stored: usize,
+    /// Stored files referenced as attachments rather than image embeds.
+    pub attachments_stored: usize,
     /// Orphaned assets deleted during cleanup.
     pub removed: usize,
     /// Sources that could not be ingested, tagged by cause so callers can tell a
@@ -43,7 +48,7 @@ pub struct AssetReport {
     pub failed: Vec<AssetFailure>,
 }
 
-/// Why an external image reference was not stored, carrying enough to report it.
+/// Why an external asset reference was not stored, carrying enough to report it.
 #[derive(Debug, PartialEq, Eq)]
 pub enum AssetFailure {
     /// A remote source deliberately not fetched (downloads disabled) or whose
@@ -53,15 +58,38 @@ pub enum AssetFailure {
     /// A source that should have ingested but errored: missing local file,
     /// unsupported/undecodable image, or a write failure.
     Ingest { source: String, error: String },
+    /// A local attachment that could not be read or stored.
+    AttachmentIngest { source: String, error: String },
 }
 
 impl AssetReport {
+    /// Stored files referenced as image embeds.
+    pub fn images_stored(&self) -> usize {
+        self.stored.saturating_sub(self.attachments_stored)
+    }
+
+    /// Image sources that were unavailable or failed ingestion.
+    pub fn images_not_stored(&self) -> usize {
+        self.failed
+            .iter()
+            .filter(|failure| !matches!(failure, AssetFailure::AttachmentIngest { .. }))
+            .count()
+    }
+
+    /// Attachment sources that failed ingestion.
+    pub fn attachments_not_stored(&self) -> usize {
+        self.failed
+            .iter()
+            .filter(|failure| matches!(failure, AssetFailure::AttachmentIngest { .. }))
+            .count()
+    }
+
     pub fn is_noop(&self) -> bool {
         self.stored == 0 && self.removed == 0 && self.failed.is_empty()
     }
 }
 
-/// Ingest external image references in `body` and delete orphaned assets.
+/// Ingest external image and attachment references, then delete orphaned assets.
 ///
 /// `encryption` is `Some` when the store encrypts entries (assets get an `.age`
 /// suffix and are age-encrypted); `download_remote` gates fetching `http(s)`
@@ -118,9 +146,10 @@ pub(crate) fn ingest_and_cleanup_opts(
     Ok((changed.then_some(new_body), report))
 }
 
-/// Retarget canonical stored-image links when an entry is copied. Text outside
-/// Markdown image targets, including fenced code, is left byte-for-byte intact.
-pub(crate) fn retarget_stored_image_links(
+/// Retarget canonical stored-asset references (image embeds and attachment
+/// links) when an entry is copied. Text outside Markdown targets, including
+/// fenced code, is left byte-for-byte intact.
+pub(crate) fn retarget_stored_asset_links(
     body: &str,
     source_dir_name: &str,
     target_dir_name: &str,
@@ -139,24 +168,50 @@ pub(crate) fn retarget_stored_image_links(
             continue;
         }
 
-        let mut rewritten = String::with_capacity(line.len());
-        let mut rest = line;
-        while let Some(image) = next_markdown_image(rest) {
-            rewritten.push_str(&rest[..image.target_start]);
-            let target = &rest[image.target_range()];
-            if let Some(reference) = stored_image_reference(target, source_dir_name) {
-                rewritten.push_str(target_dir_name);
-                rewritten.push('/');
-                rewritten.push_str(&reference.file_name);
-            } else {
-                rewritten.push_str(target);
-            }
-            rest = &rest[image.target_end..];
-        }
-        rewritten.push_str(rest);
+        let rewritten = retarget_line(line, source_dir_name, target_dir_name);
         push_line(&mut out, &rewritten, lines.peek().is_some());
     }
     out
+}
+
+/// Retarget every stored image embed then every stored attachment link on a
+/// single line, leaving external and already-mismatched targets untouched.
+fn retarget_line(line: &str, source_dir_name: &str, target_dir_name: &str) -> String {
+    let mut images = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(image) = next_markdown_image(rest) {
+        images.push_str(&rest[..image.target_start]);
+        images.push_str(&retarget_target(
+            &rest[image.target_range()],
+            source_dir_name,
+            target_dir_name,
+        ));
+        rest = &rest[image.target_end..];
+    }
+    images.push_str(rest);
+
+    let mut out = String::with_capacity(images.len());
+    let mut rest = images.as_str();
+    while let Some(link) = next_markdown_link(rest) {
+        out.push_str(&rest[..link.target_start]);
+        out.push_str(&retarget_target(
+            &rest[link.target_range()],
+            source_dir_name,
+            target_dir_name,
+        ));
+        rest = &rest[link.target_end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Rewrite a single target to the new asset folder when it is a canonical
+/// reference into `source_dir_name`; otherwise return it unchanged.
+fn retarget_target(target: &str, source_dir_name: &str, target_dir_name: &str) -> String {
+    match stored_asset_reference(target, source_dir_name) {
+        Some(reference) => format!("{target_dir_name}/{}", reference.file_name),
+        None => target.to_string(),
+    }
 }
 
 struct IngestContext<'a> {
@@ -197,6 +252,7 @@ fn rewrite_body(body: &str, ctx: &mut IngestContext<'_>) -> String {
             Some(replacement) => replacement,
             None => rewritten,
         };
+        let rewritten = rewrite_markdown_links(&rewritten, ctx);
         push_line(&mut out, &rewritten, lines.peek().is_some());
     }
 
@@ -240,8 +296,10 @@ fn rewrite_markdown_images(line: &str, ctx: &mut IngestContext<'_>) -> String {
     out
 }
 
-/// If the whole trimmed line is a single bare local path or image URL, wrap it
-/// in a markdown image reference and ingest it.
+/// If the whole trimmed line is a single bare path (or image URL), ingest it:
+/// image sources become `![](…)` embeds, any other existing local file becomes a
+/// `[<filename>](…)` attachment link. This is what makes dragging a file onto the
+/// terminal — which pastes its path — attach it.
 fn rewrite_bare_line(line: &str, ctx: &mut IngestContext<'_>) -> Option<String> {
     let trimmed = line.trim();
     if trimmed.is_empty() {
@@ -255,19 +313,93 @@ fn rewrite_bare_line(line: &str, ctx: &mut IngestContext<'_>) -> Option<String> 
     } else {
         unescape_shell_path(trimmed)
     };
-    // Check the cheap extension test before the filesystem stat, and rely on
-    // `is_file()` (not a whitespace heuristic) to reject prose: a real path may
-    // contain spaces, e.g. `.../Photos Library.photoslibrary/.../foo.jpeg`.
-    if !looks_like_image_source(&source) || !is_external_target(&source, ctx.dir_name) {
+    // Rely on `is_file()` (not a whitespace heuristic) to reject prose: a real
+    // path may contain spaces, e.g. `.../Photos Library.photoslibrary/foo.jpeg`.
+    if !is_external_target(&source, ctx.dir_name) {
         return None;
     }
 
     let indent = &line[..line.len() - line.trim_start().len()];
-    match store_source(&source, "", ctx) {
-        Some(link) => Some(format!("{indent}{link}")),
-        None if ctx.replace_offline => Some(format!("{indent}{OFFLINE_IMAGE_PLACEHOLDER}")),
-        None => None,
+    if looks_like_image_source(&source) {
+        return match store_source(&source, "", ctx) {
+            Some(link) => Some(format!("{indent}{link}")),
+            None if ctx.replace_offline => Some(format!("{indent}{OFFLINE_IMAGE_PLACEHOLDER}")),
+            None => None,
+        };
     }
+    // A bare non-image line only attaches an existing *local* file; a remote URL
+    // to some other file type is left as prose (attachments are never fetched).
+    if is_url(&source) {
+        return None;
+    }
+    let label = bare_attachment_label(&source);
+    store_file_source(&source, &label, ctx).map(|link| format!("{indent}{link}"))
+}
+
+/// A human label for a bare-pasted attachment: the source's file name (without
+/// any Markdown-breaking `[`/`]`), falling back to `attachment`.
+fn bare_attachment_label(source: &str) -> String {
+    Path::new(source)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.replace(['[', ']'], ""))
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "attachment".to_string())
+}
+
+/// Replace every external file `[label](target)` in a line with a canonical
+/// stored attachment reference. Only existing local files are ingested; URLs,
+/// `#anchors`, `data:` URIs, and references already inside the asset folder pass
+/// through untouched — attachments are never downloaded from remote hosts.
+fn rewrite_markdown_links(line: &str, ctx: &mut IngestContext<'_>) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+
+    while let Some(link) = next_markdown_link(rest) {
+        out.push_str(&rest[..link.start]);
+        let target = rest[link.target_range()].trim();
+        if !is_url(target) && is_external_target(target, ctx.dir_name) {
+            match store_file_source(target, link.text(rest), ctx) {
+                Some(replacement) => out.push_str(&replacement),
+                None => out.push_str(&rest[link.start..link.end]),
+            }
+        } else {
+            out.push_str(&rest[link.start..link.end]);
+        }
+        rest = &rest[link.end..];
+    }
+
+    out.push_str(rest);
+    out
+}
+
+/// Copy a local file into the asset folder (encrypted when configured) and
+/// return the canonical `[label](<dir>/<file>)` link. Identical sources are
+/// stored once and reused. Returns `None` on failure, recording it in the
+/// report.
+fn store_file_source(source: &str, label: &str, ctx: &mut IngestContext<'_>) -> Option<String> {
+    if let Some(file_name) = ctx.stored_sources.get(source) {
+        return Some(markdown_link(label, ctx.dir_name, file_name));
+    }
+
+    let ext = attachment_extension(source);
+    store_asset(
+        source,
+        AssetReference::Attachment(label),
+        AssetData::File(expand_user(source)),
+        &ext,
+        ctx,
+    )
+}
+
+fn markdown_link(label: &str, dir_name: &str, file_name: &str) -> String {
+    format!("[{label}]({dir_name}/{file_name})")
+}
+
+/// The lowercased file extension of an attachment source, defaulting to `bin`
+/// when the path carries none.
+fn attachment_extension(source: &str) -> String {
+    extension_of(source).unwrap_or_else(|| "bin".to_string())
 }
 
 /// Fetch a source, store it in the asset folder (encrypted when configured),
@@ -295,33 +427,100 @@ fn store_source(source: &str, alt: &str, ctx: &mut IngestContext<'_>) -> Option<
         }
     };
 
-    match write_asset(ctx, &bytes, &ext) {
-        Ok(file_name) => {
-            ctx.report.stored += 1;
-            ctx.stored_sources
-                .insert(source.to_string(), file_name.clone());
-            Some(markdown_image(alt, ctx.dir_name, &file_name))
-        }
-        Err(error) => {
-            ctx.report.failed.push(AssetFailure::Ingest {
-                source: source.to_string(),
-                error: error.to_string(),
-            });
-            None
-        }
-    }
+    store_asset(
+        source,
+        AssetReference::Image(alt),
+        AssetData::Bytes(bytes),
+        &ext,
+        ctx,
+    )
 }
 
 fn markdown_image(alt: &str, dir_name: &str, file_name: &str) -> String {
     format!("![{alt}]({dir_name}/{file_name})")
 }
 
-/// Write bytes under a collision-free random id and return the **clean**
-/// reference name `<id>.<ext>` (never `.age`). When the store is encrypted the
-/// file on disk gets the `.age` suffix, but the body link stays clean — the app
-/// appends/strips `.age` when resolving, so toggling encryption never rewrites
-/// entry bodies.
-fn write_asset(ctx: &mut IngestContext<'_>, bytes: &[u8], ext: &str) -> AppResult<String> {
+enum AssetReference<'a> {
+    Image(&'a str),
+    Attachment(&'a str),
+}
+
+impl AssetReference<'_> {
+    fn render(&self, dir_name: &str, file_name: &str) -> String {
+        match self {
+            Self::Image(alt) => markdown_image(alt, dir_name, file_name),
+            Self::Attachment(label) => markdown_link(label, dir_name, file_name),
+        }
+    }
+
+    fn failure(&self, source: String, error: String) -> AssetFailure {
+        match self {
+            Self::Image(_) => AssetFailure::Ingest { source, error },
+            Self::Attachment(_) => AssetFailure::AttachmentIngest { source, error },
+        }
+    }
+
+    fn is_attachment(&self) -> bool {
+        matches!(self, Self::Attachment(_))
+    }
+}
+
+enum AssetData {
+    Bytes(Vec<u8>),
+    File(PathBuf),
+}
+
+impl AssetData {
+    fn write_to(
+        &self,
+        output: &mut fs::File,
+        encryption: Option<&crypto::EncryptionRecipients>,
+    ) -> AppResult<()> {
+        match (self, encryption) {
+            (Self::Bytes(bytes), Some(recipients)) => {
+                recipients.encrypt_reader(Cursor::new(bytes), output)?;
+            }
+            (Self::File(path), Some(recipients)) => {
+                recipients.encrypt_reader(fs::File::open(path)?, output)?;
+            }
+            (Self::Bytes(bytes), None) => output.write_all(bytes)?,
+            (Self::File(path), None) => {
+                io::copy(&mut fs::File::open(path)?, output)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn store_asset(
+    source: &str,
+    reference: AssetReference<'_>,
+    data: AssetData,
+    ext: &str,
+    ctx: &mut IngestContext<'_>,
+) -> Option<String> {
+    match write_asset(ctx, &data, ext) {
+        Ok(file_name) => {
+            ctx.report.stored += 1;
+            if reference.is_attachment() {
+                ctx.report.attachments_stored += 1;
+            }
+            ctx.stored_sources
+                .insert(source.to_string(), file_name.clone());
+            Some(reference.render(ctx.dir_name, &file_name))
+        }
+        Err(error) => {
+            ctx.report
+                .failed
+                .push(reference.failure(source.to_string(), error.to_string()));
+            None
+        }
+    }
+}
+
+/// Write asset data under a collision-free random id. Encrypted files gain an
+/// on-disk `.age` suffix while body references stay unchanged.
+fn write_asset(ctx: &mut IngestContext<'_>, data: &AssetData, ext: &str) -> AppResult<String> {
     fs::create_dir_all(ctx.assets_dir)?;
 
     for _ in 0..ASSET_ID_ATTEMPTS {
@@ -335,26 +534,20 @@ fn write_asset(ctx: &mut IngestContext<'_>, bytes: &[u8], ext: &str) -> AppResul
             None => link_name.clone(),
         };
         let path = ctx.assets_dir.join(&disk_name);
-        let bytes = match &ctx.encryption {
-            Some(recipients) => {
-                let plaintext = crypto::PlaintextBytes::copy_from_slice(bytes);
-                recipients.encrypt(&plaintext)?.into_vec()
-            }
-            None => bytes.to_vec(),
-        };
-        match write_new_file(&path, &bytes) {
-            Ok(()) => return Ok(link_name),
+        let mut output = match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(output) => output,
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error.into()),
+        };
+        if let Err(error) = data.write_to(&mut output, ctx.encryption.as_ref()) {
+            drop(output);
+            let _ = fs::remove_file(&path);
+            return Err(error);
         }
+        return Ok(link_name);
     }
 
     bail!("could not allocate a unique asset id")
-}
-
-fn write_new_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
-    file.write_all(bytes)
 }
 
 fn existing_asset_ids(assets_dir: &Path) -> AppResult<HashSet<String>> {
@@ -411,30 +604,42 @@ fn cleanup_orphans(
     Ok(())
 }
 
-/// Collect the file names referenced by canonical `![...](<dir_name>/<file>)` links.
+/// Collect the file names referenced by canonical in-folder references — both
+/// `![...](<dir_name>/<file>)` image embeds and `[...](<dir_name>/<file>)`
+/// attachment links — so neither kind is pruned as an orphan.
 fn referenced_asset_files(body: &str, dir_name: &str) -> HashSet<String> {
     let mut files = HashSet::new();
     let mut rest = body;
     while let Some(image) = next_markdown_image(rest) {
         let target = rest[image.target_range()].trim();
-        if let Some(reference) = stored_image_reference(target, dir_name) {
+        if let Some(reference) = stored_asset_reference(target, dir_name) {
             files.insert(reference.file_name);
         }
         rest = &rest[image.end..];
     }
+    let mut rest = body;
+    while let Some(link) = next_markdown_link(rest) {
+        let target = rest[link.target_range()].trim();
+        if let Some(reference) = stored_asset_reference(target, dir_name) {
+            files.insert(reference.file_name);
+        }
+        rest = &rest[link.end..];
+    }
     files
 }
 
-/// A canonical image reference inside an entry's own asset folder.
+/// A canonical asset reference (image or attachment) inside an entry's own asset
+/// folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StoredImageReference {
+pub struct StoredAssetReference {
     pub file_name: String,
 }
 
 /// Parse the exact stored form `<entry-id>.assets/<file>`. Rejects anything
 /// absolute, nested, traversal-based, external, or pointing at a different
-/// assets directory.
-pub fn stored_image_reference(target: &str, dir_name: &str) -> Option<StoredImageReference> {
+/// assets directory. Extension-agnostic — it matches images and attachments
+/// alike.
+pub fn stored_asset_reference(target: &str, dir_name: &str) -> Option<StoredAssetReference> {
     if target.is_empty()
         || is_url(target)
         || target.starts_with('/')
@@ -461,9 +666,17 @@ pub fn stored_image_reference(target: &str, dir_name: &str) -> Option<StoredImag
     if file_name.is_empty() || file_name == "." || file_name == ".." {
         return None;
     }
-    Some(StoredImageReference {
+    Some(StoredAssetReference {
         file_name: file_name.to_string(),
     })
+}
+
+/// The stored file name if `target` is a canonical reference inside
+/// `entry_path`'s own asset folder, else `None`. Pure string check (no
+/// filesystem access) so callers on the render hot path can use it freely.
+pub fn stored_asset_reference_for(entry_path: &Path, target: &str) -> Option<String> {
+    let dir_name = entry_assets_dir_name(entry_path)?;
+    stored_asset_reference(target, &dir_name).map(|reference| reference.file_name)
 }
 
 /// If `line` (ignoring surrounding whitespace) is exactly one markdown image
@@ -480,20 +693,17 @@ pub fn sole_stored_image(line: &str, entry_path: &Path) -> Option<(String, Strin
         return None;
     }
     let target = trimmed[image.target_range()].trim();
-    let reference = stored_image_reference(target, &dir_name)?;
+    let reference = stored_asset_reference(target, &dir_name)?;
     Some((image.alt(trimmed).to_string(), reference.file_name))
 }
 
 /// Resolve a canonical stored asset name to an absolute path, rejecting
 /// symlinks and any file that escapes the entry's own asset folder.
-pub(crate) fn resolve_entry_asset_path(
-    entry_path: &Path,
-    file_name: &str,
-) -> AppResult<Option<PathBuf>> {
+pub fn resolve_entry_asset_path(entry_path: &Path, file_name: &str) -> AppResult<Option<PathBuf>> {
     let Some(dir_name) = entry_assets_dir_name(entry_path) else {
         return Ok(None);
     };
-    if stored_image_reference(&format!("{dir_name}/{file_name}"), &dir_name).is_none() {
+    if stored_asset_reference(&format!("{dir_name}/{file_name}"), &dir_name).is_none() {
         return Ok(None);
     }
 
@@ -576,6 +786,53 @@ fn next_markdown_image(source: &str) -> Option<MarkdownImage> {
             });
         }
         base = start + 2;
+    }
+}
+
+/// A located `[text](target)` link span (never an image).
+struct MarkdownLink {
+    start: usize,
+    end: usize,
+    text_start: usize,
+    text_end: usize,
+    target_start: usize,
+    target_end: usize,
+}
+
+impl MarkdownLink {
+    fn text<'a>(&self, source: &'a str) -> &'a str {
+        &source[self.text_start..self.text_end]
+    }
+
+    fn target_range(&self) -> std::ops::Range<usize> {
+        self.target_start..self.target_end
+    }
+}
+
+/// Find the next `[text](target)` link in `source`. A `[` preceded by `!` is an
+/// image marker and is skipped so it stays the image pass's responsibility.
+fn next_markdown_link(source: &str) -> Option<MarkdownLink> {
+    let bytes = source.as_bytes();
+    let mut base = 0;
+    loop {
+        let start = base + source[base..].find('[')?;
+        if start > 0 && bytes[start - 1] == b'!' {
+            base = start + 1;
+            continue;
+        }
+        if let Some(span) = notema_domain::parse_inline_at(&source[start..])
+            && !span.is_image
+        {
+            return Some(MarkdownLink {
+                start,
+                end: start + span.span.end,
+                text_start: start + span.text.start,
+                text_end: start + span.text.end,
+                target_start: start + span.target.start,
+                target_end: start + span.target.end,
+            });
+        }
+        base = start + 1;
     }
 }
 
@@ -747,6 +1004,7 @@ mod tests {
 
         let new_body = new_body.expect("body should change");
         assert_eq!(report.stored, 1);
+        assert_eq!(report.images_stored(), 1);
         assert!(new_body.contains("![a shot](2026-07-05T14-30-00-abc123.assets/"));
         let assets = entry_assets_dir(&entry).unwrap();
         let files: Vec<_> = fs::read_dir(&assets).unwrap().collect();
@@ -765,6 +1023,7 @@ mod tests {
 
         let new_body = new_body.expect("body should change");
         assert_eq!(report.stored, 1);
+        assert_eq!(report.images_stored(), 1);
         assert!(new_body.starts_with("![](2026-07-05T14-30-00-abc123.assets/"));
     }
 
@@ -780,6 +1039,7 @@ mod tests {
 
         let new_body = new_body.expect("body should change");
         assert_eq!(report.stored, 1);
+        assert_eq!(report.images_stored(), 1);
         assert!(new_body.starts_with("![](2026-07-05T14-30-00-abc123.assets/"));
     }
 
@@ -797,6 +1057,7 @@ mod tests {
 
         let new_body = new_body.expect("body should change");
         assert_eq!(report.stored, 1);
+        assert_eq!(report.images_stored(), 1);
         assert!(new_body.starts_with("![](2026-07-05T14-30-00-abc123.assets/"));
     }
 
@@ -858,6 +1119,163 @@ mod tests {
     }
 
     #[test]
+    fn ingests_local_file_attachment_link_and_rewrites_ref() {
+        let dir = tempdir().unwrap();
+        let entry = entry_path(dir.path());
+        let src = dir.path().join("report.pdf");
+        fs::write(&src, b"%PDF-1.4 data").unwrap();
+
+        let body = format!("See [PDF attachment]({})", src.display());
+        let (new_body, report) = ingest_and_cleanup(&entry, &body, None, true).unwrap();
+
+        let new_body = new_body.expect("body should change");
+        assert_eq!(report.stored, 1);
+        assert_eq!(report.attachments_stored, 1);
+        assert!(
+            new_body.starts_with("See [PDF attachment](2026-07-05T14-30-00-abc123.assets/"),
+            "link rewritten to canonical: {new_body}"
+        );
+        assert!(
+            new_body.ends_with(".pdf)"),
+            "extension preserved: {new_body}"
+        );
+        let assets = entry_assets_dir(&entry).unwrap();
+        assert_eq!(fs::read_dir(&assets).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn cleanup_keeps_attachment_link_and_removes_unreferenced() {
+        let dir = tempdir().unwrap();
+        let entry = entry_path(dir.path());
+        let src = dir.path().join("clip.mp4");
+        fs::write(&src, b"video bytes").unwrap();
+
+        let body = format!("[Video attachment]({})", src.display());
+        let (stored_body, _) = ingest_and_cleanup(&entry, &body, None, true).unwrap();
+        let stored_body = stored_body.unwrap();
+
+        // Re-running with the link present keeps the attachment.
+        let (_, report) = ingest_and_cleanup(&entry, &stored_body, None, true).unwrap();
+        assert_eq!(report.removed, 0);
+
+        // Dropping the link prunes the attachment.
+        let (_, report) = ingest_and_cleanup(&entry, "no links", None, true).unwrap();
+        assert_eq!(report.removed, 1);
+    }
+
+    #[test]
+    fn wraps_bare_non_image_path_line_as_attachment() {
+        let dir = tempdir().unwrap();
+        let entry = entry_path(dir.path());
+        let src = dir.path().join("My Report.pdf");
+        fs::write(&src, b"%PDF bare").unwrap();
+
+        let body = src.display().to_string();
+        let (new_body, report) = ingest_and_cleanup(&entry, &body, None, true).unwrap();
+
+        let new_body = new_body.expect("body should change");
+        assert_eq!(report.stored, 1);
+        assert_eq!(report.attachments_stored, 1);
+        assert!(
+            new_body.starts_with("[My Report.pdf](2026-07-05T14-30-00-abc123.assets/"),
+            "labelled by file name: {new_body}"
+        );
+        assert!(new_body.ends_with(".pdf)"), "{new_body}");
+    }
+
+    #[test]
+    fn leaves_url_and_anchor_links_untouched() {
+        let dir = tempdir().unwrap();
+        let entry = entry_path(dir.path());
+
+        let body = "[docs](https://example.com/x.pdf) and [top](#heading)";
+        let (changed, report) = ingest_and_cleanup(&entry, body, None, true).unwrap();
+
+        assert!(changed.is_none());
+        assert!(report.is_noop());
+    }
+
+    #[test]
+    fn encrypted_attachment_is_written_as_age_and_resolves() {
+        let dir = tempdir().unwrap();
+        let entry = dir
+            .path()
+            .join("work/2026/07/05/2026-07-05T14-30-00-abc123.md.age");
+        fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        let paths = KeyPaths::for_config(
+            &dir.path().join("config.toml"),
+            &dir.path().join("journals"),
+        )
+        .unwrap();
+        crypto::initialize_store_identity(
+            &paths,
+            "laptop",
+            Some(&crate::SecretString::from("secret")),
+        )
+        .unwrap();
+
+        let src = dir.path().join("notes.pdf");
+        fs::write(&src, b"%PDF secret").unwrap();
+
+        let body = format!("[PDF attachment]({})", src.display());
+        let (new_body, report) = ingest_and_cleanup(&entry, &body, Some(&paths), true).unwrap();
+
+        let new_body = new_body.expect("body should change");
+        assert_eq!(report.stored, 1);
+        assert_eq!(report.attachments_stored, 1);
+        // The body link stays clean; only the on-disk file carries `.age`.
+        assert!(new_body.contains(".pdf)") && !new_body.contains(".age"));
+        let assets = entry_assets_dir(&entry).unwrap();
+        let stored = fs::read_dir(&assets)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert!(stored.to_string_lossy().ends_with(".pdf.age"));
+
+        // The clean link resolves to the encrypted file on disk.
+        let file_name = new_body
+            .rsplit_once('/')
+            .and_then(|(_, rest)| rest.strip_suffix(')'))
+            .unwrap();
+        let resolved = resolve_entry_asset_path(&entry, file_name)
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved, fs::canonicalize(&stored).unwrap());
+        let identity =
+            crypto::unlock_identity(&paths, Some(&crate::SecretString::from("secret"))).unwrap();
+        let decrypted = crypto::decrypt_file_bytes(&identity, &resolved).unwrap();
+        assert_eq!(decrypted.as_bytes(), b"%PDF secret");
+    }
+
+    #[test]
+    fn report_separates_image_and_attachment_outcomes() {
+        let report = AssetReport {
+            stored: 3,
+            attachments_stored: 1,
+            failed: vec![
+                AssetFailure::RemoteUnavailable {
+                    source: "https://example.com/image.png".to_string(),
+                },
+                AssetFailure::Ingest {
+                    source: "image.png".to_string(),
+                    error: "bad image".to_string(),
+                },
+                AssetFailure::AttachmentIngest {
+                    source: "recording.m4a".to_string(),
+                    error: "gone".to_string(),
+                },
+            ],
+            ..AssetReport::default()
+        };
+
+        assert_eq!(report.images_stored(), 2);
+        assert_eq!(report.images_not_stored(), 2);
+        assert_eq!(report.attachments_not_stored(), 1);
+    }
+
+    #[test]
     fn leaves_internal_ref_untouched() {
         let dir = tempdir().unwrap();
         let entry = entry_path(dir.path());
@@ -899,26 +1317,27 @@ mod tests {
     fn stored_reference_accepts_only_exact_entry_asset_file() {
         let dir_name = "2026-07-05T14-30-00-abc123.assets";
 
-        let reference = stored_image_reference(&format!("{dir_name}/x9k2.png"), dir_name)
+        let reference = stored_asset_reference(&format!("{dir_name}/x9k2.png"), dir_name)
             .expect("canonical reference should parse");
         assert_eq!(reference.file_name, "x9k2.png");
 
-        assert!(stored_image_reference("../x9k2.png", dir_name).is_none());
-        assert!(stored_image_reference(&format!("{dir_name}/../x9k2.png"), dir_name).is_none());
-        assert!(stored_image_reference(&format!("{dir_name}/nested/x9k2.png"), dir_name).is_none());
-        assert!(stored_image_reference("/tmp/x9k2.png", dir_name).is_none());
-        assert!(stored_image_reference("https://example.com/x9k2.png", dir_name).is_none());
+        assert!(stored_asset_reference("../x9k2.png", dir_name).is_none());
+        assert!(stored_asset_reference(&format!("{dir_name}/../x9k2.png"), dir_name).is_none());
+        assert!(stored_asset_reference(&format!("{dir_name}/nested/x9k2.png"), dir_name).is_none());
+        assert!(stored_asset_reference("/tmp/x9k2.png", dir_name).is_none());
+        assert!(stored_asset_reference("https://example.com/x9k2.png", dir_name).is_none());
         assert!(
-            stored_image_reference("2026-07-05T14-30-00-other.assets/x9k2.png", dir_name).is_none()
+            stored_asset_reference("2026-07-05T14-30-00-other.assets/x9k2.png", dir_name).is_none()
         );
     }
 
     #[test]
-    fn retarget_stored_links_changes_only_markdown_image_targets() {
+    fn retarget_stored_links_changes_only_markdown_asset_targets() {
         let source = "old.assets";
         let target = "new.assets";
         let body = concat!(
             "![photo](old.assets/x9k2.png)\n",
+            "[recording](old.assets/a1.m4a)\n",
             "ordinary old.assets/x9k2.png text\n",
             "```markdown\n",
             "![example](old.assets/x9k2.png)\n",
@@ -926,12 +1345,13 @@ mod tests {
             "![other](different.assets/x9k2.png)\n",
         );
 
-        let rewritten = retarget_stored_image_links(body, source, target);
+        let rewritten = retarget_stored_asset_links(body, source, target);
 
         assert_eq!(
             rewritten,
             concat!(
                 "![photo](new.assets/x9k2.png)\n",
+                "[recording](new.assets/a1.m4a)\n",
                 "ordinary old.assets/x9k2.png text\n",
                 "```markdown\n",
                 "![example](old.assets/x9k2.png)\n",

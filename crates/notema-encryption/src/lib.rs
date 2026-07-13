@@ -5,8 +5,8 @@
 //! journal bytes into age ciphertext and back.
 //!
 //! It owns all of the app's cryptography and knows nothing about how entries or
-//! assets are laid out on disk: it works on a [`KeyPaths`] and byte buffers, and
-//! the storage layer decides which files those bytes belong to.
+//! assets are laid out on disk: it works on a [`KeyPaths`] and byte streams, and
+//! the storage layer decides which files they belong to.
 //!
 //! Scope: this layer provides **confidentiality** (and, through the roster,
 //! authenticated device membership) but **not** per-entry authenticity or author

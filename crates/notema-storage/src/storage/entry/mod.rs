@@ -12,8 +12,10 @@ pub(crate) use notema_domain::{
     Entry, EntryEncryptionState, EntryPath, ImportSource, Metadata, Timestamp,
 };
 
-pub(crate) use assets::resolve_entry_asset_path;
-pub use assets::{AssetFailure, AssetReport, sole_stored_image, stored_image_reference};
+pub use assets::{
+    AssetFailure, AssetReport, resolve_entry_asset_path, sole_stored_image, stored_asset_reference,
+    stored_asset_reference_for,
+};
 pub(crate) use codec::EntryCodec;
 pub use create::{EntryAssetOptions, EntryCreateOutcome, EntryDraft};
 pub(crate) use create::{create_entry, create_entry_copy};

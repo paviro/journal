@@ -7,10 +7,9 @@
 //!
 //! The model mirrors the export faithfully — location, weather, flags, per-entry
 //! timezone, device/OS provenance, activity, and the full media tail — but the
-//! importer still consumes only body text, tags, timestamps, and photos. The
-//! rest is modeled deliberately so the import is *ready* to map it once the
-//! journal format grows matching fields — hence the module-wide `dead_code`
-//! allowance.
+//! importer maps body text, tags, timestamps, supported metadata, photos, and
+//! file attachments. The rest remains modeled for future mappings, hence the
+//! module-wide `dead_code` allowance.
 #![allow(dead_code)]
 
 use serde::Deserialize;
@@ -84,9 +83,7 @@ pub(crate) struct DayOneEntry {
     /// Rare, undocumented shape — kept as raw JSON so parsing stays lossless.
     pub template: Option<serde_json::Value>,
 
-    // Media. Only `photos` are imported today; the rest are modeled with the
-    // same fidelity so they can be ingested once the asset system supports
-    // non-image files.
+    // Media imported into each entry's asset folder.
     #[serde(default)]
     pub photos: Vec<Moment>,
     #[serde(default)]

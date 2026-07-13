@@ -182,7 +182,7 @@ fn create_entry_inner(
 
 /// Copy raw stored assets (ciphertext stays ciphertext) and retarget canonical
 /// body links to the new entry's asset directory. The normal ingestion pass
-/// then removes unreferenced copies and handles any newly added images.
+/// then removes unreferenced copies and handles newly added assets.
 fn clone_entry_assets(source_path: &Path, target_path: &Path, body: &str) -> AppResult<String> {
     let (Some(source_dir), Some(target_dir), Some(source_name), Some(target_name)) = (
         entry_assets_dir(source_path),
@@ -201,7 +201,7 @@ fn clone_entry_assets(source_path: &Path, target_path: &Path, body: &str) -> App
             }
         }
     }
-    Ok(super::assets::retarget_stored_image_links(
+    Ok(super::assets::retarget_stored_asset_links(
         body,
         &source_name,
         &target_name,

@@ -7,6 +7,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
+use std::path::{Path, PathBuf};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::tui::app::{ReaderHeading, ReaderLinkHit};
@@ -27,8 +28,19 @@ pub(super) struct RenderedChunk {
 /// Render a chunk of markdown text into owned (`'static`) lines. `show_urls`
 /// controls whether a link's ` (url)` trailer is emitted; it is applied here,
 /// before wrapping, so hidden URLs never skew wrap boundaries.
-pub(super) fn render_text_chunk(text: &str, width: usize, show_urls: bool) -> RenderedChunk {
-    MarkdownTerminalRenderer::new(width, show_urls).render(text)
+///
+/// When `attachments_openable` is set, links pointing inside `entry_path`'s own
+/// asset folder (imported audio/video/pdf attachments) become clickable hits so
+/// they can be opened in the OS default app. It is left unset for encrypted
+/// entries, whose on-disk assets are `.age` and cannot be handed to the OS.
+pub(super) fn render_text_chunk(
+    text: &str,
+    width: usize,
+    show_urls: bool,
+    entry_path: Option<&Path>,
+    attachments_openable: bool,
+) -> RenderedChunk {
+    MarkdownTerminalRenderer::new(width, show_urls, entry_path, attachments_openable).render(text)
 }
 
 /// A styled run tagged with the link it belongs to, if any. The renderer
@@ -54,7 +66,7 @@ struct MarkdownTerminalRenderer {
     links: Vec<(String, String, usize)>,
     /// Every link target seen, indexed by the id stored on `RichSpan`s and used
     /// to resolve a recorded hit's URL.
-    link_targets: Vec<String>,
+    link_targets: Vec<LinkTarget>,
     /// Clickable link regions discovered while wrapping, in display-line coords.
     link_hits: Vec<ReaderLinkHit>,
     /// Heading anchors, built from the complete (pre-wrap) heading text.
@@ -69,6 +81,17 @@ struct MarkdownTerminalRenderer {
     table: Option<MarkdownTable>,
     separate_next_block: bool,
     highlight_open: bool,
+    /// The entry being rendered, used to recognize links into its own asset
+    /// folder as openable attachments.
+    entry_path: Option<PathBuf>,
+    /// Whether asset-folder attachment links should be recorded as clickable
+    /// hits — set only for plaintext (unencrypted) entries.
+    attachments_openable: bool,
+}
+
+struct LinkTarget {
+    target: String,
+    is_image: bool,
 }
 
 enum Container {
@@ -111,7 +134,12 @@ struct MarkdownTable {
 }
 
 impl MarkdownTerminalRenderer {
-    fn new(width: usize, show_urls: bool) -> Self {
+    fn new(
+        width: usize,
+        show_urls: bool,
+        entry_path: Option<&Path>,
+        attachments_openable: bool,
+    ) -> Self {
         Self {
             width: width.max(1),
             show_urls,
@@ -128,6 +156,8 @@ impl MarkdownTerminalRenderer {
             table: None,
             separate_next_block: false,
             highlight_open: false,
+            entry_path: entry_path.map(Path::to_path_buf),
+            attachments_openable,
         }
     }
 
@@ -274,13 +304,8 @@ impl MarkdownTerminalRenderer {
             MarkdownTag::Strikethrough => {
                 self.push_style(Style::new().add_modifier(Modifier::CROSSED_OUT));
             }
-            MarkdownTag::Link { dest_url, .. } | MarkdownTag::Image { dest_url, .. } => {
-                let target = dest_url.into_string();
-                let id = self.link_targets.len();
-                self.link_targets.push(target.clone());
-                self.links.push((target, String::new(), id));
-                self.push_style(theme().md_link());
-            }
+            MarkdownTag::Link { dest_url, .. } => self.start_link(dest_url.into_string(), false),
+            MarkdownTag::Image { dest_url, .. } => self.start_link(dest_url.into_string(), true),
             // An HTML block renders as its raw text; start a new block so the
             // blank-line separator a preceding paragraph owes is emitted before
             // it, rather than gluing the two together.
@@ -370,6 +395,16 @@ impl MarkdownTerminalRenderer {
             | MarkdownTagEnd::Superscript
             | MarkdownTagEnd::Subscript => {}
         }
+    }
+
+    fn start_link(&mut self, target: String, is_image: bool) {
+        let id = self.link_targets.len();
+        self.link_targets.push(LinkTarget {
+            target: target.clone(),
+            is_image,
+        });
+        self.links.push((target, String::new(), id));
+        self.push_style(theme().md_link());
     }
 
     fn start_paragraph(&mut self) {
@@ -588,13 +623,20 @@ impl MarkdownTerminalRenderer {
             // absolute body-line columns click hit-testing compares against.
             let prefix_width = prefix.width();
             for (start, end, id) in content.links {
-                let target = &self.link_targets[id];
-                if is_openable_link(target) {
+                let link = &self.link_targets[id];
+                let openable = is_openable_link(&link.target)
+                    || (!link.is_image
+                        && is_openable_attachment(
+                            &link.target,
+                            self.attachments_openable,
+                            self.entry_path.as_deref(),
+                        ));
+                if openable {
                     self.link_hits.push(ReaderLinkHit {
                         line: self.lines.len(),
                         start: prefix_width.saturating_add(start),
                         end: prefix_width.saturating_add(end),
-                        target: target.clone(),
+                        target: link.target.clone(),
                         group: id,
                     });
                 }
@@ -1048,12 +1090,28 @@ fn rich_from_line(line: Line<'static>) -> Vec<RichSpan> {
 }
 
 /// Whether a link target is worth making clickable — external URLs and in-page
-/// heading anchors. Relative asset paths stay styled but non-interactive.
+/// heading anchors. Relative asset paths stay styled but non-interactive here;
+/// stored attachments are handled by [`is_openable_attachment`].
 fn is_openable_link(text: &str) -> bool {
     text.starts_with('#')
         || text.starts_with("https://")
         || text.starts_with("http://")
         || text.starts_with("mailto:")
+}
+
+/// Whether `target` is a link into `entry_path`'s own asset folder that should be
+/// opened in the OS default app. Only enabled for plaintext entries — an
+/// encrypted entry's assets live on disk as `.age` and can't be opened directly,
+/// so their links stay inert (no hover, no click).
+fn is_openable_attachment(
+    target: &str,
+    attachments_openable: bool,
+    entry_path: Option<&Path>,
+) -> bool {
+    attachments_openable
+        && entry_path
+            .and_then(|path| notema_storage::stored_asset_reference_for(path, target))
+            .is_some()
 }
 
 /// Slugify heading text into a GitHub-style anchor: lowercased, alphanumerics /
@@ -1090,7 +1148,7 @@ mod wrap_tests {
     /// Render just the display lines (URLs shown) for the many tests that only
     /// assert on rendered text.
     fn render_lines(source: &str, width: usize) -> Vec<Line<'static>> {
-        render_text_chunk(source, width, true).lines
+        render_text_chunk(source, width, true, None, false).lines
     }
 
     #[test]
@@ -1340,7 +1398,13 @@ mod wrap_tests {
 
     #[test]
     fn link_names_stay_blue_with_a_faint_target_trailer() {
-        let chunk = render_text_chunk("See [the docs](https://example.com) now.", 60, true);
+        let chunk = render_text_chunk(
+            "See [the docs](https://example.com) now.",
+            60,
+            true,
+            None,
+            false,
+        );
         let spans = &chunk.lines[0].spans;
 
         let name = spans
@@ -1362,7 +1426,7 @@ mod wrap_tests {
 
     #[test]
     fn autolinks_drop_the_redundant_target_trailer() {
-        let chunk = render_text_chunk("<https://example.com>", 60, true);
+        let chunk = render_text_chunk("<https://example.com>", 60, true, None, false);
         let rendered: String = chunk.lines[0]
             .spans
             .iter()

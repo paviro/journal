@@ -26,6 +26,31 @@ fn passphrase_identity_round_trips_a_message() {
 }
 
 #[test]
+fn streaming_encryption_round_trips_a_message() {
+    let dir = tempdir().unwrap();
+    let paths = paths_in(dir.path());
+    initialize_store_identity(&paths, "laptop", None).unwrap();
+    let unlocked = unlock_identity(&paths, None).unwrap();
+    let recipients = EncryptionRecipients::for_store(&paths).unwrap();
+    let mut ciphertext = Vec::new();
+
+    recipients
+        .encrypt_reader(
+            std::io::Cursor::new(b"streamed attachment"),
+            &mut ciphertext,
+        )
+        .unwrap();
+
+    let ciphertext = CiphertextBytes::from_vec(ciphertext);
+    assert_eq!(
+        decrypt_file_bytes_from(&unlocked, &ciphertext)
+            .unwrap()
+            .as_bytes(),
+        b"streamed attachment"
+    );
+}
+
+#[test]
 fn initialize_store_identity_refuses_an_existing_roster() {
     let dir = tempdir().unwrap();
     let paths = paths_in(dir.path());

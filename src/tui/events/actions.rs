@@ -1,5 +1,5 @@
 use crate::AppResult;
-use notema_domain::{Location, MetadataField};
+use notema_domain::{EntryEncryptionState, Location, MetadataField};
 use notema_storage::EditOutcome;
 use std::path::{Path, PathBuf};
 
@@ -32,34 +32,54 @@ pub(super) fn submit_new_journal(app: &mut App) -> AppResult<()> {
     Ok(())
 }
 
-/// Build a save status message, appending image ingest details when relevant.
+/// Build a save status message with asset ingest details when relevant.
 fn save_status(base: &str, report: &notema_storage::AssetReport) -> String {
     if report.is_noop() {
         return base.to_string();
     }
     let mut parts = vec![base.to_string()];
-    if report.stored > 0 {
+    let images_stored = report.images_stored();
+    if images_stored > 0 {
         parts.push(format!(
             "{} image{} stored",
-            report.stored,
-            if report.stored == 1 { "" } else { "s" }
+            images_stored,
+            if images_stored == 1 { "" } else { "s" }
+        ));
+    }
+    if report.attachments_stored > 0 {
+        parts.push(format!(
+            "{} attachment{} stored",
+            report.attachments_stored,
+            if report.attachments_stored == 1 {
+                ""
+            } else {
+                "s"
+            }
         ));
     }
     if report.removed > 0 {
         parts.push(format!("{} removed", report.removed));
     }
-    if !report.failed.is_empty() {
+    let images_not_stored = report.images_not_stored();
+    if images_not_stored > 0 {
         parts.push(format!(
             "{} image{} not stored",
-            report.failed.len(),
-            if report.failed.len() == 1 { "" } else { "s" }
+            images_not_stored,
+            if images_not_stored == 1 { "" } else { "s" }
+        ));
+    }
+    let attachments_not_stored = report.attachments_not_stored();
+    if attachments_not_stored > 0 {
+        parts.push(format!(
+            "{} attachment{} not stored",
+            attachments_not_stored,
+            if attachments_not_stored == 1 { "" } else { "s" }
         ));
     }
     parts.join(" — ")
 }
 
-/// A save toast's variant: a save that dropped images is a warning, not a
-/// clean success.
+/// A save that dropped assets is a warning, not a clean success.
 fn save_variant(report: &notema_storage::AssetReport) -> ToastVariant {
     if report.failed.is_empty() {
         ToastVariant::Success
@@ -89,9 +109,8 @@ fn reject_if_front_matter_invalid(app: &mut App) -> bool {
     app.editor.is_some() || app.allow_selected_entry_edit()
 }
 
-/// The shared post-edit tail for an existing entry: ingest any new image assets
-/// (or report the deletion), refresh the entry, and back-fill weather after a
-/// real change.
+/// The shared post-edit tail for an existing entry: ingest assets, refresh the
+/// entry, and back-fill weather after a real change.
 fn finish_existing_edit(
     app: &mut App,
     path: &Path,
@@ -335,12 +354,38 @@ pub(super) fn open_reader_link(app: &mut App, target: &str) -> AppResult<()> {
         || target.starts_with("http://")
         || target.starts_with("mailto:"))
     {
+        // A link into the selected entry's own asset folder — an imported
+        // audio/video/pdf attachment. Hand the stored plaintext file to the OS
+        // default app. (Only plaintext entries reach here; encrypted assets are
+        // `.age` on disk and never record a clickable hit.)
+        if let Some(path) = selected_entry_attachment_path(app, target)? {
+            open::that(&path)?;
+            app.toast(ToastVariant::Info, "Opened attachment");
+            return Ok(());
+        }
         app.toast(ToastVariant::Warning, "Unsupported link target");
         return Ok(());
     }
     open::that(target)?;
     app.toast(ToastVariant::Info, "Opened link");
     Ok(())
+}
+
+/// Resolve a reader link into the selected entry's own asset folder to an
+/// absolute on-disk path, or `None` for any other target. Encrypted entries
+/// return `None`: their assets live on disk as `.age` and can't be opened
+/// directly.
+fn selected_entry_attachment_path(app: &App, target: &str) -> AppResult<Option<PathBuf>> {
+    let Some(entry) = app.resolved_selected_entry() else {
+        return Ok(None);
+    };
+    if entry.encryption_state != EntryEncryptionState::Plain {
+        return Ok(None);
+    }
+    let Some(file_name) = notema_storage::stored_asset_reference_for(&entry.path, target) else {
+        return Ok(None);
+    };
+    notema_storage::resolve_entry_asset_path(&entry.path, &file_name)
 }
 
 pub(super) fn delete_selected(app: &mut App) -> AppResult<()> {
@@ -599,6 +644,24 @@ mod tests {
     fn last_toast(app: &App) -> (&str, ToastVariant) {
         let toast = app.toasts.items().last().expect("a toast was pushed");
         (toast.message.as_str(), toast.variant)
+    }
+
+    #[test]
+    fn save_status_reports_images_and_attachments_separately() {
+        let report = notema_storage::AssetReport {
+            stored: 3,
+            attachments_stored: 1,
+            failed: vec![notema_storage::AssetFailure::AttachmentIngest {
+                source: "clip.mp4".to_string(),
+                error: "gone".to_string(),
+            }],
+            ..notema_storage::AssetReport::default()
+        };
+
+        assert_eq!(
+            save_status("Saved", &report),
+            "Saved — 2 images stored — 1 attachment stored — 1 attachment not stored"
+        );
     }
 
     #[test]

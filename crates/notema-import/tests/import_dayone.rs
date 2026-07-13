@@ -14,7 +14,8 @@ struct ImportReport {
     skipped_duplicate: usize,
     images_stored: usize,
     images_failed: usize,
-    attachments_skipped: usize,
+    attachments_copied: usize,
+    attachments_failed: usize,
     failures: Vec<String>,
 }
 
@@ -68,14 +69,23 @@ fn import_dayone(
             },
         )?;
         report.imported += 1;
-        report.attachments_skipped += entry.attachments_skipped;
-        report.images_stored += created.assets.stored;
+        report.attachments_copied += created.assets.attachments_stored;
+        report.images_stored += created.assets.images_stored();
         for failure in created.assets.failed {
-            if let AssetFailure::Ingest { source, error } = failure {
-                report.images_failed += 1;
-                report
-                    .failures
-                    .push(format!("{}: {source}: {error}", entry.provenance.id));
+            match failure {
+                AssetFailure::Ingest { source, error } => {
+                    report.images_failed += 1;
+                    report
+                        .failures
+                        .push(format!("{}: {source}: {error}", entry.provenance.id));
+                }
+                AssetFailure::AttachmentIngest { source, error } => {
+                    report.attachments_failed += 1;
+                    report
+                        .failures
+                        .push(format!("{}: {source}: {error}", entry.provenance.id));
+                }
+                AssetFailure::RemoteUnavailable { .. } => {}
             }
         }
     }
@@ -529,6 +539,56 @@ fn imports_photo_into_encrypted_entry_assets() {
         .collect();
     assert_eq!(assets.len(), 1);
     assert!(assets[0].to_string_lossy().ends_with(".age"));
+}
+
+#[test]
+fn copies_audio_attachment_and_links_it() {
+    let dir = TempDir::new().unwrap();
+    let store = JournalStore::new(dir.path().join("journals"), dir.path());
+    let audios = dir.path().join("audios");
+    fs::create_dir_all(&audios).unwrap();
+    // Day One names audio `<md5>.m4a` regardless of the `format` field.
+    fs::write(audios.join("deadbe.m4a"), b"fake audio bytes").unwrap();
+    let json = r#"{
+        "entries": [
+            {
+                "uuid": "AUD",
+                "text": "Listen\n\n![](dayone-moment://AUDIOID)\n\nAgain: ![](dayone-moment://AUDIOID)",
+                "creationDate": "2026-07-01T10:00:00Z",
+                "audios": [{ "identifier": "AUDIOID", "md5": "deadbe", "format": "aac" }]
+            }
+        ]
+    }"#;
+
+    let report = import_dayone(&store, "diary", &write_export(&dir, json), false).unwrap();
+
+    assert_eq!(report.imported, 1);
+    assert_eq!(report.attachments_copied, 1);
+    assert_eq!(report.attachments_failed, 0);
+    assert!(report.failures.is_empty());
+
+    let entries = store.scan_entries().unwrap();
+    let entry = &entries[0];
+    // Linked (not embedded) into the entry's own asset folder as a plain link.
+    assert!(
+        entry.body.contains("[Audio attachment](") && entry.body.contains(".assets/"),
+        "{}",
+        entry.body
+    );
+    assert!(entry.body.contains(".m4a)"), "{}", entry.body);
+    assert!(!entry.body.contains("audios/deadbe.m4a"), "{}", entry.body);
+
+    let assets_dir = fs::read_dir(entry.path.parent().unwrap())
+        .unwrap()
+        .map(|item| item.unwrap().path())
+        .find(|path| path.is_dir() && path.to_string_lossy().ends_with(".assets"))
+        .expect("entry assets dir");
+    let assets: Vec<_> = fs::read_dir(&assets_dir)
+        .unwrap()
+        .map(|item| item.unwrap().path())
+        .collect();
+    assert_eq!(assets.len(), 1);
+    assert!(assets[0].to_string_lossy().ends_with(".m4a"));
 }
 
 #[test]

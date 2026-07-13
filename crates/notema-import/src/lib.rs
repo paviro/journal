@@ -142,7 +142,9 @@ pub struct ImportedEntry {
     pub weather: Option<Weather>,
     pub celestial: Option<Celestial>,
     pub writing_seconds: Option<u64>,
-    pub attachments_skipped: usize,
+    /// Unique local attachment files linked into the normalized body. Storage
+    /// decides how many are ultimately copied.
+    pub attachments_linked: usize,
 }
 
 /// Parse and normalize a Day One export without reading or mutating a Notema
@@ -243,10 +245,10 @@ pub fn parse_dayone(json_path: &Path) -> Result<ImportBatch, ImportError> {
         for id in &rewrite.unresolved {
             batch.warnings.push(ImportWarning {
                 entry_id: entry.uuid.clone(),
-                message: format!("unresolved photo moment {id}"),
+                message: format!("unresolved moment {id}"),
             });
         }
-        let attachments_skipped = rewrite.skipped_attachments();
+        let attachments_linked = rewrite.linked_attachments();
         batch.entries.push(ImportedEntry {
             provenance,
             body: rewrite.body,
@@ -258,7 +260,7 @@ pub fn parse_dayone(json_path: &Path) -> Result<ImportBatch, ImportError> {
             weather,
             celestial,
             writing_seconds,
-            attachments_skipped,
+            attachments_linked,
         });
     }
 

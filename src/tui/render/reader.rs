@@ -6,7 +6,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use notema_domain::Entry;
+use notema_domain::{Entry, EntryEncryptionState};
 use std::path::Path;
 
 use crate::tui::{
@@ -36,6 +36,11 @@ pub(crate) fn draw_selected_reader(frame: &mut Frame<'_>, area: Rect, app: &mut 
             .map(Entry::metadata_bundle)
             .unwrap_or_default();
         let entry_path = app.selected_entry_target().map(|target| target.path);
+        // Attachment links open in the OS default app only for plaintext entries;
+        // an encrypted entry's assets are `.age` on disk, so its links stay inert.
+        let attachments_openable = app
+            .resolved_selected_entry()
+            .is_some_and(|entry| entry.encryption_state == EntryEncryptionState::Plain);
 
         let (scroll, hits, content_rect, line_count) = draw_markdown_panel(
             frame,
@@ -46,6 +51,7 @@ pub(crate) fn draw_selected_reader(frame: &mut Frame<'_>, area: Rect, app: &mut 
                 content: &content,
                 word_count: app.selected_entry_word_count(),
                 metadata: EntryMetadata::from_metadata(&metadata),
+                attachments_openable,
             },
             app.nav.scroll.reader,
             app.nav.focus == Focus::Reader,
@@ -76,6 +82,9 @@ struct PanelEntry<'a> {
     /// Precomputed on the entry, so the panel title never re-tokenizes the body.
     word_count: usize,
     metadata: EntryMetadata<'a>,
+    /// Whether links into the entry's own asset folder should open in the OS
+    /// default app — set only for plaintext entries.
+    attachments_openable: bool,
 }
 
 /// Draw the entry body and metadata, returning the applied scroll, the clickable
@@ -96,6 +105,7 @@ fn draw_markdown_panel(
         content,
         word_count,
         metadata,
+        attachments_openable,
     } = entry;
     let block = panel_block(
         title,
@@ -123,7 +133,13 @@ fn draw_markdown_panel(
     // only scrolled, blinked, or ticked images reuses the rendered lines.
     let show_link_urls = app.config.ui.layout.reader.show_link_urls;
     let body = app.cached_entry_body(entry_path, width, || {
-        build_body_lines(content, width, entry_path, show_link_urls)
+        build_body_lines(
+            content,
+            width,
+            entry_path,
+            show_link_urls,
+            attachments_openable,
+        )
     });
     let mut lines = body.lines.clone();
     if let Some(flash) = app.reader_anchor_flash.as_ref()
@@ -268,6 +284,7 @@ fn build_body_lines(
     width: usize,
     entry_path: Option<&Path>,
     show_urls: bool,
+    attachments_openable: bool,
 ) -> RenderedEntryBody {
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut links: Vec<ReaderLinkHit> = Vec::new();
@@ -283,7 +300,7 @@ fn build_body_lines(
             &mut links,
             &mut headings,
             &mut group_base,
-            render_text_chunk(content, width, show_urls),
+            render_text_chunk(content, width, show_urls, None, false),
         );
         dedupe_heading_anchors(&mut headings);
         return RenderedEntryBody {
@@ -329,7 +346,13 @@ fn build_body_lines(
                 &mut links,
                 &mut headings,
                 &mut group_base,
-                render_text_chunk(&buffer, width, show_urls),
+                render_text_chunk(
+                    &buffer,
+                    width,
+                    show_urls,
+                    Some(entry_path),
+                    attachments_openable,
+                ),
             );
             if had_gap {
                 lines.push(Line::from(""));
@@ -350,7 +373,13 @@ fn build_body_lines(
             &mut links,
             &mut headings,
             &mut group_base,
-            render_text_chunk(&buffer, width, show_urls),
+            render_text_chunk(
+                &buffer,
+                width,
+                show_urls,
+                Some(entry_path),
+                attachments_openable,
+            ),
         );
     }
 
@@ -498,7 +527,7 @@ mod image_tests {
             "Text below",
         );
 
-        let body = build_body_lines(content, 40, Some(&entry_path), true);
+        let body = build_body_lines(content, 40, Some(&entry_path), true, false);
 
         let rendered: Vec<String> = body.lines.iter().map(line_text).collect();
         assert_eq!(
@@ -522,7 +551,7 @@ mod image_tests {
     #[test]
     fn unpaired_highlight_marker_does_not_leak_past_its_block() {
         use ratatui::style::Modifier;
-        let body = build_body_lines("a == b\n\nplain paragraph", 40, None, true);
+        let body = build_body_lines("a == b\n\nplain paragraph", 40, None, true, false);
         let plain = body
             .lines
             .iter()
@@ -540,13 +569,13 @@ mod image_tests {
     /// Without an entry path (no selected entry) the body renders untouched.
     #[test]
     fn no_labels_without_entry_path() {
-        let body = build_body_lines("just text", 40, None, true);
+        let body = build_body_lines("just text", 40, None, true, false);
         assert!(body.images.is_empty());
     }
 
     #[test]
     fn renderer_records_heading_anchors_and_link_cells() {
-        let body = build_body_lines("# My Heading\n\n[Jump](#my-heading)", 40, None, true);
+        let body = build_body_lines("# My Heading\n\n[Jump](#my-heading)", 40, None, true, false);
 
         assert_eq!(
             body.headings,
@@ -571,7 +600,7 @@ mod image_tests {
     /// clickable over its own text.
     #[test]
     fn autolink_renders_once_and_stays_clickable() {
-        let body = build_body_lines("<https://example.com>", 60, None, true);
+        let body = build_body_lines("<https://example.com>", 60, None, true, false);
 
         assert_eq!(body.links.len(), 1);
         assert_eq!(body.links[0].target, "https://example.com");
@@ -583,7 +612,13 @@ mod image_tests {
     /// display but the name stays clickable over the same columns.
     #[test]
     fn hidden_link_urls_strip_the_trailer_but_keep_the_link() {
-        let body = build_body_lines("See [the docs](https://example.com) now.", 60, None, false);
+        let body = build_body_lines(
+            "See [the docs](https://example.com) now.",
+            60,
+            None,
+            false,
+            false,
+        );
 
         let link_line = &body.lines[body.links[0].line];
         assert_eq!(line_text(link_line), "See the docs now.");
@@ -593,7 +628,13 @@ mod image_tests {
         assert_eq!((body.links[0].start, body.links[0].end), (4, 12));
 
         // Shown, the same source keeps the faint trailer.
-        let shown = build_body_lines("See [the docs](https://example.com) now.", 60, None, true);
+        let shown = build_body_lines(
+            "See [the docs](https://example.com) now.",
+            60,
+            None,
+            true,
+            false,
+        );
         assert!(line_text(&shown.lines[shown.links[0].line]).contains("(https://example.com)"));
     }
 
@@ -616,7 +657,7 @@ and [EtText](http://ettext.taint.org/doc/) -- the end.";
             "http://ettext.taint.org/doc/",
         ];
 
-        let shown = build_body_lines(source, 80, None, true);
+        let shown = build_body_lines(source, 80, None, true, false);
         let targets: Vec<&str> = shown.links.iter().map(|hit| hit.target.as_str()).collect();
         assert_eq!(targets, expected);
         for hit in &shown.links {
@@ -626,7 +667,7 @@ and [EtText](http://ettext.taint.org/doc/) -- the end.";
 
         // Hidden URLs: still all six, wrap now computed against the shorter text,
         // and no URL leaks into any rendered line.
-        let hidden = build_body_lines(source, 80, None, false);
+        let hidden = build_body_lines(source, 80, None, false, false);
         let hidden_targets: Vec<&str> =
             hidden.links.iter().map(|hit| hit.target.as_str()).collect();
         assert_eq!(hidden_targets, expected);
@@ -646,6 +687,7 @@ and [EtText](http://ettext.taint.org/doc/) -- the end.";
             "[the quick brown fox](https://example.com)",
             10,
             None,
+            false,
             false,
         );
 
@@ -669,6 +711,7 @@ and [EtText](http://ettext.taint.org/doc/) -- the end.";
             80,
             None,
             true,
+            false,
         );
 
         assert_eq!(body.links.len(), 2);
@@ -684,6 +727,7 @@ and [EtText](http://ettext.taint.org/doc/) -- the end.";
             20,
             None,
             true,
+            false,
         );
 
         assert_eq!(
@@ -698,7 +742,7 @@ and [EtText](http://ettext.taint.org/doc/) -- the end.";
     /// A relative link target stays styled but is not clickable.
     #[test]
     fn relative_links_are_styled_but_not_clickable() {
-        let body = build_body_lines("See [the pic](photo.png) here.", 60, None, true);
+        let body = build_body_lines("See [the pic](photo.png) here.", 60, None, true, false);
 
         assert!(body.links.is_empty());
         let styled = body
@@ -707,5 +751,41 @@ and [EtText](http://ettext.taint.org/doc/) -- the end.";
             .flat_map(|line| &line.spans)
             .any(|span| span.content == "the pic" && span.style == theme().md_link());
         assert!(styled);
+    }
+
+    /// An attachment link into the entry's own asset folder is a clickable hit
+    /// for a plaintext entry (`attachments_openable`), but inert otherwise —
+    /// encrypted entries record no hit, so the link gets no hover or click.
+    #[test]
+    fn attachment_link_is_clickable_only_when_openable() {
+        let (_guard, entry_path) = entry_path_with_asset();
+        let content = "Recording: [Audio attachment](2026-07-05T14-30-00-abc123.assets/x9k2.png)";
+
+        let openable = build_body_lines(content, 80, Some(&entry_path), true, true);
+        assert_eq!(openable.links.len(), 1);
+        assert_eq!(
+            openable.links[0].target,
+            "2026-07-05T14-30-00-abc123.assets/x9k2.png"
+        );
+
+        let inert = build_body_lines(content, 80, Some(&entry_path), true, false);
+        assert!(inert.links.is_empty());
+        // Even inert, the link name keeps its styling.
+        let styled = inert
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .any(|span| span.content == "Audio attachment" && span.style == theme().md_link());
+        assert!(styled);
+    }
+
+    #[test]
+    fn inline_image_is_not_opened_as_an_attachment() {
+        let (_guard, entry_path) = entry_path_with_asset();
+        let content = "Inline ![photo](2026-07-05T14-30-00-abc123.assets/x9k2.png)";
+
+        let body = build_body_lines(content, 80, Some(&entry_path), true, true);
+
+        assert!(body.links.is_empty());
     }
 }

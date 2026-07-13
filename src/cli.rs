@@ -435,7 +435,8 @@ fn device_passphrase_command(cli: &Cli, args: &PassphraseArgs) -> AppResult<()> 
 
 fn device_rotate_command(cli: &Cli) -> AppResult<()> {
     let (mut store, passphrase) = open_unlocked_store_with_passphrase(cli)?;
-    let summary = store.rotate_identity(passphrase.as_ref(), encryption_cli::cli_progress("files"))?;
+    let summary =
+        store.rotate_identity(passphrase.as_ref(), encryption_cli::cli_progress("files"))?;
     println!(
         "Rotated this device's key and re-encrypted {} file(s).",
         summary.migrated_files
@@ -674,8 +675,8 @@ fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {
             },
         )?;
         report.imported += 1;
-        report.attachments_skipped += entry.attachments_skipped;
-        report.images_stored += created.assets.stored;
+        report.attachments_copied += created.assets.attachments_stored;
+        report.images_stored += created.assets.images_stored();
         for failure in created.assets.failed {
             match failure {
                 notema_storage::AssetFailure::RemoteUnavailable { .. } => {
@@ -683,6 +684,12 @@ fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {
                 }
                 notema_storage::AssetFailure::Ingest { source, error } => {
                     report.images_failed += 1;
+                    report
+                        .failures
+                        .push(format!("{}: {source}: {error}", entry.provenance.id));
+                }
+                notema_storage::AssetFailure::AttachmentIngest { source, error } => {
+                    report.attachments_failed += 1;
                     report
                         .failures
                         .push(format!("{}: {source}: {error}", entry.provenance.id));
@@ -721,11 +728,18 @@ fn import_report_summary(report: &ImportReport, journal: &str, download_images: 
             plural(report.images_stored, "image", "images")
         ));
     }
-    if report.attachments_skipped > 0 {
+    if report.attachments_copied > 0 {
         parts.push(format!(
-            "{} audio/video/pdf {} skipped (not yet supported)",
-            report.attachments_skipped,
-            plural(report.attachments_skipped, "attachment", "attachments")
+            "{} audio/video/pdf {} copied",
+            report.attachments_copied,
+            plural(report.attachments_copied, "attachment", "attachments")
+        ));
+    }
+    if report.attachments_failed > 0 {
+        parts.push(format!(
+            "{} audio/video/pdf {} not copied",
+            report.attachments_failed,
+            plural(report.attachments_failed, "attachment", "attachments")
         ));
     }
     if report.remote_images_skipped > 0 {
@@ -760,7 +774,8 @@ struct ImportReport {
     images_stored: usize,
     images_failed: usize,
     remote_images_skipped: usize,
-    attachments_skipped: usize,
+    attachments_copied: usize,
+    attachments_failed: usize,
     failures: Vec<String>,
 }
 
@@ -862,21 +877,38 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
 
 fn asset_report_message(report: &notema_storage::AssetReport) -> String {
     let mut parts = Vec::new();
-    if report.stored > 0 {
+    let images_stored = report.images_stored();
+    if images_stored > 0 {
         parts.push(format!(
             "{} {} stored",
-            report.stored,
-            plural(report.stored, "image", "images")
+            images_stored,
+            plural(images_stored, "image", "images")
+        ));
+    }
+    if report.attachments_stored > 0 {
+        parts.push(format!(
+            "{} {} stored",
+            report.attachments_stored,
+            plural(report.attachments_stored, "attachment", "attachments")
         ));
     }
     if report.removed > 0 {
         parts.push(format!("{} removed", report.removed));
     }
-    if !report.failed.is_empty() {
+    let images_not_stored = report.images_not_stored();
+    if images_not_stored > 0 {
         parts.push(format!(
             "{} {} not stored",
-            report.failed.len(),
-            plural(report.failed.len(), "image", "images")
+            images_not_stored,
+            plural(images_not_stored, "image", "images")
+        ));
+    }
+    let attachments_not_stored = report.attachments_not_stored();
+    if attachments_not_stored > 0 {
+        parts.push(format!(
+            "{} {} not stored",
+            attachments_not_stored,
+            plural(attachments_not_stored, "attachment", "attachments")
         ));
     }
     parts.join("; ")

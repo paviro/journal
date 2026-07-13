@@ -2,7 +2,13 @@ use crate::identity::UnlockedIdentity;
 use crate::recipients::{Recipient, read_recipients};
 use crate::{EncryptionError, KeyPaths, Result};
 use age::x25519;
-use std::{fs, io::Write, path::Path, str::FromStr, string::FromUtf8Error};
+use std::{
+    fs,
+    io::{self, Read, Write},
+    path::Path,
+    str::FromStr,
+    string::FromUtf8Error,
+};
 use zeroize::Zeroizing;
 
 /// Decrypted bytes. The inner buffer is zeroized on drop and intentionally does
@@ -120,6 +126,16 @@ impl EncryptionRecipients {
         encrypt_to_recipients(&self.recipients, plaintext)
     }
 
+    /// Encrypt a stream to every store recipient without buffering the full
+    /// plaintext or ciphertext in memory.
+    pub fn encrypt_reader<R, W>(&self, plaintext: R, output: W) -> Result<W>
+    where
+        R: Read,
+        W: Write,
+    {
+        encrypt_reader_to_recipients(&self.recipients, plaintext, output)
+    }
+
     pub fn encrypt_to_file(&self, plaintext: &PlaintextBytes, output: &Path) -> Result<()> {
         let ciphertext = self.encrypt(plaintext)?;
         crate::files::atomic_write(output, ciphertext.as_bytes())
@@ -146,16 +162,28 @@ pub(crate) fn encrypt_to_recipients(
     recipients: &[x25519::Recipient],
     plaintext: &PlaintextBytes,
 ) -> Result<CiphertextBytes> {
+    let mut ciphertext = Vec::with_capacity(plaintext.as_bytes().len());
+    encrypt_reader_to_recipients(recipients, plaintext.as_bytes(), &mut ciphertext)?;
+    Ok(CiphertextBytes::from_vec(ciphertext))
+}
+
+fn encrypt_reader_to_recipients<R, W>(
+    recipients: &[x25519::Recipient],
+    mut plaintext: R,
+    output: W,
+) -> Result<W>
+where
+    R: Read,
+    W: Write,
+{
     let refs: Vec<&dyn age::Recipient> = recipients
         .iter()
         .map(|recipient| recipient as &dyn age::Recipient)
         .collect();
     let encryptor = age::Encryptor::with_recipients(refs.into_iter())?;
-    let mut ciphertext = Vec::with_capacity(plaintext.as_bytes().len());
-    let mut writer = encryptor.wrap_output(&mut ciphertext)?;
-    writer.write_all(plaintext.as_bytes())?;
-    writer.finish()?;
-    Ok(CiphertextBytes::from_vec(ciphertext))
+    let mut writer = encryptor.wrap_output(output)?;
+    io::copy(&mut plaintext, &mut writer)?;
+    Ok(writer.finish()?)
 }
 
 pub(crate) fn decrypt_bytes_with_identity(
