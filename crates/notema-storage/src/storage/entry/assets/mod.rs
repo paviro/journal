@@ -118,6 +118,47 @@ pub(crate) fn ingest_and_cleanup_opts(
     Ok((changed.then_some(new_body), report))
 }
 
+/// Retarget canonical stored-image links when an entry is copied. Text outside
+/// Markdown image targets, including fenced code, is left byte-for-byte intact.
+pub(crate) fn retarget_stored_image_links(
+    body: &str,
+    source_dir_name: &str,
+    target_dir_name: &str,
+) -> String {
+    let mut out = String::with_capacity(body.len());
+    let mut in_fence = false;
+    let mut lines = body.split('\n').peekable();
+    while let Some(line) = lines.next() {
+        if is_fence(line) {
+            in_fence = !in_fence;
+            push_line(&mut out, line, lines.peek().is_some());
+            continue;
+        }
+        if in_fence {
+            push_line(&mut out, line, lines.peek().is_some());
+            continue;
+        }
+
+        let mut rewritten = String::with_capacity(line.len());
+        let mut rest = line;
+        while let Some(image) = next_markdown_image(rest) {
+            rewritten.push_str(&rest[..image.target_start]);
+            let target = &rest[image.target_range()];
+            if let Some(reference) = stored_image_reference(target, source_dir_name) {
+                rewritten.push_str(target_dir_name);
+                rewritten.push('/');
+                rewritten.push_str(&reference.file_name);
+            } else {
+                rewritten.push_str(target);
+            }
+            rest = &rest[image.target_end..];
+        }
+        rewritten.push_str(rest);
+        push_line(&mut out, &rewritten, lines.peek().is_some());
+    }
+    out
+}
+
 struct IngestContext<'a> {
     assets_dir: &'a Path,
     dir_name: &'a str,
@@ -869,6 +910,34 @@ mod tests {
         assert!(stored_image_reference("https://example.com/x9k2.png", dir_name).is_none());
         assert!(
             stored_image_reference("2026-07-05T14-30-00-other.assets/x9k2.png", dir_name).is_none()
+        );
+    }
+
+    #[test]
+    fn retarget_stored_links_changes_only_markdown_image_targets() {
+        let source = "old.assets";
+        let target = "new.assets";
+        let body = concat!(
+            "![photo](old.assets/x9k2.png)\n",
+            "ordinary old.assets/x9k2.png text\n",
+            "```markdown\n",
+            "![example](old.assets/x9k2.png)\n",
+            "```\n",
+            "![other](different.assets/x9k2.png)\n",
+        );
+
+        let rewritten = retarget_stored_image_links(body, source, target);
+
+        assert_eq!(
+            rewritten,
+            concat!(
+                "![photo](new.assets/x9k2.png)\n",
+                "ordinary old.assets/x9k2.png text\n",
+                "```markdown\n",
+                "![example](old.assets/x9k2.png)\n",
+                "```\n",
+                "![other](different.assets/x9k2.png)\n",
+            )
         );
     }
 

@@ -34,7 +34,7 @@ pub use cipher::{
     encrypt_new_entry, encrypt_to_file,
 };
 pub use error::{EncryptionError, Result};
-pub use files::{atomic_write, sibling_temp_path};
+pub use files::{atomic_write, atomic_write_private, sibling_temp_path};
 pub use identity::{
     DeviceIdentityInfo, UnlockedIdentity, device_identity_info, read_identity_file_bytes,
     restore_identity_file, set_identity_passphrase, unlock_identity,

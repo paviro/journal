@@ -67,6 +67,17 @@ fn action_errors_become_toasts_and_keep_the_event_loop_running() {
 }
 
 #[test]
+fn browse_r_maps_to_manual_library_refresh() {
+    let dir = tempdir().unwrap();
+    let app = new_app(Config::new(dir.path().to_path_buf()));
+
+    assert_eq!(
+        keyboard::key_to_action(&app, key(KeyCode::Char('r')), true),
+        Some(Action::RefreshLibrary)
+    );
+}
+
+#[test]
 fn enter_on_journals_moves_to_entries_like_right_arrow() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("work")).unwrap();
@@ -167,7 +178,7 @@ fn keyboard_and_footer_edit_use_the_same_action() {
 #[test]
 fn editor_footer_hints_route_to_editor_actions() {
     let mut app = app_with_entries(1);
-    app.open_editor_for_selected();
+    app.open_editor_for_selected().unwrap();
     app.state.ui.show_hints = false;
 
     assert_eq!(

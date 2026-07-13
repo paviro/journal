@@ -1,6 +1,7 @@
 use super::journal_metadata::JournalTheme;
 use crate::{AppResult, StorageError};
 use anyhow::bail;
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -11,7 +12,7 @@ use std::{
 /// entry lookups keep working; it is stripped only for display.
 pub const ARCHIVED_SUFFIX: &str = ".archived";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Journal {
     /// The raw directory name, including the `.archived` suffix when archived.
     pub name: String,
@@ -43,6 +44,12 @@ pub fn is_archived_name(name: &str) -> bool {
 }
 
 pub(crate) fn list_journals(root: &Path) -> AppResult<Vec<Journal>> {
+    let mut journals = discover_journals(root)?;
+    initialize_journals(&mut journals);
+    Ok(journals)
+}
+
+pub(crate) fn discover_journals(root: &Path) -> AppResult<Vec<Journal>> {
     let mut journals = Vec::new();
     if !root.exists() {
         return Ok(journals);
@@ -61,7 +68,7 @@ pub(crate) fn list_journals(root: &Path) -> AppResult<Vec<Journal>> {
 
         let archived = is_archived_name(&name);
         let path = entry.path();
-        let meta = super::journal_metadata::read_or_init_metadata(&path);
+        let meta = super::journal_metadata::read_metadata(&path);
         journals.push(Journal {
             name,
             path,
@@ -80,6 +87,14 @@ pub(crate) fn list_journals(root: &Path) -> AppResult<Vec<Journal>> {
             .then_with(|| a.display_name().cmp(b.display_name()))
     });
     Ok(journals)
+}
+
+pub(crate) fn initialize_journals(journals: &mut [Journal]) {
+    for journal in journals {
+        let meta = super::journal_metadata::read_or_init_metadata(&journal.path);
+        journal.id = meta.id;
+        journal.theme = meta.theme;
+    }
 }
 
 /// Archive or unarchive a journal by renaming its directory to add or strip the

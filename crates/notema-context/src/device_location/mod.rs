@@ -14,6 +14,8 @@ use std::{sync::mpsc, thread, time::Duration};
 
 #[cfg(target_os = "linux")]
 mod geoclue;
+#[cfg(target_os = "linux")]
+mod ish;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "android")]
@@ -26,6 +28,8 @@ pub enum DeviceLocationSource {
     CoreLocation,
     /// Linux GeoClue2.
     GeoClue,
+    /// iSH `/dev/location` (iOS).
+    Ish,
     /// Termux `termux-location` (Android).
     Termux,
 }
@@ -36,6 +40,7 @@ impl DeviceLocationSource {
         match self {
             Self::CoreLocation => "corelocation",
             Self::GeoClue => "geoclue",
+            Self::Ish => "ish",
             Self::Termux => "termux",
         }
     }
@@ -67,7 +72,14 @@ pub fn device_location() -> Result<DeviceFix> {
     }
     #[cfg(target_os = "linux")]
     {
-        geoclue::locate()
+        // iSH emulates a 32-bit Linux, so this is a `target_os = "linux"` build,
+        // but it has no D-Bus/GeoClue — it exposes a GPS stream at /dev/location
+        // instead. Detect it at runtime by its marker file.
+        if std::path::Path::new("/proc/ish/version").exists() {
+            ish::locate()
+        } else {
+            geoclue::locate()
+        }
     }
     #[cfg(target_os = "macos")]
     {

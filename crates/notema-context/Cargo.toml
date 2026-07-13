@@ -16,11 +16,17 @@ sunrise.workspace = true
 thiserror.workspace = true
 ureq.workspace = true
 
+[features]
+default = []
+tls-ring = ["ureq/rustls"]
+tls-native = ["ureq/native-tls"]
+
 # Device location ("grab current GPS") providers, one per platform so no crate is
 # pulled in where it isn't used. See src/device_location/. macOS has no crate dep:
 # it extracts and runs the bundled `notema-locate` helper .app (a bare binary
 # can't get CoreLocation authorization on modern macOS).
 [target.'cfg(target_os = "linux")'.dependencies]
+rustix.workspace = true
 zbus.workspace = true
 
 [lints]

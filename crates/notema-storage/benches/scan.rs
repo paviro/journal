@@ -1,10 +1,9 @@
-//! Time a full journal scan (walk + parse + preview + search-haystack build)
-//! over deterministic 1k/10k/25k corpora. Mirrors the analytics bench: a plain
-//! `Instant`-timed binary (`harness = false`), no external bench framework.
+//! Compare source parsing, immediate cache decode, and cache validation over
+//! deterministic 1k/10k/25k corpora. Plain `Instant` timing, no framework.
 
 use std::{fs, hint::black_box, time::Instant};
 
-use notema_storage::JournalStore;
+use notema_storage::{CachePolicy, JournalStore};
 
 fn main() {
     for size in [1_000, 10_000, 25_000] {
@@ -12,16 +11,35 @@ fn main() {
         let store = build_store(dir.path(), size);
         let iterations = if size < 10_000 { 10 } else { 3 };
 
-        // Warm the page cache so the measurement reflects parse/aggregate cost,
-        // not the first cold read of the freshly written tree.
-        black_box(store.scan_entries().unwrap());
+        // Materialize both filesystem pages and the derived cache before timing.
+        black_box(store.load_library(CachePolicy::Rebuild).unwrap());
 
         let started = Instant::now();
         for _ in 0..iterations {
-            black_box(store.scan_entries().unwrap());
+            black_box(store.load_library(CachePolicy::Off).unwrap());
         }
         let elapsed = started.elapsed() / iterations;
-        println!("scan/{size}: {elapsed:?}");
+        println!("source/{size}: {elapsed:?}");
+
+        let started = Instant::now();
+        for _ in 0..iterations {
+            let cache = store.read_cached_library(CachePolicy::Normal).unwrap();
+            black_box(cache.cached.as_ref().unwrap().snapshot());
+        }
+        let elapsed = started.elapsed() / iterations;
+        println!("cache-decode/{size}: {elapsed:?}");
+
+        let started = Instant::now();
+        for _ in 0..iterations {
+            let cache = store.read_cached_library(CachePolicy::Normal).unwrap();
+            black_box(
+                store
+                    .validate_library(cache.cached, CachePolicy::Normal)
+                    .unwrap(),
+            );
+        }
+        let elapsed = started.elapsed() / iterations;
+        println!("validate/{size}: {elapsed:?}");
     }
 }
 

@@ -70,6 +70,7 @@ sees ciphertext and can't read your entries.
 ## Documentation
 
 - [Usage](docs/USAGE.md) — logging with metadata, location capture, Day One import
+- [Mobile (iOS / Android)](docs/MOBILE.md) — running under iSH and Termux, sync setup
 - [Encryption](docs/ENCRYPTION.md) — setup, adding devices, key management
 - [Mounting (FUSE)](docs/FUSE.md) — browse an encrypted journal as a filesystem
 - [Storage format](docs/STORAGE-FORMAT.md) — on-disk layout, front-matter, config, recovery

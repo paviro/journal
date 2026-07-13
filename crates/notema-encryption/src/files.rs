@@ -27,9 +27,9 @@ pub fn atomic_write(path: &Path, content: &[u8]) -> Result<()> {
     write_atomic(path, content, false)
 }
 
-/// Write a file readable only by its owner (mode 0600 on Unix), creating parent
-/// directories as needed. Used for this device's private identity file.
-pub(crate) fn write_private_file(path: &Path, content: &[u8]) -> Result<()> {
+/// Atomically write a file readable only by its owner (mode 0600 on Unix),
+/// creating parent directories as needed.
+pub fn atomic_write_private(path: &Path, content: &[u8]) -> Result<()> {
     write_atomic(path, content, true)
 }
 

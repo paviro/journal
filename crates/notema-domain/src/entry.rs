@@ -361,7 +361,7 @@ fn deserialize_mood<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option
 /// value parsed once at load, so the grouping, label, and stats paths never
 /// re-run `DateTime::parse_from_rfc3339` per call. `parsed` is `None` when the
 /// string is not valid RFC3339 (callers then fall back to the filename date).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Timestamp {
     pub raw: String,
     /// The parsed value keeps the RFC3339 offset it was written with rather than
@@ -380,7 +380,7 @@ impl Timestamp {
 }
 
 // Not `Eq`: `Location` carries `f64` coordinates.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
     pub id: String,
     pub journal: String,
@@ -534,7 +534,7 @@ fn fold_diacritic(c: char) -> Option<&'static str> {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntryEncryptionState {
     Plain,
     EncryptedUnlocked,

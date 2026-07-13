@@ -2,9 +2,12 @@ use crate::{
     AppResult,
     config::{Config, State},
 };
-use notema_domain::{Entry, EntryEncryptionState, EntryPath, SearchHit, entry_group_date};
+use notema_domain::{Entry, EntryEncryptionState, SearchHit, entry_group_date};
 use notema_domain::{FEELING_GROUPS, normalize_feeling};
-use notema_storage::{Journal, JournalStore, entry_timestamp_label, is_entry_file};
+use notema_storage::{
+    CachePolicy, CachedLibrary, Journal, JournalStore, LibrarySnapshot, entry_timestamp_label,
+    is_entry_file,
+};
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
@@ -40,6 +43,8 @@ pub(crate) const INLINE_READER_MIN_WIDTH: u16 = 125;
 
 /// Rows moved per PageUp/PageDown, as a multiple of a single-line scroll.
 const PAGE_STEP: i16 = 10;
+const INITIAL_LIBRARY_LOADING_TOAST: &str = "Loading journals from disk…";
+const MANUAL_REFRESH_TOAST: &str = "Refreshing from disk…";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Focus {
@@ -420,6 +425,13 @@ pub(crate) struct App {
     pub(crate) state: State,
     pub(crate) store: JournalStore,
     pub(crate) library: Library,
+    /// Cached lists are usable immediately, but background write-backs wait
+    /// until the source-tree reconciliation has completed.
+    pub(crate) library_validated: bool,
+    /// Changes whenever source-backed library state is refreshed. Startup
+    /// validation uses this to avoid installing a snapshot older than an edit
+    /// or manual refresh completed while it was running.
+    library_generation: u64,
     pub(crate) nav: Nav,
     pub(crate) search: SearchState,
     pub(crate) overlay: Overlay,
@@ -520,20 +532,57 @@ pub(crate) struct ScrollbarDragState {
 }
 
 impl App {
+    #[cfg(any(test, feature = "bench"))]
     pub(crate) fn new(
         config_path: PathBuf,
         config: Config,
         store: JournalStore,
     ) -> AppResult<Self> {
-        store.ensure()?;
+        let snapshot = store.load_library(CachePolicy::Normal)?;
+        Self::new_with_snapshot(config_path, config, store, snapshot, true)
+    }
+
+    /// Build from the decoded cache. The retained opaque cache is passed to the
+    /// event loop's background validator; a miss reads only the cheap top-level
+    /// journal list while entry parsing remains in the background.
+    pub(crate) fn new_cached(
+        config_path: PathBuf,
+        config: Config,
+        store: JournalStore,
+    ) -> AppResult<(Self, Option<CachedLibrary>)> {
+        let cache = store.read_cached_library(CachePolicy::Normal)?;
+        let snapshot = match cache.cached.as_ref() {
+            Some(cached) => cached.snapshot(),
+            None => LibrarySnapshot {
+                journals: store.list_journals()?,
+                entries: Vec::new(),
+                report: cache.report.clone(),
+            },
+        };
+        let mut app = Self::new_with_snapshot(config_path, config, store, snapshot, false)?;
+        if cache.cached.is_none() {
+            app.toasts
+                .push_persistent(ToastVariant::Info, INITIAL_LIBRARY_LOADING_TOAST);
+        }
+        Ok((app, cache.cached))
+    }
+
+    fn new_with_snapshot(
+        config_path: PathBuf,
+        config: Config,
+        store: JournalStore,
+        snapshot: LibrarySnapshot,
+        library_validated: bool,
+    ) -> AppResult<Self> {
         let state = crate::config::load_state(&config_path)?;
-        let entry_paths = store.collect_entry_paths()?;
         let mut app = Self {
             config_path,
             config,
             state,
             store,
             library: Library::default(),
+            library_validated,
+            library_generation: 0,
             nav: Nav::default(),
             search: SearchState::default(),
             overlay: Overlay::None,
@@ -556,7 +605,10 @@ impl App {
             hover: HoverTarget::default(),
             caches: RenderCaches::default(),
         };
-        app.load_entries(entry_paths)?;
+        app.library.journals = snapshot.journals;
+        app.library.entries = snapshot.entries;
+        app.normalize_journal_selection();
+        app.after_entries_changed();
         // Restore the journal selected in the previous session (by stable id, so a
         // rename or archive doesn't lose it) without disturbing the default startup
         // focus (Journals).
@@ -578,6 +630,50 @@ impl App {
         // couldn't account for it.
         app.apply_effective_theme();
         Ok(app)
+    }
+
+    /// Replace cache-backed library state with a reconciled source snapshot,
+    /// preserving the user's current journal and entry where possible.
+    pub(crate) fn install_library_snapshot(&mut self, snapshot: LibrarySnapshot) {
+        self.finish_initial_library_loading();
+        let journal_id = self.selected_journal().map(|journal| journal.id.clone());
+        let entry_id = self.selected_entry_target().map(|entry| entry.id);
+        self.clear_image_caches();
+        self.library.journals = snapshot.journals;
+        self.library.entries = snapshot.entries;
+        self.library_validated = true;
+        self.normalize_journal_selection();
+        if let Some(journal_id) = journal_id
+            && let Some(index) = self
+                .library
+                .journals
+                .iter()
+                .position(|journal| journal.id == journal_id)
+        {
+            self.nav.journal_list.select(Some(index));
+        }
+        self.after_entries_changed();
+        if let Some(entry_id) = entry_id {
+            self.select_entry_by_id(&entry_id, false);
+        }
+        self.apply_effective_theme();
+    }
+
+    pub(crate) fn library_generation(&self) -> u64 {
+        self.library_generation
+    }
+
+    pub(crate) fn finish_initial_library_loading(&mut self) {
+        self.toasts.dismiss_message(INITIAL_LIBRARY_LOADING_TOAST);
+    }
+
+    pub(crate) fn begin_manual_refresh(&mut self) {
+        self.toasts
+            .push_persistent(ToastVariant::Info, MANUAL_REFRESH_TOAST);
+    }
+
+    pub(crate) fn finish_manual_refresh(&mut self) {
+        self.toasts.dismiss_message(MANUAL_REFRESH_TOAST);
     }
 
     /// A journal rename (archive/unarchive) changes its folder name, so the
@@ -676,21 +772,8 @@ impl App {
     }
 
     pub(crate) fn refresh(&mut self) -> AppResult<()> {
-        self.store.ensure()?;
-        self.image.runtime.clear();
-        // Content may have changed: force `sync_image_warm` to rebuild next tick
-        // and drop the memo so images are re-parsed from the reloaded body.
-        self.image.warm = None;
-        self.image.selected_cache.borrow_mut().take();
-        let entry_paths = self.store.collect_entry_paths()?;
-        self.load_entries(entry_paths)
-    }
-
-    fn load_entries(&mut self, entry_paths: Vec<EntryPath>) -> AppResult<()> {
-        self.library.journals = self.store.list_journals()?;
-        self.library.entries = self.store.read_entries(entry_paths)?;
-        self.normalize_journal_selection();
-        self.after_entries_changed();
+        let snapshot = self.store.load_library(CachePolicy::Normal)?;
+        self.install_library_snapshot(snapshot);
         Ok(())
     }
 
@@ -699,9 +782,12 @@ impl App {
     /// query is active), and the clamped selection. Shared by the full load and
     /// the incremental [`Self::refresh_paths`] path.
     fn after_entries_changed(&mut self) {
+        self.library_generation = self.library_generation.wrapping_add(1);
         self.library.rebuild_indexes();
         // Queue any newly-seen located entry that still lacks captured environment.
-        self.enqueue_environment_backfill();
+        if self.library_validated {
+            self.enqueue_environment_backfill();
+        }
         // Entries (and possibly hits) changed: invalidate every version-keyed
         // cache — the body/analytics caches (entries_version) and the row cache
         // (rows_version).
@@ -788,6 +874,29 @@ impl App {
             Ok(index) => self.library.entries[index] = entry,
             Err(index) => self.library.entries.insert(index, entry),
         }
+    }
+
+    /// Install an entry that was read directly from its source file, then
+    /// rebuild every list/search derivative that may have come from the cache.
+    pub(crate) fn replace_entry_from_disk(&mut self, entry: Entry) {
+        let id = entry.id.clone();
+        self.clear_image_caches();
+        self.upsert_entry(entry);
+        self.after_entries_changed();
+        self.select_entry_by_id(&id, false);
+    }
+
+    /// Refresh the selected entry from its source file. Lists and search may be
+    /// cache-backed; viewer and mutation paths call this before using content.
+    pub(crate) fn reload_selected_entry_from_disk(&mut self) -> AppResult<bool> {
+        let Some(entry) = self.resolved_selected_entry() else {
+            return Ok(false);
+        };
+        let journal = entry.journal.clone();
+        let path = entry.path.clone();
+        let fresh = self.store.read_entry(&journal, &path)?;
+        self.replace_entry_from_disk(fresh);
+        Ok(true)
     }
 
     /// Remove the entry at `path`, if present, preserving the sorted order.

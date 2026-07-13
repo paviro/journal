@@ -71,6 +71,26 @@ pub(crate) fn create_entry(
     draft: EntryDraft<'_>,
     assets: EntryAssetOptions,
 ) -> AppResult<EntryCreateOutcome> {
+    create_entry_inner(codec, root, None, draft, assets)
+}
+
+pub(crate) fn create_entry_copy(
+    codec: &EntryCodec<'_>,
+    root: &Path,
+    source_path: &Path,
+    draft: EntryDraft<'_>,
+    assets: EntryAssetOptions,
+) -> AppResult<EntryCreateOutcome> {
+    create_entry_inner(codec, root, Some(source_path), draft, assets)
+}
+
+fn create_entry_inner(
+    codec: &EntryCodec<'_>,
+    root: &Path,
+    source_path: Option<&Path>,
+    draft: EntryDraft<'_>,
+    assets: EntryAssetOptions,
+) -> AppResult<EntryCreateOutcome> {
     let native_timestamp = draft.created_at.is_none();
     let created_at = draft
         .created_at
@@ -95,17 +115,29 @@ pub(crate) fn create_entry(
             fs::create_dir_all(parent)?;
         }
 
+        let source_body = if let Some(source_path) = source_path {
+            match clone_entry_assets(source_path, &path, draft.body) {
+                Ok(body) => body,
+                Err(error) => {
+                    remove_assets_dir(&path);
+                    return Err(error);
+                }
+            }
+        } else {
+            draft.body.to_string()
+        };
+
         let encryption = codec
             .encrypts_new_entries()
             .then(|| codec.encryption_paths());
-        let (body, report) = ingest_and_cleanup_opts(
+        let (rewritten_body, report) = ingest_and_cleanup_opts(
             &path,
-            draft.body,
+            &source_body,
             encryption,
             assets.download_remote,
             assets.replace_offline,
         )?;
-        let body = body.as_deref().unwrap_or(draft.body);
+        let body = rewritten_body.as_deref().unwrap_or(&source_body);
         let content = entry_content(
             created_at,
             edited_at,
@@ -146,6 +178,34 @@ pub(crate) fn create_entry(
     }
 
     bail!("could not create a unique entry path after {ENTRY_CREATE_ATTEMPTS} attempts")
+}
+
+/// Copy raw stored assets (ciphertext stays ciphertext) and retarget canonical
+/// body links to the new entry's asset directory. The normal ingestion pass
+/// then removes unreferenced copies and handles any newly added images.
+fn clone_entry_assets(source_path: &Path, target_path: &Path, body: &str) -> AppResult<String> {
+    let (Some(source_dir), Some(target_dir), Some(source_name), Some(target_name)) = (
+        entry_assets_dir(source_path),
+        entry_assets_dir(target_path),
+        super::paths::entry_assets_dir_name(source_path),
+        super::paths::entry_assets_dir_name(target_path),
+    ) else {
+        return Ok(body.to_string());
+    };
+    if source_dir.exists() {
+        fs::create_dir_all(&target_dir)?;
+        for item in fs::read_dir(&source_dir)? {
+            let item = item?;
+            if item.file_type()?.is_file() {
+                fs::copy(item.path(), target_dir.join(item.file_name()))?;
+            }
+        }
+    }
+    Ok(super::assets::retarget_stored_image_links(
+        body,
+        &source_name,
+        &target_name,
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]

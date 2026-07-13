@@ -252,6 +252,7 @@ fn browse_key_to_action(app: &App, key: KeyEvent, reader_available: bool) -> Opt
     }
     match key.code {
         KeyCode::Char('q') => Some(Action::Quit),
+        KeyCode::Char('r') => Some(Action::RefreshLibrary),
         KeyCode::Char('/') => Some(Action::BeginSearch),
         // Left backs out one level, but does nothing in multi-column full screen —
         // there, Esc collapses back to the focused reader pane instead.

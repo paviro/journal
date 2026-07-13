@@ -15,6 +15,8 @@ CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "x86_64-unknown-linux-gnu-gcc"
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "x86_64-unknown-linux-musl-gcc"
 CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_LINKER = "i686-unknown-linux-musl-gcc"
 CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER = "i686-unknown-linux-gnu-gcc"
+# i586 (x87 float ABI) baseline for iSH; links with the i686 musl gcc.
+CARGO_TARGET_I586_UNKNOWN_LINUX_MUSL_LINKER = "i686-unknown-linux-musl-gcc"
 CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER = "armv7-unknown-linux-musleabihf-gcc"
 CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER = "armv7-unknown-linux-gnueabihf-gcc"
 CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "x86_64-w64-mingw32-gcc"
@@ -109,6 +111,59 @@ description = "Build for 32-bit x86 Linux with musl"
 command = "cargo"
 args = ["build", "--release", "--target", "i686-unknown-linux-musl"]
 
+# Rust's prebuilt i586 musl target uses an x87 baseline that does not require
+# SSE. HTTPS uses a static, no-assembly i586 OpenSSL because ring requires SSE2
+# on 32-bit x86.
+[tasks.build-i586-musl]
+description = "Build the i586-baseline 32-bit x86 musl artifact"
+script = '''
+set -eu
+OPENSSL_VERSION="3.5.7"
+OPENSSL_SHA256="a8c0d28a529ca480f9f36cf5792e2cd21984552a3c8e4aa11a24aa31aeac98e8"
+I586_DIR="$PWD/target/i586-musl"
+ARCHIVE="$I586_DIR/sources/openssl-$OPENSSL_VERSION.tar.gz"
+SOURCE="$I586_DIR/sources/openssl-$OPENSSL_VERSION"
+OPENSSL_DIR="$I586_DIR/openssl-$OPENSSL_VERSION-i586"
+mkdir -p "$I586_DIR/sources" "$SOURCE" "$OPENSSL_DIR"
+if [ ! -f "$ARCHIVE" ]; then
+    curl --fail --location \
+        "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz" \
+        --output "$ARCHIVE"
+fi
+if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL_SHA256="$(sha256sum "$ARCHIVE")"
+else
+    ACTUAL_SHA256="$(shasum -a 256 "$ARCHIVE")"
+fi
+ACTUAL_SHA256="${ACTUAL_SHA256%% *}"
+if [ "$ACTUAL_SHA256" != "$OPENSSL_SHA256" ]; then
+    echo "OpenSSL archive checksum mismatch" >&2
+    exit 1
+fi
+if [ ! -f "$SOURCE/Configure" ]; then
+    tar -xzf "$ARCHIVE" -C "$SOURCE" --strip-components=1
+fi
+if [ ! -f "$OPENSSL_DIR/lib/libssl.a" ]; then
+    cd "$SOURCE"
+    CC=i686-unknown-linux-musl-gcc \
+    AR=i686-unknown-linux-musl-ar \
+    RANLIB=i686-unknown-linux-musl-ranlib \
+    CFLAGS="-O2 -march=i586 -mno-mmx -mno-3dnow -mno-sse -mno-sse2 -mfpmath=387" \
+        perl ./Configure linux-elf no-shared no-module no-tests no-asm \
+        --prefix="$OPENSSL_DIR" --libdir=lib
+    make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)" build_libs
+    make install_sw
+    cd "$CARGO_MAKE_WORKING_DIRECTORY"
+fi
+export OPENSSL_DIR
+export OPENSSL_STATIC=1
+export OPENSSL_NO_VENDOR=1
+cargo build --release \
+    --target i586-unknown-linux-musl \
+    --target-dir target/i586-musl \
+    --no-default-features --features tls-native
+'''
+
 [tasks.build-i686-gnu]
 description = "Build for 32-bit x86 Linux with glibc"
 command = "cargo"
@@ -168,6 +223,7 @@ dependencies = [
     "build-x86-musl",
     "build-i686-musl",
     "build-i686-gnu",
+    "build-i586-musl",
     "build-armv7-musl",
     "build-armv7-gnu",
     "build-windows-gnu",
@@ -193,6 +249,7 @@ dependencies = [
     "build-x86-musl",
     "build-i686-musl",
     "build-i686-gnu",
+    "build-i586-musl",
     "build-armv7-musl",
     "build-armv7-gnu"
 ]
@@ -306,6 +363,19 @@ zip "${PLATFORM}.zip" "${BINARY_NAME}"
 rm "${BINARY_NAME}"
 '''
 
+[tasks.package-i586-musl]
+description = "Package the i586-baseline 32-bit x86 musl binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="notema"
+TARGET="i586-unknown-linux-musl"
+PLATFORM="linux-musl-i586"
+cp "target/i586-musl/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
 [tasks.package-i686-gnu]
 description = "Package 32-bit x86 gnu binary"
 dependencies = ["create-release-dir"]
@@ -408,6 +478,7 @@ dependencies = [
     "package-x86-musl",
     "package-i686-musl",
     "package-i686-gnu",
+    "package-i586-musl",
     "package-armv7-musl",
     "package-armv7-gnu",
     "package-windows-gnu",

@@ -6,10 +6,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod entry_cache;
 mod error;
+mod library;
 pub(crate) mod markdown;
 mod migrate;
 mod storage;
+mod store_id;
 
 use notema_domain::{Entry, EntryPath, ImportSource, MetadataField};
 use notema_encryption as crypto;
@@ -17,6 +20,10 @@ use notema_encryption as crypto;
 type AppResult<T> = anyhow::Result<T>;
 
 pub use error::StorageError;
+pub use library::{
+    CachePolicy, CacheRead, CacheStatus, CachedLibrary, EntryRevision, LibraryDiscovery,
+    LibraryLoadProgress, LibraryLoadReport, LibrarySnapshot,
+};
 pub use migrate::{DecryptSummary, MigrationSummary};
 use notema_encryption::{
     DeviceIdentityInfo, EncryptionError, PendingRequest, Recipient, SecretString,
@@ -27,6 +34,7 @@ pub use storage::{
     entry_timestamp_label, is_archived_name, is_entry_file, journal_display_name,
     parse_entry_timestamp, sole_stored_image, stored_image_reference,
 };
+pub use store_id::StoreId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoreFileEncoding {
@@ -123,6 +131,7 @@ pub struct EnableEncryptionSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct JournalStorePaths {
     journal_root: PathBuf,
+    config_dir: PathBuf,
     /// This store's key-material locations (roster, identity, trust pins). Owned
     /// by the encryption layer; storage only threads it through to `crypto`.
     keys: crypto::KeyPaths,
@@ -135,8 +144,13 @@ impl JournalStorePaths {
     /// synced).
     fn new(journal_root: impl Into<PathBuf>, config_dir: impl AsRef<Path>) -> Self {
         let journal_root = journal_root.into();
-        let keys = crypto::KeyPaths::new(&journal_root, config_dir);
-        Self { journal_root, keys }
+        let config_dir = config_dir.as_ref().to_path_buf();
+        let keys = crypto::KeyPaths::new(&journal_root, &config_dir);
+        Self {
+            journal_root,
+            config_dir,
+            keys,
+        }
     }
 
     /// Like [`new`](Self::new), taking the config *file* and reading its parent
@@ -181,7 +195,14 @@ impl JournalStore {
     }
 
     pub fn ensure(&self) -> AppResult<()> {
-        storage::ensure_store(&self.paths.journal_root)
+        storage::ensure_store(&self.paths.journal_root)?;
+        store_id::ensure(&self.paths.journal_root)?;
+        entry_cache::remove_incompatible(&self.paths, self.encryption_enabled())
+    }
+
+    /// Read this root's stable identity without creating or changing anything.
+    pub fn store_id(&self) -> AppResult<Option<StoreId>> {
+        store_id::read(&self.paths.journal_root)
     }
 
     /// Pick up an encryption *disable* performed on another device: when the
@@ -255,6 +276,7 @@ impl JournalStore {
         device_name: &str,
         passphrase: Option<&SecretString>,
     ) -> AppResult<String> {
+        entry_cache::invalidate(&self.paths)?;
         Ok(crypto::initialize_store_identity(&self.paths.keys, device_name, passphrase)?.enc_key)
     }
 
@@ -680,7 +702,105 @@ impl JournalStore {
     }
 
     pub fn scan_entries(&self) -> AppResult<Vec<Entry>> {
-        storage::scan_entries(&self.paths.journal_root, self.identity.as_ref())
+        Ok(self.load_library(CachePolicy::Normal)?.entries)
+    }
+
+    /// Decode a compatible cache without traversing or statting the source tree.
+    pub fn read_cached_library(&self, policy: CachePolicy) -> AppResult<CacheRead> {
+        entry_cache::read(&self.paths, self.identity.as_ref(), policy)
+    }
+
+    /// Reconcile a decoded cache with the source tree and persist the result.
+    pub fn validate_library(
+        &self,
+        cached: Option<CachedLibrary>,
+        policy: CachePolicy,
+    ) -> AppResult<LibrarySnapshot> {
+        entry_cache::validate(&self.paths, self.identity.as_ref(), cached, policy, None)
+    }
+
+    /// Reconcile a decoded cache against a previously collected read-only
+    /// inventory without traversing the source tree again.
+    pub fn validate_discovered_library(
+        &self,
+        cached: Option<CachedLibrary>,
+        policy: CachePolicy,
+        discovery: LibraryDiscovery,
+    ) -> AppResult<LibrarySnapshot> {
+        entry_cache::validate_discovery(
+            &self.paths,
+            self.identity.as_ref(),
+            cached,
+            policy,
+            discovery,
+            None,
+        )
+    }
+
+    /// Inspect the source tree without creating journal metadata or writing a cache.
+    pub fn discover_library_with_progress(
+        &self,
+        progress: &(dyn Fn(LibraryLoadProgress) + Sync),
+    ) -> AppResult<LibraryDiscovery> {
+        entry_cache::discover(&self.paths, Some(progress))
+    }
+
+    /// Load a current library snapshot, using compatible records as validation
+    /// seeds but never returning stale data.
+    pub fn load_library(&self, policy: CachePolicy) -> AppResult<LibrarySnapshot> {
+        let cache = self.read_cached_library(policy)?;
+        let mut snapshot = self.validate_library(cache.cached, policy)?;
+        snapshot.report.cache_read = cache.report.cache_read;
+        if snapshot.report.cache_warning.is_none() {
+            snapshot.report.cache_warning = cache.report.cache_warning;
+        }
+        Ok(snapshot)
+    }
+
+    /// Load a current library snapshot while reporting discovery and parsing progress.
+    /// The callback may run concurrently and must return quickly.
+    pub fn load_library_with_progress(
+        &self,
+        policy: CachePolicy,
+        progress: &(dyn Fn(LibraryLoadProgress) + Sync),
+    ) -> AppResult<LibrarySnapshot> {
+        let cache = self.read_cached_library(policy)?;
+        let mut snapshot = entry_cache::validate(
+            &self.paths,
+            self.identity.as_ref(),
+            cache.cached,
+            policy,
+            Some(progress),
+        )?;
+        snapshot.report.cache_read = cache.report.cache_read;
+        if snapshot.report.cache_warning.is_none() {
+            snapshot.report.cache_warning = cache.report.cache_warning;
+        }
+        Ok(snapshot)
+    }
+
+    /// Build a current snapshot from an inventory collected before the selected
+    /// folder was accepted, without traversing that folder a second time.
+    pub fn load_discovered_library_with_progress(
+        &self,
+        policy: CachePolicy,
+        discovery: LibraryDiscovery,
+        progress: &(dyn Fn(LibraryLoadProgress) + Sync),
+    ) -> AppResult<LibrarySnapshot> {
+        let cache = self.read_cached_library(policy)?;
+        let mut snapshot = entry_cache::validate_discovery(
+            &self.paths,
+            self.identity.as_ref(),
+            cache.cached,
+            policy,
+            discovery,
+            Some(progress),
+        )?;
+        snapshot.report.cache_read = cache.report.cache_read;
+        if snapshot.report.cache_warning.is_none() {
+            snapshot.report.cache_warning = cache.report.cache_warning;
+        }
+        Ok(snapshot)
     }
 
     pub fn scan_import_sources(&self) -> AppResult<Vec<ImportSource>> {
@@ -689,6 +809,25 @@ impl JournalStore {
 
     pub fn read_entry(&self, journal: &str, path: &Path) -> AppResult<Entry> {
         storage::read_entry(journal, path, self.identity.as_ref())
+    }
+
+    /// Read an entry from disk together with the exact file version observed.
+    /// If the file changes during the read, retry so the returned entry and
+    /// revision always describe the same stable source state.
+    pub fn read_entry_with_revision(
+        &self,
+        journal: &str,
+        path: &Path,
+    ) -> AppResult<(Entry, EntryRevision)> {
+        for _ in 0..3 {
+            let before = EntryRevision::read(path)?;
+            let entry = self.read_entry(journal, path)?;
+            let after = EntryRevision::read(path)?;
+            if before == after {
+                return Ok((entry, after));
+            }
+        }
+        bail!("entry kept changing while it was being opened; try again")
     }
 
     pub fn read_entry_content(&self, path: &Path) -> AppResult<String> {
@@ -748,6 +887,23 @@ impl JournalStore {
         storage::create_entry(&self.entry_codec(), &self.paths.journal_root, draft, assets)
     }
 
+    /// Create a new entry while cloning canonical assets from an existing entry.
+    /// Used to preserve an editor buffer when its original changed externally.
+    pub fn create_entry_copy(
+        &self,
+        source_path: &Path,
+        draft: EntryDraft<'_>,
+        assets: EntryAssetOptions,
+    ) -> AppResult<EntryCreateOutcome> {
+        storage::create_entry_copy(
+            &self.entry_codec(),
+            &self.paths.journal_root,
+            source_path,
+            draft,
+            assets,
+        )
+    }
+
     pub fn save_entry_edit(
         &self,
         path: &Path,
@@ -755,6 +911,18 @@ impl JournalStore {
         assets: EntryAssetOptions,
     ) -> AppResult<EntryEditOutcome> {
         storage::save_entry_edit(&self.entry_codec(), path, edit, assets)
+    }
+
+    /// Save only when the source file is still the version that was opened by
+    /// the editor. This is the existing-entry write path used by the TUI.
+    pub fn save_entry_edit_if_revision(
+        &self,
+        path: &Path,
+        revision: EntryRevision,
+        edit: EntryEdit<'_>,
+        assets: EntryAssetOptions,
+    ) -> AppResult<EntryEditOutcome> {
+        storage::save_entry_edit_if_revision(&self.entry_codec(), path, revision, edit, assets)
     }
 
     /// The codec for reading and writing this store's entry files, carrying the
@@ -873,6 +1041,7 @@ impl JournalStore {
             .identity
             .as_ref()
             .ok_or(EncryptionError::Locked { context: "store" })?;
+        entry_cache::invalidate(&self.paths)?;
         migrate::decrypt_store(self, identity, &mut progress)
     }
 
@@ -886,6 +1055,7 @@ impl JournalStore {
             }
             .into());
         }
+        entry_cache::invalidate(&self.paths)?;
         migrate::encrypt_store(self, &mut progress)
     }
 }

@@ -22,33 +22,40 @@ impl App {
     /// Open the internal editor on the selected entry, replacing the entry-view
     /// content in place. Refuses locked encrypted entries. Stays in the current
     /// column layout (fullscreen is a separate toggle).
-    pub(crate) fn open_editor_for_selected(&mut self) {
-        if !self.allow_selected_entry_edit() {
-            return;
-        }
+    pub(crate) fn open_editor_for_selected(&mut self) -> crate::AppResult<()> {
         let Some(target) = self.selected_entry_target() else {
-            return;
+            return Ok(());
         };
         if target.locked {
             self.toast(ToastVariant::Error, "Encryption identity not available");
-            return;
+            return Ok(());
         }
-        let Some((body, metadata)) = self
+        let Some(journal) = self
             .resolved_selected_entry()
-            .map(|entry| (entry.body.clone(), entry.metadata_bundle()))
+            .map(|entry| entry.journal.clone())
         else {
-            return;
+            return Ok(());
         };
+        let (entry, revision) = self
+            .store
+            .read_entry_with_revision(&journal, &target.path)?;
+        self.replace_entry_from_disk(entry.clone());
+        if !self.allow_selected_entry_edit() {
+            return Ok(());
+        }
         self.editor = Some(EntryEditor::for_existing(
+            journal,
             target.path,
             target.title,
-            &body,
-            metadata,
+            revision,
+            &entry.body,
+            entry.metadata_bundle(),
         ));
         self.nav.focus = Focus::Reader;
         if self.config.editor.start_fullscreen {
             self.nav.reader_fullscreen = true;
         }
+        Ok(())
     }
 
     /// Open the internal editor on a blank buffer for a new entry in the selected

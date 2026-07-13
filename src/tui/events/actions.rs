@@ -163,7 +163,19 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
     let target = editor.target.clone();
 
     match target {
-        EditorTarget::Existing { path, title } => {
+        EditorTarget::Existing {
+            journal,
+            path,
+            title,
+            revision,
+        } => {
+            if text == original_body && metadata == original_metadata {
+                app.reload_selected_entry_from_disk()?;
+                app.toast(ToastVariant::Info, "No changes");
+                app.editor = None;
+                app.nav.focus = Focus::Reader;
+                return Ok(());
+            }
             let location_changed = metadata.location != original_metadata.location;
             // Only a changed location attaches fresh environment; when it's just
             // removed we clear the stale fields, and an unchanged location leaves
@@ -179,8 +191,9 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
                 }
                 editor_environment_fields(app)
             };
-            let saved = app.store.save_entry_edit(
+            let save_result = app.store.save_entry_edit_if_revision(
                 &path,
+                revision,
                 notema_storage::EntryEdit {
                     body: &text,
                     metadata: &metadata,
@@ -190,7 +203,42 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
                     extra_fields: &extra_fields,
                 },
                 asset_options(app),
-            )?;
+            );
+            let saved = match save_result {
+                Ok(saved) => saved,
+                Err(error)
+                    if matches!(
+                        error.downcast_ref::<notema_storage::StorageError>(),
+                        Some(notema_storage::StorageError::EntryRevisionConflict { .. })
+                    ) =>
+                {
+                    if text.trim().is_empty() {
+                        return Err(anyhow::anyhow!(
+                            "entry changed on disk; the editor remains open and the original was not deleted"
+                        ));
+                    }
+                    let mut draft = notema_storage::EntryDraft::new(&journal, &text, &metadata);
+                    draft.writing_seconds = (text != original_body).then_some(elapsed.as_secs());
+                    let created = app
+                        .store
+                        .create_entry_copy(&path, draft, asset_options(app))?;
+                    app.toast(
+                        ToastVariant::Warning,
+                        save_status(
+                            "Original changed on disk; saved your edit as a new entry",
+                            &created.assets,
+                        ),
+                    );
+                    refresh_entry_path(app, &created.path)?;
+                    if let Some(id) = notema_storage::entry_id(&created.path) {
+                        app.select_entry_by_id(&id, true);
+                    }
+                    app.editor = None;
+                    app.nav.focus = Focus::Reader;
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            };
             finish_existing_edit(app, &path, &title, saved.outcome, &saved.assets)?;
             app.editor = None;
             if saved.outcome == EditOutcome::Deleted {
@@ -248,6 +296,9 @@ pub(super) fn save_internal_editor(app: &mut App) -> AppResult<()> {
 }
 
 pub(super) fn view_selected(app: &mut App) -> AppResult<()> {
+    if !app.reload_selected_entry_from_disk()? {
+        return Ok(());
+    }
     let Some(target) = app.selected_entry_target() else {
         return Ok(());
     };
@@ -257,7 +308,7 @@ pub(super) fn view_selected(app: &mut App) -> AppResult<()> {
     if let Some(warning) = app.selected_entry_edit_warning() {
         app.toast(
             ToastVariant::Warning,
-            format!("{warning}. Showing the body only; editing is disabled."),
+            format!("{warning}. Showing the body only; repair its +++ metadata block to edit."),
         );
     }
     // Opening an entry lands on the focused viewer; full screen is a second,
@@ -293,6 +344,9 @@ pub(super) fn open_reader_link(app: &mut App, target: &str) -> AppResult<()> {
 }
 
 pub(super) fn delete_selected(app: &mut App) -> AppResult<()> {
+    if !app.reload_selected_entry_from_disk()? {
+        return Ok(());
+    }
     let Some(target) = app.selected_entry_target() else {
         return Ok(());
     };
@@ -320,12 +374,27 @@ pub(super) fn delete_selected_journal(app: &mut App) -> AppResult<()> {
     };
     let journal_name = journal.name.clone();
     let journal_path = journal.path.clone();
+    let journal_id = journal.id.clone();
 
-    let entries: Vec<(PathBuf, bool)> = app
-        .library
-        .entries
+    let current = app
+        .store
+        .list_journals()?
+        .into_iter()
+        .find(|candidate| candidate.id == journal_id)
+        .ok_or_else(|| anyhow::anyhow!("selected journal no longer exists"))?;
+    if current.name != journal_name || current.path != journal_path {
+        anyhow::bail!("selected journal changed on disk; refresh and try again");
+    }
+
+    let fresh_entries = app.store.read_entries(
+        app.store
+            .collect_entry_paths()?
+            .into_iter()
+            .filter(|entry| entry.journal == journal_name)
+            .collect(),
+    )?;
+    let entries: Vec<(PathBuf, bool)> = fresh_entries
         .iter()
-        .filter(|e| e.journal == journal_name)
         .map(|e| (e.path.clone(), !e.body.trim().is_empty()))
         .collect();
 
@@ -341,8 +410,19 @@ pub(super) fn toggle_archive_selected_journal(app: &mut App) -> AppResult<()> {
         return Ok(());
     };
     let old_name = journal.name.clone();
+    let journal_id = journal.id.clone();
     let archive = !journal.archived;
     let display = journal.display_name().to_string();
+
+    let current = app
+        .store
+        .list_journals()?
+        .into_iter()
+        .find(|candidate| candidate.id == journal_id)
+        .ok_or_else(|| anyhow::anyhow!("selected journal no longer exists"))?;
+    if current.name != old_name || current.path != journal.path {
+        anyhow::bail!("selected journal changed on disk; refresh and try again");
+    }
 
     let new_journal = app.store.set_journal_archived(&old_name, archive)?;
     // The rename changes the journal's folder name, so the name-keyed
@@ -639,11 +719,30 @@ mod tests {
             app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
         let expected = app.resolved_selected_entry().unwrap().body.clone();
 
-        app.open_editor_for_selected();
+        app.open_editor_for_selected().unwrap();
 
         assert!(app.editor.is_some());
         assert_eq!(app.nav.focus, Focus::Reader);
         assert_eq!(app.editor.as_ref().unwrap().text(), expected);
+    }
+
+    #[test]
+    fn open_editor_reloads_entry_from_disk() {
+        let (_dir, mut app, path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# Cached\n");
+        fs::write(
+            path,
+            "+++\nschema_version = 1\ntags = []\n+++\n\n# Changed on disk\n",
+        )
+        .unwrap();
+
+        app.open_editor_for_selected().unwrap();
+
+        assert_eq!(app.editor.as_ref().unwrap().text(), "# Changed on disk\n");
+        assert_eq!(
+            app.resolved_selected_entry().unwrap().body,
+            "# Changed on disk\n"
+        );
     }
 
     #[test]
@@ -656,7 +755,7 @@ mod tests {
         assert!(reader.contains("missing schema_version = 1"));
         assert!(reader.contains("Draft text"));
 
-        app.open_editor_for_selected();
+        app.open_editor_for_selected().unwrap();
 
         assert!(app.editor.is_none());
         let (message, variant) = last_toast(&app);
@@ -682,10 +781,17 @@ mod tests {
         let (_dir, mut app, path) =
             app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# Original\n");
         let target = app.selected_entry_target().unwrap();
+        let journal = app.resolved_selected_entry().unwrap().journal.clone();
+        let (_, revision) = app
+            .store
+            .read_entry_with_revision(&journal, &target.path)
+            .unwrap();
 
         let mut editor = EntryEditor::for_existing(
+            journal,
             target.path.clone(),
             target.title,
+            revision,
             "# Edited body",
             notema_domain::Metadata::default(),
         );
@@ -705,7 +811,7 @@ mod tests {
             app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# Original\n");
         let original = app.store.read_entry_content(&path).unwrap();
 
-        app.open_editor_for_selected();
+        app.open_editor_for_selected().unwrap();
         save_internal_editor(&mut app).unwrap();
 
         assert!(app.editor.is_none());
@@ -715,16 +821,20 @@ mod tests {
 
     #[test]
     fn save_internal_editor_error_keeps_buffer_open() {
-        let (_dir, mut app, path) =
-            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# Original\n");
+        let (_dir, mut app, path) = app_with_entry("+++\ntags = []\n+++\n\n# Original\n");
         let target = app.selected_entry_target().unwrap();
+        let journal = app.resolved_selected_entry().unwrap().journal.clone();
+        let (_, revision) = app.store.read_entry_with_revision(&journal, &path).unwrap();
         let mut editor = EntryEditor::for_existing(
-            path.with_file_name("missing.md"),
+            journal,
+            path,
             target.title,
+            revision,
             "# Edited body",
             notema_domain::Metadata::default(),
         );
         editor.original = "# Original".to_string();
+        editor.metadata.tags.push("cannot-write".to_string());
         app.editor = Some(editor);
 
         let result = save_internal_editor(&mut app);
@@ -734,17 +844,72 @@ mod tests {
     }
 
     #[test]
+    fn external_edit_saves_buffer_as_new_entry_without_overwriting_original() {
+        let (_dir, mut app, path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# Original\n");
+        app.open_editor_for_selected().unwrap();
+        app.editor
+            .as_mut()
+            .unwrap()
+            .textarea
+            .insert_str("My long edit");
+        let external = "+++\nschema_version = 1\ntags = []\n+++\n\n# External\n";
+        fs::write(&path, external).unwrap();
+
+        save_internal_editor(&mut app).unwrap();
+
+        assert!(app.editor.is_none());
+        assert_eq!(fs::read_to_string(&path).unwrap(), external);
+        let entries = app.store.scan_entries().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.body.contains("My long edit"))
+        );
+        let (message, variant) = last_toast(&app);
+        assert_eq!(variant, ToastVariant::Warning);
+        assert!(message.contains("saved your edit as a new entry"));
+    }
+
+    #[test]
+    fn unchanged_editor_does_not_copy_an_externally_changed_entry() {
+        let (_dir, mut app, path) =
+            app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# Original\n");
+        app.open_editor_for_selected().unwrap();
+        let external = "+++\nschema_version = 1\ntags = []\n+++\n\n# External\n";
+        fs::write(&path, external).unwrap();
+
+        save_internal_editor(&mut app).unwrap();
+
+        assert!(app.editor.is_none());
+        assert_eq!(last_toast(&app), ("No changes", ToastVariant::Info));
+        assert_eq!(fs::read_to_string(&path).unwrap(), external);
+        assert_eq!(app.store.scan_entries().unwrap().len(), 1);
+        assert_eq!(app.resolved_selected_entry().unwrap().body, "# External\n");
+    }
+
+    #[test]
     fn save_internal_editor_empty_body_deletes_existing_entry() {
         let (_dir, mut app, path) =
             app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
         let target = app.selected_entry_target().unwrap();
+        let journal = app.resolved_selected_entry().unwrap().journal.clone();
+        let (_, revision) = app
+            .store
+            .read_entry_with_revision(&journal, &target.path)
+            .unwrap();
 
-        app.editor = Some(EntryEditor::for_existing(
+        let mut editor = EntryEditor::for_existing(
+            journal,
             target.path.clone(),
             target.title,
+            revision,
             "   \n  ",
             notema_domain::Metadata::default(),
-        ));
+        );
+        editor.original = "# A\n".to_string();
+        app.editor = Some(editor);
         save_internal_editor(&mut app).unwrap();
 
         assert!(!path.exists());
@@ -905,7 +1070,7 @@ mod tests {
     fn open_editor_seeds_buffered_metadata_from_entry() {
         let (_dir, mut app, _path) =
             app_with_entry("+++\nschema_version = 1\ntags = [\"seed\"]\n+++\n\n# A\n");
-        app.open_editor_for_selected();
+        app.open_editor_for_selected().unwrap();
         assert_eq!(
             app.editor.as_ref().unwrap().metadata.tags,
             vec!["seed".to_string()]
@@ -916,7 +1081,7 @@ mod tests {
     fn save_internal_editor_applies_buffered_metadata_to_existing_entry() {
         let (_dir, mut app, path) =
             app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
-        app.open_editor_for_selected();
+        app.open_editor_for_selected().unwrap();
         app.set_editor_metadata(
             MetadataKind::Tags,
             &["work".to_string(), "focus".to_string()],
@@ -957,7 +1122,7 @@ mod tests {
         let (_dir, mut app, path) =
             app_with_entry("+++\nschema_version = 1\ntags = []\n+++\n\n# A\n");
 
-        app.open_editor_for_selected();
+        app.open_editor_for_selected().unwrap();
         app.editor.as_mut().unwrap().textarea.insert_str("mutation");
         assert!(app.editor.as_ref().unwrap().is_dirty());
 

@@ -17,7 +17,8 @@ use crate::{
 };
 use ratatui_textarea::CursorMove;
 
-use action::{Action, InsightsAction, ReaderAction};
+pub(crate) use action::Action;
+use action::{InsightsAction, ReaderAction};
 use actions::{
     delete_selected, delete_selected_journal, open_reader_link, save_internal_editor,
     set_feelings_on_entry, set_location_on_entry, set_metadata_on_entry, set_mood_on_entry,
@@ -95,7 +96,23 @@ pub(crate) fn dispatch_action(
     app: &mut App,
     action: Action,
 ) -> AppResult<DispatchOutcome> {
+    let action_reads_selected = matches!(&action, Action::ViewSelected);
+    let before_reader_target = (app.nav.focus == Focus::Reader)
+        .then(|| app.selected_entry_target().map(|target| target.path))
+        .flatten();
     let result = apply_action(terminal, app, action);
+    let after_reader_target = (app.nav.focus == Focus::Reader && app.editor.is_none())
+        .then(|| app.selected_entry_target().map(|target| target.path))
+        .flatten();
+    let entered_or_changed_reader = after_reader_target.is_some()
+        && !action_reads_selected
+        && (before_reader_target.is_none() || before_reader_target != after_reader_target);
+    let result = result.and_then(|outcome| {
+        if entered_or_changed_reader {
+            app.reload_selected_entry_from_disk()?;
+        }
+        Ok(outcome)
+    });
     recover_action_error(app, result)
 }
 
@@ -140,6 +157,25 @@ fn apply_action(
             mouse::apply_hover(app, column, row, area);
         }
         Action::Quit => return Ok(DispatchOutcome::Quit),
+        Action::RefreshLibrary => {
+            app.begin_manual_refresh();
+            if let Err(error) = terminal.draw(|frame| render::draw(frame, app)) {
+                app.finish_manual_refresh();
+                return Err(error.into());
+            }
+            let refresh = app.refresh();
+            app.finish_manual_refresh();
+            refresh?;
+            app.toast(ToastVariant::Success, "Refreshed from disk");
+        }
+        Action::LibraryValidated(snapshot) => app.install_library_snapshot(*snapshot),
+        Action::LibraryValidationFailed(error) => {
+            app.finish_initial_library_loading();
+            app.toast(
+                ToastVariant::Error,
+                format!("Journal changes not loaded: {error}"),
+            );
+        }
 
         Action::FocusLeft => move_focus_left(app),
         Action::FocusRight => {
@@ -182,7 +218,7 @@ fn apply_action(
         Action::ExitSearch => {
             app.exit_search();
         }
-        Action::EditSelected => app.open_editor_for_selected(),
+        Action::EditSelected => app.open_editor_for_selected()?,
         Action::EditorSave => save_editor_with_reader_restore(app)?,
         Action::EditorRequestDiscard => request_editor_discard(app),
         Action::EditorDiscard => app.cancel_editor(),
@@ -224,7 +260,12 @@ fn apply_action(
                 app.close_overlay();
             }
         }
-        Action::OpenMetadataMenu => app.open_metadata_menu(),
+        Action::OpenMetadataMenu => {
+            if app.editor.is_none() {
+                app.reload_selected_entry_from_disk()?;
+            }
+            app.open_metadata_menu();
+        }
         Action::BeginEditMetadata(kind) => {
             set_editor_prompt(app, EditorPrompt::None);
             match kind {
@@ -244,7 +285,10 @@ fn apply_action(
             set_editor_prompt(app, EditorPrompt::None);
             app.begin_edit_mood();
         }
-        Action::ToggleStarred => commit_entry_edit(app, toggle_starred_on_entry)?,
+        Action::ToggleStarred => {
+            app.reload_selected_entry_from_disk()?;
+            commit_entry_edit(app, toggle_starred_on_entry)?;
+        }
         Action::NewEntry => app.open_editor_for_new(),
         Action::NewJournal => app.begin_new_journal_input(),
         Action::ToggleArchiveJournal => {
@@ -376,6 +420,9 @@ fn apply_action(
             // No open-scroll here: the dialog opens focused on the query field, so
             // its preset list draws no selection to reveal.
             set_editor_prompt(app, EditorPrompt::None);
+            if app.editor.is_none() {
+                app.reload_selected_entry_from_disk()?;
+            }
             app.begin_edit_location();
         }
         Action::LocationSwitchFocus => {

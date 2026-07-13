@@ -11,4 +11,7 @@ pub enum StorageError {
     /// (e.g. `"asset trash destination"`).
     #[error("{what} already exists: {}", path.display())]
     TargetExists { what: &'static str, path: PathBuf },
+    /// An optimistic edit was based on an older version of the source file.
+    #[error("entry changed on disk while it was being edited: {}", path.display())]
+    EntryRevisionConflict { path: PathBuf },
 }

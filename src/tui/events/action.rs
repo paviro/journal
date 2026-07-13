@@ -23,7 +23,7 @@ pub(crate) enum InsightsAction {
     CycleTimeframe,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum Action {
     PointerInput {
         event: MouseEvent,
@@ -41,6 +41,10 @@ pub(crate) enum Action {
     },
     // Global
     Quit,
+    RefreshLibrary,
+    // Background startup-cache reconciliation.
+    LibraryValidated(Box<notema_storage::LibrarySnapshot>),
+    LibraryValidationFailed(String),
     // Browse / search navigation
     FocusLeft,
     FocusRight,

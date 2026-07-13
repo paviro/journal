@@ -33,7 +33,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use notema_encryption::SecretString;
-use notema_storage::{JournalStore, StoreAccess};
+use notema_storage::{CachePolicy, CachedLibrary, JournalStore, LibraryDiscovery, StoreAccess};
 use ratatui::{Frame, Terminal, backend::CrosstermBackend};
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -54,14 +54,19 @@ const REFRESH_DEBOUNCE: Duration = Duration::from_millis(400);
 use app::App;
 use text_input::PassphraseInput;
 
-pub(crate) fn run(config_path: PathBuf, config: Config, store: JournalStore) -> AppResult<()> {
+pub(crate) fn run(
+    config_path: PathBuf,
+    config: Config,
+    store: JournalStore,
+    discovery: Option<LibraryDiscovery>,
+) -> AppResult<()> {
     // Ensure the store exists before probing for a lock so identity checks
     // reflect on-disk state.
     store.ensure()?;
     // Before raw mode / the alternate screen: auto dark/light detection talks
     // OSC to the normal screen, and load warnings should print readably.
     theme::init_from_config(&config_path, &config.ui);
-    with_terminal(|terminal| run_after_unlock(terminal, config_path, config, store))
+    with_terminal(|terminal| run_after_unlock(terminal, config_path, config, store, discovery))
 }
 
 /// Launch straight into a fullscreen new-entry editor and quit once the entry is
@@ -84,9 +89,15 @@ pub(crate) fn run_compose(
         store.unlock(None)?;
     }
     with_terminal(|terminal| {
-        let mut app = App::new(config_path, config, store)?;
+        let validate_library = !store.encryption_enabled() || store.is_unlocked();
+        let (mut app, cached) = App::new_cached(config_path, config, store)?;
         app.begin_compose(journal, metadata);
-        run_loop(terminal, app)
+        let initial_validation = validate_library.then(|| InitialLibraryValidation {
+            cached,
+            discovery: None,
+            generation: app.library_generation(),
+        });
+        run_loop(terminal, app, initial_validation)
     })
 }
 
@@ -132,11 +143,13 @@ fn run_after_unlock(
     config_path: PathBuf,
     config: Config,
     mut store: JournalStore,
+    mut discovery: Option<LibraryDiscovery>,
 ) -> AppResult<()> {
     // Pick up an encryption *disable* performed on another device before probing
     // for a lock: if this device just fell back to plaintext (its key and pins
     // retired), tell the user, since the change is silent and consequential.
     if store.reconcile_disabled_encryption()? {
+        discovery = None;
         run_disable_notice(terminal)?;
     }
 
@@ -177,16 +190,29 @@ fn run_after_unlock(
         }
     }
 
+    let had_pending_requests = !store.pending_requests()?.is_empty();
     if !approve_pending_requests(terminal, &mut store)? {
         // User quit at a pending-request modal; exit cleanly.
         return Ok(());
     }
+    if had_pending_requests {
+        discovery = None;
+    }
 
-    let mut app = App::new(config_path, config, store)?;
+    let (mut app, cached) = App::new_cached(config_path, config, store)?;
     // Must run after raw mode: the detection query reads control-sequence
     // replies from stdin.
     app.image.runtime = image::ImageRuntime::detect(&app.store);
-    run_loop(terminal, app)
+    let generation = app.library_generation();
+    run_loop(
+        terminal,
+        app,
+        Some(InitialLibraryValidation {
+            cached,
+            discovery,
+            generation,
+        }),
+    )
 }
 
 /// Surface any pending device-access requests as a modal before the app loads,
@@ -427,27 +453,66 @@ pub(crate) fn concise_error(error: &anyhow::Error) -> String {
     concise
 }
 
-fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App) -> AppResult<()> {
-    let watcher = match watcher::FileWatcher::start(&app.config.journal.path) {
-        Ok(watcher) => Some(watcher),
-        Err(error) => {
-            app.toast(
-                state::ToastVariant::Warning,
-                format!("Live journal reload unavailable: {error}"),
-            );
-            None
+struct InitialLibraryValidation {
+    cached: Option<CachedLibrary>,
+    discovery: Option<LibraryDiscovery>,
+    generation: u64,
+}
+
+fn run_loop(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    mut app: App,
+    initial_validation: Option<InitialLibraryValidation>,
+) -> AppResult<()> {
+    let is_ish = crate::ish::is_ish();
+    let watcher = if is_ish {
+        None
+    } else {
+        match watcher::FileWatcher::start(&app.config.journal.path) {
+            Ok(watcher) => Some(watcher),
+            Err(error) => {
+                app.toast(
+                    state::ToastVariant::Warning,
+                    format!("Live journal reload unavailable: {error}"),
+                );
+                None
+            }
         }
     };
+    let validation_generation = initial_validation
+        .as_ref()
+        .map(|validation| validation.generation);
+    let validation_rx = initial_validation.map(|validation| {
+        let store = app.store.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = match validation.discovery {
+                Some(discovery) => store.validate_discovered_library(
+                    validation.cached,
+                    CachePolicy::Normal,
+                    discovery,
+                ),
+                None => store.validate_library(validation.cached, CachePolicy::Normal),
+            }
+            .map_err(|error| format!("{error:#}"));
+            let _ = tx.send(result);
+        });
+        rx
+    });
     // Watch the themes directory too: edits to the active theme's file repaint
     // live, no restart needed. (The directory exists — startup materialized it.)
-    let theme_watcher = match watcher::FileWatcher::start(&theme::themes_dir(&app.config_path)) {
-        Ok(watcher) => Some(watcher),
-        Err(error) => {
-            app.toast(
-                state::ToastVariant::Warning,
-                format!("Live theme reload unavailable: {error}"),
-            );
-            None
+    let theme_watcher = if is_ish {
+        None
+    } else {
+        match watcher::FileWatcher::start(&theme::themes_dir(&app.config_path)) {
+            Ok(watcher) => Some(watcher),
+            Err(error) => {
+                app.toast(
+                    state::ToastVariant::Warning,
+                    format!("Live theme reload unavailable: {error}"),
+                );
+                None
+            }
         }
     };
     let mut pending_theme_reload_at: Option<Instant> = None;
@@ -468,8 +533,73 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
     // Events drained while coalescing a scroll burst that weren't wheel events;
     // handled on the next iterations before polling for more input.
     let mut pending_events: VecDeque<Event> = VecDeque::new();
+    let mut validation_dirty = false;
+    let mut validation_finished = validation_rx.is_none();
 
     loop {
+        // Consume source changes before accepting the startup snapshot. If any
+        // landed while validation was running, rebuild once from the current
+        // tree instead of installing a result that may predate the change.
+        let changed = watcher
+            .as_ref()
+            .map_or_else(Vec::new, watcher::FileWatcher::poll_changes);
+        if !changed.is_empty() {
+            if !validation_finished {
+                validation_dirty = true;
+            }
+            pending_paths.extend(changed);
+            pending_refresh_at = Some(Instant::now() + REFRESH_DEBOUNCE);
+        }
+        let validation_result = validation_rx
+            .as_ref()
+            .and_then(|rx| poll_library_validation(rx, validation_finished));
+        let library_updated = match validation_result {
+            Some(Ok(_snapshot))
+                if initial_library_result_is_stale(
+                    validation_generation,
+                    app.library_generation(),
+                    validation_dirty,
+                ) =>
+            {
+                validation_finished = true;
+                match app.store.load_library(CachePolicy::Normal) {
+                    Ok(current) => {
+                        let _ = events::dispatch_action(
+                            terminal,
+                            &mut app,
+                            events::Action::LibraryValidated(Box::new(current)),
+                        );
+                    }
+                    Err(error) => {
+                        let _ = events::dispatch_action(
+                            terminal,
+                            &mut app,
+                            events::Action::LibraryValidationFailed(format!("{error:#}")),
+                        );
+                    }
+                }
+                true
+            }
+            Some(Ok(snapshot)) => {
+                validation_finished = true;
+                let _ = events::dispatch_action(
+                    terminal,
+                    &mut app,
+                    events::Action::LibraryValidated(Box::new(snapshot)),
+                );
+                true
+            }
+            Some(Err(error)) => {
+                validation_finished = true;
+                let _ = events::dispatch_action(
+                    terminal,
+                    &mut app,
+                    events::Action::LibraryValidationFailed(error),
+                );
+                true
+            }
+            None => false,
+        };
         if reassert_mouse_capture_at.is_some_and(|at| Instant::now() >= at) {
             reassert_mouse_capture_at = None;
             execute!(io::stdout(), EnableMouseCapture)?;
@@ -618,13 +748,6 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         // Debounce watcher-driven reloads: each change pushes the deadline out and
         // accumulates the changed paths; the reload runs only once no change has
         // arrived for the quiet period, then re-reads just those entries.
-        let changed = watcher
-            .as_ref()
-            .map_or_else(Vec::new, watcher::FileWatcher::poll_changes);
-        if !changed.is_empty() {
-            pending_paths.extend(changed);
-            pending_refresh_at = Some(Instant::now() + REFRESH_DEBOUNCE);
-        }
         let refreshed = if pending_refresh_at.is_some_and(|at| Instant::now() >= at) {
             pending_refresh_at = None;
             let paths = std::mem::take(&mut pending_paths);
@@ -706,6 +829,7 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
         let animate_toasts = !app.toasts.items().is_empty();
 
         if redraw
+            || library_updated
             || refreshed
             || theme_reloaded
             || search_recomputed
@@ -738,12 +862,55 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App)
     Ok(())
 }
 
+fn poll_library_validation<T>(
+    receiver: &std::sync::mpsc::Receiver<Result<T, String>>,
+    finished: bool,
+) -> Option<Result<T, String>> {
+    match receiver.try_recv() {
+        Ok(result) => Some(result),
+        Err(std::sync::mpsc::TryRecvError::Empty) => None,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) if !finished => Some(Err(
+            "journal validation worker stopped unexpectedly".to_string(),
+        )),
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
+    }
+}
+
+fn initial_library_result_is_stale(
+    started_at: Option<u64>,
+    current: u64,
+    watcher_dirty: bool,
+) -> bool {
+    watcher_dirty || started_at.is_some_and(|started_at| started_at != current)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn disconnected_library_validator_is_reported_once() {
+        let (sender, receiver) = std::sync::mpsc::channel::<Result<(), String>>();
+        drop(sender);
+
+        let result = poll_library_validation(&receiver, false).unwrap();
+
+        assert_eq!(
+            result.unwrap_err(),
+            "journal validation worker stopped unexpectedly"
+        );
+        assert!(poll_library_validation(&receiver, true).is_none());
+    }
+
+    #[test]
+    fn changed_library_rejects_an_older_validation_result() {
+        assert!(!initial_library_result_is_stale(Some(4), 4, false));
+        assert!(initial_library_result_is_stale(Some(4), 5, false));
+        assert!(initial_library_result_is_stale(Some(4), 4, true));
     }
 
     /// Drive a fresh passphrase buffer through a sequence of keys the same way

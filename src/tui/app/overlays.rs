@@ -529,6 +529,7 @@ impl App {
             .find(|journal| journal.name == name)
         {
             journal.theme = theme;
+            self.library_generation = self.library_generation.wrapping_add(1);
         }
     }
 

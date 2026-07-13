@@ -1,11 +1,12 @@
 use crate::AppResult;
 use anyhow::{Context, bail};
-use notema_storage::JournalStore;
+use notema_storage::{CachePolicy, JournalStore, LibraryDiscovery, LibraryLoadProgress};
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
     io::{self, Write},
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 
 const CONFIG_SCHEMA_VERSION: u32 = 1;
@@ -390,7 +391,8 @@ pub(crate) fn write_toml_atomic(path: &Path, text: &str) -> AppResult<()> {
 pub(crate) struct Startup {
     pub config_path: PathBuf,
     pub config: Config,
-    pub store: Box<JournalStore>,
+    pub store: JournalStore,
+    pub discovery: Option<LibraryDiscovery>,
 }
 
 pub(crate) fn load_or_setup_with_path(path_override: Option<&Path>) -> AppResult<Startup> {
@@ -401,23 +403,24 @@ pub(crate) fn load_or_setup_with_path(path_override: Option<&Path>) -> AppResult
     // of the CLI printing a hint, so every unreadable-store case looks the same.
     // Reconciling a remote encryption *disable* is likewise deferred to the TUI,
     // which must run it before probing for a lock.
-    let (config, store) = if config_path.exists() {
+    let (config, store, discovery) = if config_path.exists() {
         let config = load_config(&config_path)?;
-        let store = JournalStore::for_config(&config_path, &config.journal.path)?;
-        store.ensure()?;
-        (config, store)
+        let prepared = crate::ish::prepare_store(&config_path, &config.journal.path, true)?;
+        (config, prepared.store, prepared.discovery)
     } else {
-        interactive_setup(&config_path)?
+        let (config, store) = interactive_setup(&config_path)?;
+        (config, store, None)
     };
 
     Ok(Startup {
         config_path,
         config,
-        store: Box::new(store),
+        store,
+        discovery,
     })
 }
 
-pub(crate) fn load_existing(path_override: Option<&Path>) -> AppResult<(PathBuf, Config)> {
+pub(crate) fn load_existing(path_override: Option<&Path>) -> AppResult<Startup> {
     let config_path = config_path(path_override)?;
     if !config_path.exists() {
         bail!(
@@ -427,14 +430,18 @@ pub(crate) fn load_existing(path_override: Option<&Path>) -> AppResult<(PathBuf,
     }
 
     let config = load_config(&config_path)?;
-    let store = JournalStore::for_config(&config_path, &config.journal.path)?;
-    store.ensure()?;
+    let store = crate::ish::prepare_store(&config_path, &config.journal.path, false)?.store;
     if store.reconcile_disabled_encryption()? {
         eprintln!(
             "Note: encryption was disabled on another device; retired this device's key and trust pins."
         );
     }
-    Ok((config_path, config))
+    Ok(Startup {
+        config_path,
+        config,
+        store,
+        discovery: None,
+    })
 }
 
 /// Resolve the config *file* from an optional config-directory override. The
@@ -465,19 +472,28 @@ fn interactive_setup(config_path: &Path) -> AppResult<(Config, JournalStore)> {
         .unwrap_or_else(|| PathBuf::from("Journals"));
 
     writeln!(stdout, "Notema first-run setup")?;
-    write!(
-        stdout,
-        "Journal root [{}]: ",
-        default_root.to_string_lossy()
-    )?;
-    stdout.flush()?;
 
-    let mut root_input = String::new();
-    io::stdin().read_line(&mut root_input)?;
-    let journal_root = if root_input.trim().is_empty() {
-        default_root
+    // On iSH the journal lives on a mounted iOS folder, so there's no path to
+    // type: use a fixed mountpoint and let the iOS picker choose the folder.
+    let journal_root = if crate::ish::is_ish() {
+        let mountpoint = PathBuf::from(crate::ish::DEFAULT_MOUNTPOINT);
+        crate::ish::ensure_journal_mounted(&mountpoint)?;
+        mountpoint
     } else {
-        PathBuf::from(root_input.trim())
+        write!(
+            stdout,
+            "Journal root [{}]: ",
+            default_root.to_string_lossy()
+        )?;
+        stdout.flush()?;
+
+        let mut root_input = String::new();
+        io::stdin().read_line(&mut root_input)?;
+        if root_input.trim().is_empty() {
+            default_root
+        } else {
+            PathBuf::from(root_input.trim())
+        }
     };
 
     let mut config = Config::new(journal_root);
@@ -491,8 +507,8 @@ fn interactive_setup(config_path: &Path) -> AppResult<(Config, JournalStore)> {
     if is_yes(&eink_input) {
         config.ui.theme = "classic".to_string();
     }
-    let store = JournalStore::for_config(config_path, &config.journal.path)?;
-    store.ensure()?;
+    let prepared = crate::ish::prepare_store(config_path, &config.journal.path, true)?;
+    let store = prepared.store;
 
     if should_offer_encryption(&store)? {
         offer_encryption(&mut stdout, &store)?;
@@ -506,8 +522,151 @@ fn interactive_setup(config_path: &Path) -> AppResult<(Config, JournalStore)> {
         )?;
     }
 
+    if crate::ish::is_ish() {
+        writeln!(
+            stdout,
+            "Note: iSH does not support live file watching. Notema refreshes automatically on each startup; new entries may take a little time to appear while that refresh runs. Press r to refresh immediately."
+        )?;
+    }
+
     save_config(config_path, &config)?;
+    if !store.encryption_enabled() {
+        let progress = Mutex::new(SetupCacheProgress::new(&mut stdout, crate::ish::is_ish()));
+        let update = |update| {
+            progress
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .update(update);
+        };
+        let snapshot = match prepared.discovery {
+            Some(discovery) => store.load_discovered_library_with_progress(
+                CachePolicy::Rebuild,
+                discovery,
+                &update,
+            ),
+            None => store.load_library_with_progress(CachePolicy::Rebuild, &update),
+        };
+        let progress_result = progress
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .finish();
+        progress_result?;
+        let snapshot = snapshot?;
+        if let Some(warning) = snapshot.report.cache_warning {
+            writeln!(stdout, "Warning: {warning}")?;
+        }
+    }
     Ok((config, store))
+}
+
+struct SetupCacheProgress<'a, W: Write> {
+    writer: &'a mut W,
+    ish: bool,
+    discovery_started: bool,
+    reading_started: bool,
+    discovered: usize,
+    last_discovered: usize,
+    last_read: usize,
+    error: Option<io::Error>,
+}
+
+impl<'a, W: Write> SetupCacheProgress<'a, W> {
+    const WIDTH: usize = 20;
+
+    fn new(writer: &'a mut W, ish: bool) -> Self {
+        Self {
+            writer,
+            ish,
+            discovery_started: false,
+            reading_started: false,
+            discovered: 0,
+            last_discovered: 0,
+            last_read: 0,
+            error: None,
+        }
+    }
+
+    fn update(&mut self, update: LibraryLoadProgress) {
+        if self.error.is_some() {
+            return;
+        }
+
+        let result = match update {
+            LibraryLoadProgress::Discovering { entries_found } => {
+                self.update_discovery(entries_found)
+            }
+            LibraryLoadProgress::Reading { current, total } => self.update_reading(current, total),
+        };
+        if let Err(error) = result {
+            self.error = Some(error);
+        }
+    }
+
+    fn update_discovery(&mut self, entries_found: usize) -> io::Result<()> {
+        self.discovered = entries_found;
+        if !self.discovery_started {
+            if self.ish {
+                writeln!(self.writer, "First setup: scanning journal files.")?;
+                writeln!(
+                    self.writer,
+                    "This can take a long time on iSH; later starts are fast."
+                )?;
+            }
+            self.discovery_started = true;
+        }
+        if entries_found != 0 && entries_found.saturating_sub(self.last_discovered) < 25 {
+            return Ok(());
+        }
+        self.last_discovered = entries_found;
+        write!(
+            self.writer,
+            "\rScanning journal files… {entries_found} entries found"
+        )?;
+        self.writer.flush()
+    }
+
+    fn update_reading(&mut self, current: usize, total: usize) -> io::Result<()> {
+        if !self.reading_started {
+            if self.discovery_started {
+                if self.discovered != self.last_discovered {
+                    self.last_discovered = self.discovered;
+                    write!(
+                        self.writer,
+                        "\rScanning journal files… {} entries found",
+                        self.discovered
+                    )?;
+                }
+                writeln!(self.writer)?;
+            }
+            self.reading_started = true;
+        }
+        if current < self.last_read {
+            return Ok(());
+        }
+        let step = (total / 100).max(1);
+        if current != 0 && current != total && current.saturating_sub(self.last_read) < step {
+            return Ok(());
+        }
+        self.last_read = current;
+        let filled = current
+            .min(total)
+            .saturating_mul(Self::WIDTH)
+            .checked_div(total)
+            .unwrap_or(Self::WIDTH);
+        let bar = format!("{}{}", "#".repeat(filled), "-".repeat(Self::WIDTH - filled));
+        write!(
+            self.writer,
+            "\rIndexing journal entries [{bar}] {current}/{total}"
+        )?;
+        self.writer.flush()
+    }
+
+    fn finish(mut self) -> io::Result<()> {
+        if let Some(error) = self.error.take() {
+            return Err(error);
+        }
+        writeln!(self.writer)
+    }
 }
 
 /// First-run offers to enable encryption only for a brand-new, empty root — never
@@ -710,5 +869,35 @@ mod tests {
 
         assert_eq!(state_path(&config_path), dir.path().join("state.toml"));
         assert_eq!(load_state(&config_path).unwrap(), state);
+    }
+
+    #[test]
+    fn first_start_cache_progress_reaches_a_full_bar() {
+        let mut output = Vec::new();
+        let mut progress = SetupCacheProgress::new(&mut output, true);
+
+        progress.update(LibraryLoadProgress::Discovering { entries_found: 0 });
+        progress.update(LibraryLoadProgress::Discovering { entries_found: 4 });
+        progress.update(LibraryLoadProgress::Reading {
+            current: 0,
+            total: 4,
+        });
+        progress.update(LibraryLoadProgress::Reading {
+            current: 2,
+            total: 4,
+        });
+        progress.update(LibraryLoadProgress::Reading {
+            current: 4,
+            total: 4,
+        });
+        progress.finish().unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("First setup: scanning journal files."));
+        assert!(output.contains("later starts are fast"));
+        assert!(output.contains("Scanning journal files… 0 entries found"));
+        assert!(output.contains("[##########----------] 2/4"));
+        assert!(output.contains("[####################] 4/4"));
+        assert!(output.ends_with('\n'));
     }
 }

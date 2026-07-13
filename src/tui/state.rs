@@ -105,12 +105,16 @@ pub(crate) struct Toast {
     /// How long this toast was granted, so the countdown line scales to its own
     /// (length-dependent) lifetime rather than a fixed constant.
     lifetime: Duration,
+    persistent: bool,
 }
 
 impl Toast {
     /// Fraction of this toast's lifetime still remaining, `1.0` at push down to
     /// `0.0` at the deadline. Drives the shrinking dismissal countdown line.
     pub(crate) fn remaining_fraction(&self) -> f32 {
+        if self.persistent {
+            return 0.0;
+        }
         let left = self
             .deadline
             .saturating_duration_since(Instant::now())
@@ -135,7 +139,25 @@ impl Toasts {
             variant,
             deadline: Instant::now() + lifetime,
             lifetime,
+            persistent: false,
         });
+        self.enforce_cap();
+    }
+
+    pub(crate) fn push_persistent(&mut self, variant: ToastVariant, message: impl Into<String>) {
+        let message = message.into();
+        let lifetime = toast_lifetime(&message);
+        self.items.push(Toast {
+            message,
+            variant,
+            deadline: Instant::now() + lifetime,
+            lifetime,
+            persistent: true,
+        });
+        self.enforce_cap();
+    }
+
+    fn enforce_cap(&mut self) {
         if self.items.len() > TOAST_CAP {
             self.items.drain(..self.items.len() - TOAST_CAP);
         }
@@ -150,6 +172,7 @@ impl Toasts {
     pub(crate) fn deadline(&self) -> Option<Duration> {
         self.items
             .iter()
+            .filter(|toast| !toast.persistent)
             .map(|toast| toast.deadline.saturating_duration_since(Instant::now()))
             .min()
     }
@@ -167,6 +190,7 @@ impl Toasts {
         let now = Instant::now();
         self.items
             .iter()
+            .filter(|toast| !toast.persistent)
             .filter_map(|toast| {
                 let lifetime = toast.lifetime.as_secs_f32();
                 let remaining = toast.deadline.saturating_duration_since(now).as_secs_f32();
@@ -188,12 +212,17 @@ impl Toasts {
         }
     }
 
+    pub(crate) fn dismiss_message(&mut self, message: &str) {
+        self.items.retain(|toast| toast.message != message);
+    }
+
     /// Drop expired toasts, reporting whether any were removed (so the event
     /// loop knows a repaint is due).
     pub(crate) fn expire(&mut self) -> bool {
         let now = Instant::now();
         let before = self.items.len();
-        self.items.retain(|toast| toast.deadline > now);
+        self.items
+            .retain(|toast| toast.persistent || toast.deadline > now);
         self.items.len() < before
     }
 
@@ -205,6 +234,7 @@ impl Toasts {
             variant,
             deadline: Instant::now() - Duration::from_secs(1),
             lifetime: TOAST_MIN_LIFETIME,
+            persistent: false,
         });
     }
 }

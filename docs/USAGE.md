@@ -40,6 +40,9 @@ address. The provider is platform-specific and only ever produces
 
 - **Android / Termux** — `termux-location`. Install the Termux:API app and
   `pkg install termux-api`.
+- **iOS / iSH** — the `/dev/location` GPS stream. iSH prompts for Location access
+  on first use; if you denied it, re-enable it under iOS Settings › Privacy ›
+  Location Services › iSH.
 - **Linux** — GeoClue2 over D-Bus. Its default Wi-Fi backend (Mozilla Location
   Service) was retired in 2024, so a machine with no GPS and no reconfigured
   backend (e.g. BeaconDB) reports "no location".

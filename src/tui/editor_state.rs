@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use notema_domain::Metadata;
+use notema_storage::EntryRevision;
 use ratatui::layout::Rect;
 use ratatui_textarea::{DataCursor, TextArea, WrapMode};
 
@@ -11,8 +12,15 @@ use super::theme::theme;
 /// entry to be created in a journal on save.
 #[derive(Clone)]
 pub(crate) enum EditorTarget {
-    Existing { path: PathBuf, title: String },
-    New { journal: String },
+    Existing {
+        journal: String,
+        path: PathBuf,
+        title: String,
+        revision: EntryRevision,
+    },
+    New {
+        journal: String,
+    },
 }
 
 /// A modal prompt layered over the editor. Exactly one is active at a time, so
@@ -65,14 +73,21 @@ pub(crate) struct EntryEditor {
 
 impl EntryEditor {
     pub(crate) fn for_existing(
+        journal: String,
         path: PathBuf,
         title: String,
+        revision: EntryRevision,
         body: &str,
         metadata: Metadata,
     ) -> Self {
         Self {
             textarea: new_textarea(body, None),
-            target: EditorTarget::Existing { path, title },
+            target: EditorTarget::Existing {
+                journal,
+                path,
+                title,
+                revision,
+            },
             start: Instant::now(),
             original: body.to_string(),
             original_metadata: metadata.clone(),

@@ -4,6 +4,7 @@ mod cli;
 mod config;
 mod device;
 mod encryption_cli;
+mod ish;
 mod licenses;
 mod prompts;
 mod tui;

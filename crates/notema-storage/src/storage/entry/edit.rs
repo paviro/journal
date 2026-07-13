@@ -1,7 +1,7 @@
 use super::codec::EntryCodec;
 use super::create::EntryAssetOptions;
 use super::paths::entry_assets_dir;
-use crate::AppResult;
+use crate::{AppResult, EntryRevision, StorageError};
 use anyhow::{Context, bail};
 use notema_domain::{Metadata, MetadataField};
 use notema_encryption::{self as crypto, KeyPaths};
@@ -89,9 +89,32 @@ pub(crate) fn save_entry_edit(
     edit: EntryEdit<'_>,
     assets: EntryAssetOptions,
 ) -> AppResult<EntryEditOutcome> {
+    save_entry_edit_inner(codec, path, None, edit, assets)
+}
+
+pub(crate) fn save_entry_edit_if_revision(
+    codec: &EntryCodec<'_>,
+    path: &Path,
+    revision: EntryRevision,
+    edit: EntryEdit<'_>,
+    assets: EntryAssetOptions,
+) -> AppResult<EntryEditOutcome> {
+    save_entry_edit_inner(codec, path, Some(revision), edit, assets)
+}
+
+fn save_entry_edit_inner(
+    codec: &EntryCodec<'_>,
+    path: &Path,
+    revision: Option<EntryRevision>,
+    edit: EntryEdit<'_>,
+    assets: EntryAssetOptions,
+) -> AppResult<EntryEditOutcome> {
+    ensure_revision(path, revision)?;
     let entry = codec.open(path)?;
+    ensure_revision(path, revision)?;
 
     if edit.remove_if_empty && edit.body.trim().is_empty() {
+        ensure_revision(path, revision)?;
         fs::remove_file(path)?;
         remove_entry_assets(path);
         return Ok(EntryEditOutcome {
@@ -128,12 +151,23 @@ pub(crate) fn save_entry_edit(
         edit.extra_fields,
         edit.writing_seconds,
     )?;
+    ensure_revision(path, revision)?;
     codec.write_existing(path, &content)?;
 
     Ok(EntryEditOutcome {
         outcome: EditOutcome::Changed,
         assets: report,
     })
+}
+
+fn ensure_revision(path: &Path, expected: Option<EntryRevision>) -> AppResult<()> {
+    if expected.is_some_and(|expected| EntryRevision::read(path).ok() != Some(expected)) {
+        return Err(StorageError::EntryRevisionConflict {
+            path: path.to_path_buf(),
+        }
+        .into());
+    }
+    Ok(())
 }
 
 fn changed_metadata_fields(original: &Metadata, current: &Metadata) -> Vec<MetadataField> {

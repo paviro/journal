@@ -3,6 +3,7 @@ use super::{Entry, EntryEncryptionState, EntryPath, ImportSource, Metadata, Time
 use crate::storage::{journals::is_hidden_name, list_journals};
 use crate::{
     AppResult,
+    library::{DiscoveredEntry, FileStamp},
     markdown::{FrontMatter, display_preview, split_front_matter},
 };
 use anyhow::Context;
@@ -10,14 +11,11 @@ use notema_domain::build_search_haystack;
 use notema_domain::normalize_feelings;
 use notema_encryption as crypto;
 use rayon::prelude::*;
-use std::{fs, path::Path};
-
-pub(crate) fn scan_entries(
-    root: &Path,
-    identity: Option<&crypto::UnlockedIdentity>,
-) -> AppResult<Vec<Entry>> {
-    read_entries(collect_entry_paths(root)?, identity)
-}
+use std::{
+    fs,
+    path::Path,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 pub(crate) fn scan_import_sources(
     root: &Path,
@@ -37,14 +35,35 @@ pub(crate) fn scan_import_sources(
 /// Walk the journal tree once and collect every entry file path without reading
 /// any file contents. Skips hidden directories.
 pub(crate) fn collect_entry_paths(root: &Path) -> AppResult<Vec<EntryPath>> {
-    let mut paths = Vec::new();
-    for journal in list_journals(root)? {
-        collect_paths(&journal.name, &journal.path, &mut paths)?;
-    }
-    Ok(paths)
+    Ok(collect_discovered_entries(&list_journals(root)?)?
+        .into_iter()
+        .map(|entry| entry.source)
+        .collect())
 }
 
-fn collect_paths(journal: &str, dir: &Path, paths: &mut Vec<EntryPath>) -> AppResult<()> {
+pub(crate) fn collect_discovered_entries(
+    journals: &[crate::Journal],
+) -> AppResult<Vec<DiscoveredEntry>> {
+    collect_discovered_entries_with_progress(journals, None)
+}
+
+pub(crate) fn collect_discovered_entries_with_progress(
+    journals: &[crate::Journal],
+    progress: Option<&(dyn Fn(usize) + Sync)>,
+) -> AppResult<Vec<DiscoveredEntry>> {
+    let mut entries = Vec::new();
+    for journal in journals {
+        collect_paths(&journal.name, &journal.path, &mut entries, progress)?;
+    }
+    Ok(entries)
+}
+
+fn collect_paths(
+    journal: &str,
+    dir: &Path,
+    entries: &mut Vec<DiscoveredEntry>,
+    progress: Option<&(dyn Fn(usize) + Sync)>,
+) -> AppResult<()> {
     if !dir.exists() {
         return Ok(());
     }
@@ -55,16 +74,22 @@ fn collect_paths(journal: &str, dir: &Path, paths: &mut Vec<EntryPath>) -> AppRe
         let name = item.file_name().to_string_lossy().to_string();
         if item.file_type()?.is_dir() {
             if !is_hidden_name(&name) && !is_assets_dir(&path) {
-                collect_paths(journal, &path, paths)?;
+                collect_paths(journal, &path, entries, progress)?;
             }
             continue;
         }
 
         if is_entry_file(&path) {
-            paths.push(EntryPath {
-                journal: journal.to_string(),
-                path,
+            entries.push(DiscoveredEntry {
+                source: EntryPath {
+                    journal: journal.to_string(),
+                    path,
+                },
+                stamp: FileStamp::from_metadata(&item.metadata()?),
             });
+            if let Some(progress) = progress {
+                progress(entries.len());
+            }
         }
     }
 
@@ -77,12 +102,37 @@ pub(crate) fn read_entries(
     paths: Vec<EntryPath>,
     identity: Option<&crypto::UnlockedIdentity>,
 ) -> AppResult<Vec<Entry>> {
+    read_entries_with_progress(paths, identity, None)
+}
+
+pub(crate) fn read_entries_with_progress(
+    paths: Vec<EntryPath>,
+    identity: Option<&crypto::UnlockedIdentity>,
+    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
+) -> AppResult<Vec<Entry>> {
+    let total = paths.len();
+    let completed = AtomicUsize::new(0);
     let mut entries = paths
         .par_iter()
-        .map(|entry| read_entry(&entry.journal, &entry.path, identity))
+        .map(|entry| {
+            let result = read_entry(&entry.journal, &entry.path, identity);
+            let current = completed.fetch_add(1, Ordering::Relaxed) + 1;
+            if let Some(progress) = progress {
+                progress(current, total);
+            }
+            result
+        })
         .collect::<AppResult<Vec<Entry>>>()?;
     entries.sort_by(|a, b| b.path.cmp(&a.path));
     Ok(entries)
+}
+
+#[cfg(test)]
+pub(super) fn scan_entries(
+    root: &Path,
+    identity: Option<&crypto::UnlockedIdentity>,
+) -> AppResult<Vec<Entry>> {
+    read_entries(collect_entry_paths(root)?, identity)
 }
 
 pub(crate) fn read_entry(

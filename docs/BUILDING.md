@@ -8,6 +8,7 @@ Grab a binary for your platform from the [releases page](https://github.com/pavi
 
 - Android/Termux (ARM64)
 - Linux (x86_64, ARM64, 32-bit x86/i686, and ARMv7, glibc and musl)
+- iOS/iSH (32-bit x86 i586 musl — an SSE-less baseline that runs under iSH)
 - Windows (x86_64)
 - macOS (universal — Intel + Apple Silicon)
 
@@ -42,6 +43,7 @@ Cross-compilation targets live in `Makefile.toml`, driven by
 cargo make build-termux            # Android/Termux ARM64
 cargo make build-x86-gnu           # x86_64 Linux (glibc)
 cargo make build-i686-musl         # 32-bit x86 Linux (static musl)
+cargo make build-i586-musl         # 32-bit x86 musl (i586 baseline; works on iSH)
 cargo make build-armv7-musl        # 32-bit ARMv7 Linux (static musl)
 cargo make build-macos-universal   # Intel + Apple Silicon
 cargo make build-windows-gnu       # Windows x86_64
@@ -77,10 +79,25 @@ rustup target add \
   aarch64-linux-android \
   x86_64-unknown-linux-gnu x86_64-unknown-linux-musl \
   aarch64-unknown-linux-gnu aarch64-unknown-linux-musl \
-  i686-unknown-linux-gnu i686-unknown-linux-musl \
+  i686-unknown-linux-gnu i686-unknown-linux-musl i586-unknown-linux-musl \
   armv7-unknown-linux-gnueabihf armv7-unknown-linux-musleabihf \
   x86_64-pc-windows-gnu
 ```
+
+`build-i586-musl` requires Rust 1.96 or newer, Perl, `curl`, `make`, a SHA-256
+tool (`sha256sum` or `shasum`), and the i686 musl cross toolchain above. It uses
+Rust's prebuilt `i586-unknown-linux-musl` standard library and builds a pinned,
+checksum-verified static OpenSSL without assembly. The resulting binary does not
+require SSE, unlike the normal i686 artifact.
+
+iSH does not implement the filesystem watching API used for live journal and
+theme reloads. Notema disables those watchers on iSH. It refreshes from disk
+automatically on each startup, so new entries may take a little time to appear
+while that refresh runs. Press `r` in the TUI to refresh immediately.
+
+The first setup recursively scans and indexes the selected folder to build the
+local cache. This can take a long time on iSH; later starts use the cache and are
+fast.
 
 ## FUSE builds
 

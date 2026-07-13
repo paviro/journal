@@ -8,6 +8,7 @@ without this app.
 
 ```
 <journal_root>/
+├── .notema-store.toml                         # stable id for this synced root
 ├── personal/                                  # one directory per journal
 │   ├── .journal.toml                          # per-journal id + optional theme
 │   └── 2026/07/05/                            # YYYY/MM/DD of creation
@@ -31,8 +32,14 @@ without this app.
   `.trash/<journal>/…`, keeping its path so it can be restored; deleting a whole
   journal moves the directory to `.trash/<journal>`.
 
-Per-device settings and this device's private key live in the config directory
-(`~/.config/notema/`), never in the journal root and never synced.
+Per-device settings, the entry cache, and this device's private key live in the
+config directory (`~/.config/notema/`), never in the journal root and never
+synced. The cache is `library-cache.msgpack` for plaintext journals and
+`library-cache.msgpack.age` for encrypted journals. iSH also stores the selected
+root's binding in `ish-store.toml` there.
+
+`.notema-store.toml` contains a random stable id used to identify the synced root.
+It stays plaintext when entry encryption is enabled.
 
 ## Journal sidecar
 

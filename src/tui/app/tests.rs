@@ -12,6 +12,43 @@ use std::fs;
 use tempfile::tempdir;
 
 #[test]
+fn cache_miss_starts_with_live_journals_while_entries_validate() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("journals");
+    let config_path = dir.path().join("config/config.toml");
+    let config = Config::new(root.clone());
+    let store = JournalStore::for_config(&config_path, &root).unwrap();
+    store.ensure().unwrap();
+    store.create_journal("work").unwrap();
+    store
+        .create_entry(
+            notema_storage::EntryDraft::new("work", "Body", &notema_domain::Metadata::default()),
+            notema_storage::EntryAssetOptions::default(),
+        )
+        .unwrap();
+
+    let (mut app, cached) = App::new_cached(config_path, config, store).unwrap();
+
+    assert!(cached.is_none());
+    assert_eq!(app.library.journals.len(), 1);
+    assert_eq!(app.library.journals[0].name, "work");
+    assert!(app.library.entries.is_empty());
+    assert!(!app.library_validated);
+    assert_eq!(app.toasts.items().len(), 1);
+    assert_eq!(app.toasts.items()[0].message, "Loading journals from disk…");
+    assert!(!app.expire_toasts());
+
+    app.finish_initial_library_loading();
+    assert!(app.toasts.items().is_empty());
+
+    app.begin_manual_refresh();
+    assert_eq!(app.toasts.items()[0].message, "Refreshing from disk…");
+    assert!(!app.expire_toasts());
+    app.finish_manual_refresh();
+    assert!(app.toasts.items().is_empty());
+}
+
+#[test]
 fn changing_selected_entry_resets_reader_scroll() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");

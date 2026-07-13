@@ -1,4 +1,4 @@
-use crate::files::write_private_file;
+use crate::files::atomic_write_private;
 use crate::signing::{generate_signing_key, signing_public};
 use crate::{EncryptionError, KeyPaths, Recipient, Result, cipher, recipients};
 use age::secrecy::{ExposeSecret, SecretString};
@@ -184,7 +184,7 @@ pub fn read_identity_file_bytes(paths: &KeyPaths) -> Result<Vec<u8>> {
 /// Restore this device's identity file from bytes captured by
 /// [`read_identity_file_bytes`], preserving the private-file mode (0600).
 pub fn restore_identity_file(paths: &KeyPaths, bytes: &[u8]) -> Result<()> {
-    write_private_file(&paths.identity_file, bytes)
+    atomic_write_private(&paths.identity_file, bytes)
 }
 
 /// Generate this device's keypair and its public [`Recipient`], writing the
@@ -245,7 +245,7 @@ pub(crate) fn write_stored_identity(
     // The serialized document carries the plaintext key bundle in the
     // no-passphrase case; zeroize the buffer once it's on disk.
     let serialized = Zeroizing::new(toml::to_string_pretty(&stored)?);
-    write_private_file(&paths.identity_file, serialized.as_bytes())
+    atomic_write_private(&paths.identity_file, serialized.as_bytes())
 }
 
 fn decrypt_identity(

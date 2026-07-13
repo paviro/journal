@@ -7,6 +7,7 @@ use std::{
     collections::HashMap,
     fs,
     net::{TcpStream, ToSocketAddrs},
+    path::Path,
     sync::{Mutex, OnceLock, mpsc},
     thread,
     time::Duration,
@@ -59,10 +60,14 @@ fn download(url: &str) -> Result<Vec<u8>, FetchError> {
         return Err(FetchError::RemoteUnavailable);
     }
 
-    let config = ureq::Agent::config_builder()
-        .timeout_global(Some(REMOTE_TIMEOUT))
-        .build();
-    let agent: ureq::Agent = config.into();
+    if is_ish() {
+        return download_with_user_space_timeout(url);
+    }
+    download_inner(url)
+}
+
+fn download_inner(url: &str) -> Result<Vec<u8>, FetchError> {
+    let agent: ureq::Agent = agent_config_for(is_ish()).into();
     let bytes = agent
         .get(url)
         .call()
@@ -73,6 +78,44 @@ fn download(url: &str) -> Result<Vec<u8>, FetchError> {
         .read_to_vec()
         .map_err(|error| FetchError::Ingest(error.to_string()))?;
     Ok(bytes)
+}
+
+fn download_with_user_space_timeout(url: &str) -> Result<Vec<u8>, FetchError> {
+    let url = url.to_string();
+    let (tx, rx) = mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let _ = tx.send(download_inner(&url));
+    });
+    match rx.recv_timeout(REMOTE_TIMEOUT) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(FetchError::Ingest(format!(
+            "request timed out after {} seconds",
+            REMOTE_TIMEOUT.as_secs()
+        ))),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(FetchError::Ingest(
+            "request worker stopped unexpectedly".to_string(),
+        )),
+    }
+}
+
+fn agent_config_for(ish: bool) -> ureq::config::Config {
+    let builder = ureq::Agent::config_builder();
+    let builder = if ish {
+        builder.no_delay(false)
+    } else {
+        builder.timeout_global(Some(REMOTE_TIMEOUT))
+    };
+    #[cfg(feature = "tls-native")]
+    let builder = builder.tls_config(
+        ureq::tls::TlsConfig::builder()
+            .provider(ureq::tls::TlsProvider::NativeTls)
+            .build(),
+    );
+    builder.build()
+}
+
+fn is_ish() -> bool {
+    cfg!(target_os = "linux") && Path::new("/proc/ish/version").exists()
 }
 
 /// Per-process cache of host reachability (`"host:port" -> up?`), so a dead host
@@ -103,7 +146,13 @@ fn probe_host(host: &str, port: u16) -> bool {
             .to_socket_addrs()
             .ok()
             .and_then(|mut addrs| addrs.next())
-            .map(|addr| TcpStream::connect_timeout(&addr, HOST_PROBE_TIMEOUT).is_ok())
+            .map(|addr| {
+                if is_ish() {
+                    TcpStream::connect(addr).is_ok()
+                } else {
+                    TcpStream::connect_timeout(&addr, HOST_PROBE_TIMEOUT).is_ok()
+                }
+            })
             .unwrap_or(false);
         let _ = tx.send(reachable);
     });
@@ -133,4 +182,39 @@ fn host_port(url: &str) -> Option<(String, u16)> {
         }
     };
     (!host.is_empty()).then(|| (host.to_string(), port))
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "tls-native")]
+    #[test]
+    fn native_tls_feature_selects_native_tls_provider() {
+        assert_eq!(
+            super::agent_config_for(false).tls_config().provider(),
+            ureq::tls::TlsProvider::NativeTls
+        );
+    }
+
+    #[test]
+    fn ish_avoids_kernel_socket_options() {
+        let config = super::agent_config_for(true);
+        assert!(!config.no_delay());
+        assert_eq!(config.timeouts().global, None);
+    }
+
+    #[test]
+    fn other_platforms_keep_the_global_timeout() {
+        let config = super::agent_config_for(false);
+        assert!(config.no_delay());
+        assert_eq!(config.timeouts().global, Some(super::REMOTE_TIMEOUT));
+    }
+
+    #[cfg(all(feature = "tls-ring", not(feature = "tls-native")))]
+    #[test]
+    fn ring_feature_selects_rustls_provider() {
+        assert_eq!(
+            super::agent_config_for(false).tls_config().provider(),
+            ureq::tls::TlsProvider::Rustls
+        );
+    }
 }

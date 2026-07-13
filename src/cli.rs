@@ -216,8 +216,9 @@ pub(crate) fn run() -> AppResult<()> {
         config_path,
         config,
         store,
+        discovery,
     } = config::load_or_setup_with_path(cli.config.as_deref())?;
-    tui::run(config_path, config, *store)
+    tui::run(config_path, config, store, discovery)
 }
 
 fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppResult<()> {
@@ -237,16 +238,13 @@ fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppRe
 fn handle_encryption_command(cli: &Cli, command: &EncryptionCommand) -> AppResult<()> {
     match command {
         EncryptionCommand::Enable(args) => {
-            let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-            encryption_cli::encrypt_store(
-                &config_path,
-                &config,
-                args.name.as_deref(),
-                args.no_passphrase,
-            )
+            let config::Startup { config, store, .. } =
+                config::load_existing(cli.config.as_deref())?;
+            encryption_cli::encrypt_store(&store, &config, args.name.as_deref(), args.no_passphrase)
         }
         EncryptionCommand::Disable(args) => {
-            let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+            let config::Startup { config, store, .. } =
+                config::load_existing(cli.config.as_deref())?;
             if !prompts::confirm(
                 "Decrypt every entry and turn encryption off for this journal?",
                 args.yes,
@@ -254,7 +252,7 @@ fn handle_encryption_command(cli: &Cli, command: &EncryptionCommand) -> AppResul
                 println!("Aborted.");
                 return Ok(());
             }
-            encryption_cli::decrypt_store(&config_path, &config)
+            encryption_cli::decrypt_store(store, &config)
         }
         EncryptionCommand::Device { command } => handle_device_command(cli, command),
     }
@@ -280,9 +278,7 @@ fn handle_device_command(cli: &Cli, command: &DeviceCommand) -> AppResult<()> {
 fn open_unlocked_store_with_passphrase(
     cli: &Cli,
 ) -> AppResult<(JournalStore, Option<SecretString>)> {
-    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-    let mut store = JournalStore::for_config(&config_path, &config.journal.path)?;
-    store.ensure()?;
+    let config::Startup { mut store, .. } = config::load_existing(cli.config.as_deref())?;
     if !store.unlock_available() {
         bail!(
             "no encryption identity on this device; run `{}` first",
@@ -334,9 +330,7 @@ fn unlock_if_encrypted(store: &mut JournalStore) -> AppResult<()> {
 /// it doesn't exist. Either way, a directory we created is removed after unmount.
 #[cfg(feature = "fuse")]
 fn mount_command(cli: &Cli, mountpoint: Option<&Path>) -> AppResult<()> {
-    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-    let mut store = JournalStore::for_config(&config_path, &config.journal.path)?;
-    store.ensure()?;
+    let config::Startup { mut store, .. } = config::load_existing(cli.config.as_deref())?;
 
     if !store.encryption_enabled() {
         bail!(
@@ -399,9 +393,7 @@ fn mount_command(cli: &Cli, mountpoint: Option<&Path>) -> AppResult<()> {
 }
 
 fn device_passphrase_command(cli: &Cli, args: &PassphraseArgs) -> AppResult<()> {
-    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-    let store = JournalStore::for_config(&config_path, &config.journal.path)?;
-    store.ensure()?;
+    let config::Startup { store, .. } = config::load_existing(cli.config.as_deref())?;
     let Some(info) = store.this_device()? else {
         bail!(
             "no encryption identity on this device; run `{}` first",
@@ -453,9 +445,7 @@ fn device_rotate_command(cli: &Cli) -> AppResult<()> {
 }
 
 fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
-    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-    let store = JournalStore::for_config(&config_path, &config.journal.path)?;
-    store.ensure()?;
+    let config::Startup { store, .. } = config::load_existing(cli.config.as_deref())?;
     if !store.encryption_enabled() {
         bail!(
             "this journal is not encrypted yet; run `notema encryption enable` to turn it on for this device"
@@ -502,9 +492,7 @@ fn device_enroll_command(cli: &Cli, args: &NewIdentityArgs) -> AppResult<()> {
 }
 
 fn device_list_command(cli: &Cli) -> AppResult<()> {
-    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-    let store = JournalStore::for_config(&config_path, &config.journal.path)?;
-    store.ensure()?;
+    let config::Startup { store, .. } = config::load_existing(cli.config.as_deref())?;
 
     let recipients = store.recipients()?;
     if recipients.is_empty() {
@@ -612,9 +600,7 @@ fn device_approve_command(cli: &Cli, args: &RequestSelectionArgs) -> AppResult<(
 
 fn device_reject_command(cli: &Cli, args: &RequestSelectionArgs) -> AppResult<()> {
     // Rejecting only deletes the request file, so no unlock/re-encryption needed.
-    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
-    let store = JournalStore::for_config(&config_path, &config.journal.path)?;
-    store.ensure()?;
+    let config::Startup { store, .. } = config::load_existing(cli.config.as_deref())?;
     let pending = store.pending_requests()?;
     if pending.is_empty() {
         println!("No pending requests.");
@@ -629,7 +615,9 @@ fn device_reject_command(cli: &Cli, args: &RequestSelectionArgs) -> AppResult<()
 }
 
 fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {
-    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+    let config::Startup {
+        config, mut store, ..
+    } = config::load_existing(cli.config.as_deref())?;
     let journal = args
         .journal
         .as_deref()
@@ -638,8 +626,6 @@ fn import_dayone_command(cli: &Cli, args: &DayoneArgs) -> AppResult<()> {
     // Validate the name only — the importer creates the journal if it's missing.
     let journal = JournalStore::validate_journal_name(journal)?;
 
-    let mut store = JournalStore::for_config(&config_path, &config.journal.path)?;
-    store.ensure()?;
     // Duplicate detection reads existing entries' `[import]` provenance, which
     // on an encrypted store requires the unlocked identity.
     unlock_if_encrypted(&mut store)?;
@@ -779,7 +765,11 @@ fn plural(count: usize, one: &'static str, many: &'static str) -> &'static str {
 }
 
 fn set_default_journal(cli: &Cli, journal: &str) -> AppResult<()> {
-    let (path, mut config) = config::load_existing(cli.config.as_deref())?;
+    let config::Startup {
+        config_path: path,
+        mut config,
+        ..
+    } = config::load_existing(cli.config.as_deref())?;
     validate_existing_journal(&config.journal.path, journal)?;
     config.journal.default = Some(journal.to_string());
     config::save_config(&path, &config)?;
@@ -793,7 +783,12 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
         bail!("entry text cannot be combined with piped stdin");
     }
 
-    let (config_path, config) = config::load_existing(cli.config.as_deref())?;
+    let config::Startup {
+        config_path,
+        config,
+        store,
+        ..
+    } = config::load_existing(cli.config.as_deref())?;
     let journal = args
         .journal
         .as_deref()
@@ -832,8 +827,6 @@ fn create_entry_from_log_command(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool)
         starred: false,
         location: None,
     };
-
-    let store = JournalStore::for_config(&config_path, &config.journal.path)?;
 
     // No inline text: compose interactively in the fullscreen built-in editor. It
     // handles asset ingest and status on save, so nothing is printed here.

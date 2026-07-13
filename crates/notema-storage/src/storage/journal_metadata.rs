@@ -78,6 +78,18 @@ pub(crate) fn read_or_init_metadata(journal_dir: &Path) -> JournalMetadata {
     }
 }
 
+/// Read metadata without creating a missing sidecar. Used while inspecting a
+/// folder that the user has not accepted yet.
+pub(crate) fn read_metadata(journal_dir: &Path) -> JournalMetadata {
+    std::fs::read_to_string(metadata_path(journal_dir)).map_or_else(
+        |_| JournalMetadata {
+            id: String::new(),
+            theme: None,
+        },
+        |text| parse_metadata(&text),
+    )
+}
+
 /// Set (or clear, with `None`) a journal's theme, preserving its id. Regenerates
 /// a fresh valid document if the existing sidecar was unreadable.
 pub(crate) fn set_theme(journal_dir: &Path, theme: Option<&JournalTheme>) -> crate::AppResult<()> {

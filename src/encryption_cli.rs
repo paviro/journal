@@ -2,7 +2,6 @@ use crate::{AppResult, config::Config, prompts};
 use anyhow::bail;
 use indicatif::{ProgressBar, ProgressStyle};
 use notema_storage::JournalStore;
-use std::path::Path;
 
 /// A progress sink for CLI migrations that drives an `indicatif` bar. A fresh
 /// bar is created at the start of each pass (a `(0, total)` tick) — so a
@@ -29,12 +28,11 @@ pub(crate) fn cli_progress() -> impl FnMut(usize, usize) {
 }
 
 pub(crate) fn encrypt_store(
-    config_path: &Path,
+    store: &JournalStore,
     config: &Config,
     device_name: Option<&str>,
     no_passphrase: bool,
 ) -> AppResult<()> {
-    let store = JournalStore::for_config(config_path, &config.journal.path)?;
     let recipient = if store.encryption_enabled() {
         if !store.unlock_available() {
             bail!(
@@ -83,8 +81,7 @@ pub(crate) fn encrypt_store(
     Ok(())
 }
 
-pub(crate) fn decrypt_store(config_path: &Path, config: &Config) -> AppResult<()> {
-    let mut store = JournalStore::for_config(config_path, &config.journal.path)?;
+pub(crate) fn decrypt_store(mut store: JournalStore, config: &Config) -> AppResult<()> {
     if !store.unlock_available() {
         bail!(
             "age identity not found at {}; encrypted entries cannot be decrypted on this machine",

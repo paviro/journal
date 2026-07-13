@@ -2058,7 +2058,7 @@ fn disable_notice_renders_in_the_journal_chrome_frame() {
 #[test]
 fn internal_editor_renders_in_reader_pane() {
     let mut app = app_with_entry();
-    app.open_editor_for_selected();
+    app.open_editor_for_selected().unwrap();
     let text = render_text(app, INLINE_READER_MIN_WIDTH, 30);
     // The textarea shows the raw markdown source (with the leading `#`), unlike
     // the viewer which renders the heading, so the literal `# A` proves the
@@ -2071,7 +2071,7 @@ fn internal_editor_renders_in_reader_pane() {
 #[test]
 fn internal_editor_renders_full_screen() {
     let mut app = app_with_entry();
-    app.open_editor_for_selected();
+    app.open_editor_for_selected().unwrap();
     app.nav.reader_fullscreen = true;
     let text = render_text(app, INLINE_READER_MIN_WIDTH, 30);
     assert!(text.contains("# A"));
@@ -2092,7 +2092,7 @@ fn internal_editor_new_entry_renders_in_pane_not_insights() {
 #[test]
 fn internal_editor_metadata_menu_renders() {
     let mut app = app_with_entry();
-    app.open_editor_for_selected();
+    app.open_editor_for_selected().unwrap();
     app.editor.as_mut().unwrap().prompt = crate::tui::editor_state::EditorPrompt::MetadataMenu;
     let text = render_text(app, INLINE_READER_MIN_WIDTH, 30);
     assert!(text.contains("Add Metadata"));
@@ -2114,7 +2114,7 @@ fn internal_editor_shows_entry_location() {
     .unwrap();
     let mut app = new_app(Config::new(dir.path().to_path_buf()));
     app.select_journal_by_name("work");
-    app.open_editor_for_selected();
+    app.open_editor_for_selected().unwrap();
 
     let text = render_text(app, INLINE_READER_MIN_WIDTH, 30);
     assert!(text.contains("Testville Cafe"), "editor pane was:\n{text}");
