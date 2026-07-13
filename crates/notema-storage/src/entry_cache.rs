@@ -365,7 +365,7 @@ fn security(paths: &JournalStorePaths) -> AppResult<CacheSecurity> {
     }
     let mut keys: Vec<String> = crypto::read_recipients(&paths.keys)?
         .into_iter()
-        .map(|recipient| recipient.enc_key)
+        .map(|recipient| recipient.encryption_key)
         .collect();
     keys.sort();
     let mut digest = Sha256::new();

@@ -237,7 +237,7 @@ fn approve_pending_requests(
         // clear the stale file rather than prompting to re-add it.
         if recipients
             .iter()
-            .any(|recipient| recipient.enc_key == request.recipient.enc_key)
+            .any(|recipient| recipient.encryption_key == request.recipient.encryption_key)
         {
             store.deny_pending(&request)?;
             continue;

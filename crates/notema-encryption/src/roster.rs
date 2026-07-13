@@ -82,8 +82,8 @@ const DEVICES_HEADER: &str = "\
 # file by hand breaks the chain and the store will refuse to open.
 ";
 
-/// One signed operation in the log. `enc_key`/`sign_key` name the *subject* device the
-/// op acts on; `signer_key`/`sig` are the *authorization* (an already-trusted device's
+/// One signed operation in the log. `encryption_key`/`signing_key` name the *subject* device the
+/// op acts on; `authorized_by`/`sig` are the *authorization* (an already-trusted device's
 /// public key and its Ed25519 signature over the op's canonical bytes).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,13 +94,13 @@ pub(crate) struct RosterOp {
     pub kind: OpKind,
     pub name: String,
     /// The subject device's age (X25519) recipient — an `age1…` public key.
-    pub enc_key: String,
+    pub encryption_key: String,
     /// The subject device's signing key, `ed25519:<hex>`.
-    pub sign_key: String,
-    /// The authorizing device's signing key, `ed25519:<hex>`. Equals `sign_key` for a
+    pub signing_key: String,
+    /// The authorizing device's signing key, `ed25519:<hex>`. Equals `signing_key` for a
     /// self-signed genesis.
-    pub signer_key: String,
-    /// Hex Ed25519 signature by `signer_key` over [`RosterOp::signing_bytes`].
+    pub authorized_by: String,
+    /// Hex Ed25519 signature by `authorized_by` over [`RosterOp::signing_bytes`].
     pub sig: String,
 }
 
@@ -116,9 +116,9 @@ impl RosterOp {
         push_field(&mut buf, self.prev_hash.as_bytes())?;
         push_field(&mut buf, self.kind.as_bytes())?;
         push_field(&mut buf, self.name.as_bytes())?;
-        push_field(&mut buf, self.enc_key.as_bytes())?;
-        push_field(&mut buf, self.sign_key.as_bytes())?;
-        push_field(&mut buf, self.signer_key.as_bytes())?;
+        push_field(&mut buf, self.encryption_key.as_bytes())?;
+        push_field(&mut buf, self.signing_key.as_bytes())?;
+        push_field(&mut buf, self.authorized_by.as_bytes())?;
         Ok(buf)
     }
 
@@ -131,8 +131,8 @@ impl RosterOp {
     fn recipient(&self) -> Recipient {
         Recipient {
             name: self.name.clone(),
-            enc_key: self.enc_key.clone(),
-            sign_key: self.sign_key.clone(),
+            encryption_key: self.encryption_key.clone(),
+            signing_key: self.signing_key.clone(),
         }
     }
 }
@@ -178,7 +178,7 @@ pub(crate) fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
     {
         return Err(unverified("the roster does not start with a genesis op"));
     }
-    if genesis_op.signer_key != genesis_op.sign_key {
+    if genesis_op.authorized_by != genesis_op.signing_key {
         return Err(unverified("the genesis op is not self-signed"));
     }
     verify_op_sig(genesis_op)?;
@@ -192,7 +192,7 @@ pub(crate) fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
         ));
     }
 
-    let mut trusted: Vec<String> = vec![genesis_op.sign_key.clone()];
+    let mut trusted: Vec<String> = vec![genesis_op.signing_key.clone()];
     let mut recipients: Vec<Recipient> = vec![genesis_op.recipient()];
     let mut hashes: Vec<String> = vec![genesis_hash.clone()];
 
@@ -203,7 +203,7 @@ pub(crate) fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
         if op.prev_hash != hashes[index - 1] {
             return Err(unverified("the signature chain is broken"));
         }
-        if !trusted.iter().any(|key| key == &op.signer_key) {
+        if !trusted.iter().any(|key| key == &op.authorized_by) {
             return Err(unverified(
                 "an op is signed by a device that was not trusted",
             ));
@@ -212,19 +212,19 @@ pub(crate) fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
 
         match op.kind {
             OpKind::Add => {
-                if !recipients.iter().any(|r| r.enc_key == op.enc_key) {
+                if !recipients.iter().any(|r| r.encryption_key == op.encryption_key) {
                     recipients.push(op.recipient());
                 }
-                if !trusted.iter().any(|key| key == &op.sign_key) {
-                    trusted.push(op.sign_key.clone());
+                if !trusted.iter().any(|key| key == &op.signing_key) {
+                    trusted.push(op.signing_key.clone());
                 }
             }
             OpKind::Revoke => {
-                recipients.retain(|r| r.enc_key != op.enc_key);
-                trusted.retain(|key| key != &op.sign_key);
+                recipients.retain(|r| r.encryption_key != op.encryption_key);
+                trusted.retain(|key| key != &op.signing_key);
             }
             OpKind::Rename => {
-                if let Some(target) = recipients.iter_mut().find(|r| r.enc_key == op.enc_key) {
+                if let Some(target) = recipients.iter_mut().find(|r| r.encryption_key == op.encryption_key) {
                     target.name = op.name.clone();
                 }
             }
@@ -257,16 +257,16 @@ pub(crate) fn verify(ops: &[RosterOp], pins: &TrustPins) -> Result<Verified> {
     })
 }
 
-/// Append a new op to the log, signed by `signer_key` via `sign_bytes`, and write
+/// Append a new op to the log, signed by `authorized_by` via `sign_bytes`, and write
 /// the file back. `sign_bytes` produces the hex Ed25519 signature over the op's
 /// canonical bytes (supplied by the caller's unlocked identity).
 pub(crate) fn append(
     path: &Path,
     kind: OpKind,
     name: &str,
-    enc_key: &str,
-    sign_key: &str,
-    signer_key: &str,
+    encryption_key: &str,
+    signing_key: &str,
+    authorized_by: &str,
     sign_bytes: impl FnOnce(&[u8]) -> String,
 ) -> Result<RosterOp> {
     let ops = read_ops(path)?;
@@ -286,9 +286,9 @@ pub(crate) fn append(
         prev_hash,
         kind,
         name: name.to_string(),
-        enc_key: enc_key.to_string(),
-        sign_key: sign_key.to_string(),
-        signer_key: signer_key.to_string(),
+        encryption_key: encryption_key.to_string(),
+        signing_key: signing_key.to_string(),
+        authorized_by: authorized_by.to_string(),
         sig: String::new(),
     };
     op.sig = sign_bytes(&op.signing_bytes()?);
@@ -383,11 +383,11 @@ pub(crate) fn write_pins(path: &Path, genesis_hash: &str, head_hash: &str) -> Re
 /// A short, human-comparable fingerprint of a device, covering *both* its
 /// encryption and signing keys so tampering with either shows up. Displayed at
 /// approval time for an out-of-band check against what the joining device shows.
-pub(crate) fn fingerprint(enc_key: &str, sign_key: &str) -> String {
+pub(crate) fn fingerprint(encryption_key: &str, signing_key: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(enc_key.as_bytes());
+    hasher.update(encryption_key.as_bytes());
     hasher.update([0u8]);
-    hasher.update(sign_key.as_bytes());
+    hasher.update(signing_key.as_bytes());
     let digest = hex::encode(hasher.finalize());
     digest
         .as_bytes()
@@ -399,7 +399,7 @@ pub(crate) fn fingerprint(enc_key: &str, sign_key: &str) -> String {
 }
 
 fn verify_op_sig(op: &RosterOp) -> Result<()> {
-    if crate::signing::verify_signature(&op.signer_key, &op.signing_bytes()?, &op.sig) {
+    if crate::signing::verify_signature(&op.authorized_by, &op.signing_bytes()?, &op.sig) {
         Ok(())
     } else {
         Err(unverified(&format!(

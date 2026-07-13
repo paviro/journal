@@ -16,9 +16,9 @@ use std::str::FromStr;
 pub struct Recipient {
     pub name: String,
     /// The age (X25519) recipient public key, `age1…`.
-    pub enc_key: String,
+    pub encryption_key: String,
     /// The device's signing public key, `ed25519:<hex>`.
-    pub sign_key: String,
+    pub signing_key: String,
 }
 
 impl Recipient {
@@ -26,7 +26,7 @@ impl Recipient {
     /// encryption and signing keys — shown at approval time for an out-of-band
     /// check against what the joining device displays.
     pub fn fingerprint(&self) -> String {
-        roster::fingerprint(&self.enc_key, &self.sign_key)
+        roster::fingerprint(&self.encryption_key, &self.signing_key)
     }
 }
 
@@ -105,7 +105,7 @@ pub fn add_recipient(
 ) -> Result<()> {
     validate_recipient(recipient)?;
     let recipients = read_recipients(paths)?;
-    if recipients.iter().any(|r| r.enc_key == recipient.enc_key) {
+    if recipients.iter().any(|r| r.encryption_key == recipient.encryption_key) {
         return Err(EncryptionError::RecipientExists {
             name: recipient.name.clone(),
         });
@@ -158,8 +158,8 @@ pub fn rename_recipient(
     };
     let relabelled = Recipient {
         name: new.to_string(),
-        enc_key: target.enc_key.clone(),
-        sign_key: target.sign_key.clone(),
+        encryption_key: target.encryption_key.clone(),
+        signing_key: target.signing_key.clone(),
     };
     append_op(paths, signer, roster::OpKind::Rename, &relabelled)
 }
@@ -171,7 +171,7 @@ pub fn identity_is_recipient(paths: &KeyPaths, identity: &UnlockedIdentity) -> R
     let own = identity.public_key();
     Ok(read_recipients(paths)?
         .iter()
-        .any(|recipient| recipient.enc_key == own))
+        .any(|recipient| recipient.encryption_key == own))
 }
 
 /// Generate a fresh age *and* signing keypair for this device and append a signed
@@ -188,7 +188,7 @@ pub fn rotate_add_new_key(
     let recipients = read_recipients(paths)?;
     let Some(existing) = recipients
         .iter()
-        .find(|recipient| recipient.enc_key == old_key)
+        .find(|recipient| recipient.encryption_key == old_key)
     else {
         return Err(EncryptionError::NotARecipient);
     };
@@ -199,8 +199,8 @@ pub fn rotate_add_new_key(
     };
     let recipient = Recipient {
         name: existing.name.clone(),
-        enc_key: new_identity.public_key(),
-        sign_key: new_identity.signing_public(),
+        encryption_key: new_identity.public_key(),
+        signing_key: new_identity.signing_public(),
     };
     // Signed by the old key, which is trusted until it's dropped below.
     append_op(paths, old, roster::OpKind::Add, &recipient)?;
@@ -229,7 +229,7 @@ pub fn drop_old_recipient(
     let recipients = read_recipients(paths)?;
     let Some(target) = recipients
         .iter()
-        .find(|recipient| recipient.enc_key == old_key)
+        .find(|recipient| recipient.encryption_key == old_key)
     else {
         return Ok(());
     };
@@ -239,14 +239,14 @@ pub fn drop_old_recipient(
 /// Validate that a recipient carries a well-formed age recipient and Ed25519
 /// signing key before it's admitted to the roster.
 fn validate_recipient(recipient: &Recipient) -> Result<()> {
-    if x25519::Recipient::from_str(&recipient.enc_key).is_err() {
+    if x25519::Recipient::from_str(&recipient.encryption_key).is_err() {
         return Err(EncryptionError::InvalidRecipientKey {
-            key: recipient.enc_key.clone(),
+            key: recipient.encryption_key.clone(),
         });
     }
-    if parse_signing_public(&recipient.sign_key).is_none() {
+    if parse_signing_public(&recipient.signing_key).is_none() {
         return Err(EncryptionError::InvalidSigningKey {
-            key: recipient.sign_key.clone(),
+            key: recipient.signing_key.clone(),
         });
     }
     Ok(())
@@ -265,8 +265,8 @@ fn append_op(
         &paths.devices_file,
         kind,
         &subject.name,
-        &subject.enc_key,
-        &subject.sign_key,
+        &subject.encryption_key,
+        &subject.signing_key,
         &signer_pub,
         |bytes| sign_bytes(&signer.signing, bytes),
     )?;

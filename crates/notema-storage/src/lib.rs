@@ -237,7 +237,7 @@ impl JournalStore {
         crypto::read_recipients(&self.paths.keys)?
             .into_iter()
             .next()
-            .map(|recipient| recipient.enc_key)
+            .map(|recipient| recipient.encryption_key)
             .ok_or_else(|| crypto::EncryptionError::NoRecipients.into())
     }
 
@@ -278,7 +278,7 @@ impl JournalStore {
         passphrase: Option<&SecretString>,
     ) -> AppResult<String> {
         entry_cache::invalidate(&self.paths)?;
-        Ok(crypto::initialize_store_identity(&self.paths.keys, device_name, passphrase)?.enc_key)
+        Ok(crypto::initialize_store_identity(&self.paths.keys, device_name, passphrase)?.encryption_key)
     }
 
     /// Create this device's identity, write the initial roster, and encrypt the
@@ -383,7 +383,7 @@ impl JournalStore {
         Ok(self
             .pending_requests()?
             .iter()
-            .any(|request| request.recipient.enc_key == own_key))
+            .any(|request| request.recipient.encryption_key == own_key))
     }
 
     /// Resolve whether this device can open the store, after its identity has
@@ -457,7 +457,7 @@ impl JournalStore {
         if self
             .recipients()?
             .iter()
-            .any(|recipient| recipient.name == name && recipient.enc_key == own_key)
+            .any(|recipient| recipient.name == name && recipient.encryption_key == own_key)
         {
             bail!("refusing to revoke this device's own recipient");
         }
@@ -610,7 +610,7 @@ impl JournalStore {
         if self
             .recipients()?
             .iter()
-            .any(|recipient| recipient.enc_key == request.recipient.enc_key)
+            .any(|recipient| recipient.encryption_key == request.recipient.encryption_key)
         {
             crypto::remove_pending(&self.paths.keys, &request.id)?;
             return Ok(MigrationSummary { migrated_files: 0 });

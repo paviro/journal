@@ -205,8 +205,8 @@ pub(crate) fn create_device_identity(
     };
     let recipient = Recipient {
         name: name.to_string(),
-        enc_key: identity.public_key(),
-        sign_key: identity.signing_public(),
+        encryption_key: identity.public_key(),
+        signing_key: identity.signing_public(),
     };
     write_stored_identity(paths, name, &identity, passphrase)?;
     Ok((recipient, identity))

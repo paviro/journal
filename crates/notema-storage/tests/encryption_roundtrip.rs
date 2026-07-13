@@ -526,7 +526,7 @@ fn rotate_identity_replaces_the_key_and_keeps_reading() {
     // The device is now the sole recipient under a fresh key.
     let recipients = store.recipients().unwrap();
     assert_eq!(recipients.len(), 1);
-    assert_ne!(recipients[0].enc_key, old_key);
+    assert_ne!(recipients[0].encryption_key, old_key);
 
     // The store still reads the entry via the rotated key, and so does a fresh
     // store loading the newly-committed identity file.
@@ -566,7 +566,7 @@ fn write_store_file_reencrypts_entries_and_assets() {
 
     // Rewrite the entry through the byte-level API, as the mount's commit does.
     let edited =
-        b"+++\nschema_version = 1\ntags = [\"edited\"]\n+++\n\nnew body through the mount\n";
+        b"+++\nschema_version = 1\n\n[entry]\ntags = [\"edited\"]\n+++\n\nnew body through the mount\n";
     store
         .write_store_file(&path, notema_storage::StoreFileEncoding::Encrypted, edited)
         .unwrap();
@@ -634,9 +634,9 @@ fn injected_recipient_in_roster_is_rejected() {
     let mut roster = std::fs::read_to_string(&path).unwrap();
     roster.push_str(
         "\n[[operation]]\nseq = 1\nprev_hash = \"\"\nkind = \"add\"\nname = \"attacker\"\n\
-         enc_key = \"age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsuaxjx\"\n\
-         sign_key = \"ed25519:0000000000000000000000000000000000000000000000000000000000000000\"\n\
-         signer_key = \"ed25519:0000000000000000000000000000000000000000000000000000000000000000\"\n\
+         encryption_key = \"age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsuaxjx\"\n\
+         signing_key = \"ed25519:0000000000000000000000000000000000000000000000000000000000000000\"\n\
+         authorized_by = \"ed25519:0000000000000000000000000000000000000000000000000000000000000000\"\n\
          sig = \"00\"\n",
     );
     std::fs::write(&path, roster).unwrap();

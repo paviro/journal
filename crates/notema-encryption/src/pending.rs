@@ -81,7 +81,7 @@ pub fn read_pending(paths: &KeyPaths) -> Result<Vec<PendingRequest>> {
         // Skip a request whose self-signature doesn't check out: it was corrupted
         // or forged in the synced folder. A genuine device can re-submit.
         if !verify_signature(
-            &parsed.recipient.sign_key,
+            &parsed.recipient.signing_key,
             &pending_signing_bytes(&parsed.recipient)?,
             &parsed.sig,
         ) {
@@ -117,7 +117,7 @@ fn write_pending(
         recipient,
         sig: &sig,
     };
-    let path = paths.age_dir.join(pending_file_name(&recipient.enc_key));
+    let path = paths.age_dir.join(pending_file_name(&recipient.encryption_key));
     atomic_write(&path, toml::to_string_pretty(&document)?.as_bytes())
 }
 
@@ -128,18 +128,18 @@ fn pending_signing_bytes(recipient: &Recipient) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
     roster::push_field(&mut buf, b"notema.pending.v1")?;
     roster::push_field(&mut buf, recipient.name.as_bytes())?;
-    roster::push_field(&mut buf, recipient.enc_key.as_bytes())?;
-    roster::push_field(&mut buf, recipient.sign_key.as_bytes())?;
+    roster::push_field(&mut buf, recipient.encryption_key.as_bytes())?;
+    roster::push_field(&mut buf, recipient.signing_key.as_bytes())?;
     Ok(buf)
 }
 
 /// The `pending-<id>.toml` file name for a recipient, where `<id>` is a stable,
 /// filename-safe slice of the bech32 public key (unique enough to avoid
 /// collisions between devices, deterministic so a re-run overwrites its own).
-fn pending_file_name(enc_key: &str) -> String {
-    let id: String = enc_key
+fn pending_file_name(encryption_key: &str) -> String {
+    let id: String = encryption_key
         .strip_prefix("age1")
-        .unwrap_or(enc_key)
+        .unwrap_or(encryption_key)
         .chars()
         .take(12)
         .collect();

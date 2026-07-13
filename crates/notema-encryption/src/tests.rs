@@ -170,7 +170,7 @@ fn add_recipient_rejects_duplicate_key_and_name() {
     assert!(add_recipient(&paths, &identity, &recipient).is_err());
     // Same name, different (valid) key → rejected for the name clash.
     let same_name_new_key = Recipient {
-        enc_key: "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsuaxjx".to_string(),
+        encryption_key: "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsuaxjx".to_string(),
         ..recipient
     };
     assert!(add_recipient(&paths, &identity, &same_name_new_key).is_err());
