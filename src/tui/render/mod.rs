@@ -32,7 +32,7 @@ pub(crate) use super::entry_rows::{
     RowMeta, entry_box_lines, entry_day_label, entry_list_lines, entry_month_label,
 };
 pub(crate) use super::hit_test::{
-    MetadataChip, entry_index_at, journal_index_at, metadata_at_point,
+    MetadataChip, entry_index_at, journal_index_at, metadata_at_point, metadata_chip_index_at,
 };
 #[cfg(test)]
 pub(crate) use super::scroll::scrollbar_position;

@@ -89,5 +89,12 @@ tag         = { dark = "#ff9de2", light = "#b04f96" }
 label       = { dark = "#ff9eb3", light = "#c04a67" }
 error       = { dark = "#ff9eb3", light = "#c04a67" }
 
+[metadata.pills]
+style      = "bg"
+feelings   = { fg = { dark = "#c9b1ff", light = "#7857b8" }, bg = { dark = "#473d62", light = "#dacbe6" } }
+people     = { fg = { dark = "#8ae8ff", light = "#2a7f99" }, bg = { dark = "#384a62", light = "#cbd3e0" } }
+activities = { fg = { dark = "#9ff5c8", light = "#2e8a63" }, bg = { dark = "#3d4e54", light = "#ccd5d5" } }
+tags       = { fg = { dark = "#ff9de2", light = "#b04f96" }, bg = { dark = "#55385a", light = "#e6c9e0" } }
+
 [tabs]
 separator = "secondary"

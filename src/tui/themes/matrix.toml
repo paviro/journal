@@ -84,3 +84,41 @@ attribute   = { dark = "#9dff3c", light = "#4d7a00" }
 tag         = { dark = "#00ff66", light = "#0a6f30" }
 label       = { dark = "#00d488", light = "#00786b" }
 error       = { dark = "#ff3355", light = "#c40028" }
+
+# Metadata chips in the feed's green shades — one hue, four brightnesses —
+# over an ASCII environment strip.
+[metadata.pills]
+style      = "bg"
+feelings   = { fg = { dark = "#00993d", light = "#074f22" }, bg = { dark = "#00260f", light = "#c9e8d5" } }
+people     = { fg = { dark = "#00be4c", light = "#095f29" }, bg = { dark = "#002e12", light = "#cfebd9" } }
+activities = { fg = { dark = "#00dd58", light = "#0a6f30" }, bg = { dark = "#003616", light = "#d5eedd" } }
+tags       = { fg = { dark = "#00ff66", light = "#0b7f37" }, bg = { dark = "#003e19", light = "#dbf1e1" } }
+
+[metadata.glyphs]
+separator = "*"
+location  = "@"
+sunrise   = "^"
+sunset    = "v"
+air       = "!"
+pollen    = "%"
+
+[metadata.glyphs.weather]
+clear        = "o"
+mostly_clear = "o"
+partly_cloudy = "~"
+cloudy       = "~"
+fog          = "="
+drizzle      = ","
+rain         = ";"
+snow         = "*"
+thunderstorm = "z"
+
+[metadata.glyphs.moon]
+new             = "o"
+waxing_crescent = ")"
+first_quarter   = ")"
+waxing_gibbous  = ")"
+full            = "O"
+waning_gibbous  = "("
+last_quarter    = "("
+waning_crescent = "("

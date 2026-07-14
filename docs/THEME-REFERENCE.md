@@ -148,7 +148,7 @@ The selected row is shown by `selection` alone — no marker glyph.
 | `baseline` | `{ glyph, color }` | `┈`, ← `text.muted` dimmed |
 | `label` | token | ← `text.muted` dimmed |
 
-`[charts.glyphs]`: `groove` (`·`), `bar_center` (`│`), `mood_stroke` (`─`).
+`[charts.glyphs]`: `groove` (`·`), `bar_center` (`│`).
 
 ### `[markdown]`
 
@@ -168,6 +168,42 @@ H2 is body ink + bold by design; only H1 and H3 are themeable.
 `error`. An omitted key renders that category as plain code; omitting the table
 disables highlighting.
 
+### `[metadata]` — the entry view's metadata section
+
+**`[metadata.pills]`** — the feelings/people/activities/tags chips.
+
+| Key | Form | Default |
+|---|---|---|
+| `style` | `reversed` \| `bg` \| `bracket` | `reversed` |
+| `feelings` / `people` / `activities` / `tags` | style table | ← `interaction.hover` |
+
+`reversed` inverts each chip's cell (the classic/e-ink look; the category
+colors are ignored — part of the [monochrome contract](#monochrome-contract)).
+`bg` fills chips with the per-category styles; a `bg`-only spec is fine (it
+layers under the value's own ink, like hover). `bracket` renders plain
+`[value]` text. Every style occupies the same cells, so switching themes never
+moves a chip or its click target.
+
+**`[metadata.environment]`** — the environment strip's air-quality badge, shown
+only when the stored European AQI reaches 60: `aqi_poor` (60–79, ←
+`status.warning`), `aqi_very_poor` (80–99, ← `status.error`),
+`aqi_extremely_poor` (100+, ← `status.error`, BOLD in code). `pollen_high`
+(← `status.warning`) styles the high-pollen badge, shown only when a stored
+species count (birch/grass/ragweed) reaches its "high" band.
+
+**`[metadata.glyphs]`** — the strip's characters: `separator` (`·`), `location`
+(`⚑`), `sunrise` (`↑`), `sunset` (`↓`), `air` (`▲`), `pollen` (`❀`), plus the category glyph
+leading each pill: `feelings` (`♥`), `people` (`@`), `activities` (`◆`),
+`tags` (`#`). The mood bar's cells: `mood_fill` (`▓`) and `mood_track` (`░`) —
+its center marker is the shared `[charts.glyphs]` `bar_center`, and the heavy
+at-zero variant stays code-side. Two per-slug tables: `[metadata.glyphs.weather]` (`clear` `☀`,
+`mostly_clear` `☼`, `partly_cloudy` / `cloudy` `☁`, `fog` `≡`, `drizzle` /
+`rain` `☂`, `snow` `❄`, `thunderstorm` `↯`) and `[metadata.glyphs.moon]`
+(`new` `○`, `waxing_crescent` `☽`, `first_quarter` / `waxing_gibbous` `◐`,
+`full` `●`, `waning_gibbous` / `last_quarter` `◑`, `waning_crescent` `☾`).
+The retro themes — `classic` (also the built-in fallback), `crt`, `gameboy`,
+`matrix`, `wasteland` — carry all-ASCII sets.
+
 ### `[toast]` / `[tabs]`
 
 `[toast.glyphs]`: `edge` (`┃`, toast accents on flat chrome) and `progress` (`─`,
@@ -178,9 +214,11 @@ the dismissal countdown line along the bottom edge). `[tabs]` sets
 
 So meaning survives without color, some distinctions are enforced in code and
 can't be themed away: positive and negative chart bars are bold (neutral ones dim),
-muted ink is dim, the selection fallback is inverted, and chart series are set apart
-by glyph as well as hue. A theme picks the colors and glyphs, but can never flatten
-a positive value into plain body text.
+muted ink is dim, the selection fallback is inverted, reversed metadata pills
+ignore theme colors (their category glyphs still render, carrying the category
+without hue), the worst air-quality band is bold, and chart series are set
+apart by glyph as well as hue. A theme picks the colors and glyphs, but can never
+flatten a positive value into plain body text.
 
 `eclipse` is the reference case — pure black-and-white, where those enforced
 modifiers and the three chart fill glyphs carry every distinction on their own.

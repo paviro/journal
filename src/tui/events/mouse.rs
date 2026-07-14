@@ -547,22 +547,9 @@ fn handle_left_click(app: &mut App, mouse: MouseEvent, layout: render::TuiLayout
         && render::point_in_rect(area.area, mouse.column, mouse.row)
         && app.has_selected_entry_target()
     {
-        let tags = app.selected_entry_tags();
-        let people = app.selected_entry_people();
-        let activities = app.selected_entry_activities();
-        let feelings = app.selected_entry_feelings();
-        let mood = app.selected_entry_mood();
-        let metadata = render::EntryMetadataValues {
-            tags: &tags,
-            people: &people,
-            activities: &activities,
-            feelings: &feelings,
-            mood,
-            // Location is display-only — not part of the click hit-test.
-            location: None,
-        };
+        let metadata = app.selected_entry_metadata_values();
         if let Some((chip, value)) =
-            render::metadata_at_point(area.area, mouse.column, mouse.row, metadata)
+            render::metadata_at_point(area.area, mouse.column, mouse.row, metadata.values())
         {
             match chip {
                 render::MetadataChip::Feelings => app.begin_feeling_search(&value),
@@ -720,6 +707,19 @@ fn hover_target_at(app: &App, col: u16, row: u16, area: Rect) -> HoverTarget {
         && let Some(tab) = render::insights_tab_at(panel.area, col, row)
     {
         return HoverTarget::InsightsTab(tab);
+    }
+
+    // Metadata chips in the pinned reader footer, mirroring the click path so
+    // hover and click land on the same pill.
+    if let Some(panel) = layout.reader
+        && render::point_in_rect(panel.area, col, row)
+        && app.has_selected_entry_target()
+    {
+        let metadata = app.selected_entry_metadata_values();
+        if let Some(index) = render::metadata_chip_index_at(panel.area, col, row, metadata.values())
+        {
+            return HoverTarget::MetadataChip(index);
+        }
     }
 
     if app.nav.mode == Mode::Browse

@@ -70,3 +70,10 @@ attribute   = { dark = "#d9ae61", light = "#8a6420" }
 tag         = { dark = "#7fb069", light = "#3e6b2f" }
 label       = { dark = "#d1666a", light = "#a63a3f" }
 error       = { dark = "#d1666a", light = "#a63a3f" }
+
+[metadata.pills]
+style      = "bg"
+feelings   = { fg = { dark = "#7f8f7a", light = "#79876f" }, bg = { dark = "#2c352a", light = "#d3dccd" } }
+people     = { fg = { dark = "#7aa2c0", light = "#2f5f8f" }, bg = { dark = "#2a3a3c", light = "#c4d4d4" } }
+activities = { fg = { dark = "#8fbf7f", light = "#3d7a37" }, bg = { dark = "#30412c", light = "#c7d9c2" } }
+tags       = { fg = { dark = "#7fb069", light = "#3e6b2f" }, bg = { dark = "#2c3d26", light = "#c7d6c1" } }

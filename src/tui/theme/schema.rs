@@ -7,7 +7,10 @@ use ratatui::style::{Color, Modifier, Style};
 use serde::Deserialize;
 use std::{collections::BTreeMap, str::FromStr};
 
-use super::{BorderGlyphs, ChromeStyle, CustomBorderSet, Fill, Glyphs, Mode, Syntax, Theme};
+use super::{
+    BorderGlyphs, ChromeStyle, CustomBorderSet, EnvGlyphs, Fill, Glyphs, MetadataTheme, Mode,
+    MoonGlyphs, PillStyle, Syntax, Theme, WeatherGlyphs, intern_metadata_theme,
+};
 
 pub(super) fn parse(text: &str, mode: Mode) -> Result<Theme> {
     let file: ThemeFile = toml::from_str(text).context("parsing theme TOML")?;
@@ -180,6 +183,7 @@ pub(super) struct ThemeFile {
     markdown: MarkdownSection,
     toast: ToastSection,
     tabs: TabsSection,
+    metadata: MetadataSection,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -433,7 +437,6 @@ struct ChartsSection {
 struct ChartsGlyphsSection {
     groove: Option<String>,
     bar_center: Option<String>,
-    mood_stroke: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -527,6 +530,102 @@ struct TabsGlyphsSection {
     /// The separator between tab labels; always rendered with a space each
     /// side so the strip's width math stays fixed.
     separator: Option<String>,
+}
+
+/// The reader's entry-metadata section: pill chips, environment-strip accents,
+/// and the strip's glyph vocabulary.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct MetadataSection {
+    pills: PillsSection,
+    environment: EnvironmentSection,
+    glyphs: MetadataGlyphsSection,
+}
+
+/// How feelings/people/activities/tags chips are drawn. Colors only apply to
+/// the `bg` style; `reversed` stays code-enforced (monochrome contract) and
+/// `bracket` is plain text.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct PillsSection {
+    style: PillStyle,
+    feelings: Option<StyleSpec>,
+    people: Option<StyleSpec>,
+    activities: Option<StyleSpec>,
+    tags: Option<StyleSpec>,
+}
+
+/// The environment strip's air-quality bands. Defaults ride the status hues so
+/// a bad-air badge reads as the warning/error it is.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct EnvironmentSection {
+    aqi_poor: Option<TokenSpec>,
+    aqi_very_poor: Option<TokenSpec>,
+    aqi_extremely_poor: Option<TokenSpec>,
+    /// The strip's high-pollen badge. Defaults to the warning hue — like the
+    /// first AQI band, it only appears when it is a warning.
+    pollen_high: Option<TokenSpec>,
+    /// The mood gauge's filled cells, by valence. Default to the status hues so
+    /// a low mood reads red, a high mood green, on any theme.
+    mood_negative: Option<TokenSpec>,
+    mood_positive: Option<TokenSpec>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct MetadataGlyphsSection {
+    /// The dot between environment-strip items; always rendered with a space
+    /// each side so the strip's width math stays fixed.
+    separator: Option<String>,
+    location: Option<String>,
+    sunrise: Option<String>,
+    sunset: Option<String>,
+    /// The dot leading the air-quality badge.
+    air: Option<String>,
+    /// The marker leading the high-pollen badge.
+    pollen: Option<String>,
+    /// The mood bar's filled and empty cells (the center marker is the shared
+    /// `charts.glyphs.bar_center`).
+    mood_fill: Option<String>,
+    mood_track: Option<String>,
+    /// The glyph leading each chip pill, by category — echoing the strip's
+    /// glyph-led grammar so the pill row reads as one family with it.
+    feelings: Option<String>,
+    people: Option<String>,
+    activities: Option<String>,
+    tags: Option<String>,
+    weather: WeatherGlyphsSection,
+    moon: MoonGlyphsSection,
+}
+
+/// One key per weather-condition slug the context provider emits.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct WeatherGlyphsSection {
+    clear: Option<String>,
+    mostly_clear: Option<String>,
+    partly_cloudy: Option<String>,
+    cloudy: Option<String>,
+    fog: Option<String>,
+    drizzle: Option<String>,
+    rain: Option<String>,
+    snow: Option<String>,
+    thunderstorm: Option<String>,
+}
+
+/// One key per moon-phase slug the celestial provider emits.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct MoonGlyphsSection {
+    new: Option<String>,
+    waxing_crescent: Option<String>,
+    first_quarter: Option<String>,
+    waxing_gibbous: Option<String>,
+    full: Option<String>,
+    waning_gibbous: Option<String>,
+    last_quarter: Option<String>,
+    waning_crescent: Option<String>,
 }
 
 /// A single-character glyph value.
@@ -756,6 +855,75 @@ impl ThemeFile {
             bail!("`chrome.scrim` must be between 0.0 and 1.0");
         }
 
+        let status = &self.status;
+        let success = style(
+            &status.success,
+            Style::default().fg(Color::Green),
+            "status.success",
+        )?;
+        let warning = style(
+            &status.warning,
+            Style::default().fg(Color::Yellow),
+            "status.warning",
+        )?;
+        let error = style(
+            &status.error,
+            Style::default().fg(Color::Red),
+            "status.error",
+        )?;
+        let info = style(
+            &status.info,
+            Style::default().fg(Color::Blue),
+            "status.info",
+        )?;
+
+        let pills = &self.metadata.pills;
+        // A pill bg layers under the value's own ink, so bg-only specs are
+        // fine. Unset categories ride the hover style — the same subtle
+        // surface lift — so a theme that only sets `style = "bg"` still gets
+        // visible, coherent chips.
+        let pill = |spec: &Option<StyleSpec>, token: &str| -> Result<Style> {
+            match spec {
+                Some(spec) => spec.resolve(mode, palette, token),
+                None => Ok(hover),
+            }
+        };
+        let pill_feelings = pill(&pills.feelings, "metadata.pills.feelings")?;
+        let pill_people = pill(&pills.people, "metadata.pills.people")?;
+        let pill_activities = pill(&pills.activities, "metadata.pills.activities")?;
+        let pill_tags = pill(&pills.tags, "metadata.pills.tags")?;
+        let environment = &self.metadata.environment;
+        let aqi_poor = style(
+            &environment.aqi_poor,
+            warning,
+            "metadata.environment.aqi_poor",
+        )?;
+        let aqi_very_poor = style(
+            &environment.aqi_very_poor,
+            error,
+            "metadata.environment.aqi_very_poor",
+        )?;
+        let aqi_extremely_poor = style(
+            &environment.aqi_extremely_poor,
+            error,
+            "metadata.environment.aqi_extremely_poor",
+        )?;
+        let pollen_high = style(
+            &environment.pollen_high,
+            warning,
+            "metadata.environment.pollen_high",
+        )?;
+        let mood_negative = style(
+            &environment.mood_negative,
+            error,
+            "metadata.environment.mood_negative",
+        )?;
+        let mood_positive = style(
+            &environment.mood_positive,
+            success,
+            "metadata.environment.mood_positive",
+        )?;
+
         let glyph = |spec: &Option<String>, default: char, token: &str| -> Result<char> {
             spec.as_deref()
                 .map_or(Ok(default), |spec| parse_glyph(spec, token))
@@ -775,6 +943,74 @@ impl ThemeFile {
             _ => borders.focused_style,
         };
         let scrollbar_glyphs = &self.scrollbar.glyphs;
+        let metadata_glyphs = &self.metadata.glyphs;
+        let weather_glyphs = &metadata_glyphs.weather;
+        let moon_glyphs = &metadata_glyphs.moon;
+        let weather = WeatherGlyphs {
+            clear: glyph(&weather_glyphs.clear, '☀', "metadata.glyphs.weather.clear")?,
+            mostly_clear: glyph(
+                &weather_glyphs.mostly_clear,
+                '☼',
+                "metadata.glyphs.weather.mostly_clear",
+            )?,
+            partly_cloudy: glyph(
+                &weather_glyphs.partly_cloudy,
+                '☁',
+                "metadata.glyphs.weather.partly_cloudy",
+            )?,
+            cloudy: glyph(
+                &weather_glyphs.cloudy,
+                '☁',
+                "metadata.glyphs.weather.cloudy",
+            )?,
+            fog: glyph(&weather_glyphs.fog, '≡', "metadata.glyphs.weather.fog")?,
+            drizzle: glyph(
+                &weather_glyphs.drizzle,
+                '☂',
+                "metadata.glyphs.weather.drizzle",
+            )?,
+            rain: glyph(&weather_glyphs.rain, '☂', "metadata.glyphs.weather.rain")?,
+            snow: glyph(&weather_glyphs.snow, '❄', "metadata.glyphs.weather.snow")?,
+            thunderstorm: glyph(
+                &weather_glyphs.thunderstorm,
+                '↯',
+                "metadata.glyphs.weather.thunderstorm",
+            )?,
+        };
+        let moon = MoonGlyphs {
+            new: glyph(&moon_glyphs.new, '○', "metadata.glyphs.moon.new")?,
+            waxing_crescent: glyph(
+                &moon_glyphs.waxing_crescent,
+                '☽',
+                "metadata.glyphs.moon.waxing_crescent",
+            )?,
+            first_quarter: glyph(
+                &moon_glyphs.first_quarter,
+                '◐',
+                "metadata.glyphs.moon.first_quarter",
+            )?,
+            waxing_gibbous: glyph(
+                &moon_glyphs.waxing_gibbous,
+                '◐',
+                "metadata.glyphs.moon.waxing_gibbous",
+            )?,
+            full: glyph(&moon_glyphs.full, '●', "metadata.glyphs.moon.full")?,
+            waning_gibbous: glyph(
+                &moon_glyphs.waning_gibbous,
+                '◑',
+                "metadata.glyphs.moon.waning_gibbous",
+            )?,
+            last_quarter: glyph(
+                &moon_glyphs.last_quarter,
+                '◑',
+                "metadata.glyphs.moon.last_quarter",
+            )?,
+            waning_crescent: glyph(
+                &moon_glyphs.waning_crescent,
+                '☾',
+                "metadata.glyphs.moon.waning_crescent",
+            )?,
+        };
         // `focus_stripe` and `divider` live under `[borders.glyphs]` but resolve
         // out-of-band — they are standalone furniture, not part of the box set
         // the `[borders.glyphs]` overlay assembles.
@@ -796,7 +1032,6 @@ impl ThemeFile {
             chart_baseline: glyph(&charts.baseline.glyph, '┈', "charts.baseline.glyph")?,
             chart_groove: glyph(&charts.glyphs.groove, '·', "charts.glyphs.groove")?,
             bar_center: glyph(&charts.glyphs.bar_center, '│', "charts.glyphs.bar_center")?,
-            mood_fill: glyph(&charts.glyphs.mood_stroke, '─', "charts.glyphs.mood_stroke")?,
             scrollbar_thumb: glyph(&scrollbar_glyphs.thumb, '█', "scrollbar.glyphs.thumb")?,
             scrollbar_track: glyph(&scrollbar_glyphs.track, '║', "scrollbar.glyphs.track")?,
             scrollbar_up: glyph(&scrollbar_glyphs.up, '▲', "scrollbar.glyphs.up")?,
@@ -804,8 +1039,44 @@ impl ThemeFile {
             borders: border_glyphs,
             focused_borders,
         };
+        let metadata = intern_metadata_theme(MetadataTheme {
+            pill_style: pills.style,
+            pill_feelings,
+            pill_people,
+            pill_activities,
+            pill_tags,
+            aqi_poor,
+            aqi_very_poor,
+            aqi_extremely_poor,
+            pollen_high,
+            mood_negative,
+            mood_positive,
+            glyphs: EnvGlyphs {
+                separator: glyph(&metadata_glyphs.separator, '·', "metadata.glyphs.separator")?,
+                location: glyph(&metadata_glyphs.location, '⚑', "metadata.glyphs.location")?,
+                sunrise: glyph(&metadata_glyphs.sunrise, '↑', "metadata.glyphs.sunrise")?,
+                sunset: glyph(&metadata_glyphs.sunset, '↓', "metadata.glyphs.sunset")?,
+                air: glyph(&metadata_glyphs.air, '▲', "metadata.glyphs.air")?,
+                pollen: glyph(&metadata_glyphs.pollen, '❀', "metadata.glyphs.pollen")?,
+                mood_fill: glyph(&metadata_glyphs.mood_fill, '▓', "metadata.glyphs.mood_fill")?,
+                mood_track: glyph(
+                    &metadata_glyphs.mood_track,
+                    '░',
+                    "metadata.glyphs.mood_track",
+                )?,
+                feelings: glyph(&metadata_glyphs.feelings, '♥', "metadata.glyphs.feelings")?,
+                people: glyph(&metadata_glyphs.people, '@', "metadata.glyphs.people")?,
+                activities: glyph(
+                    &metadata_glyphs.activities,
+                    '◆',
+                    "metadata.glyphs.activities",
+                )?,
+                tags: glyph(&metadata_glyphs.tags, '#', "metadata.glyphs.tags")?,
+                weather,
+                moon,
+            },
+        });
 
-        let status = &self.status;
         Ok(Theme {
             base,
             content,
@@ -825,26 +1096,10 @@ impl ThemeFile {
             tab_separator,
             border_active,
             border_inactive,
-            success: style(
-                &status.success,
-                Style::default().fg(Color::Green),
-                "status.success",
-            )?,
-            warning: style(
-                &status.warning,
-                Style::default().fg(Color::Yellow),
-                "status.warning",
-            )?,
-            error: style(
-                &status.error,
-                Style::default().fg(Color::Red),
-                "status.error",
-            )?,
-            info: style(
-                &status.info,
-                Style::default().fg(Color::Blue),
-                "status.info",
-            )?,
+            success,
+            warning,
+            error,
+            info,
             selection,
             hover,
             button,
@@ -868,6 +1123,7 @@ impl ThemeFile {
             md_code,
             md_blockquote,
             syntax: markdown.syntax.resolve(mode, palette)?,
+            metadata,
             glyphs,
             chrome: self.chrome.default_style,
             scrim: self.chrome.scrim,

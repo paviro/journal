@@ -2,8 +2,10 @@ use ratatui::layout::Rect;
 
 use super::entry_rows::RowMeta;
 use super::surface::{
-    EntryListGeometry, EntryMetadataValues, entry_metadata_layout, metadata_item_at, point_in_rect,
+    EntryListGeometry, EntryMetadataValues, chip_at, chip_index_at, entry_metadata_layout,
+    point_in_rect,
 };
+use super::theme::PillCategory;
 
 /// Maps a point in the journal panel's content to the journal index under it, or
 /// `None` for the leading offset, the "Archived" divider row, or empty space. The
@@ -68,9 +70,8 @@ pub(crate) enum MetadataChip {
 }
 
 /// Which metadata chip (if any) sits under the given point, and its value.
-///
-/// Chips are tested in row order (feelings first) so overlapping rows resolve
-/// deterministically; each occupies a distinct row in practice.
+/// All categories share one label-less pill flow; the chip's position in it
+/// carries the category.
 pub(crate) fn metadata_at_point(
     reader_area: Rect,
     x: u16,
@@ -78,16 +79,25 @@ pub(crate) fn metadata_at_point(
     values: EntryMetadataValues<'_>,
 ) -> Option<(MetadataChip, String)> {
     let layout = entry_metadata_layout(reader_area, values);
-    [
-        (MetadataChip::Feelings, layout.feelings, values.feelings),
-        (MetadataChip::People, layout.people, values.people),
-        (
-            MetadataChip::Activities,
-            layout.activities,
-            values.activities,
-        ),
-        (MetadataChip::Tags, layout.tags, values.tags),
-    ]
-    .into_iter()
-    .find_map(|(chip, row, items)| metadata_item_at(row?, x, y, items).map(|value| (chip, value)))
+    let (category, value) = chip_at(layout.chips?, x, y, values)?;
+    let chip = match category {
+        PillCategory::Feelings => MetadataChip::Feelings,
+        PillCategory::People => MetadataChip::People,
+        PillCategory::Activities => MetadataChip::Activities,
+        PillCategory::Tags => MetadataChip::Tags,
+    };
+    Some((chip, value))
+}
+
+/// The flat chip index (into the pinned metadata's pill flow) under the given
+/// point — the identity a hover highlight tracks. Shares
+/// [`metadata_at_point`]'s layout so hover and click land on the same pill.
+pub(crate) fn metadata_chip_index_at(
+    reader_area: Rect,
+    x: u16,
+    y: u16,
+    values: EntryMetadataValues<'_>,
+) -> Option<usize> {
+    let layout = entry_metadata_layout(reader_area, values);
+    chip_index_at(layout.chips?, x, y, values)
 }

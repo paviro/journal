@@ -18,7 +18,7 @@ mod tests;
 
 use anyhow::{Context, Result};
 use ratatui::style::{Color, Modifier, Style};
-use schema::{ThemeFile, parse};
+use schema::parse;
 use serde::Deserialize;
 use std::{
     fs,
@@ -85,6 +85,28 @@ pub(crate) struct Fill {
 pub(crate) enum ChromeStyle {
     Flat,
     Bordered,
+}
+
+/// How the reader's metadata chips (feelings, people, activities, tags) are
+/// drawn: `Reversed` inverts the value's cell (the e-ink/classic look), `Bg`
+/// fills with the per-category pill colors, `Bracket` is plain `[value]` text.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum PillStyle {
+    #[default]
+    Reversed,
+    Bg,
+    Bracket,
+}
+
+/// Which metadata chip category a pill styles — the render-side key into the
+/// theme's per-category pill colors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PillCategory {
+    Feelings,
+    People,
+    Activities,
+    Tags,
 }
 
 /// The line character set a theme draws boxes with: panel and dialog borders,
@@ -236,6 +258,144 @@ impl Syntax {
     }
 }
 
+/// The resolved `[metadata]` section: pill and air-quality styles plus the
+/// environment strip's glyph vocabulary. Kept behind one interned `&'static`
+/// on [`Theme`] — `theme()` copies the whole struct on every call, so the
+/// section adds a pointer to that copy, not two hundred bytes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct MetadataTheme {
+    pub(super) pill_style: PillStyle,
+    pub(super) pill_feelings: Style,
+    pub(super) pill_people: Style,
+    pub(super) pill_activities: Style,
+    pub(super) pill_tags: Style,
+    pub(super) aqi_poor: Style,
+    pub(super) aqi_very_poor: Style,
+    pub(super) aqi_extremely_poor: Style,
+    pub(super) pollen_high: Style,
+    pub(super) mood_negative: Style,
+    pub(super) mood_positive: Style,
+    pub(super) glyphs: EnvGlyphs,
+}
+
+/// Like `intern_glyph` in the schema, but for whole resolved `[metadata]`
+/// sections — leaked once per distinct value so [`Theme`] carries a `Copy`
+/// reference. Themes resolve rarely (startup, picker preview, live reload),
+/// so the linear cache scan is nothing.
+pub(super) fn intern_metadata_theme(section: MetadataTheme) -> &'static MetadataTheme {
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<Vec<&'static MetadataTheme>>> = OnceLock::new();
+    let mut cache = CACHE
+        .get_or_init(Mutex::default)
+        .lock()
+        .expect("metadata theme intern lock");
+    if let Some(hit) = cache.iter().find(|cached| ***cached == section) {
+        return hit;
+    }
+    let leaked: &'static MetadataTheme = Box::leak(Box::new(section));
+    cache.push(leaked);
+    leaked
+}
+
+/// The environment strip's glyphs (`[metadata.glyphs]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct EnvGlyphs {
+    /// The dot between strip items; always rendered with a space each side so
+    /// the strip's width math stays fixed.
+    pub(crate) separator: char,
+    /// The marker leading the location item.
+    pub(crate) location: char,
+    /// The sunrise marker inside the sun item.
+    pub(crate) sunrise: char,
+    /// The sunset marker inside the sun item.
+    pub(crate) sunset: char,
+    /// The dot leading the air-quality badge.
+    pub(crate) air: char,
+    /// The marker leading the high-pollen badge.
+    pub(crate) pollen: char,
+    /// The mood bar's filled cells; the valence hue rides
+    /// `metadata.environment.mood_negative`/`mood_positive`.
+    pub(crate) mood_fill: char,
+    /// The mood bar's empty cells. The center marker stays the shared
+    /// `charts.glyphs.bar_center` (its heavy at-zero variant is code-side —
+    /// weight is the meaning).
+    pub(crate) mood_track: char,
+    /// The glyph leading each chip pill, by category.
+    pub(crate) feelings: char,
+    pub(crate) people: char,
+    pub(crate) activities: char,
+    pub(crate) tags: char,
+    /// The weather glyph per condition slug (`[metadata.glyphs.weather]`).
+    pub(crate) weather: WeatherGlyphs,
+    /// The moon glyph per phase slug (`[metadata.glyphs.moon]`).
+    pub(crate) moon: MoonGlyphs,
+}
+
+/// The environment strip's weather glyph per condition slug the context
+/// provider emits (`[metadata.glyphs.weather]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WeatherGlyphs {
+    pub(super) clear: char,
+    pub(super) mostly_clear: char,
+    pub(super) partly_cloudy: char,
+    pub(super) cloudy: char,
+    pub(super) fog: char,
+    pub(super) drizzle: char,
+    pub(super) rain: char,
+    pub(super) snow: char,
+    pub(super) thunderstorm: char,
+}
+
+impl WeatherGlyphs {
+    /// The glyph for a stored condition slug; `None` for slugs this build
+    /// doesn't know (future providers), which render without a glyph.
+    pub(crate) fn for_slug(self, slug: &str) -> Option<char> {
+        Some(match slug {
+            "clear" => self.clear,
+            "mostly-clear" => self.mostly_clear,
+            "partly-cloudy" => self.partly_cloudy,
+            "cloudy" => self.cloudy,
+            "fog" => self.fog,
+            "drizzle" => self.drizzle,
+            "rain" => self.rain,
+            "snow" => self.snow,
+            "thunderstorm" => self.thunderstorm,
+            _ => return None,
+        })
+    }
+}
+
+/// The environment strip's moon glyph per phase slug the celestial provider
+/// emits (`[metadata.glyphs.moon]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MoonGlyphs {
+    pub(super) new: char,
+    pub(super) waxing_crescent: char,
+    pub(super) first_quarter: char,
+    pub(super) waxing_gibbous: char,
+    pub(super) full: char,
+    pub(super) waning_gibbous: char,
+    pub(super) last_quarter: char,
+    pub(super) waning_crescent: char,
+}
+
+impl MoonGlyphs {
+    /// The glyph for a stored phase slug; `None` for unknown slugs.
+    pub(crate) fn for_slug(self, slug: &str) -> Option<char> {
+        Some(match slug {
+            "new" => self.new,
+            "waxing-crescent" => self.waxing_crescent,
+            "first-quarter" => self.first_quarter,
+            "waxing-gibbous" => self.waxing_gibbous,
+            "full" => self.full,
+            "waning-gibbous" => self.waning_gibbous,
+            "last-quarter" => self.last_quarter,
+            "waning-crescent" => self.waning_crescent,
+            _ => return None,
+        })
+    }
+}
+
 /// The theme's identity glyphs — every meaning-free character the UI repeats.
 /// Meaning-carrying glyph *variance* (heavy vs light at a zero mood, distinct
 /// chart-series glyphs) stays in code and [`Fill`]s.
@@ -260,8 +420,6 @@ pub(crate) struct Glyphs {
     /// The center marker of delta/mood bars (`charts.bar_center`). The heavy
     /// variant shown at an exact zero stays code-side (weight carries meaning).
     pub(crate) bar_center: char,
-    /// The stroke of the mood bar's fill (`charts.mood_stroke`).
-    pub(crate) mood_fill: char,
     /// The scrollbar's draggable handle (`glyphs.scrollbar_thumb`).
     pub(crate) scrollbar_thumb: char,
     /// The scrollbar's track behind the handle (`glyphs.scrollbar_track`).
@@ -337,6 +495,7 @@ pub(crate) struct Theme {
     md_code: Style,
     md_blockquote: Style,
     syntax: Syntax,
+    metadata: &'static MetadataTheme,
     glyphs: Glyphs,
     chrome: ChromeStyle,
     scrim: f32,
@@ -520,13 +679,15 @@ pub(crate) fn test_theme_from_toml(text: &str) -> Theme {
 
 impl Theme {
     /// The look the app has always had on a bare terminal: default colors,
-    /// bordered chrome, meaning carried by modifiers. This is byte-for-byte
-    /// the resolved `classic.toml` (a test pins that) and the fallback when no
-    /// theme has been installed or the configured one fails to parse.
+    /// bordered chrome, meaning carried by modifiers. Resolved from the
+    /// bundled `classic.toml` — the e-ink/no-assumptions theme, which also
+    /// swaps the metadata glyphs to ASCII — so the fallback for a missing or
+    /// broken theme never assumes more than a bare terminal renders. A test
+    /// pins the two to each other in both modes.
     pub(crate) fn terminal_default() -> Self {
-        ThemeFile::default()
-            .resolve(Mode::Dark)
-            .expect("default theme resolves")
+        static DEFAULT: std::sync::OnceLock<Theme> = std::sync::OnceLock::new();
+        *DEFAULT
+            .get_or_init(|| builtin("classic", Mode::Dark).expect("bundled classic theme resolves"))
     }
 
     // --- surfaces ---
@@ -862,6 +1023,83 @@ impl Theme {
         self.syntax
     }
 
+    // --- entry metadata ---
+
+    /// How the reader's metadata chips are drawn (`metadata.pills.style`).
+    pub(crate) fn pill_style(self) -> PillStyle {
+        self.metadata.pill_style
+    }
+
+    /// The style layered onto one metadata pill. `Reversed` inversion is
+    /// code-enforced (monochrome contract) and ignores the category colors;
+    /// `Bracket` pills are plain text; `Bg` uses the per-category pill styles,
+    /// which layer under the value's own ink like hover does.
+    pub(crate) fn pill(self, category: PillCategory) -> Style {
+        match self.metadata.pill_style {
+            PillStyle::Reversed => Style::default().add_modifier(Modifier::REVERSED),
+            PillStyle::Bracket => Style::default(),
+            PillStyle::Bg => match category {
+                PillCategory::Feelings => self.metadata.pill_feelings,
+                PillCategory::People => self.metadata.pill_people,
+                PillCategory::Activities => self.metadata.pill_activities,
+                PillCategory::Tags => self.metadata.pill_tags,
+            },
+        }
+    }
+
+    /// The glyph leading a chip pill of the given category, so the pill row
+    /// echoes the environment strip's glyph-led grammar.
+    pub(crate) fn pill_glyph(self, category: PillCategory) -> char {
+        match category {
+            PillCategory::Feelings => self.metadata.glyphs.feelings,
+            PillCategory::People => self.metadata.glyphs.people,
+            PillCategory::Activities => self.metadata.glyphs.activities,
+            PillCategory::Tags => self.metadata.glyphs.tags,
+        }
+    }
+
+    /// The style of the air-quality badge for a European AQI reading, or
+    /// `None` below 60 — clean air never renders. Bands: 60–80 poor, 80–100
+    /// very poor, 100+ extremely poor (bold in code so the worst band survives
+    /// monochrome).
+    pub(crate) fn aqi_band(self, aqi: i64) -> Option<Style> {
+        if aqi < 60 {
+            None
+        } else if aqi < 80 {
+            Some(self.metadata.aqi_poor)
+        } else if aqi < 100 {
+            Some(self.metadata.aqi_very_poor)
+        } else {
+            Some(
+                self.metadata
+                    .aqi_extremely_poor
+                    .add_modifier(Modifier::BOLD),
+            )
+        }
+    }
+
+    /// The style of the strip's high-pollen badge — like the AQI bands it
+    /// only renders when there is something to warn about, so it defaults to
+    /// the warning hue.
+    pub(crate) fn pollen_high(self) -> Style {
+        self.metadata.pollen_high
+    }
+
+    /// The mood gauge's filled-cell style for a valence: negative fills read as
+    /// the theme's error hue, positive as its success hue.
+    pub(crate) fn mood_fill(self, positive: bool) -> Style {
+        if positive {
+            self.metadata.mood_positive
+        } else {
+            self.metadata.mood_negative
+        }
+    }
+
+    /// The environment strip's glyph vocabulary (`[metadata.glyphs]`).
+    pub(crate) fn env_glyphs(self) -> EnvGlyphs {
+        self.metadata.glyphs
+    }
+
     // --- glyphs ---
 
     /// The theme's identity glyphs.
@@ -919,6 +1157,15 @@ impl Theme {
             ("md_link", self.md_link),
             ("md_code", self.md_code),
             ("md_blockquote", self.md_blockquote),
+            ("pill_feelings", self.metadata.pill_feelings),
+            ("pill_people", self.metadata.pill_people),
+            ("pill_activities", self.metadata.pill_activities),
+            ("pill_tags", self.metadata.pill_tags),
+            ("aqi_poor", self.metadata.aqi_poor),
+            ("aqi_very_poor", self.metadata.aqi_very_poor),
+            ("aqi_extremely_poor", self.metadata.aqi_extremely_poor),
+            ("mood_negative", self.metadata.mood_negative),
+            ("mood_positive", self.metadata.mood_positive),
         ]
     }
 }

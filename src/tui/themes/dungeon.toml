@@ -55,6 +55,10 @@ bar      = { glyph = "▓", color = { dark = "#d9a821", light = "#8a6d0d" } }
 track    = { glyph = "░", color = { dark = "#5c4a2e", light = "#b5a273" } }
 baseline = { color = { dark = "#5c4a2e", light = "#b5a273" } }
 
+# The delta/mood bars' center marker: matching the double borders.
+[charts.glyphs]
+bar_center = "║"
+
 [markdown]
 heading    = { fg = { dark = "#d9a821", light = "#8a6d0d" }, bold = true }
 link       = { fg = { dark = "#7a94bd", light = "#43608c" }, underlined = true }
@@ -76,3 +80,10 @@ attribute   = { dark = "#e08f3d", light = "#9c5f14" }
 tag         = { dark = "#c14b42", light = "#96322a" }
 label       = { dark = "#c14b42", light = "#96322a" }
 error       = { dark = "#c14b42", light = "#96322a" }
+
+[metadata.pills]
+style      = "bg"
+feelings   = { fg = { dark = "#937f57", light = "#7d6a45" }, bg = { dark = "#342b1c", light = "#d9cdb1" } }
+people     = { fg = { dark = "#7a94bd", light = "#43608c" }, bg = { dark = "#2e3035", light = "#cdcbbf" } }
+activities = { fg = { dark = "#7fa055", light = "#4e6b2e" }, bg = { dark = "#2f331b", light = "#d0cdac" } }
+tags       = { fg = { dark = "#d9a821", light = "#8a6d0d" }, bg = { dark = "#45350e", light = "#dccea6" } }

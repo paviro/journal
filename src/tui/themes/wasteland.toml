@@ -74,3 +74,39 @@ attribute   = { dark = "#ff8c1a", light = "#a85400" }
 tag         = { dark = "#ffb000", light = "#8a5a00" }
 label       = { dark = "#ff3b1f", light = "#a82810" }
 error       = { dark = "#ff3b1f", light = "#a82810" }
+
+# Vault-terminal metadata: bracketed chips and an ASCII environment strip —
+# no glyph the phosphor tube couldn't draw.
+[metadata.pills]
+style = "bracket"
+
+[metadata.glyphs]
+separator = "*"
+location  = "@"
+sunrise   = "^"
+sunset    = "v"
+air       = "!"
+pollen    = "%"
+feelings  = "*"
+activities = "+"
+
+[metadata.glyphs.weather]
+clear        = "o"
+mostly_clear = "o"
+partly_cloudy = "~"
+cloudy       = "~"
+fog          = "="
+drizzle      = ","
+rain         = ";"
+snow         = "*"
+thunderstorm = "z"
+
+[metadata.glyphs.moon]
+new             = "o"
+waxing_crescent = ")"
+first_quarter   = ")"
+waxing_gibbous  = ")"
+full            = "O"
+waning_gibbous  = "("
+last_quarter    = "("
+waning_crescent = "("

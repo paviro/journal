@@ -3,6 +3,7 @@ use ratatui::{Frame, layout::Rect};
 use crate::tui::{
     editor_state::{EditorPrompt, EntryEditor},
     render::{entry_metadata_layout, panel_block, render_scrollbar_if_needed},
+    state::HoverTarget,
     surface::PanelGeometry,
     theme::theme,
 };
@@ -101,6 +102,7 @@ pub(crate) fn draw_entry_editor(
     );
 
     if let Some(layout) = layout {
-        draw_metadata_section(frame, layout, &metadata);
+        // The editor's own metadata preview has no clickable chips, so no hover.
+        draw_metadata_section(frame, layout, &metadata, HoverTarget::None);
     }
 }

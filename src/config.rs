@@ -827,7 +827,11 @@ mod tests {
     fn load_config_resolves_relative_root_against_config_dir() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        fs::write(&path, "schema_version = 1\n\n[journal]\npath = \"journals\"\n").unwrap();
+        fs::write(
+            &path,
+            "schema_version = 1\n\n[journal]\npath = \"journals\"\n",
+        )
+        .unwrap();
 
         let config = load_config(&path).unwrap();
 

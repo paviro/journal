@@ -25,6 +25,30 @@ fn ensure_pixel_row_visible(
     *list.offset_mut() = scroll;
 }
 
+/// The selected entry's metadata lists, owned so a caller can hold one
+/// assembly and borrow it as [`crate::tui::render::EntryMetadataValues`].
+pub(crate) struct SelectedEntryMetadata {
+    tags: Vec<String>,
+    people: Vec<String>,
+    activities: Vec<String>,
+    feelings: Vec<String>,
+    mood: Option<i8>,
+    environment: Vec<crate::tui::env_strip::EnvItem>,
+}
+
+impl SelectedEntryMetadata {
+    pub(crate) fn values(&self) -> crate::tui::render::EntryMetadataValues<'_> {
+        crate::tui::render::EntryMetadataValues {
+            tags: &self.tags,
+            people: &self.people,
+            activities: &self.activities,
+            feelings: &self.feelings,
+            mood: self.mood,
+            environment: &self.environment,
+        }
+    }
+}
+
 impl App {
     pub(crate) fn selected_journal_index(&self) -> usize {
         self.nav.journal_list.selected().unwrap_or(0)
@@ -403,6 +427,40 @@ impl App {
         self.resolved_selected_entry()
             .map(|entry| entry.feelings.clone())
             .unwrap_or_default()
+    }
+
+    /// The selected entry's metadata exactly as the viewer draws it, owned in
+    /// one bundle so the click and hover paths borrow a single assembly. The
+    /// hit-test must reproduce the drawn layout — the strip and mood bar are
+    /// display-only, but their rows shift everything below them, so they ride
+    /// along or every chip's hit region lands on the wrong row.
+    pub(crate) fn selected_entry_metadata_values(&self) -> SelectedEntryMetadata {
+        SelectedEntryMetadata {
+            tags: self.selected_entry_tags(),
+            people: self.selected_entry_people(),
+            activities: self.selected_entry_activities(),
+            feelings: self.selected_entry_feelings(),
+            mood: self.selected_entry_mood(),
+            environment: self.selected_entry_env_items(),
+        }
+    }
+
+    /// The selected entry's environment-strip items, built from the same
+    /// inputs the viewer renders.
+    pub(crate) fn selected_entry_env_items(&self) -> Vec<crate::tui::env_strip::EnvItem> {
+        let Some(entry) = self.resolved_selected_entry() else {
+            return Vec::new();
+        };
+        let location = entry
+            .location
+            .as_ref()
+            .and_then(|location| location.display_label());
+        crate::tui::env_strip::environment_items(
+            location.as_deref(),
+            entry.weather.as_ref(),
+            entry.celestial.as_ref(),
+            entry.air_quality.as_ref(),
+        )
     }
 
     pub(crate) fn has_selected_entry_target(&self) -> bool {

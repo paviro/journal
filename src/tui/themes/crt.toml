@@ -72,5 +72,40 @@ link       = { fg = "phosphor", underlined = true }
 code       = { fg = "phosphor", bold = true }
 blockquote = "dim"
 
+# Phosphor-safe metadata: bracketed chips and an ASCII environment strip.
+[metadata.pills]
+style = "bracket"
+
+[metadata.glyphs]
+separator = "*"
+location  = "@"
+sunrise   = "^"
+sunset    = "v"
+air       = "!"
+pollen    = "%"
+feelings  = "*"
+activities = "+"
+
+[metadata.glyphs.weather]
+clear        = "o"
+mostly_clear = "o"
+partly_cloudy = "~"
+cloudy       = "~"
+fog          = "="
+drizzle      = ","
+rain         = ";"
+snow         = "*"
+thunderstorm = "z"
+
+[metadata.glyphs.moon]
+new             = "o"
+waxing_crescent = ")"
+first_quarter   = ")"
+waxing_gibbous  = ")"
+full            = "O"
+waning_gibbous  = "("
+last_quarter    = "("
+waning_crescent = "("
+
 [tabs.glyphs]
 separator = "/"

@@ -50,3 +50,37 @@ heading    = {}
 link       = { underlined = true }
 code       = {}
 blockquote = {}
+
+# Bare-terminal metadata: the environment strip in plain ASCII, so the
+# fallback (and e-ink screens) never depend on symbol coverage. Pills keep
+# the default reversed cell — the classic look.
+[metadata.glyphs]
+separator = "*"
+location  = "@"
+sunrise   = "^"
+sunset    = "v"
+air       = "!"
+pollen    = "%"
+feelings  = "*"
+activities = "+"
+
+[metadata.glyphs.weather]
+clear        = "o"
+mostly_clear = "o"
+partly_cloudy = "~"
+cloudy       = "~"
+fog          = "="
+drizzle      = ","
+rain         = ";"
+snow         = "*"
+thunderstorm = "z"
+
+[metadata.glyphs.moon]
+new             = "o"
+waxing_crescent = ")"
+first_quarter   = ")"
+waxing_gibbous  = ")"
+full            = "O"
+waning_gibbous  = "("
+last_quarter    = "("
+waning_crescent = "("

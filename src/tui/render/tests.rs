@@ -68,7 +68,7 @@ fn metadata_values<'a>(
         activities: &[],
         feelings,
         mood,
-        location: None,
+        environment: &[],
     }
 }
 
@@ -301,107 +301,81 @@ fn metadata_hit_map_accounts_for_mood_row() {
     let feelings = vec!["focused".to_string()];
     let values = metadata_values(&tags, &feelings, Some(2));
     let layout = crate::tui::surface::entry_metadata_layout(area, values);
-    let feelings_row = layout.feelings.unwrap();
-    let tags_row = layout.tags.unwrap();
+    let chips = layout.chips.unwrap();
+    // Mood bar on its own row, then a blank gap row, then the chips.
+    assert_eq!(chips.y, layout.mood.unwrap().y + 2);
 
+    // One glyph-led flow: " * focused  # work " — the feeling pill spans 11
+    // cells (its glyph, "focused", and padding), then a separator space, then
+    // the tag pill.
     assert_eq!(
-        metadata_at_point(
-            area,
-            feelings_row.rect.x + feelings_row.prefix_width,
-            feelings_row.rect.y,
-            values
-        ),
+        metadata_at_point(area, chips.x, chips.y, values),
         Some((MetadataChip::Feelings, "focused".to_string()))
     );
     assert_eq!(
-        metadata_at_point(
-            area,
-            tags_row.rect.x + tags_row.prefix_width,
-            tags_row.rect.y,
-            values
-        ),
+        metadata_at_point(area, chips.x + 12, chips.y, values),
         Some((MetadataChip::Tags, "work".to_string()))
     );
+    // The separator cell between the two pills hits nothing.
+    assert_eq!(metadata_at_point(area, chips.x + 11, chips.y, values), None);
 }
 
 #[test]
-fn metadata_layout_places_location_row_after_tags() {
+fn metadata_layout_places_environment_strip_before_mood_and_rows() {
     let area = Rect::new(42, 0, 60, 19);
     let tags = vec!["work".to_string()];
+    let environment =
+        crate::tui::env_strip::environment_items(Some("Testville, Testland"), None, None, None);
     let values = EntryMetadataValues {
         tags: &tags,
         people: &[],
         activities: &[],
         feelings: &[],
-        mood: None,
-        location: Some("Testville, Testland"),
+        mood: Some(2),
+        environment: &environment,
     };
 
     let layout = crate::tui::surface::entry_metadata_layout(area, values);
-    let tags_row = layout.tags.unwrap();
-    let location_row = layout.location.expect("location row is laid out");
+    let strip = layout.environment.expect("environment strip is laid out");
+    let mood = layout.mood.unwrap();
+    let chips = layout.chips.unwrap();
 
-    // Stacked below tags, and it does not participate in the click hit-test.
-    assert!(location_row.rect.y >= tags_row.rect.y + tags_row.rect.height);
-    assert_eq!(
-        metadata_at_point(
-            area,
-            location_row.rect.x + location_row.prefix_width,
-            location_row.rect.y,
-            values
-        ),
-        None
-    );
+    // Stacked right under the separator, above the mood bar and chip rows, and
+    // it does not participate in the click hit-test.
+    assert_eq!(strip.y, layout.metadata.unwrap().y + 1);
+    assert!(mood.y >= strip.y + strip.height);
+    assert!(chips.y > mood.y);
+    assert_eq!(metadata_at_point(area, strip.x, strip.y, values), None);
 }
 
 #[test]
-fn location_wrapped_lines_break_a_long_label_flush_left() {
-    let label = "Cafe Central - Main Street, Inner City, 1010 Vienna, Austria";
-    let lines = crate::tui::surface::location_wrapped_lines(10, 30, label);
-
-    assert!(lines.len() >= 2, "long label should wrap: {lines:?}");
-    // First line leaves room for the 10-cell "Location: " prefix; the rest use
-    // the full width. No continuation line starts with a leading space.
-    assert!(crate::tui::entry_rows::text_width(&lines[0]) <= 20);
-    for line in &lines[1..] {
-        assert!(crate::tui::entry_rows::text_width(line) <= 30);
-        assert!(!line.starts_with(' '));
-    }
-}
-
-#[test]
-fn location_row_height_reflects_wrapped_lines() {
+fn environment_strip_height_reflects_wrapped_rows() {
     let area = Rect::new(0, 0, 24, 60);
 
-    let short_layout = crate::tui::surface::entry_metadata_layout(
-        area,
-        EntryMetadataValues {
-            tags: &[],
-            people: &[],
-            activities: &[],
-            feelings: &[],
-            mood: None,
-            location: Some("Cafe"),
-        },
+    let short = crate::tui::env_strip::environment_items(Some("Cafe"), None, None, None);
+    let long = crate::tui::env_strip::environment_items(
+        Some("Grand Central Station Cafe"),
+        None,
+        None,
+        None,
     );
-    let long_layout = crate::tui::surface::entry_metadata_layout(
-        area,
-        EntryMetadataValues {
-            tags: &[],
-            people: &[],
-            activities: &[],
-            feelings: &[],
-            mood: None,
-            location: Some("Grand Central Station Cafe"),
-        },
-    );
+    let values = |environment| EntryMetadataValues {
+        tags: &[],
+        people: &[],
+        activities: &[],
+        feelings: &[],
+        mood: None,
+        environment,
+    };
+    let short_layout = crate::tui::surface::entry_metadata_layout(area, values(&short));
+    let long_layout = crate::tui::surface::entry_metadata_layout(area, values(&long));
 
-    assert_eq!(short_layout.location.unwrap().rect.height, 1);
-    assert!(long_layout.location.unwrap().rect.height >= 2);
+    assert_eq!(short_layout.environment.unwrap().height, 1);
+    assert!(long_layout.environment.unwrap().height >= 2);
 }
 
 #[test]
-fn reader_wraps_long_location_with_flush_left_continuation() {
+fn reader_wraps_long_location_hanging_under_its_glyph() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
@@ -416,45 +390,42 @@ fn reader_wraps_long_location_with_flush_left_continuation() {
     app.nav.focus = Focus::Reader;
 
     let reader = Rect::new(0, 0, 24, 60 - expanded_footer_height(&app, 24));
+    let environment = crate::tui::env_strip::environment_items(
+        Some("Grand Central Station Cafe"),
+        None,
+        None,
+        None,
+    );
     let values = EntryMetadataValues {
         tags: &[],
         people: &[],
         activities: &[],
         feelings: &[],
         mood: None,
-        location: Some("Grand Central Station Cafe"),
+        environment: &environment,
     };
     let metadata = crate::tui::surface::entry_metadata_layout(reader, values);
-    let location_row = metadata.location.expect("location row is laid out");
-
-    // Expected wrapping at the row's real (border-inset) width.
-    let wrapped = crate::tui::surface::location_wrapped_lines(
-        location_row.prefix_width,
-        location_row.rect.width,
-        "Grand Central Station Cafe",
-    );
-    assert!(wrapped.len() >= 2, "label should wrap: {wrapped:?}");
-    let continuation = wrapped[1].chars().next().unwrap().to_string();
+    let strip = metadata.environment.expect("environment strip is laid out");
+    assert!(strip.height >= 2, "label should wrap: {strip:?}");
 
     let backend = render_app(app, 24, 60);
     let buffer = backend.buffer();
 
-    assert_eq!(location_row.rect.height as usize, wrapped.len());
-    // Line 0 leads with the bold "Location: " label; the continuation line runs
-    // flush-left (first wrapped word, no prefix, no leading space).
+    // Line 0 leads with the location glyph; continuation rows indent two cells
+    // under it, so the glyph column stays blank below.
     assert_eq!(
-        buffer
-            .cell((location_row.rect.x, location_row.rect.y))
-            .unwrap()
-            .symbol(),
-        "L"
+        buffer.cell((strip.x, strip.y)).unwrap().symbol(),
+        crate::tui::theme::theme().env_glyphs().location.to_string()
     );
+    assert_eq!(buffer.cell((strip.x, strip.y + 1)).unwrap().symbol(), " ");
     assert_eq!(
-        buffer
-            .cell((location_row.rect.x, location_row.rect.y + 1))
-            .unwrap()
-            .symbol(),
-        continuation
+        buffer.cell((strip.x + 1, strip.y + 1)).unwrap().symbol(),
+        " "
+    );
+    assert_ne!(
+        buffer.cell((strip.x + 2, strip.y + 1)).unwrap().symbol(),
+        " ",
+        "continuation text starts after the two-cell indent"
     );
 }
 
@@ -465,25 +436,16 @@ fn metadata_hit_map_uses_terminal_cell_width_for_wide_text() {
     let feelings = vec!["嬉しい".to_string()];
     let values = metadata_values(&tags, &feelings, None);
     let layout = crate::tui::surface::entry_metadata_layout(area, values);
-    let feelings_row = layout.feelings.unwrap();
-    let tags_row = layout.tags.unwrap();
+    let chips = layout.chips.unwrap();
 
+    // " 嬉しい  集中 " — the feeling pill spans 8 terminal cells (6 for the
+    // wide glyphs + padding), the tag pill starts one separator later.
     assert_eq!(
-        metadata_at_point(
-            area,
-            feelings_row.rect.x + feelings_row.prefix_width + 5,
-            feelings_row.rect.y,
-            values
-        ),
+        metadata_at_point(area, chips.x + 5, chips.y, values),
         Some((MetadataChip::Feelings, "嬉しい".to_string()))
     );
     assert_eq!(
-        metadata_at_point(
-            area,
-            tags_row.rect.x + tags_row.prefix_width + 3,
-            tags_row.rect.y,
-            values
-        ),
+        metadata_at_point(area, chips.x + 9 + 2, chips.y, values),
         Some((MetadataChip::Tags, "集中".to_string()))
     );
 }
@@ -529,35 +491,45 @@ fn reader_wraps_metadata_rows_without_leading_space_or_separator() {
     let reader = Rect::new(0, 0, 24, 60 - expanded_footer_height(&app, 24));
     let values = metadata_values(&tags, &feelings, None);
     let metadata = crate::tui::surface::entry_metadata_layout(reader, values);
-    let feelings_row = metadata.feelings.unwrap();
-    let tags_row = metadata.tags.unwrap();
+    let chips = metadata.chips.unwrap();
 
     let backend = render_app(app, 24, 60);
     let buffer = backend.buffer();
 
-    assert_eq!(feelings_row.rect.height, 2);
-    assert_eq!(tags_row.rect.height, 2);
+    // At 20 content cells the six glyph-led pills flow onto four rows:
+    // " * calm  * focused " / " * tired  # work " / " # personal " / " # health ".
+    // A blank spacer separates each pair, so the four rows span seven display
+    // rows (chip rows on even offsets, spacers on odd).
+    assert_eq!(chips.height, 7);
+    // A wrapped row starts with its first pill: the one-cell pill padding, then
+    // the category glyph, then the value — no separator, no extra leading space.
+    assert_eq!(buffer.cell((chips.x, chips.y + 2)).unwrap().symbol(), " ");
     assert_eq!(
-        buffer
-            .cell((feelings_row.rect.x, feelings_row.rect.y + 1))
-            .unwrap()
-            .symbol(),
-        "f"
+        buffer.cell((chips.x + 1, chips.y + 2)).unwrap().symbol(),
+        "*"
     );
     assert_eq!(
-        buffer
-            .cell((tags_row.rect.x, tags_row.rect.y + 1))
-            .unwrap()
-            .symbol(),
-        "p"
+        buffer.cell((chips.x + 1, chips.y + 4)).unwrap().symbol(),
+        "#"
+    );
+    // The pill padding is part of the hit region, and the flow keeps each
+    // value's category across the wrap.
+    assert_eq!(
+        metadata_at_point(reader, chips.x, chips.y + 2, values),
+        Some((MetadataChip::Feelings, "tired".to_string()))
     );
     assert_eq!(
-        metadata_at_point(reader, feelings_row.rect.x, feelings_row.rect.y + 1, values),
-        Some((MetadataChip::Feelings, "focused".to_string()))
-    );
-    assert_eq!(
-        metadata_at_point(reader, tags_row.rect.x, tags_row.rect.y + 1, values),
+        metadata_at_point(reader, chips.x, chips.y + 4, values),
         Some((MetadataChip::Tags, "personal".to_string()))
+    );
+    // Spacer rows click nothing.
+    assert_eq!(
+        metadata_at_point(reader, chips.x, chips.y + 1, values),
+        None
+    );
+    assert_eq!(
+        metadata_at_point(reader, chips.x, chips.y + 3, values),
+        None
     );
 }
 
@@ -583,7 +555,7 @@ fn short_reader_scrolls_metadata_after_body() {
     app.nav.focus = Focus::Reader;
 
     let top = render_text(app, 80, 20);
-    assert!(!top.contains("Tags: tiny-screen"));
+    assert!(!top.contains("tiny-screen"));
 
     let mut app = new_app(Config::new(dir.path().to_path_buf()));
     app.select_journal_by_name("work");
@@ -591,8 +563,7 @@ fn short_reader_scrolls_metadata_after_body() {
     app.nav.scroll.reader = u16::MAX;
 
     let bottom = render_text(app, 80, 20);
-    assert!(bottom.contains("Feelings: focused"));
-    assert!(bottom.contains("Tags: tiny-screen"));
+    assert!(bottom.contains(" * focused   # tiny-screen "));
 }
 
 #[test]
@@ -604,12 +575,200 @@ fn metadata_pins_only_when_body_keeps_min_height() {
         activities: &[],
         feelings: &[],
         mood: None,
-        location: None,
+        environment: &[],
     };
     // Separator + one tag row = 2 metadata rows; inner height = area.height - 2. The
     // body needs 20 lines, so pin only once the inner height reaches 22 (area 24).
     assert!(metadata_scrolls_with_body(Rect::new(0, 0, 80, 23), values)); // inner 21 → body 19
     assert!(!metadata_scrolls_with_body(Rect::new(0, 0, 80, 24), values)); // inner 22 → body 20
+}
+
+/// The scrolling layout must produce exactly the rows the pinned layout
+/// reserves — the two render modes share one height truth or the pinned
+/// split truncates.
+#[test]
+fn metadata_scroll_lines_match_the_pinned_section_height() {
+    let metadata = notema_domain::Metadata {
+        tags: vec!["work".to_string(), "health".to_string()],
+        feelings: vec![
+            "calm".to_string(),
+            "focused".to_string(),
+            "tired".to_string(),
+        ],
+        people: vec!["Alex".to_string()],
+        mood: Some(2),
+        location: Some(notema_domain::Location {
+            name: Some("Grand Central Station Cafe".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let weather = notema_domain::Weather {
+        condition: Some("rain".to_string()),
+        temperature_celsius: Some(12.0),
+        feels_like_celsius: Some(7.0),
+        ..Default::default()
+    };
+    let celestial = notema_domain::Celestial {
+        moon_phase_name: Some("full".to_string()),
+        sunrise: Some("2026-07-01T05:12:00+02:00".to_string()),
+        sunset: Some("2026-07-01T21:48:00+02:00".to_string()),
+        ..Default::default()
+    };
+    let air = notema_domain::AirQuality {
+        european_aqi: Some(84),
+        ..Default::default()
+    };
+    let entry_metadata = super::metadata::EntryMetadata::from_metadata(&metadata).with_environment(
+        Some(&weather),
+        Some(&celestial),
+        Some(&air),
+    );
+
+    for width in [20u16, 32, 48, 80] {
+        let lines = super::metadata::metadata_section_lines(width, &entry_metadata);
+        let height = crate::tui::surface::metadata_section_height(width, entry_metadata.values());
+        assert_eq!(
+            lines.len() as u16,
+            height,
+            "modes disagree at width {width}"
+        );
+    }
+}
+
+/// Every pill style occupies its category glyph plus value-width + 2 cells, so
+/// switching themes can never change the layout or the hit-test; only the ink
+/// differs.
+#[test]
+fn pill_styles_share_geometry_across_reversed_bg_and_bracket() {
+    let metadata = notema_domain::Metadata {
+        tags: vec!["work".to_string()],
+        ..Default::default()
+    };
+    let entry_metadata = super::metadata::EntryMetadata::from_metadata(&metadata);
+    let tags_line = || super::metadata::metadata_section_lines(40, &entry_metadata)[1].clone();
+
+    // The default (classic/e-ink) look: inverted pills, led by the tag glyph.
+    let reversed = tags_line();
+    assert_eq!(reversed.spans[0].content.as_ref(), " # work ");
+    assert!(
+        reversed.spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::REVERSED)
+    );
+
+    theme::set_test_theme(theme::test_theme_from_toml(
+        "[metadata.pills]\nstyle = \"bg\"\ntags = { fg = \"#101010\", bg = \"#aabbcc\" }",
+    ));
+    let bg = tags_line();
+    assert_eq!(bg.spans[0].content.as_ref(), " # work ");
+    assert_eq!(
+        bg.spans[0].style.bg,
+        Some(ratatui::style::Color::Rgb(0xaa, 0xbb, 0xcc))
+    );
+
+    theme::set_test_theme(theme::test_theme_from_toml(
+        "[metadata.pills]\nstyle = \"bracket\"",
+    ));
+    let bracket = tags_line();
+    assert_eq!(bracket.spans[0].content.as_ref(), "[# work]");
+
+    assert_eq!(reversed.width(), bg.width());
+    assert_eq!(bg.width(), bracket.width());
+}
+
+/// The environment strip renders straight from the entry's front-matter
+/// tables: weather with temperature, air quality and pollen only when bad,
+/// moon, sun times at the entry's own offset, and the location.
+#[test]
+fn reader_renders_the_environment_strip_from_front_matter() {
+    let entry_text = |aqi: i64, grass_pollen: f64| {
+        format!(
+            "+++\nschema_version = 1\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n\
+             [location]\nname = \"Testville\"\n\n\
+             [weather]\ncondition = \"clear\"\ntemperature_celsius = 18.4\n\n\
+             [celestial]\nmoon_phase_name = \"full\"\nsunrise = \"2026-07-01T05:12:00+02:00\"\nsunset = \"2026-07-01T21:48:00+02:00\"\n\n\
+             [air_quality]\neuropean_aqi = {aqi}\ngrass_pollen = {grass_pollen}\n+++\n\n# A\nBody\n"
+        )
+    };
+    let render = |aqi: i64, grass_pollen: f64| {
+        let dir = tempdir().unwrap();
+        let entry_dir = dir.path().join("work").join("2026-07-01");
+        fs::create_dir_all(&entry_dir).unwrap();
+        fs::write(entry_dir.join("a.md"), entry_text(aqi, grass_pollen)).unwrap();
+        let mut app = new_app(Config::new(dir.path().to_path_buf()));
+        app.select_journal_by_name("work");
+        app.nav.focus = Focus::Reader;
+        render_text(app, 120, 40)
+    };
+
+    // Glyphs are the fallback theme's — classic's all-ASCII set.
+    let bad_air = render(72, 80.0);
+    assert!(bad_air.contains("o 18°C clear"), "strip was:\n{bad_air}");
+    assert!(bad_air.contains("! AQI 72"));
+    assert!(bad_air.contains("% high grass pollen"));
+    assert!(bad_air.contains("O full moon"));
+    assert!(bad_air.contains("^ 05:12 v 21:48"));
+    assert!(bad_air.contains("@ Testville"));
+
+    // Clean air and unremarkable pollen never render — both badges only
+    // appear from their warning bands upward.
+    let clean_air = render(55, 10.0);
+    assert!(!clean_air.contains("AQI"), "strip was:\n{clean_air}");
+    assert!(!clean_air.contains("pollen"));
+    assert!(clean_air.contains("o 18°C clear"));
+}
+
+/// The mouse path must feed the hit-test the same environment items the
+/// viewer drew: the strip's rows shift every chip row below them, so omitting
+/// the strip (the old `location: None`) lands clicks on the wrong row.
+#[test]
+fn chip_hit_test_accounts_for_the_environment_strip_rows() {
+    let dir = tempdir().unwrap();
+    let entry_dir = dir.path().join("work").join("2026-07-01");
+    fs::create_dir_all(&entry_dir).unwrap();
+    fs::write(
+        entry_dir.join("a.md"),
+        "+++\nschema_version = 1\n\n[entry]\ntags = [\"work\"]\n\n[time]\ncreated_at = \"2026-07-01T10:00:00+02:00\"\n\n[location]\nname = \"Testville Cafe\"\n+++\n\n# A\nBody\n",
+    )
+    .unwrap();
+    let mut app = new_app(Config::new(dir.path().to_path_buf()));
+    app.select_journal_by_name("work");
+    app.nav.focus = Focus::Reader;
+
+    let tags = app.selected_entry_tags();
+    let environment = app.selected_entry_env_items();
+    assert!(!environment.is_empty(), "the accessor must carry the strip");
+    let reader = Rect::new(0, 0, 80, 40);
+    let values = EntryMetadataValues {
+        tags: &tags,
+        people: &[],
+        activities: &[],
+        feelings: &[],
+        mood: None,
+        environment: &environment,
+    };
+    let chips = crate::tui::surface::entry_metadata_layout(reader, values)
+        .chips
+        .unwrap();
+
+    // A click on the drawn chips row resolves its pill…
+    assert_eq!(
+        metadata_at_point(reader, chips.x + 1, chips.y, values),
+        Some((MetadataChip::Tags, "work".to_string()))
+    );
+    // …and the strip really is part of the section's shape: without it the
+    // hit-test would reason about a shorter section than the one drawn (the
+    // old `location: None` bug), so the section rects must disagree.
+    let without_strip = EntryMetadataValues {
+        environment: &[],
+        ..values
+    };
+    assert_ne!(
+        crate::tui::surface::entry_metadata_layout(reader, without_strip).metadata,
+        crate::tui::surface::entry_metadata_layout(reader, values).metadata,
+    );
 }
 
 #[test]
@@ -1055,7 +1214,9 @@ fn reader_renders_feelings_metadata() {
 
     let rendered = render_text(app, 120, 20);
 
-    assert!(rendered.contains("Feelings: calm | focused"));
+    // Each value is a glyph-led padded pill in one label-less flow; feelings
+    // lead with their category glyph: " * calm   * focused ".
+    assert!(rendered.contains(" * calm   * focused "));
 }
 
 #[test]

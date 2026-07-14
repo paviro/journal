@@ -42,6 +42,16 @@ pub(crate) fn draw_selected_reader(frame: &mut Frame<'_>, area: Rect, app: &mut 
             .resolved_selected_entry()
             .is_some_and(|entry| entry.encryption_state == EntryEncryptionState::Plain);
 
+        // The environment tables live on the entry, not the metadata bundle,
+        // so the viewer layers them onto the strip here; the editor renders
+        // the same builder without them.
+        let entry = app.resolved_selected_entry();
+        let entry_metadata = EntryMetadata::from_metadata(&metadata).with_environment(
+            entry.and_then(|entry| entry.weather.as_ref()),
+            entry.and_then(|entry| entry.celestial.as_ref()),
+            entry.and_then(|entry| entry.air_quality.as_ref()),
+        );
+
         let (scroll, hits, content_rect, line_count) = draw_markdown_panel(
             frame,
             area,
@@ -50,7 +60,7 @@ pub(crate) fn draw_selected_reader(frame: &mut Frame<'_>, area: Rect, app: &mut 
                 title: &title,
                 content: &content,
                 word_count: app.selected_entry_word_count(),
-                metadata: EntryMetadata::from_metadata(&metadata),
+                metadata: entry_metadata,
                 attachments_openable,
             },
             app.nav.scroll.reader,
@@ -223,7 +233,7 @@ fn draw_markdown_panel(
     );
 
     if !metadata_scrolls && layout.metadata.is_some() {
-        draw_metadata_section(frame, layout, &metadata);
+        draw_metadata_section(frame, layout, &metadata, app.hover);
     }
 
     render_scrollbar_if_needed(

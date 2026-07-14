@@ -101,6 +101,14 @@ tag         = "pinky"
 label       = "blinky"
 error       = "blinky"
 
+# Ghost-quartet chips: each category rides one of the cabinet's hero hues.
+[metadata.pills]
+style      = "bg"
+feelings   = { fg = "pinky", bg = { dark = "#46102c", light = "#ecc7d9" } }
+people     = { fg = "inky", bg = { dark = "#0c3a44", light = "#c8e2e8" } }
+activities = { fg = "oneup", bg = { dark = "#103a24", light = "#c9dfd0" } }
+tags       = { fg = "coin", bg = { dark = "#4a4210", light = "#e8dfb8" } }
+
 [toast.glyphs]
 edge = "█"
 

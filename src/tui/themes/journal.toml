@@ -9,8 +9,15 @@
 # [text] ink · [accents] highlight hues · [status] feedback colors ·
 # [borders] line style and colors · [interaction] selection/hover/cursor ·
 # [scrollbar] colors and glyphs · [charts] insight graphs · [markdown] entry
-# rendering · [toast] · [tabs]. Every key is optional, and each element's
-# glyphs live in a [<section>.glyphs] table of its own.
+# rendering · [metadata] the entry view's chip pills and environment strip ·
+# [toast] · [tabs]. Every key is optional, and each element's glyphs live in
+# a [<section>.glyphs] table of its own.
+#
+# [metadata.pills] takes `style = "reversed"|"bg"|"bracket"` plus one style
+# per chip category (feelings, people, activities, tags); [metadata.glyphs]
+# holds the environment strip's characters, with per-slug weather and moon
+# tables ([metadata.glyphs.weather] / [metadata.glyphs.moon] — see
+# wasteland.toml for an all-ASCII set).
 #
 # Borders take `style = "plain"|"rounded"|"double"|"thick"|"ascii"`, plus
 # optional per-character overrides in [borders.glyphs] (top_left, top_right,
@@ -97,6 +104,13 @@ attribute   = { dark = "#f5b13d", light = "#9a5f00" }
 tag         = { dark = "#ff77a8", light = "#c02356" }
 label       = { dark = "#ff5c6a", light = "#c22f3c" }
 error       = { dark = "#ff5c6a", light = "#c22f3c" }
+
+[metadata.pills]
+style      = "bg"
+feelings   = { fg = { dark = "#b493ff", light = "#6b4fd6" }, bg = { dark = "#3c344f", light = "#d8d2ed" } }
+people     = { fg = { dark = "#62a0ff", light = "#1f5fd0" }, bg = { dark = "#28374f", light = "#c9d5ec" } }
+activities = { fg = { dark = "#7fd06a", light = "#357a2a" }, bg = { dark = "#2f432a", light = "#cddbcb" } }
+tags       = { fg = { dark = "#56b6b0", light = "#157d76" }, bg = { dark = "#243c3b", light = "#c7dbda" } }
 
 [tabs]
 separator = "secondary"

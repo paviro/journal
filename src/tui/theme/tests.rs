@@ -327,18 +327,219 @@ fn chart_baseline_merges_glyph_and_color() {
 #[test]
 fn chart_glyphs_live_in_the_charts_section() {
     let theme = parse(
-        "[charts.glyphs]\ngroove = \"‥\"\nbar_center = \"┋\"\nmood_stroke = \"═\"",
+        "[charts.glyphs]\ngroove = \"‥\"\nbar_center = \"┋\"",
         Mode::Dark,
     )
     .unwrap();
     assert_eq!(theme.glyphs().chart_groove, '‥');
     assert_eq!(theme.glyphs().bar_center, '┋');
-    assert_eq!(theme.glyphs().mood_fill, '═');
     // Defaults untouched by a partial section.
     let bare = parse("", Mode::Dark).unwrap();
     assert_eq!(bare.glyphs().chart_groove, '·');
     assert_eq!(bare.glyphs().bar_center, '│');
-    assert_eq!(bare.glyphs().mood_fill, '─');
+}
+
+#[test]
+fn metadata_pills_resolve_and_default_to_reversed() {
+    // Theme files from before the section existed (never overwritten on
+    // upgrade) get inverted pills — the classic/e-ink look — with the
+    // category colors inert.
+    let bare = parse("", Mode::Dark).unwrap();
+    assert_eq!(bare.pill_style(), PillStyle::Reversed);
+    for category in [
+        PillCategory::Feelings,
+        PillCategory::People,
+        PillCategory::Activities,
+        PillCategory::Tags,
+    ] {
+        assert_eq!(
+            bare.pill(category),
+            Style::default().add_modifier(Modifier::REVERSED)
+        );
+    }
+
+    let bg = parse(
+        "[surfaces]\n\
+         element = \"#202020\"\n\
+         [metadata.pills]\n\
+         style = \"bg\"\n\
+         feelings = { fg = \"#000000\", bg = \"#aabbcc\" }",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(bg.pill_style(), PillStyle::Bg);
+    assert_eq!(
+        bg.pill(PillCategory::Feelings),
+        Style::default()
+            .fg(Color::Rgb(0x00, 0x00, 0x00))
+            .bg(Color::Rgb(0xaa, 0xbb, 0xcc))
+    );
+    // Unset categories ride the hover lift, so `style = "bg"` alone still
+    // produces visible chips.
+    assert_eq!(bg.pill(PillCategory::Tags), bg.hover());
+
+    let bracket = parse("[metadata.pills]\nstyle = \"bracket\"", Mode::Dark).unwrap();
+    assert_eq!(bracket.pill_style(), PillStyle::Bracket);
+    assert_eq!(bracket.pill(PillCategory::People), Style::default());
+}
+
+#[test]
+fn aqi_bands_gate_below_sixty_and_ride_the_status_hues() {
+    let bare = parse("", Mode::Dark).unwrap();
+    assert_eq!(bare.aqi_band(59), None, "clean air must never render");
+    assert_eq!(bare.aqi_band(60), Some(bare.warning()));
+    assert_eq!(bare.aqi_band(80), Some(bare.error()));
+    // The worst band bolds in code so it survives monochrome.
+    assert_eq!(
+        bare.aqi_band(100),
+        Some(bare.error().add_modifier(Modifier::BOLD))
+    );
+
+    let themed = parse(
+        "[metadata.environment]\n\
+         aqi_poor = \"#aa8800\"\n\
+         aqi_very_poor = \"#cc4400\"\n\
+         aqi_extremely_poor = \"#ff0044\"",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(
+        themed.aqi_band(70).unwrap().fg,
+        Some(Color::Rgb(0xaa, 0x88, 0x00))
+    );
+    assert_eq!(
+        themed.aqi_band(90).unwrap().fg,
+        Some(Color::Rgb(0xcc, 0x44, 0x00))
+    );
+    assert_eq!(
+        themed.aqi_band(120).unwrap().fg,
+        Some(Color::Rgb(0xff, 0x00, 0x44))
+    );
+}
+
+#[test]
+fn metadata_glyphs_resolve_and_keep_their_defaults() {
+    let bare = parse("", Mode::Dark).unwrap();
+    assert_eq!(bare.env_glyphs().separator, '·');
+    assert_eq!(bare.env_glyphs().location, '⚑');
+    assert_eq!(bare.env_glyphs().sunrise, '↑');
+    assert_eq!(bare.env_glyphs().sunset, '↓');
+    assert_eq!(bare.env_glyphs().air, '▲');
+    assert_eq!(bare.env_glyphs().pollen, '❀');
+    assert_eq!(bare.env_glyphs().mood_fill, '▓');
+    assert_eq!(bare.env_glyphs().mood_track, '░');
+    // Every slug the providers emit maps — a typo in a match arm would
+    // silently drop that condition's glyph forever.
+    for (slug, glyph) in [
+        ("clear", '☀'),
+        ("mostly-clear", '☼'),
+        ("partly-cloudy", '☁'),
+        ("cloudy", '☁'),
+        ("fog", '≡'),
+        ("drizzle", '☂'),
+        ("rain", '☂'),
+        ("snow", '❄'),
+        ("thunderstorm", '↯'),
+    ] {
+        assert_eq!(
+            bare.env_glyphs().weather.for_slug(slug),
+            Some(glyph),
+            "{slug}"
+        );
+    }
+    for (slug, glyph) in [
+        ("new", '○'),
+        ("waxing-crescent", '☽'),
+        ("first-quarter", '◐'),
+        ("waxing-gibbous", '◐'),
+        ("full", '●'),
+        ("waning-gibbous", '◑'),
+        ("last-quarter", '◑'),
+        ("waning-crescent", '☾'),
+    ] {
+        assert_eq!(bare.env_glyphs().moon.for_slug(slug), Some(glyph), "{slug}");
+    }
+    // Slugs a future provider might emit render without a glyph, not a panic.
+    assert_eq!(bare.env_glyphs().weather.for_slug("hail"), None);
+    assert_eq!(bare.env_glyphs().moon.for_slug("blood"), None);
+
+    let themed = parse(
+        "[metadata.glyphs]\n\
+         separator = \"*\"\n\
+         location = \"@\"\n\
+         [metadata.glyphs.weather]\n\
+         rain = \"~\"\n\
+         [metadata.glyphs.moon]\n\
+         full = \"O\"",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(themed.env_glyphs().separator, '*');
+    assert_eq!(themed.env_glyphs().location, '@');
+    assert_eq!(themed.env_glyphs().weather.for_slug("rain"), Some('~'));
+    // Overriding one slug leaves the rest on their defaults.
+    assert_eq!(themed.env_glyphs().weather.for_slug("snow"), Some('❄'));
+    assert_eq!(themed.env_glyphs().moon.for_slug("full"), Some('O'));
+
+    let err = parse("[metadata.glyphs]\nseparator = \"ab\"", Mode::Dark).unwrap_err();
+    assert!(
+        err.to_string().contains("metadata.glyphs.separator"),
+        "{err:#}"
+    );
+}
+
+#[test]
+fn pill_glyphs_resolve_and_keep_their_defaults() {
+    let bare = parse("", Mode::Dark).unwrap();
+    for (category, glyph) in [
+        (PillCategory::Feelings, '♥'),
+        (PillCategory::People, '@'),
+        (PillCategory::Activities, '◆'),
+        (PillCategory::Tags, '#'),
+    ] {
+        assert_eq!(bare.pill_glyph(category), glyph, "{category:?}");
+    }
+
+    let themed = parse("[metadata.glyphs]\nfeelings = \"+\"", Mode::Dark).unwrap();
+    assert_eq!(themed.pill_glyph(PillCategory::Feelings), '+');
+    // Overriding one category leaves the rest on their defaults.
+    assert_eq!(themed.pill_glyph(PillCategory::Tags), '#');
+}
+
+#[test]
+fn pollen_high_rides_the_warning_hue_until_themed() {
+    let bare = parse("", Mode::Dark).unwrap();
+    assert_eq!(bare.pollen_high(), bare.warning());
+
+    let themed = parse(
+        "[metadata.environment]\npollen_high = \"#c8a200\"",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(themed.pollen_high().fg, Some(Color::Rgb(0xc8, 0xa2, 0x00)));
+}
+
+#[test]
+fn mood_fill_rides_the_status_hues_until_themed() {
+    let bare = parse("", Mode::Dark).unwrap();
+    assert_eq!(bare.mood_fill(false), bare.error());
+    assert_eq!(bare.mood_fill(true), bare.success());
+
+    let themed = parse(
+        "[metadata.environment]\n\
+         mood_negative = \"#993355\"\n\
+         mood_positive = \"#33aa77\"",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(
+        themed.mood_fill(false).fg,
+        Some(Color::Rgb(0x99, 0x33, 0x55))
+    );
+    assert_eq!(
+        themed.mood_fill(true).fg,
+        Some(Color::Rgb(0x33, 0xaa, 0x77))
+    );
 }
 
 #[test]
