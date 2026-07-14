@@ -142,7 +142,7 @@ pub(crate) fn render_confirm_buttons(
                 key_chip_style()
             }
         } else {
-            surface_style(theme().element_bg()).patch(theme().muted())
+            surface_style(theme().raised_bg()).patch(theme().muted())
         };
         if hovered == Some(is_yes) {
             style = style.patch(theme().button_hover());
@@ -215,7 +215,7 @@ pub(crate) fn draw_modal_frame(
     if flat_chrome() {
         // No outer border: the screen name and hints sit on full-width
         // element-surface bars along the top and bottom, like status bars.
-        let bar = Style::default().bg(theme().element_bg());
+        let bar = Style::default().bg(theme().raised_bg());
         let top_bar = Rect {
             height: 1.min(area.height),
             ..area

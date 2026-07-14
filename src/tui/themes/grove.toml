@@ -12,7 +12,7 @@ scrim = 0.45
 base    = { dark = "#0e130e", light = "#f6faf4" }
 content = { dark = "#101710", light = "#e9f1e5" }
 dialog  = { dark = "#192319", light = "#e2eddd" }
-element = { dark = "#1d281d", light = "#dbe8d4" }
+raised = { dark = "#1d281d", light = "#dbe8d4" }
 
 [text]
 body  = { dark = "#e3ecdd", light = "#22301f" }
@@ -28,7 +28,7 @@ error   = { dark = "#d1666a", light = "#a63a3f" }
 info    = { dark = "#7aa2c0", light = "#2f5f8f" }
 
 [borders]
-normal    = { dark = "#2b3a2b", light = "#c8d8bf" }
+card    = { dark = "#2b3a2b", light = "#c8d8bf" }
 subtle    = { dark = "#202c20", light = "#d8e4d0" }
 focused   = { dark = "#7fb069", light = "#3e6b2f" }
 unfocused = { dark = "#2b3a2b", light = "#c8d8bf" }

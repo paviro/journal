@@ -77,7 +77,7 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
                 if index.is_some() && *index == hovered && *index != selected {
                     item.style(theme().hover())
                 } else if flat && index.is_some() {
-                    item.style(Style::default().bg(theme().element_bg()))
+                    item.style(Style::default().bg(theme().raised_bg()))
                 } else {
                     item
                 }

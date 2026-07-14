@@ -15,7 +15,7 @@ scrim = 0.6
 base    = { dark = "#000000", light = "#f4faf4" }
 content = { dark = "#071007", light = "#e8f3e8" }
 dialog  = { dark = "#0b170b", light = "#dcecdc" }
-element = { dark = "#0f1f0f", light = "#d2e6d2" }
+raised = { dark = "#0f1f0f", light = "#d2e6d2" }
 
 [text]
 body  = { dark = "#00ff66", light = "#0a5f2a" }
@@ -33,7 +33,7 @@ error   = { dark = "#ff3355", light = "#c40028" }
 info    = { dark = "#00d488", light = "#00786b" }
 
 [borders]
-normal        = { dark = "#163a1e", light = "#b8d8c0" }
+card        = { dark = "#163a1e", light = "#b8d8c0" }
 subtle        = { dark = "#0d220f", light = "#d0e6d4" }
 focused       = { dark = "#00ff66", light = "#0a6f30" }
 unfocused     = { dark = "#163a1e", light = "#b8d8c0" }
@@ -99,7 +99,7 @@ separator = "*"
 location  = "@"
 sunrise   = "^"
 sunset    = "v"
-air       = "!"
+aqi       = "!"
 pollen    = "%"
 
 [metadata.glyphs.weather]

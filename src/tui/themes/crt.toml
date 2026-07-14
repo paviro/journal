@@ -19,7 +19,7 @@ glass    = { dark = "#020a04", light = "#eef7ee" }
 base    = "glass"
 content = "glass"
 dialog  = { dark = "#07160c", light = "#e0efe0" }
-element = { dark = "#0b2112", light = "#d5e8d5" }
+raised = { dark = "#0b2112", light = "#d5e8d5" }
 
 [text]
 body  = "phosphor"
@@ -36,7 +36,7 @@ info    = "phosphor"
 
 [borders]
 style = "ascii"
-normal    = "dim"
+card    = "dim"
 subtle    = "dim"
 focused   = "phosphor"
 unfocused = "dim"
@@ -86,7 +86,7 @@ separator = "*"
 location  = "@"
 sunrise   = "^"
 sunset    = "v"
-air       = "!"
+aqi       = "!"
 pollen    = "%"
 feelings  = "*"
 activities = "+"

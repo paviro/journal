@@ -23,7 +23,7 @@ oneup   = { dark = "#00e676", light = "#1e8a4e" }  # 1UP green
 base    = { dark = "#000000", light = "#f4f2ea" }
 content = { dark = "#000000", light = "#f4f2ea" }
 dialog  = { dark = "#0e0e14", light = "#eae7db" }
-element = { dark = "#16161f", light = "#ded9c9" }
+raised = { dark = "#16161f", light = "#ded9c9" }
 
 [text]
 body  = { dark = "#f2f2f2", light = "#1a1a1a" }
@@ -43,7 +43,7 @@ info    = "inky"
 # Calm charcoal bezels; the focused panel glows insert-coin red so the active
 # cabinet stands out without the whole screen shouting.
 [borders]
-normal        = { dark = "#3a3a4a", light = "#c4c0b2" }
+card        = { dark = "#3a3a4a", light = "#c4c0b2" }
 subtle        = { dark = "#1e1e28", light = "#d8d4c6" }
 focused       = "blinky"
 unfocused     = { dark = "#3a3a4a", light = "#c4c0b2" }

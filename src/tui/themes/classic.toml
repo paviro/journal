@@ -13,7 +13,7 @@ scrim = 0.0        # 0 falls back to dimming (no color blend)
 [surfaces]
 base    = "none"   # terminal default
 content = "none"
-element = "none"
+raised = "none"
 
 [text]
 body  = {}         # terminal foreground; bold/dim come from the UI itself
@@ -29,7 +29,7 @@ error   = "red"
 info    = "blue"
 
 [borders]
-normal    = "244"
+card    = "244"
 subtle    = "240"
 focused   = {}
 unfocused = {}
@@ -57,7 +57,7 @@ separator = "*"
 location  = "@"
 sunrise   = "^"
 sunset    = "v"
-air       = "!"
+aqi       = "!"
 pollen    = "%"
 feelings  = "*"
 activities = "+"

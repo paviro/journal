@@ -19,7 +19,7 @@ paper = { dark = "#000000", light = "#ffffff" }
 base    = "paper"
 content = "paper"
 dialog  = { dark = "#1a1a1a", light = "#f2f2f2" }
-element = "paper"
+raised = "paper"
 
 [text]
 body  = "ink"
@@ -35,7 +35,7 @@ error   = "ink"
 info    = "ink"
 
 [borders]
-normal    = "ink"
+card    = "ink"
 subtle    = "ink"
 focused   = "ink"
 unfocused = "ink"

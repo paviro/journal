@@ -134,7 +134,7 @@ fn draw_title_box(
     let block;
     let pad_top;
     if flat_chrome() {
-        block = Block::new().style(Style::default().bg(theme().element_bg()));
+        block = Block::new().style(Style::default().bg(theme().raised_bg()));
         pad_top = area.height.saturating_sub(1) as usize / 2;
     } else {
         block = Block::default()

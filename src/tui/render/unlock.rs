@@ -83,7 +83,7 @@ pub(crate) fn draw_unlock(
     // an element-colored surface with the same inner geometry.
     let subfield = if super::flat_chrome() {
         Block::new()
-            .style(Style::default().bg(theme().element_bg()))
+            .style(Style::default().bg(theme().raised_bg()))
             .padding(Padding::new(2, 2, 1, 1))
     } else {
         Block::default()

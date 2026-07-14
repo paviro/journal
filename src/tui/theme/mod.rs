@@ -340,6 +340,23 @@ pub(crate) struct MarkdownGlyphs {
     pub(crate) code_top: String,
     /// The bottom of a code fence (`markdown.glyphs.code_bottom`).
     pub(crate) code_bottom: String,
+    /// The unordered-list bullet (`markdown.glyphs.bullet`).
+    pub(crate) bullet: char,
+    /// The done / to-do task checkboxes (`markdown.glyphs.task_done` / `task_todo`).
+    pub(crate) task_done: String,
+    pub(crate) task_todo: String,
+    /// The GitHub-alert icons (`[markdown.glyphs.alert]`).
+    pub(crate) alert: AlertGlyphs,
+}
+
+/// The icon leading each GitHub-style alert blockquote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct AlertGlyphs {
+    pub(crate) note: char,
+    pub(crate) tip: char,
+    pub(crate) important: char,
+    pub(crate) warning: char,
+    pub(crate) caution: char,
 }
 
 /// Intern markdown glyphs by value — mirrors [`intern_metadata_theme`].
@@ -364,7 +381,7 @@ pub(crate) struct EnvGlyphs {
     /// The sunset marker inside the sun item.
     pub(crate) sunset: char,
     /// The dot leading the air-quality badge.
-    pub(crate) air: char,
+    pub(crate) aqi: char,
     /// The marker leading the high-pollen badge.
     pub(crate) pollen: char,
     /// The mood bar's filled cells; the valence hue rides
@@ -522,7 +539,7 @@ pub(crate) struct Theme {
     base: Color,
     content: Color,
     dialog: Color,
-    element: Color,
+    raised: Color,
     footer: Color,
     text: Style,
     muted: Style,
@@ -530,7 +547,6 @@ pub(crate) struct Theme {
     placeholder: Style,
     primary: Style,
     secondary: Style,
-    border: Style,
     border_subtle: Style,
     border_active: Style,
     border_inactive: Style,
@@ -559,10 +575,13 @@ pub(crate) struct Theme {
     chart_baseline: Style,
     chart_label: Style,
     md_heading: Style,
-    md_heading3: Style,
+    md_heading2: Style,
+    md_subheading: Style,
     md_link: Style,
     md_code: Style,
+    md_inline_code: Style,
     md_blockquote: Style,
+    md_highlight: Style,
     syntax: Syntax,
     metadata: &'static MetadataTheme,
     glyphs: Glyphs,
@@ -784,8 +803,8 @@ impl Theme {
     }
 
     /// Raised items sitting on a panel: inputs, cards, list rows, status bars.
-    pub(crate) fn element_bg(self) -> Color {
-        self.element
+    pub(crate) fn raised_bg(self) -> Color {
+        self.raised
     }
 
     /// The hint/footer bar. Defaults to the base surface, so a theme can tint
@@ -1066,15 +1085,21 @@ impl Theme {
 
     // --- markdown ---
 
-    /// Markdown headings in the entry viewer.
+    /// The top-level markdown heading (H1) in the entry viewer.
     pub(crate) fn md_heading(self) -> Style {
         self.md_heading
     }
 
-    /// Third-level markdown headings, for themes that fade deeper levels.
-    /// (H2 is body ink + bold by the renderer's design.)
-    pub(crate) fn md_heading3(self) -> Style {
-        self.md_heading3
+    /// The second-level markdown heading (H2), defaulting to `md_heading` so
+    /// H1 and H2 read alike until a theme splits them.
+    pub(crate) fn md_heading2(self) -> Style {
+        self.md_heading2
+    }
+
+    /// Faded markdown sub-headings (H3 and deeper), for themes that step down
+    /// the hierarchy.
+    pub(crate) fn md_subheading(self) -> Style {
+        self.md_subheading
     }
 
     /// Markdown links.
@@ -1082,14 +1107,24 @@ impl Theme {
         self.md_link
     }
 
-    /// Inline code and code blocks.
+    /// Fenced code blocks.
     pub(crate) fn md_code(self) -> Style {
         self.md_code
+    }
+
+    /// Inline `` `code` `` spans, defaulting to `md_code`.
+    pub(crate) fn md_inline_code(self) -> Style {
+        self.md_inline_code
     }
 
     /// Block quotes.
     pub(crate) fn md_blockquote(self) -> Style {
         self.md_blockquote
+    }
+
+    /// `==highlight==` spans, defaulting to the primary accent (reversed + bold).
+    pub(crate) fn md_highlight(self) -> Style {
+        self.md_highlight
     }
 
     /// Syntax-highlight colors for fenced code blocks.
@@ -1203,7 +1238,6 @@ impl Theme {
             ("heading", self.heading),
             ("placeholder", self.placeholder),
             ("primary", self.primary),
-            ("border", self.border),
             ("border_subtle", self.border_subtle),
             ("border_active", self.border_active),
             ("border_inactive", self.border_inactive),
@@ -1227,10 +1261,13 @@ impl Theme {
             ("chart_baseline", self.chart_baseline),
             ("chart_label", self.chart_label),
             ("md_heading", self.md_heading),
-            ("md_heading3", self.md_heading3),
+            ("md_heading2", self.md_heading2),
+            ("md_subheading", self.md_subheading),
             ("md_link", self.md_link),
             ("md_code", self.md_code),
+            ("md_inline_code", self.md_inline_code),
             ("md_blockquote", self.md_blockquote),
+            ("md_highlight", self.md_highlight),
             ("pill_feelings", self.metadata.pill_feelings),
             ("pill_people", self.metadata.pill_people),
             ("pill_activities", self.metadata.pill_activities),

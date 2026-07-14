@@ -14,7 +14,7 @@ scrim = 0.3
 base    = { dark = "#0a0603", light = "#f2e8d0" }
 content = { dark = "#0a0603", light = "#f2e8d0" }
 dialog  = { dark = "#140d05", light = "#e8dcbe" }
-element = { dark = "#1c1308", light = "#ddceac" }
+raised = { dark = "#1c1308", light = "#ddceac" }
 
 [text]
 body  = { dark = "#ffb000", light = "#5a3d0a" }
@@ -31,7 +31,7 @@ info    = { dark = "#d4a850", light = "#7a5a1a" }
 
 [borders]
 style     = "plain"
-normal    = { dark = "#4a3410", light = "#c9b485" }
+card    = { dark = "#4a3410", light = "#c9b485" }
 subtle    = { dark = "#241806", light = "#e0d4b6" }
 focused   = { dark = "#ffb000", light = "#8a5a00" }
 unfocused = { dark = "#4a3410", light = "#c9b485" }
@@ -85,7 +85,7 @@ separator = "*"
 location  = "@"
 sunrise   = "^"
 sunset    = "v"
-air       = "!"
+aqi       = "!"
 pollen    = "%"
 feelings  = "*"
 activities = "+"

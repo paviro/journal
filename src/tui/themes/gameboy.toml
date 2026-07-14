@@ -22,7 +22,7 @@ ink     = { dark = "#9bbc0f", light = "#0f380f" }
 base    = "shell"
 content = "shell"
 dialog  = { dark = "#143f14", light = "#8bac0f" }
-element = { dark = "#1a481a", light = "#7e9c0c" }
+raised = { dark = "#1a481a", light = "#7e9c0c" }
 
 [text]
 body  = "ink"
@@ -39,7 +39,7 @@ error   = "frame"
 
 [borders]
 style     = "plain"
-normal    = "frame"
+card    = "frame"
 subtle    = { dark = "#1a481a", light = "#7e9c0c" }
 focused   = "ink"
 unfocused = "frame"
@@ -97,7 +97,7 @@ separator = "*"
 location  = "@"
 sunrise   = "^"
 sunset    = "v"
-air       = "!"
+aqi       = "!"
 pollen    = "%"
 feelings  = "*"
 activities = "+"

@@ -8,7 +8,7 @@ use serde::Deserialize;
 use std::{collections::BTreeMap, str::FromStr};
 
 use super::{
-    BorderGlyphs, ChartRamps, ChromeStyle, CustomBorderSet, EnvGlyphs, Fill, Glyphs,
+    AlertGlyphs, BorderGlyphs, ChartRamps, ChromeStyle, CustomBorderSet, EnvGlyphs, Fill, Glyphs,
     MarkdownGlyphs, MetadataTheme, Mode, MoonGlyphs, PillStyle, Syntax, Theme, WeatherGlyphs,
     intern_chart_ramps, intern_markdown_glyphs, intern_metadata_theme,
 };
@@ -212,7 +212,7 @@ struct SurfacesSection {
     base: Option<ColorSpec>,
     content: Option<ColorSpec>,
     dialog: Option<ColorSpec>,
-    element: Option<ColorSpec>,
+    raised: Option<ColorSpec>,
     footer: Option<ColorSpec>,
 }
 
@@ -255,14 +255,14 @@ struct BordersSection {
     /// Per-glyph overrides for the focused set, layered on `focused_style` (or
     /// the base set when no `focused_style` is given).
     focused_glyphs: Option<BorderGlyphsSection>,
-    normal: Option<TokenSpec>,
     subtle: Option<TokenSpec>,
     focused: Option<TokenSpec>,
     unfocused: Option<TokenSpec>,
     /// The rule of section dividers (month headers, "Archived"). Defaults to the
     /// muted ink the divider has always used.
     divider: Option<TokenSpec>,
-    /// The outline of entry/journal/stat cards. Defaults to `normal`.
+    /// The outline of entry/journal/stat cards. Defaults to ANSI 244 — the
+    /// quiet grey the card border has always used.
     card: Option<TokenSpec>,
 }
 
@@ -423,7 +423,7 @@ struct ChartsSection {
     glyphs: ChartsGlyphsSection,
 }
 
-/// Every glyph a chart draws. `ramp`/`ramp_down` are the eighths ramps for
+/// Every glyph a chart draws. `ramp_up`/`ramp_down` are the eighths ramps for
 /// vertical bars and are the only multi-character keys; all others are exactly
 /// one character.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -446,10 +446,16 @@ struct ChartsGlyphsSection {
 #[serde(default, deny_unknown_fields)]
 struct MarkdownSection {
     heading: Option<TokenSpec>,
-    heading3: Option<TokenSpec>,
+    heading2: Option<TokenSpec>,
+    subheading: Option<TokenSpec>,
     link: Option<TokenSpec>,
     code: Option<TokenSpec>,
+    /// Inline `` `code` `` spans. Defaults to `code` so both read alike until a
+    /// theme splits them (e.g. an inline chip with a background).
+    inline_code: Option<TokenSpec>,
     blockquote: Option<TokenSpec>,
+    /// `==highlight==` spans. Defaults to the primary accent, reversed + bold.
+    highlight: Option<TokenSpec>,
     syntax: SyntaxSection,
     glyphs: MarkdownGlyphsSection,
 }
@@ -463,6 +469,26 @@ struct MarkdownGlyphsSection {
     code_rail: Option<String>,
     code_top: Option<String>,
     code_bottom: Option<String>,
+    /// The unordered-list bullet (`-` by default). One character; ordered lists
+    /// keep their `N.` numbering.
+    bullet: Option<String>,
+    /// The task-list checkboxes, done and to-do (`[x]` / `[ ]` by default). Short
+    /// strings, so a theme can use single-glyph boxes (`☑` / `☐`) instead.
+    task_done: Option<String>,
+    task_todo: Option<String>,
+    alert: AlertGlyphsSection,
+}
+
+/// The icon leading each GitHub-style alert blockquote. One character each; the
+/// band colors ride the status hues (`info`/`success`/`primary`/`warning`/`error`).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct AlertGlyphsSection {
+    note: Option<String>,
+    tip: Option<String>,
+    important: Option<String>,
+    warning: Option<String>,
+    caution: Option<String>,
 }
 
 /// Syntax-highlight colors for fenced code blocks, one key per category the
@@ -599,7 +625,7 @@ struct MetadataGlyphsSection {
     sunrise: Option<String>,
     sunset: Option<String>,
     /// The dot leading the air-quality badge.
-    air: Option<String>,
+    aqi: Option<String>,
     /// The marker leading the high-pollen badge.
     pollen: Option<String>,
     /// The mood bar's filled and empty cells (the center marker is the shared
@@ -740,7 +766,7 @@ impl ThemeFile {
         let base = color(&surfaces.base, Color::Reset, "surfaces.base")?;
         let content = color(&surfaces.content, base, "surfaces.content")?;
         let dialog = color(&surfaces.dialog, content, "surfaces.dialog")?;
-        let element = color(&surfaces.element, content, "surfaces.element")?;
+        let raised = color(&surfaces.raised, content, "surfaces.raised")?;
         let footer = color(&surfaces.footer, base, "surfaces.footer")?;
         let text = style(&self.text.body, Style::default(), "text.body")?;
         let muted = style(&self.text.muted, Style::default(), "text.muted")?;
@@ -753,11 +779,6 @@ impl ThemeFile {
         )?;
         let secondary = style(&self.accents.secondary, primary, "accents.secondary")?;
         let borders = &self.borders;
-        let border = style(
-            &borders.normal,
-            Style::default().fg(Color::Indexed(244)),
-            "borders.normal",
-        )?;
         let border_subtle = style(
             &borders.subtle,
             Style::default().fg(Color::Indexed(240)),
@@ -771,7 +792,11 @@ impl ThemeFile {
         // default.
         let muted_ink = muted.add_modifier(Modifier::DIM);
         let divider = style(&borders.divider, muted_ink, "borders.divider")?;
-        let card_border = style(&borders.card, border, "borders.card")?;
+        let card_border = style(
+            &borders.card,
+            Style::default().fg(Color::Indexed(244)),
+            "borders.card",
+        )?;
         let tab_separator = style(&self.tabs.separator, muted_ink, "tabs.separator")?;
         // The thumb inherits the focused-border hue (it marks the scrollable,
         // interactable panel); the track stays terminal-default quiet.
@@ -801,13 +826,13 @@ impl ThemeFile {
         )?;
         // Unlike selection, a bg-only hover is fine: it layers under the
         // row's existing foreground instead of replacing it. The default
-        // *lifts* the element surface rather than reusing it: element is what
+        // *lifts* the raised surface rather than reusing it: raised is what
         // cards/chips already sit on, so a same-color hover would be invisible
         // exactly where hover matters most — and theme files written before
         // the token existed (never overwritten on upgrade) hit this default.
         let hover = match &interaction.hover {
             Some(spec) => spec.resolve(mode, palette, "interaction.hover")?,
-            None => Style::default().bg(lift(element, mode)),
+            None => Style::default().bg(lift(raised, mode)),
         };
         // Buttons are selection-colored unless a theme splits them.
         let button = readable_fill(&interaction.button, selection, "interaction.button")?;
@@ -889,17 +914,26 @@ impl ThemeFile {
 
         let markdown = &self.markdown;
         let md_heading = style(&markdown.heading, Style::default(), "markdown.heading")?;
-        let md_heading3 = style(&markdown.heading3, md_heading, "markdown.heading3")?;
+        let md_heading2 = style(&markdown.heading2, md_heading, "markdown.heading2")?;
+        let md_subheading = style(&markdown.subheading, md_heading, "markdown.subheading")?;
         let md_link = style(
             &markdown.link,
             Style::default().add_modifier(Modifier::UNDERLINED),
             "markdown.link",
         )?;
         let md_code = style(&markdown.code, Style::default(), "markdown.code")?;
+        let md_inline_code = style(&markdown.inline_code, md_code, "markdown.inline_code")?;
         let md_blockquote = style(
             &markdown.blockquote,
             Style::default(),
             "markdown.blockquote",
+        )?;
+        // `==highlight==` defaults to the primary accent, reversed and bold — the
+        // long-standing hardcoded look — until a theme restyles it.
+        let md_highlight = style(
+            &markdown.highlight,
+            primary.add_modifier(Modifier::REVERSED | Modifier::BOLD),
+            "markdown.highlight",
         )?;
 
         if !(0.0..=1.0).contains(&self.chrome.scrim) {
@@ -1147,6 +1181,44 @@ impl ThemeFile {
                     "╰─",
                     "markdown.glyphs.code_bottom",
                 )?,
+                bullet: glyph(&self.markdown.glyphs.bullet, '-', "markdown.glyphs.bullet")?,
+                task_done: string_glyph(
+                    &self.markdown.glyphs.task_done,
+                    "[x]",
+                    "markdown.glyphs.task_done",
+                )?,
+                task_todo: string_glyph(
+                    &self.markdown.glyphs.task_todo,
+                    "[ ]",
+                    "markdown.glyphs.task_todo",
+                )?,
+                alert: AlertGlyphs {
+                    note: glyph(
+                        &self.markdown.glyphs.alert.note,
+                        'i',
+                        "markdown.glyphs.alert.note",
+                    )?,
+                    tip: glyph(
+                        &self.markdown.glyphs.alert.tip,
+                        '*',
+                        "markdown.glyphs.alert.tip",
+                    )?,
+                    important: glyph(
+                        &self.markdown.glyphs.alert.important,
+                        '!',
+                        "markdown.glyphs.alert.important",
+                    )?,
+                    warning: glyph(
+                        &self.markdown.glyphs.alert.warning,
+                        '!',
+                        "markdown.glyphs.alert.warning",
+                    )?,
+                    caution: glyph(
+                        &self.markdown.glyphs.alert.caution,
+                        '!',
+                        "markdown.glyphs.alert.caution",
+                    )?,
+                },
             }),
             borders: border_glyphs,
             focused_borders,
@@ -1169,7 +1241,7 @@ impl ThemeFile {
                 location: glyph(&metadata_glyphs.location, '⚑', "metadata.glyphs.location")?,
                 sunrise: glyph(&metadata_glyphs.sunrise, '↑', "metadata.glyphs.sunrise")?,
                 sunset: glyph(&metadata_glyphs.sunset, '↓', "metadata.glyphs.sunset")?,
-                air: glyph(&metadata_glyphs.air, '▲', "metadata.glyphs.air")?,
+                aqi: glyph(&metadata_glyphs.aqi, '▲', "metadata.glyphs.aqi")?,
                 pollen: glyph(&metadata_glyphs.pollen, '❀', "metadata.glyphs.pollen")?,
                 mood_fill: glyph(&metadata_glyphs.mood_fill, '▓', "metadata.glyphs.mood_fill")?,
                 mood_track: glyph(
@@ -1194,7 +1266,7 @@ impl ThemeFile {
             base,
             content,
             dialog,
-            element,
+            raised,
             footer,
             text,
             muted,
@@ -1202,7 +1274,6 @@ impl ThemeFile {
             placeholder,
             primary,
             secondary,
-            border,
             border_subtle,
             divider,
             card_border,
@@ -1231,10 +1302,13 @@ impl ThemeFile {
             chart_baseline,
             chart_label,
             md_heading,
-            md_heading3,
+            md_heading2,
+            md_subheading,
             md_link,
             md_code,
+            md_inline_code,
             md_blockquote,
+            md_highlight,
             syntax: markdown.syntax.resolve(mode, palette)?,
             metadata,
             glyphs,

@@ -120,7 +120,7 @@ pub(crate) fn environment_items(
         && let Some(band) = theme().aqi_band(aqi)
     {
         items.push(EnvItem::new(
-            Some(glyphs.air),
+            Some(glyphs.aqi),
             band,
             format!("AQI {aqi}"),
             band,

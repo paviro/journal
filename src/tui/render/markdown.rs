@@ -103,13 +103,14 @@ enum Container {
 
 /// The icon, label, and role style for a GitHub-style alert kind. Icons stay
 /// ASCII (guaranteed width 1) so the rail's column math never drifts.
-fn alert_meta(kind: BlockQuoteKind) -> (&'static str, &'static str, Style) {
+fn alert_meta(kind: BlockQuoteKind) -> (char, &'static str, Style) {
+    let alert = theme().glyphs().markdown.alert;
     match kind {
-        BlockQuoteKind::Note => ("i", "NOTE", theme().info()),
-        BlockQuoteKind::Tip => ("*", "TIP", theme().success()),
-        BlockQuoteKind::Important => ("!", "IMPORTANT", theme().primary()),
-        BlockQuoteKind::Warning => ("!", "WARNING", theme().warning()),
-        BlockQuoteKind::Caution => ("!", "CAUTION", theme().error()),
+        BlockQuoteKind::Note => (alert.note, "NOTE", theme().info()),
+        BlockQuoteKind::Tip => (alert.tip, "TIP", theme().success()),
+        BlockQuoteKind::Important => (alert.important, "IMPORTANT", theme().primary()),
+        BlockQuoteKind::Warning => (alert.warning, "WARNING", theme().warning()),
+        BlockQuoteKind::Caution => (alert.caution, "CAUTION", theme().error()),
     }
 }
 
@@ -219,7 +220,7 @@ impl MarkdownTerminalRenderer {
             MarkdownEvent::Code(code) => {
                 self.capture_link_text(&code);
                 self.capture_heading_text(&code);
-                self.push_span(&code, theme().md_code());
+                self.push_span(&code, theme().md_inline_code());
             }
             MarkdownEvent::Html(html) | MarkdownEvent::InlineHtml(html) => {
                 self.push_multiline(&html, theme().muted());
@@ -227,12 +228,18 @@ impl MarkdownTerminalRenderer {
             MarkdownEvent::SoftBreak | MarkdownEvent::HardBreak => self.finish_current(true),
             MarkdownEvent::Rule => self.render_rule(),
             MarkdownEvent::TaskListMarker(checked) => {
-                self.push_span(if checked { "[x] " } else { "[ ] " }, theme().muted())
+                let glyphs = theme().glyphs().markdown;
+                let box_glyph = if checked {
+                    &glyphs.task_done
+                } else {
+                    &glyphs.task_todo
+                };
+                self.push_span(&format!("{box_glyph} "), theme().muted())
             }
             MarkdownEvent::FootnoteReference(label) => {
                 self.push_span(&format!("[{label}]"), theme().md_link());
             }
-            MarkdownEvent::InlineMath(math) => self.push_span(&math, theme().md_code()),
+            MarkdownEvent::InlineMath(math) => self.push_span(&math, theme().md_inline_code()),
             MarkdownEvent::DisplayMath(math) => {
                 self.begin_block();
                 self.push_multiline(&math, theme().md_code());
@@ -248,10 +255,10 @@ impl MarkdownTerminalRenderer {
             MarkdownTag::Heading { level, .. } => {
                 self.begin_block();
                 self.heading_text = Some(String::new());
-                let style = if matches!(level, HeadingLevel::H1 | HeadingLevel::H2) {
-                    theme().md_heading()
-                } else {
-                    theme().md_heading3()
+                let style = match level {
+                    HeadingLevel::H1 => theme().md_heading(),
+                    HeadingLevel::H2 => theme().md_heading2(),
+                    _ => theme().md_subheading(),
                 };
                 self.push_style(style);
                 self.push_span(&format!("{} ", "#".repeat(level as usize)), style);
@@ -425,7 +432,7 @@ impl MarkdownTerminalRenderer {
                 list.next = Some(number.saturating_add(1));
                 format!("{number}. ")
             }
-            None => "- ".to_string(),
+            None => format!("{} ", theme().glyphs().markdown.bullet),
         };
         list.first_line = true;
         list.in_item = true;
@@ -531,9 +538,7 @@ impl MarkdownTerminalRenderer {
 
     fn highlight_style(&self) -> Style {
         if self.highlight_open {
-            self.current_style()
-                .patch(theme().primary())
-                .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+            self.current_style().patch(theme().md_highlight())
         } else {
             self.current_style()
         }
@@ -752,7 +757,7 @@ impl MarkdownTerminalRenderer {
                 self.push_style(Style::new().add_modifier(Modifier::CROSSED_OUT));
             }
             MarkdownEvent::End(MarkdownTagEnd::Strikethrough) => self.pop_style(),
-            MarkdownEvent::Code(code) => self.push_span(code, theme().md_code()),
+            MarkdownEvent::Code(code) => self.push_span(code, theme().md_inline_code()),
             MarkdownEvent::Text(text) => self.push_highlighted_text(text),
             MarkdownEvent::SoftBreak | MarkdownEvent::HardBreak => {
                 self.push_span(" ", self.current_style());

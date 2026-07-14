@@ -2585,7 +2585,7 @@ mod flat_chrome_tests {
         let gap = &buffer[(list.x + 2, list.y + 3)];
         assert_ne!(gap.bg, selection_bg, "separator row painted like the card");
         let unselected = &buffer[(list.x + 2, list.y + 5)];
-        assert_eq!(unselected.bg, theme.element_bg());
+        assert_eq!(unselected.bg, theme.raised_bg());
 
         // No box-drawing left in the journal column.
         for y in journals.content.y..journals.content.bottom() {
@@ -2661,10 +2661,10 @@ mod flat_chrome_tests {
 
         // Row 0 is the leading blank; the first card starts on row 1.
         let card = &buffer[(content.x + 1, content.y + 1)];
-        assert_eq!(card.bg, theme.element_bg());
+        assert_eq!(card.bg, theme.raised_bg());
         // Spacer rows keep the panel surface so the cards read as blocks.
         let spacer = &buffer[(content.x + 1, content.y)];
-        assert_ne!(spacer.bg, theme.element_bg());
+        assert_ne!(spacer.bg, theme.raised_bg());
     }
 
     #[test]
@@ -3136,7 +3136,7 @@ mod flat_chrome_tests {
         // floats over, so it separates without relying on the edge stripes.
         assert_eq!(
             buffer[(80u16, 2u16)].bg,
-            theme::test_flat_theme().element_bg()
+            theme::test_flat_theme().raised_bg()
         );
         // The top padding row stays blank.
         let top: String = (75..117)

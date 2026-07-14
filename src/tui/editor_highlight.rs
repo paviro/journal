@@ -25,9 +25,12 @@ pub(crate) fn highlight_body(text: &str) -> Vec<Vec<(usize, usize, Style)>> {
     let theme = theme();
     let muted = theme.muted();
     let md_heading = theme.md_heading();
-    let md_heading3 = theme.md_heading3();
+    let md_heading2 = theme.md_heading2();
+    let md_subheading = theme.md_subheading();
     let md_link = theme.md_link();
     let md_code = theme.md_code();
+    let md_inline_code = theme.md_inline_code();
+    let md_highlight = theme.md_highlight();
     let md_blockquote = theme.md_blockquote();
 
     // Per-byte style map. `None` leaves the byte to the editor's base styling.
@@ -69,10 +72,10 @@ pub(crate) fn highlight_body(text: &str) -> Vec<Vec<(usize, usize, Style)>> {
             Event::Start(tag) => {
                 let (style, styling, marker) = match &tag {
                     Tag::Heading { level, .. } => {
-                        let s = if *level >= HeadingLevel::H3 {
-                            md_heading3
-                        } else {
-                            md_heading
+                        let s = match level {
+                            HeadingLevel::H1 => md_heading,
+                            HeadingLevel::H2 => md_heading2,
+                            _ => md_subheading,
                         };
                         (s, true, Marker::Gap)
                     }
@@ -132,7 +135,7 @@ pub(crate) fn highlight_body(text: &str) -> Vec<Vec<(usize, usize, Style)>> {
                     true,
                 );
                 if inner.start < inner.end {
-                    fill(&mut paint, inner, top.style.patch(md_code), true);
+                    fill(&mut paint, inner, top.style.patch(md_inline_code), true);
                 }
             }
             Event::TaskListMarker(_) => fill(&mut paint, span, muted, true),
@@ -142,7 +145,7 @@ pub(crate) fn highlight_body(text: &str) -> Vec<Vec<(usize, usize, Style)>> {
 
     // `==highlight==` is not a pulldown extension, so scan for it in still-plain
     // (unpainted) text — consistent with how the reader handles it by hand.
-    highlight_marks(&mut paint, text, muted);
+    highlight_marks(&mut paint, text, muted, md_highlight);
 
     to_line_ranges(text, &paint)
 }
@@ -200,9 +203,9 @@ fn paint_list_marker(paint: &mut [Option<Style>], text: &str, start: usize, styl
 }
 
 /// Paint `==highlight==` spans that sit entirely in still-plain text on one line:
-/// the `==` delimiters muted, the inner text reversed (matching the reader's `==`).
-fn highlight_marks(paint: &mut [Option<Style>], text: &str, muted: Style) {
-    let reversed = Style::default().add_modifier(Modifier::REVERSED);
+/// the `==` delimiters muted, the inner text in the theme's highlight style
+/// (matching the reader's `==`).
+fn highlight_marks(paint: &mut [Option<Style>], text: &str, muted: Style, highlight: Style) {
     let b = text.as_bytes();
     let mut i = 0;
     while i + 1 < b.len() {
@@ -222,7 +225,7 @@ fn highlight_marks(paint: &mut [Option<Style>], text: &str, muted: Style) {
                 let region = open..c + 2;
                 if inner.start < inner.end && region.clone().all(|k| paint[k].is_none()) {
                     fill(paint, open..open + 2, muted, true);
-                    fill(paint, inner, reversed, true);
+                    fill(paint, inner, highlight, true);
                     fill(paint, c..c + 2, muted, true);
                     i = c + 2;
                     continue;

@@ -49,15 +49,15 @@ fn chrome_override_wins_over_the_theme_default() {
 }
 
 #[test]
-fn default_hover_lifts_the_element_surface() {
+fn default_hover_lifts_the_raised_surface() {
     // Theme files written before the hover token existed (materialized
     // copies are never overwritten) must still get a visible hover: the
-    // default nudges element toward white (dark) / black (light).
-    let text = "[surfaces]\nbase = \"#101010\"\ncontent = \"#181818\"\nelement = \"#202020\"";
+    // default nudges the raised surface toward white (dark) / black (light).
+    let text = "[surfaces]\nbase = \"#101010\"\ncontent = \"#181818\"\nraised = \"#202020\"";
     let dark = parse(text, Mode::Dark).unwrap();
     assert_eq!(dark.hover().bg, Some(Color::Rgb(0x36, 0x36, 0x36)));
     let light = parse(
-        "[surfaces]\nbase = \"#f0f0f0\"\ncontent = \"#e8e8e8\"\nelement = \"#e0e0e0\"",
+        "[surfaces]\nbase = \"#f0f0f0\"\ncontent = \"#e8e8e8\"\nraised = \"#e0e0e0\"",
         Mode::Light,
     )
     .unwrap();
@@ -99,7 +99,17 @@ fn new_tokens_chain_to_their_parents() {
         Style::default().fg(Color::Rgb(0x60, 0x60, 0x60))
     );
     assert_eq!(theme.scrollbar_track(true), Style::default());
-    assert_eq!(theme.md_heading3(), theme.md_heading());
+    assert_eq!(theme.md_subheading(), theme.md_heading());
+    assert_eq!(theme.md_heading2(), theme.md_heading());
+    // Inline code inherits the code-block style until a theme splits them.
+    assert_eq!(theme.md_inline_code(), theme.md_code());
+    // Highlight defaults to the primary accent, reversed + bold.
+    assert_eq!(
+        theme.md_highlight(),
+        theme
+            .primary()
+            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    );
     // The editor tokens default to "no styling".
     assert_eq!(theme.cursor(), Style::default());
     assert_eq!(theme.cursor_line(), Style::default());
@@ -166,7 +176,10 @@ fn new_tokens_resolve_explicit_values() {
          track = \"#223344\"\n\
          arrow = \"#404040\"\n\
          [markdown]\n\
-         heading3 = \"#556677\"",
+         heading2 = \"#667788\"\n\
+         subheading = \"#556677\"\n\
+         inline_code = { fg = \"#8899aa\", bg = \"#112233\" }\n\
+         highlight = { fg = \"#000000\", bg = \"#ffee00\" }",
         Mode::Dark,
     )
     .unwrap();
@@ -192,7 +205,13 @@ fn new_tokens_resolve_explicit_values() {
         theme.scrollbar_arrow(true).fg,
         Some(Color::Rgb(0x40, 0x40, 0x40))
     );
-    assert_eq!(theme.md_heading3().fg, Some(Color::Rgb(0x55, 0x66, 0x77)));
+    assert_eq!(theme.md_heading2().fg, Some(Color::Rgb(0x66, 0x77, 0x88)));
+    assert_eq!(theme.md_subheading().fg, Some(Color::Rgb(0x55, 0x66, 0x77)));
+    assert_eq!(
+        theme.md_inline_code().bg,
+        Some(Color::Rgb(0x11, 0x22, 0x33))
+    );
+    assert_eq!(theme.md_highlight().bg, Some(Color::Rgb(0xff, 0xee, 0x00)));
 }
 
 #[test]
@@ -392,6 +411,24 @@ fn markdown_chrome_glyphs_default_and_override() {
     assert_eq!(bare.glyphs().markdown.code_rail, "│ ");
     assert_eq!(bare.glyphs().markdown.code_top, "╭─");
     assert_eq!(bare.glyphs().markdown.code_bottom, "╰─");
+    // List, task, and alert glyphs keep their plain-ASCII defaults.
+    assert_eq!(bare.glyphs().markdown.bullet, '-');
+    assert_eq!(bare.glyphs().markdown.task_done, "[x]");
+    assert_eq!(bare.glyphs().markdown.task_todo, "[ ]");
+    assert_eq!(bare.glyphs().markdown.alert.note, 'i');
+    assert_eq!(bare.glyphs().markdown.alert.caution, '!');
+    let md = parse(
+        "[markdown.glyphs]\nbullet = \"•\"\ntask_done = \"☑\"\ntask_todo = \"☐\"\n[markdown.glyphs.alert]\nnote = \"ⓘ\"\nwarning = \"⚠\"",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(md.glyphs().markdown.bullet, '•');
+    assert_eq!(md.glyphs().markdown.task_done, "☑");
+    assert_eq!(md.glyphs().markdown.task_todo, "☐");
+    assert_eq!(md.glyphs().markdown.alert.note, 'ⓘ');
+    assert_eq!(md.glyphs().markdown.alert.warning, '⚠');
+    // Alert icons unset in the override keep their defaults.
+    assert_eq!(md.glyphs().markdown.alert.tip, '*');
     // Quote and code rails are independent keys.
     let theme = parse(
         "[markdown.glyphs]\nquote_rail = \"┃ \"\ncode_rail = \"▏ \"\ncode_top = \"┏━\"\ncode_bottom = \"┗━\"",
@@ -456,7 +493,7 @@ fn metadata_pills_resolve_and_default_to_reversed() {
 
     let bg = parse(
         "[surfaces]\n\
-         element = \"#202020\"\n\
+         raised = \"#202020\"\n\
          [metadata.pills]\n\
          style = \"bg\"\n\
          feelings = { fg = \"#000000\", bg = \"#aabbcc\" }",
@@ -520,7 +557,7 @@ fn metadata_glyphs_resolve_and_keep_their_defaults() {
     assert_eq!(bare.env_glyphs().location, '⚑');
     assert_eq!(bare.env_glyphs().sunrise, '↑');
     assert_eq!(bare.env_glyphs().sunset, '↓');
-    assert_eq!(bare.env_glyphs().air, '▲');
+    assert_eq!(bare.env_glyphs().aqi, '▲');
     assert_eq!(bare.env_glyphs().pollen, '❀');
     assert_eq!(bare.env_glyphs().mood_fill, '▓');
     assert_eq!(bare.env_glyphs().mood_track, '░');
@@ -744,8 +781,8 @@ fn flat_bundled_themes_split_dialogs_from_content() {
                     "'{name}' dialog matches content ({mode:?})"
                 );
                 assert_ne!(
-                    theme.dialog, theme.element,
-                    "'{name}' dialog matches element ({mode:?})"
+                    theme.dialog, theme.raised,
+                    "'{name}' dialog matches raised ({mode:?})"
                 );
             }
         }
@@ -846,7 +883,7 @@ fn terminal_default_matches_the_original_styles() {
         theme.key_hint(),
         Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
     );
-    // Hover inherits the element surface, which is the terminal default
+    // Hover inherits the raised surface, which is the terminal default
     // here — an invisible hover, keeping the classic look inert.
     assert_eq!(theme.hover(), Style::default().bg(Color::Reset));
     // The pass-2 tokens: buttons ride selection, headings ride text,
@@ -889,7 +926,7 @@ fn eclipse_is_monochrome_high_contrast_in_both_modes() {
                 );
             }
         }
-        for color in [theme.base, theme.content, theme.element, theme.footer] {
+        for color in [theme.base, theme.content, theme.raised, theme.footer] {
             assert!(ink_or_paper(color), "eclipse surface {color:?} ({mode:?})");
         }
         assert_ne!(

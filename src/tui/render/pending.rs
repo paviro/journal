@@ -90,7 +90,7 @@ pub(crate) fn draw_pending_request(
             };
             frame.render_widget(
                 Gauge::default()
-                    .gauge_style(theme().chart_bar().style.bg(theme().element_bg()))
+                    .gauge_style(theme().chart_bar().style.bg(theme().raised_bg()))
                     .ratio(ratio)
                     .label(format!("Re-encrypting… {done}/{total}")),
                 bottom,

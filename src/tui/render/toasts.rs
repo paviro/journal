@@ -145,7 +145,7 @@ fn draw_toast(
         // The element surface, not the content one: toasts float over panels
         // that already carry `content_bg`, so on the same color only the edge
         // stripes would separate them.
-        clear_surface(frame, area, theme().element_bg());
+        clear_surface(frame, area, theme().raised_bg());
         if hovered {
             frame.buffer_mut().set_style(area, theme().hover());
         }

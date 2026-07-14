@@ -374,7 +374,7 @@ pub(crate) fn journal_list_rows(app: &App, inner_width: usize) -> Vec<BoxRow> {
             } else if hovered {
                 theme().text().patch(theme().hover())
             } else {
-                theme().text().bg(theme().element_bg())
+                theme().text().bg(theme().raised_bg())
             };
             journal_card_lines(journal.display_name(), inner_width, style)
         } else {

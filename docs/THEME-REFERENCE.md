@@ -19,7 +19,6 @@ Each theme needs `schema_version = 1`; other versions or unknown keys are reject
   itself is an error.
 - **Token** — a bare color (foreground) or a style table
   `{ fg, bg, bold, dim, reversed, underlined }`.
-- **Fill** — `{ glyph = "▓", color = "..." }`.
 - **Glyph** — exactly one character.
 
 Unknown keys anywhere are errors, so typos fail loudly.
@@ -53,11 +52,11 @@ of the [monochrome contract](#monochrome-contract)).
 | `base` | terminal default |
 | `content` | ← `base` |
 | `dialog` | ← `content` |
-| `element` | ← `content` |
+| `raised` | ← `content` |
 | `footer` | ← `base` |
 
 `base` underlies every frame and full-screen modals, `content` the main panels and
-toasts, `dialog` dialogs, `element` inputs/cards/chips, `footer` the hint bar.
+toasts, `dialog` dialogs, `raised` inputs/cards/chips, `footer` the hint bar.
 
 ### `[text]`
 
@@ -92,16 +91,16 @@ as palette names, so any token can reference them by name (a theme's own
 |---|---|---|
 | `style` | `plain` \| `rounded` \| `double` \| `thick` \| `ascii` | `plain` |
 | `focused_style` | same names | thick promotion |
-| `normal` | token | ANSI `244` |
 | `subtle` | token | ANSI `240` |
 | `focused` | token | terminal ink (BOLD) |
 | `unfocused` | token | terminal ink |
 | `divider` | token | ← `text.muted` dimmed |
-| `card` | token | ← `normal` |
+| `card` | token | ANSI `244` |
 
 `style` picks the box-drawing set for panels, cards, and tables. Focused panels
 thicken their border; `focused_style` replaces that promotion with a set of your
-choosing. `subtle` draws inter-row table rules.
+choosing. Panel borders are `focused` / `unfocused`; `subtle` draws inter-row table
+rules, and `card` the quieter outline of entry/journal/stat cards.
 
 **`[borders.glyphs]` / `[borders.focused_glyphs]`** — per-character overrides
 (`top_left`, `top_right`, `bottom_left`, `bottom_right`, `horizontal`,
@@ -118,7 +117,7 @@ switching to a custom set needs a real box glyph. See `synthwave.toml` and
 | Key | Default | Notes |
 |---|---|---|
 | `selection` | REVERSED | a `bg` needs an explicit `fg` |
-| `hover` | `element` +1 step | `bg`-only is fine |
+| `hover` | `raised` +1 step | `bg`-only is fine |
 | `button` | ← `selection` | a `bg` needs an explicit `fg` |
 | `button_hover` | underline | button chip under the mouse |
 | `key_hint` | inverted + bold | footer/dialog key chips |
@@ -168,12 +167,19 @@ three read apart without hue.
 | Key | Default |
 |---|---|
 | `heading` | terminal ink |
-| `heading3` | ← `heading` |
+| `heading2` | ← `heading` |
+| `subheading` | ← `heading` |
 | `link` | underlined |
 | `code` | terminal ink |
+| `inline_code` | ← `code` |
 | `blockquote` | terminal ink |
+| `highlight` | `primary`, reversed + bold |
 
-H2 is body ink + bold by design; only H1 and H3 are themeable.
+`heading` styles H1, `heading2` styles H2 (inheriting `heading` until you split them),
+and `subheading` the faded H3–H6. (The renderer maps the levels this way — the markdown
+parser only classifies them.) `code` is the fenced code block; `inline_code` the
+`` `inline` `` spans, inheriting `code` until you give inline code its own look (e.g. a
+background chip). `highlight` styles `==marked==` text.
 
 **`[markdown.syntax]`** — fenced-code highlighting. Sixteen keys: `comment`,
 `keyword`, `string`, `string_escape`, `number`, `constant`, `function`, `type`,
@@ -181,10 +187,14 @@ H2 is body ink + bold by design; only H1 and H3 are themeable.
 `error`. An omitted key renders that category as plain code; omitting the table
 disables highlighting.
 
-**`[markdown.glyphs]`** — the reader's structural chrome, each a short string
-(not a single glyph): `quote_rail` (`│ `, the blockquote rail), `code_rail`
-(`│ `, the fenced-code rail), and the code-fence frame `code_top` (`╭─`) /
-`code_bottom` (`╰─`). The quote and code rails are independent keys.
+**`[markdown.glyphs]`** — the reader's structural chrome. Short strings (not single
+glyphs): `quote_rail` (`│ `, the blockquote rail), `code_rail` (`│ `, the fenced-code
+rail), the code-fence frame `code_top` (`╭─`) / `code_bottom` (`╰─`), and the task-list
+checkboxes `task_done` (`[x]`) / `task_todo` (`[ ]`) — set these to single boxes (`☑` /
+`☐`) if your theme has the glyphs. Single characters: `bullet` (`-`, the unordered-list
+marker; ordered lists keep `N.`). The `[markdown.glyphs.alert]` sub-table sets the icon
+leading each GitHub alert — `note` (`i`), `tip` (`*`), `important` / `warning` /
+`caution` (`!`); their band colors ride the status hues.
 
 ### `[metadata]` — the entry view's metadata section
 
@@ -211,7 +221,7 @@ species count (birch/grass/ragweed) reaches its "high" band.
 
 **`[metadata.glyphs]`** — the strip's characters: `rule` (`─`, the full-width
 rule above the block), `separator` (`·`, the dot between strip items), `location`
-(`⚑`), `sunrise` (`↑`), `sunset` (`↓`), `air` (`▲`), `pollen` (`❀`), plus the category glyph
+(`⚑`), `sunrise` (`↑`), `sunset` (`↓`), `aqi` (`▲`), `pollen` (`❀`), plus the category glyph
 leading each pill: `feelings` (`♥`), `people` (`@`), `activities` (`◆`),
 `tags` (`#`). The mood bar's cells: `mood_fill` (`▓`) and `mood_track` (`░`) —
 its center marker is the shared `[charts.glyphs]` `diverge_center`, and the heavy
@@ -251,7 +261,7 @@ modifiers and the three chart fill glyphs carry every distinction on their own.
 ## Chrome styles
 
 - **Flat** — surfaces separate by background layer (`base` → `content` →
-  `dialog`/`element`), focused panels get a `focus_stripe` down the left edge, and
+  `dialog`/`raised`), focused panels get a `focus_stripe` down the left edge, and
   the selection marker is `●`. Needs a theme with real surface colors.
 - **Bordered** — drawn borders; focus reads through thick + bold strokes, and the
   selection marker is `>`.

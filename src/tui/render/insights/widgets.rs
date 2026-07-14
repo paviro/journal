@@ -259,7 +259,7 @@ pub(crate) fn draw_stat_card(frame: &mut Frame<'_>, area: Rect, stat: &Stat) {
     // only when a border is drawn.
     let flat = flat_chrome();
     let block = if flat {
-        Block::new().style(Style::default().bg(theme().element_bg()))
+        Block::new().style(Style::default().bg(theme().raised_bg()))
     } else {
         Block::default()
             .borders(Borders::ALL)
