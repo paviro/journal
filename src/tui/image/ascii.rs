@@ -1,4 +1,11 @@
-//! Image fallback rendered with a five-step, single-cell luminance ramp.
+//! Image fallback rendered with half-block glyphs in true colour.
+//!
+//! Each cell is the upper-half block `▀`: its foreground paints the top pixel,
+//! its background the bottom pixel, so one cell carries two vertically stacked
+//! pixels. Brightness comes entirely from colour — there is no luminance ramp
+//! to quantise smooth regions into speckle — and vertical resolution is doubled.
+//! On a grayscale/e-ink display the colours collapse to gray, reproducing the
+//! image in luminance.
 
 use image::GenericImageView;
 use notema_storage::JournalStore;
@@ -10,7 +17,10 @@ use ratatui::{
 use super::CacheKey;
 
 const ASCII_DECODE_CAP: u32 = 1_600;
-const LUMINANCE_RAMP: [&str; 5] = [" ", "░", "▒", "▓", "█"];
+/// The upper-half block. Foreground fills the top half, background the bottom.
+const HALF_BLOCK: &str = "▀";
+/// A cell is roughly twice as tall as it is wide; a half-block splits it into
+/// two near-square pixels, so each cell samples two image rows.
 const CELL_ASPECT: f64 = 2.0;
 
 pub(super) struct AsciiArt {
@@ -41,28 +51,18 @@ fn build_from_image(
         return None;
     }
     let (cols, rows) = ascii_dimensions(width_cells, height_cells, image_width, image_height);
+    // Sample two image rows per cell row so the half-block can show both.
     let resized = image
-        .resize_exact(cols, rows, image::imageops::FilterType::Triangle)
+        .resize_exact(cols, rows * 2, image::imageops::FilterType::Triangle)
         .to_rgba8();
-    let lines = resized
-        .rows()
-        .map(|row| {
-            let spans = row
-                .map(|pixel| {
-                    let [red, green, blue, alpha] = pixel.0;
-                    let alpha = f64::from(alpha) / 255.0;
-                    let luminance = (0.2126 * f64::from(red)
-                        + 0.7152 * f64::from(green)
-                        + 0.0722 * f64::from(blue))
-                        * alpha;
-                    let index =
-                        ((luminance / 255.0) * (LUMINANCE_RAMP.len() - 1) as f64).round() as usize;
-                    let glyph = LUMINANCE_RAMP[index.min(LUMINANCE_RAMP.len() - 1)];
-                    if alpha < 0.05 || glyph == " " {
-                        Span::raw(glyph)
-                    } else {
-                        Span::styled(glyph, Style::new().fg(Color::Rgb(red, green, blue)))
-                    }
+    let lines = (0..rows)
+        .map(|cell_row| {
+            let top = cell_row * 2;
+            let spans = (0..cols)
+                .map(|x| {
+                    let fg = opaque_colour(resized.get_pixel(x, top));
+                    let bg = opaque_colour(resized.get_pixel(x, top + 1));
+                    Span::styled(HALF_BLOCK, Style::new().fg(fg).bg(bg))
                 })
                 .collect::<Vec<_>>();
             Line::from(spans)
@@ -74,6 +74,15 @@ fn build_from_image(
         cols: u16::try_from(cols).ok()?,
         rows: u16::try_from(rows).ok()?,
     })
+}
+
+/// Flatten a pixel's alpha against a black background, since a cell can only
+/// hold an opaque colour.
+fn opaque_colour(pixel: &image::Rgba<u8>) -> Color {
+    let [red, green, blue, alpha] = pixel.0;
+    let alpha = f64::from(alpha) / 255.0;
+    let channel = |c: u8| (f64::from(c) * alpha).round() as u8;
+    Color::Rgb(channel(red), channel(green), channel(blue))
 }
 
 fn ascii_dimensions(
@@ -138,16 +147,39 @@ mod tests {
     }
 
     #[test]
-    fn ramp_is_structurally_distinct_without_color() {
-        let image = image::DynamicImage::ImageLuma8(
-            image::GrayImage::from_vec(5, 1, vec![0, 64, 128, 192, 255]).unwrap(),
-        );
-        let art = build_from_image(&image, 5, 1).unwrap();
-        let glyphs = art.text.lines[0]
-            .spans
-            .iter()
-            .map(|span| span.content.as_ref())
-            .collect::<String>();
-        assert_eq!(glyphs, " ░▒▓█");
+    fn cells_are_half_blocks_in_true_colour() {
+        let colour = image::Rgba([40, 160, 90, 255]);
+        let buffer = image::RgbaImage::from_pixel(6, 6, colour);
+        let art = build_from_image(&image::DynamicImage::ImageRgba8(buffer), 6, 6).unwrap();
+        for line in &art.text.lines {
+            for span in &line.spans {
+                assert_eq!(span.content.as_ref(), HALF_BLOCK);
+                // A uniform image paints the true colour into both halves.
+                assert_eq!(span.style.fg, Some(Color::Rgb(40, 160, 90)));
+                assert_eq!(span.style.bg, Some(Color::Rgb(40, 160, 90)));
+            }
+        }
+    }
+
+    #[test]
+    fn half_block_carries_two_rows_per_cell() {
+        // Top half red, bottom half blue: each cell's fg is the upper pixel and
+        // its bg the lower, and the doubled sampling preserves the split.
+        let buffer = image::RgbaImage::from_fn(8, 8, |_, y| {
+            if y < 4 {
+                image::Rgba([200, 20, 20, 255])
+            } else {
+                image::Rgba([20, 20, 200, 255])
+            }
+        });
+        let art = build_from_image(&image::DynamicImage::ImageRgba8(buffer), 8, 8).unwrap();
+        assert_eq!(art.rows, 4);
+        let top = art.text.lines[0].spans[0].style.fg.unwrap();
+        let bottom = art.text.lines[art.rows as usize - 1].spans[0]
+            .style
+            .fg
+            .unwrap();
+        assert!(matches!(top, Color::Rgb(r, _, b) if r > b));
+        assert!(matches!(bottom, Color::Rgb(r, _, b) if b > r));
     }
 }
