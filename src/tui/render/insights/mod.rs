@@ -86,26 +86,30 @@ pub(crate) fn draw_journal_insights(frame: &mut Frame<'_>, area: Rect, app: &mut
         return;
     }
     // Match the other columns' one-cell horizontal padding, plus a one-line top
-    // margin so content doesn't butt up against the border/tab strip. Tabs whose
-    // first section is a heading already open with their own blank row, so they
-    // skip this margin to avoid a doubled gap above the first title.
+    // margin so content doesn't butt up against the border/tab strip.
     let padded = surface_content_inner(content);
-    let content = if tab.leads_with_heading() {
-        padded
-    } else {
-        Rect {
-            y: padded.y + 1,
-            height: padded.height.saturating_sub(1),
-            ..padded
-        }
+    let with_margin = Rect {
+        y: padded.y + 1,
+        height: padded.height.saturating_sub(1),
+        ..padded
     };
-    if content.height == 0 {
+    if with_margin.height == 0 {
         return;
     }
 
+    // The empty-state notice centers within the margined area on every tab, so it
+    // lands at the same height regardless of the tab's own layout.
     let Some(analytics) = app.cached_analytics() else {
-        render_centered_notice(frame, content, "No journal selected");
+        render_centered_notice(frame, with_margin, "No journal selected");
         return;
+    };
+
+    // Tabs whose first section is a heading already open with their own blank row,
+    // so they reclaim the top margin to avoid a doubled gap above the first title.
+    let content = if tab.leads_with_heading() {
+        padded
+    } else {
+        with_margin
     };
 
     match tab {

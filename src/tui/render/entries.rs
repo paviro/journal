@@ -112,11 +112,16 @@ pub(crate) fn draw_entry_list(frame: &mut Frame<'_>, geometry: EntryListGeometry
         focused,
     );
 
-    // An empty list in search mode — whether the query is blank or simply
-    // matches nothing — gets a centered notice so the column doesn't read as a
-    // rendering glitch.
-    if app.nav.mode == Mode::Search && cache.rows.is_empty() {
-        render_centered_notice(frame, geometry.panel.content, "No results");
+    // An empty column gets a centered notice so it doesn't read as a rendering
+    // glitch: a blank or unmatched search query, no journal selected to browse,
+    // or a selected journal that simply has no entries.
+    if cache.rows.is_empty() {
+        let message = match app.nav.mode {
+            Mode::Search => "No results",
+            Mode::Browse if app.selected_journal().is_none() => "No journal selected",
+            Mode::Browse => "No entries",
+        };
+        render_centered_notice(frame, geometry.panel.content, message);
     }
 }
 

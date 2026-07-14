@@ -9,7 +9,7 @@ use crate::tui::{
     entry_rows::{total_row_height, visible_box_items},
     render::{
         PanelGeometry, clamp_scroll, count_label, flat_chrome, list_state_for_render, panel_block,
-        render_scrollbar_if_needed,
+        render_centered_notice, render_scrollbar_if_needed,
     },
     theme::theme,
 };
@@ -117,4 +117,10 @@ pub(crate) fn draw_journals(frame: &mut Frame<'_>, geometry: PanelGeometry, app:
         pixel_offset,
         focused,
     );
+
+    // With no journals the column would otherwise be blank; a centered notice
+    // matches the overview and entry list so it reads as intentional.
+    if app.library.journals.is_empty() {
+        render_centered_notice(frame, geometry.content, "No journals");
+    }
 }
