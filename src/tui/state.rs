@@ -617,14 +617,17 @@ pub(crate) enum Overlay {
     /// The settings menu: a small chooser whose rows open the settings dialogs
     /// (currently just the theme picker).
     SettingsMenu,
-    /// The theme picker list, live-previewing the highlighted theme.
-    ThemePicker(ThemePickerState),
+    /// The theme picker list, live-previewing the highlighted theme. Boxed: it
+    /// carries a full `Theme` snapshot, far larger than the small variants.
+    ThemePicker(Box<ThemePickerState>),
     /// The delete confirmation. The `bool` is the highlighted button: `true`
     /// for Delete, `false` for Cancel.
     ConfirmDelete(DeleteContext, bool),
-    NewJournal(TextInput),
-    EditMetadata(EditMetadataState),
-    EditFeelings(EditFeelingState),
+    // The next three carry a `TextInput` (a `TextArea` with undo history) or large
+    // value lists, so they are boxed to keep `Overlay` small.
+    NewJournal(Box<TextInput>),
+    EditMetadata(Box<EditMetadataState>),
+    EditFeelings(Box<EditFeelingState>),
     EditMood(EditMoodState),
     // Boxed: this state is much larger than the other variants (candidate/preset
     // lists), so keeping it behind a pointer keeps `Overlay` small.

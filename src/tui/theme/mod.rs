@@ -1329,7 +1329,8 @@ pub(crate) fn note_theme_load_warning(name: &str, warning: Option<String>) {
 }
 
 /// The toast text shown when the configured theme can't be loaded and the app
-/// falls back to the default.
+/// falls back to the default. Only reached from the non-test theme-install path.
+#[cfg(not(test))]
 pub(crate) fn format_theme_warning(name: &str, err: &anyhow::Error) -> String {
     format!(
         "Theme '{name}' couldn't load ({}); using default",

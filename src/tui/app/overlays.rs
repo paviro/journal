@@ -4,7 +4,7 @@ use crate::tui::state::{ListNav, ThemePickerState};
 
 impl App {
     pub(crate) fn begin_new_journal_input(&mut self) {
-        self.overlay = Overlay::NewJournal(TextInput::default());
+        self.overlay = Overlay::NewJournal(Box::default());
     }
 
     pub(crate) fn new_journal_input(&self) -> Option<&TextInput> {
@@ -282,7 +282,7 @@ impl App {
             .position(|entry| entry.name == seed_name)
             .unwrap_or(0);
         state.select_index(active);
-        self.overlay = Overlay::ThemePicker(state);
+        self.overlay = Overlay::ThemePicker(Box::new(state));
         // Install the seeded row so the preview matches the highlight from the
         // first frame, not only after the selection moves.
         self.theme_picker_preview();

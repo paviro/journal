@@ -62,9 +62,9 @@ impl App {
             active_values.into_iter().chain(archived_only).collect();
         let filtered: Vec<usize> = (0..active_len).collect();
         let entry_tags: Vec<String> = self.editing_metadata_values(kind);
-        self.overlay = Overlay::EditMetadata(EditMetadataState::new(
+        self.overlay = Overlay::EditMetadata(Box::new(EditMetadataState::new(
             kind, all_values, filtered, entry_tags, active_len,
-        ));
+        )));
     }
 
     pub(crate) fn begin_tag_search(&mut self, tag: &str) {

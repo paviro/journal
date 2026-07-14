@@ -8,7 +8,8 @@ impl App {
             return;
         }
         let selected = self.editing_feelings();
-        self.overlay = Overlay::EditFeelings(EditFeelingState::new(FEELING_GROUPS, selected));
+        self.overlay =
+            Overlay::EditFeelings(Box::new(EditFeelingState::new(FEELING_GROUPS, selected)));
     }
 
     pub(crate) fn begin_feeling_search(&mut self, feeling: &str) {
