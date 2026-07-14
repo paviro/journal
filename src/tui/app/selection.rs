@@ -279,7 +279,10 @@ impl App {
     pub(crate) fn clear_entry_selection(&mut self) {
         if self.nav.selected_entry_index.is_some() {
             self.nav.selected_entry_index = None;
-            self.reset_entry_scroll();
+            // Deselecting drops the reader but leaves the entry list where it is —
+            // don't scroll the list back to the top.
+            self.nav.scroll.reset_reader();
+            self.reader_anchor_flash = None;
         }
     }
 
