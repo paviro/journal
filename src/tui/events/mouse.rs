@@ -1412,9 +1412,7 @@ pub(super) fn hint_id_to_action(app: &App, id: render::HintId) -> Option<Action>
         render::HintId::ThemePickerScope => Some(Action::ThemePickerToggleScope),
         render::HintId::HintsToggle => Some(Action::ToggleHints),
         render::HintId::ToggleJournals => Some(Action::ToggleJournals),
-        // Clicking the tabs hint steps forward through the tabs (Right); scope
-        // toggles — both only while the insights panel is focused.
-        render::HintId::InsightsTab if app.insights_panel_focused() => Some(Action::FocusRight),
+        // Clicking the scope hint toggles it, only while the insights panel is focused.
         render::HintId::InsightsScope if app.insights_panel_focused() => {
             Some(Action::Insights(InsightsAction::ToggleScope))
         }

@@ -56,7 +56,6 @@ pub(crate) enum HintId {
     ThemePickerScope,
     HintsToggle,
     ToggleJournals,
-    InsightsTab,
     InsightsScope,
     InsightsTimeframe,
     ExpandInsights,
@@ -533,10 +532,7 @@ fn browse_footer_line(app: &App) -> HintLine {
             hints
         }
         Focus::Insights => {
-            let mut hints = vec![
-                Hint::new("tabs", "←/→", HintId::InsightsTab),
-                Hint::new("scope", "g", HintId::InsightsScope),
-            ];
+            let mut hints = vec![Hint::new("scope", "g", HintId::InsightsScope)];
             if app.nav.insights_tab.uses_timeframe() {
                 hints.push(Hint::new("window", "w", HintId::InsightsTimeframe));
             }
