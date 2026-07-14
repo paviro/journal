@@ -1,0 +1,6 @@
+# Point every `cargo run` in this repo at the dev config in .dev/ so local
+# testing never touches the real journal. `relative = true` resolves against
+# the repo root; installed/release binaries are unaffected. Override
+# per-invocation with `NOTEMA_CONFIG=... cargo run` or `cargo run -- --config <DIR>`.
+[env]
+NOTEMA_CONFIG = { value = ".dev", relative = true }

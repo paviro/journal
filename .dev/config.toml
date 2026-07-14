@@ -1,0 +1,9 @@
+# Dev config used automatically by `cargo run` in this repo (see
+# .cargo/config.toml), so local testing never opens the real journal.
+# Everything else in this directory (journals, state, keys, themes) is
+# generated at runtime and gitignored.
+schema_version = 1
+
+[journal]
+# Relative to this directory: the dev journal lives at .dev/journals.
+path = "journals"

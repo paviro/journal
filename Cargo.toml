@@ -27,7 +27,7 @@ anyhow = "1"
 cc = "1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 crossterm = "0.29"
 dirs = "6"
 ed25519-dalek = { version = "2", features = ["zeroize"] }

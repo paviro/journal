@@ -29,7 +29,9 @@ pub(crate) struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct JournalSection {
-    /// Directory holding every journal.
+    /// Directory holding every journal. A relative path resolves against the
+    /// directory containing `config.toml`, so a config dir can carry its
+    /// journal root with it.
     pub path: PathBuf,
     /// Journal selected on startup when the previous session didn't record one.
     #[serde(default)]
@@ -332,8 +334,19 @@ pub(crate) fn load_config(path: &Path) -> AppResult<Config> {
             config.schema_version
         );
     }
-    config.journal.path = expand_tilde(config.journal.path);
+    config.journal.path = resolve_journal_root(config.journal.path, path);
     Ok(config)
+}
+
+/// Expand `~` and anchor a relative journal root to the config file's
+/// directory, so a config dir can reference a journal root beside itself
+/// regardless of the process's working directory.
+fn resolve_journal_root(root: PathBuf, config_path: &Path) -> PathBuf {
+    let root = expand_tilde(root);
+    match config_path.parent() {
+        Some(dir) if root.is_relative() => dir.join(root),
+        _ => root,
+    }
 }
 
 pub(crate) fn save_config(path: &Path, config: &Config) -> AppResult<()> {
@@ -806,6 +819,17 @@ mod tests {
 
         assert!(config.journal.path.ends_with("Journals"));
         assert_eq!(config.journal.default, None);
+    }
+
+    #[test]
+    fn load_config_resolves_relative_root_against_config_dir() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "schema_version = 1\n\n[journal]\npath = \"journals\"\n").unwrap();
+
+        let config = load_config(&path).unwrap();
+
+        assert_eq!(config.journal.path, dir.path().join("journals"));
     }
 
     #[test]

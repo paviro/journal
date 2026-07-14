@@ -2,3 +2,8 @@
 /release/
 .env
 .DS_Store
+
+# Dev config dir used by cargo runs (see .cargo/config.toml); only the
+# committed config.toml is tracked — journals, state, and keys stay local.
+/.dev/*
+!/.dev/config.toml

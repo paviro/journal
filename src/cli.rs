@@ -21,7 +21,7 @@ struct Cli {
     /// defaults to $XDG_CONFIG_HOME/notema, else ~/.config/notema (macOS:
     /// ~/Library/Application Support/de.paviro.notema). Global, so it works
     /// before or after a subcommand.
-    #[arg(long, value_name = "DIR", global = true)]
+    #[arg(long, value_name = "DIR", global = true, env = "NOTEMA_CONFIG")]
     config: Option<PathBuf>,
 
     #[command(subcommand)]
