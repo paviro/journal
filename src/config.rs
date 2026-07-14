@@ -513,12 +513,14 @@ fn interactive_setup(config_path: &Path) -> AppResult<(Config, JournalStore)> {
 
     // E-ink and other limited-palette displays get `classic`, which renders on
     // terminals without true-color; everything else starts on the default theme.
+    // Such devices also ignore per-journal themes, which mostly don't render here.
     write!(stdout, "Is this an e-ink / monochrome display? [y/N]: ")?;
     stdout.flush()?;
     let mut eink_input = String::new();
     io::stdin().read_line(&mut eink_input)?;
     if is_yes(&eink_input) {
         config.ui.theme = "classic".to_string();
+        config.ui.ignore_journal_themes = true;
     }
     let prepared = crate::ish::prepare_store(config_path, &config.journal.path, true)?;
     let store = prepared.store;
