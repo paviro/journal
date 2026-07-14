@@ -484,7 +484,8 @@ pub(crate) fn entry_list_lines(
 /// flag, and reads consistently across the browse and search box views.
 fn footer_left_label(mut label: String, starred: bool) -> String {
     if starred {
-        label.push_str(" ★");
+        label.push(' ');
+        label.push(theme().glyphs().starred);
     }
     label
 }

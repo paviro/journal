@@ -59,12 +59,17 @@ up = "^"
 down = "v"
 
 [charts]
-positive = { glyph = "█", color = "phosphor" }
-neutral  = { glyph = "▒", color = "dim" }
-negative = { glyph = "░", color = "phosphor" }
-bar      = { glyph = "▓", color = "phosphor" }
-track    = { glyph = "░", color = "dim" }
-baseline = { color = "dim" }
+positive = "phosphor"
+neutral  = "dim"
+negative = "phosphor"
+bar      = "phosphor"
+track    = "dim"
+baseline = "dim"
+
+[charts.glyphs]
+positive = "█"
+neutral  = "▒"
+negative = "░"
 
 [markdown]
 heading    = { fg = "phosphor", bold = true }

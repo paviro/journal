@@ -47,11 +47,16 @@ hover     = { bg = "paper" }
 key_hint  = { bg = "ink", fg = "paper", bold = true }
 
 [charts]
-positive = { glyph = "█", color = "ink" }
-neutral  = { glyph = "▒", color = "ink" }
-negative = { glyph = "░", color = "ink" }
-bar      = { glyph = "▓", color = "ink" }
-track    = { glyph = "░", color = "ink" }
+positive = "ink"
+neutral  = "ink"
+negative = "ink"
+bar      = "ink"
+track    = "ink"
+
+[charts.glyphs]
+positive = "█"
+neutral  = "▒"
+negative = "░"
 
 [markdown]
 heading    = { fg = "ink", bold = true }

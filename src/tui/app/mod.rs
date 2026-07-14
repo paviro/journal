@@ -763,11 +763,19 @@ impl App {
             let selection = self.effective_selection();
             crate::tui::theme::set_color_mode(selection.color_mode);
             crate::tui::theme::set_chrome_override(selection.chrome.forced_style());
-            crate::tui::theme::install(crate::tui::theme::load(
+            let (theme, warn) = crate::tui::theme::load(
                 &self.config_path,
                 &selection.name,
                 crate::tui::theme::mode(),
-            ));
+            );
+            crate::tui::theme::install(theme);
+            // Surfaced by the event loop's drain, deduped by theme name so the
+            // repeated applies during startup (construction, then the background
+            // library snapshot) and journal switches warn only once per theme.
+            crate::tui::theme::note_theme_load_warning(
+                &selection.name,
+                warn.map(|err| crate::tui::theme::format_theme_warning(&selection.name, &err)),
+            );
         }
     }
 

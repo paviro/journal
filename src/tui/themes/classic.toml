@@ -39,11 +39,9 @@ selection = { reversed = true }
 key_hint  = { reversed = true, bold = true }
 
 [charts]
-positive = { glyph = "▓", color = "green" }
-neutral  = { glyph = "▓" }
-negative = { glyph = "▓", color = "red" }
-bar      = { glyph = "▓", color = "cyan" }
-track    = { glyph = "░" }
+positive = "green"
+negative = "red"
+bar      = "cyan"
 
 [markdown]
 heading    = {}

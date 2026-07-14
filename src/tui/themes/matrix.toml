@@ -56,12 +56,12 @@ thumb = "║"
 track = "╎"
 
 [charts]
-positive = { glyph = "▓", color = { dark = "#00ff66", light = "#0a6f30" } }
-neutral  = { glyph = "▓", color = { dark = "#0a8f3c", light = "#4e8b62" } }
-negative = { glyph = "▓", color = { dark = "#ff3355", light = "#c40028" } }
-bar      = { glyph = "▓", color = { dark = "#00ff66", light = "#0a6f30" } }
-track    = { glyph = "░", color = { dark = "#163a1e", light = "#b8d8c0" } }
-baseline = { color = { dark = "#163a1e", light = "#b8d8c0" } }
+positive = { dark = "#00ff66", light = "#0a6f30" }
+neutral  = { dark = "#0a8f3c", light = "#4e8b62" }
+negative = { dark = "#ff3355", light = "#c40028" }
+bar      = { dark = "#00ff66", light = "#0a6f30" }
+track    = { dark = "#163a1e", light = "#b8d8c0" }
+baseline = { dark = "#163a1e", light = "#b8d8c0" }
 
 [markdown]
 heading    = { fg = { dark = "#00ff66", light = "#0a6f30" }, bold = true }

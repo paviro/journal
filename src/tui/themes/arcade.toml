@@ -72,12 +72,17 @@ thumb = "█"
 track = "▒"
 
 [charts]
-positive = { glyph = "█", color = "oneup" }
-neutral  = { glyph = "▓", color = { dark = "#7a7a8a", light = "#77726a" } }
-negative = { glyph = "█", color = "blinky" }
-bar      = { glyph = "█", color = "inky" }
-track    = { glyph = "░", color = { dark = "#3a3a4a", light = "#c4c0b2" } }
-baseline = { color = { dark = "#3a3a4a", light = "#c4c0b2" } }
+positive = "oneup"
+neutral  = { dark = "#7a7a8a", light = "#77726a" }
+negative = "blinky"
+bar      = "inky"
+track    = { dark = "#3a3a4a", light = "#c4c0b2" }
+baseline = { dark = "#3a3a4a", light = "#c4c0b2" }
+
+[charts.glyphs]
+positive = "█"
+negative = "█"
+bar      = "█"
 
 [markdown]
 heading    = { fg = "coin", bold = true }

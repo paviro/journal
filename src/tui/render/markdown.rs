@@ -575,7 +575,10 @@ impl MarkdownTerminalRenderer {
                 Container::Quote(kind) => {
                     let style =
                         kind.map_or_else(|| theme().md_blockquote(), |kind| alert_meta(kind).2);
-                    spans.push(Span::styled("│ ", style));
+                    spans.push(Span::styled(
+                        theme().glyphs().markdown.quote_rail.clone(),
+                        style,
+                    ));
                 }
                 Container::List(list) if list.in_item => {
                     if markers && list.first_line {
@@ -674,15 +677,17 @@ impl MarkdownTerminalRenderer {
             .split([' ', '\t', ','])
             .next()
             .unwrap_or_default();
+        let t = theme();
+        let markdown = t.glyphs().markdown;
         let header = if language.is_empty() {
-            "╭─".to_string()
+            markdown.code_top.clone()
         } else {
-            format!("╭─ {language}")
+            format!("{} {language}", markdown.code_top)
         };
         self.emit_wrapped_line(
             vec![RichSpan {
                 content: header,
-                style: theme().md_blockquote(),
+                style: t.md_blockquote(),
                 link: None,
             }],
             None,
@@ -693,16 +698,17 @@ impl MarkdownTerminalRenderer {
         let code_lines = highlighted.unwrap_or_else(|| {
             source
                 .split('\n')
-                .map(|line| Line::from(Span::styled(line.to_string(), theme().md_code())))
+                .map(|line| Line::from(Span::styled(line.to_string(), t.md_code())))
                 .collect()
         });
+        let code_rail = markdown.code_rail.as_str();
         for line in code_lines {
-            self.emit_wrapped_line(rich_from_line(line), Some("│ "), true);
+            self.emit_wrapped_line(rich_from_line(line), Some(code_rail), true);
         }
         self.emit_wrapped_line(
             vec![RichSpan {
-                content: "╰─".to_string(),
-                style: theme().md_blockquote(),
+                content: markdown.code_bottom.clone(),
+                style: t.md_blockquote(),
                 link: None,
             }],
             None,

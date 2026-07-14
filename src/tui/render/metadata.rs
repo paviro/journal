@@ -89,7 +89,11 @@ pub(super) fn draw_metadata_section(
         HoverTarget::MetadataChip(index) => Some(index),
         _ => None,
     };
-    let sep = "─".repeat(area.width.saturating_sub(1) as usize);
+    let sep = theme()
+        .env_glyphs()
+        .rule
+        .to_string()
+        .repeat(area.width.saturating_sub(1) as usize);
     frame.render_widget(
         Paragraph::new(sep).style(theme().muted()),
         Rect { height: 1, ..area },
@@ -178,7 +182,11 @@ pub(super) fn metadata_section_lines(
     }
 
     let mut lines = vec![Line::from(Span::styled(
-        "─".repeat(width.saturating_sub(1) as usize),
+        theme()
+            .env_glyphs()
+            .rule
+            .to_string()
+            .repeat(width.saturating_sub(1) as usize),
         theme().muted(),
     ))];
 
@@ -352,7 +360,7 @@ fn mood_bar_cells(width: u16, score: i8) -> Vec<(String, Style)> {
     let negative = theme().mood_fill(false);
     let positive = theme().mood_fill(true);
     let dim = theme().muted();
-    let center_glyph = theme().glyphs().bar_center.to_string();
+    let center_glyph = theme().glyphs().diverge_center.to_string();
     let fill_glyph = theme().env_glyphs().mood_fill.to_string();
     let track_glyph = theme().env_glyphs().mood_track.to_string();
 

@@ -106,9 +106,10 @@ choosing. `subtle` draws inter-row table rules.
 **`[borders.glyphs]` / `[borders.focused_glyphs]`** — per-character overrides
 (`top_left`, `top_right`, `bottom_left`, `bottom_right`, `horizontal`,
 `vertical`); omitted keys inherit the base style, and table junctions
-(`├ ┤ ┬ ┴ ┼`) always do. Two standalone glyphs live here: `focus_stripe` (`┃`, the
-flat-chrome focused edge, in the `focused` color) and `divider` (`━`, the month /
-"Archived" rule, in the `borders.divider` color). Setting only those keeps the base `style`;
+(`├ ┤ ┬ ┴ ┼`) always do. Three standalone glyphs live here: `focus_stripe` (`┃`, the
+flat-chrome focused edge, in the `focused` color), `divider` (`━`, the month /
+"Archived" rule, in the `borders.divider` color), and `separator` (`─`, the plain
+rule between dialog sections). Setting only those keeps the base `style`;
 switching to a custom set needs a real box glyph. See `synthwave.toml` and
 `vaporwave.toml`.
 
@@ -138,17 +139,29 @@ The selected row is shown by `selection` alone — no marker glyph.
 
 ### `[charts]`
 
-| Key | Form | Default |
-|---|---|---|
-| `positive` | fill | `▓` green (BOLD) |
-| `neutral` | fill | `▓` (DIM) |
-| `negative` | fill | `▓` red (BOLD) |
-| `bar` | fill | `▓` cyan |
-| `track` | fill | `░` (DIM) |
-| `baseline` | `{ glyph, color }` | `┈`, ← `text.muted` dimmed |
-| `label` | token | ← `text.muted` dimmed |
+Colors only — the characters live in `[charts.glyphs]`, like every other
+section. The bold/dim modifiers are the [monochrome contract](#monochrome-contract)
+and come from code.
 
-`[charts.glyphs]`: `groove` (`·`), `bar_center` (`│`).
+| Key | Default color |
+|---|---|
+| `positive` | green (BOLD in code) |
+| `neutral` | terminal ink (DIM) |
+| `negative` | red (BOLD) |
+| `bar` | cyan |
+| `track` | terminal ink (DIM) |
+| `baseline` | ← `text.muted` dimmed |
+| `label` | ← `text.muted` dimmed |
+
+**`[charts.glyphs]`** — every chart character. Series fills: `positive` (`▓`),
+`neutral` (`▓`), `negative` (`▓`). Count bars: `bar` (`▓`, filled), `track`
+(`░`, empty). Signed-column furniture: `baseline` (`┈`, the zero-line tick in
+the gaps/edges) and `rule` (`─`, the zero-line under each column). Diverging
+(Δ / mood) bars: `diverge_track` (`·`, an empty cell) and `diverge_center`
+(`│`, the center pivot). The eighths ramps for vertical bars: `ramp_up`
+(`" ▁▂▃▄▅▆▇█"`, exactly 9 chars) and `ramp_down` (`" ▔▀█"`, exactly 4) — the
+only multi-character keys. `eclipse` varies the series glyphs (`█ ▒ ░`) so the
+three read apart without hue.
 
 ### `[markdown]`
 
@@ -167,6 +180,11 @@ H2 is body ink + bold by design; only H1 and H3 are themeable.
 `variable`, `property`, `operator`, `punctuation`, `attribute`, `tag`, `label`,
 `error`. An omitted key renders that category as plain code; omitting the table
 disables highlighting.
+
+**`[markdown.glyphs]`** — the reader's structural chrome, each a short string
+(not a single glyph): `quote_rail` (`│ `, the blockquote rail), `code_rail`
+(`│ `, the fenced-code rail), and the code-fence frame `code_top` (`╭─`) /
+`code_bottom` (`╰─`). The quote and code rails are independent keys.
 
 ### `[metadata]` — the entry view's metadata section
 
@@ -191,11 +209,12 @@ only when the stored European AQI reaches 60: `aqi_poor` (60–79, ←
 (← `status.warning`) styles the high-pollen badge, shown only when a stored
 species count (birch/grass/ragweed) reaches its "high" band.
 
-**`[metadata.glyphs]`** — the strip's characters: `separator` (`·`), `location`
+**`[metadata.glyphs]`** — the strip's characters: `rule` (`─`, the full-width
+rule above the block), `separator` (`·`, the dot between strip items), `location`
 (`⚑`), `sunrise` (`↑`), `sunset` (`↓`), `air` (`▲`), `pollen` (`❀`), plus the category glyph
 leading each pill: `feelings` (`♥`), `people` (`@`), `activities` (`◆`),
 `tags` (`#`). The mood bar's cells: `mood_fill` (`▓`) and `mood_track` (`░`) —
-its center marker is the shared `[charts.glyphs]` `bar_center`, and the heavy
+its center marker is the shared `[charts.glyphs]` `diverge_center`, and the heavy
 at-zero variant stays code-side. Two per-slug tables: `[metadata.glyphs.weather]` (`clear` `☀`,
 `mostly_clear` `☼`, `partly_cloudy` / `cloudy` `☁`, `fog` `≡`, `drizzle` /
 `rain` `☂`, `snow` `❄`, `thunderstorm` `↯`) and `[metadata.glyphs.moon]`
@@ -209,6 +228,12 @@ The retro themes — `classic` (also the built-in fallback), `crt`, `gameboy`,
 `[toast.glyphs]`: `edge` (`┃`, toast accents on flat chrome) and `progress` (`─`,
 the dismissal countdown line along the bottom edge). `[tabs]` sets
 `separator` (← `text.muted` dimmed); `[tabs.glyphs]`: `separator` (`·`).
+
+### `[indicators.glyphs]`
+
+Small state markers that ride the surrounding text style (glyphs only, no
+colors of their own): `expanded` (`▾`) / `collapsed` (`▸`) — a group's
+disclosure marker — and `starred` (`★`, trailing a starred entry).
 
 ## Monochrome contract
 

@@ -298,9 +298,11 @@ fn glyph_tokens_must_be_one_character() {
 }
 
 #[test]
-fn chart_baseline_merges_glyph_and_color() {
+fn chart_color_and_glyph_come_from_parallel_sections() {
+    // The color lives in `[charts]`, the glyph in `[charts.glyphs]` — like every
+    // other section. A fill draws its glyph from one and its style from the other.
     let theme = parse(
-        "[charts]\nbaseline = { glyph = \"╌\", color = \"#123456\" }",
+        "[charts]\nbaseline = \"#123456\"\n\n[charts.glyphs]\nbaseline = \"╌\"",
         Mode::Dark,
     )
     .unwrap();
@@ -309,34 +311,128 @@ fn chart_baseline_merges_glyph_and_color() {
         theme.chart_baseline(),
         Style::default().fg(Color::Rgb(0x12, 0x34, 0x56))
     );
-    // Each half keeps its default when the other is set alone.
-    let glyph_only = parse("[charts]\nbaseline = { glyph = \"╌\" }", Mode::Dark).unwrap();
+    // Each side keeps its default when the other is set alone.
+    let glyph_only = parse("[charts.glyphs]\nbaseline = \"╌\"", Mode::Dark).unwrap();
     assert_eq!(glyph_only.glyphs().chart_baseline, '╌');
     assert_eq!(
         glyph_only.chart_baseline(),
         Style::default().add_modifier(Modifier::DIM)
     );
-    let color_only = parse("[charts]\nbaseline = { color = \"#123456\" }", Mode::Dark).unwrap();
+    let color_only = parse("[charts]\nbaseline = \"#123456\"", Mode::Dark).unwrap();
     assert_eq!(color_only.glyphs().chart_baseline, '┈');
     assert_eq!(
         color_only.chart_baseline().fg,
         Some(Color::Rgb(0x12, 0x34, 0x56))
     );
-}
-
-#[test]
-fn chart_glyphs_live_in_the_charts_section() {
-    let theme = parse(
-        "[charts.glyphs]\ngroove = \"‥\"\nbar_center = \"┋\"",
+    // A series glyph splits the same way.
+    let series = parse(
+        "[charts]\npositive = \"#00ff00\"\n\n[charts.glyphs]\npositive = \"█\"",
         Mode::Dark,
     )
     .unwrap();
-    assert_eq!(theme.glyphs().chart_groove, '‥');
-    assert_eq!(theme.glyphs().bar_center, '┋');
+    assert_eq!(series.chart_positive().glyph, '█');
+    assert_eq!(
+        series.chart_positive().style.fg,
+        Some(Color::Rgb(0, 0xff, 0))
+    );
+}
+
+#[test]
+fn chart_glyphs_live_in_the_charts_glyphs_section() {
+    let theme = parse(
+        "[charts.glyphs]\ndiverge_track = \"‥\"\ndiverge_center = \"┋\"\nrule = \"═\"",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(theme.glyphs().diverge_track, '‥');
+    assert_eq!(theme.glyphs().diverge_center, '┋');
+    assert_eq!(theme.glyphs().chart_rule, '═');
     // Defaults untouched by a partial section.
     let bare = parse("", Mode::Dark).unwrap();
-    assert_eq!(bare.glyphs().chart_groove, '·');
-    assert_eq!(bare.glyphs().bar_center, '│');
+    assert_eq!(bare.glyphs().diverge_track, '·');
+    assert_eq!(bare.glyphs().diverge_center, '│');
+    assert_eq!(bare.glyphs().chart_rule, '─');
+    assert_eq!(bare.glyphs().chart_baseline, '┈');
+    assert_eq!(bare.glyphs().ramps.up[0], ' ');
+    assert_eq!(bare.glyphs().ramps.up[8], '█');
+    assert_eq!(bare.glyphs().ramps.down, [' ', '▔', '▀', '█']);
+}
+
+#[test]
+fn furniture_glyphs_resolve_from_their_sections() {
+    // The metadata strip rule, dialog separator, disclosure markers, and the
+    // starred marker each have their own independent key.
+    let theme = parse(
+        "[metadata.glyphs]\nrule = \"╌\"\n\n\
+         [borders.glyphs]\nseparator = \"┈\"\n\n\
+         [indicators.glyphs]\nexpanded = \"v\"\ncollapsed = \">\"\nstarred = \"*\"",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(theme.env_glyphs().rule, '╌');
+    assert_eq!(theme.glyphs().separator, '┈');
+    assert_eq!(theme.glyphs().expanded, 'v');
+    assert_eq!(theme.glyphs().collapsed, '>');
+    assert_eq!(theme.glyphs().starred, '*');
+    // The metadata rule and dialog separator are distinct keys; the strip's
+    // `separator` (the `·` dot) is untouched by the new rule.
+    let bare = parse("", Mode::Dark).unwrap();
+    assert_eq!(bare.env_glyphs().rule, '─');
+    assert_eq!(bare.env_glyphs().separator, '·');
+    assert_eq!(bare.glyphs().separator, '─');
+    assert_eq!(bare.glyphs().expanded, '▾');
+    assert_eq!(bare.glyphs().collapsed, '▸');
+    assert_eq!(bare.glyphs().starred, '★');
+}
+
+#[test]
+fn markdown_chrome_glyphs_default_and_override() {
+    let bare = parse("", Mode::Dark).unwrap();
+    assert_eq!(bare.glyphs().markdown.quote_rail, "│ ");
+    assert_eq!(bare.glyphs().markdown.code_rail, "│ ");
+    assert_eq!(bare.glyphs().markdown.code_top, "╭─");
+    assert_eq!(bare.glyphs().markdown.code_bottom, "╰─");
+    // Quote and code rails are independent keys.
+    let theme = parse(
+        "[markdown.glyphs]\nquote_rail = \"┃ \"\ncode_rail = \"▏ \"\ncode_top = \"┏━\"\ncode_bottom = \"┗━\"",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(theme.glyphs().markdown.quote_rail, "┃ ");
+    assert_eq!(theme.glyphs().markdown.code_rail, "▏ ");
+    assert_eq!(theme.glyphs().markdown.code_top, "┏━");
+    assert_eq!(theme.glyphs().markdown.code_bottom, "┗━");
+    // An empty or multi-line glyph breaks the per-line reader chrome; it's
+    // rejected with the token path rather than silently accepted.
+    let err = parse("[markdown.glyphs]\ncode_top = \"\"", Mode::Dark).unwrap_err();
+    assert!(
+        err.to_string().contains("markdown.glyphs.code_top"),
+        "{err:#}"
+    );
+    let err = parse("[markdown.glyphs]\nquote_rail = \"|\\n|\"", Mode::Dark).unwrap_err();
+    assert!(
+        err.to_string().contains("markdown.glyphs.quote_rail"),
+        "{err:#}"
+    );
+}
+
+#[test]
+fn chart_ramps_override_and_validate_length() {
+    let theme = parse(
+        "[charts.glyphs]\nramp_up = \" .:oO@%#W\"\nramp_down = \" '\\\"^\"",
+        Mode::Dark,
+    )
+    .unwrap();
+    assert_eq!(theme.glyphs().ramps.up[3], 'o');
+    assert_eq!(theme.glyphs().ramps.down[1], '\'');
+    // A ramp of the wrong length is rejected with the token path.
+    let err = parse("[charts.glyphs]\nramp_up = \"abc\"", Mode::Dark).unwrap_err();
+    assert!(err.to_string().contains("charts.glyphs.ramp_up"), "{err:#}");
+    let err = parse("[charts.glyphs]\nramp_down = \"ab\"", Mode::Dark).unwrap_err();
+    assert!(
+        err.to_string().contains("charts.glyphs.ramp_down"),
+        "{err:#}"
+    );
 }
 
 #[test]
@@ -886,11 +982,7 @@ fn selection_bg_without_fg_is_rejected() {
 
 #[test]
 fn multi_char_glyphs_are_rejected() {
-    let err = parse(
-        "[charts]\nbar = { glyph = \"▓▓\", color = \"cyan\" }\n",
-        Mode::Dark,
-    )
-    .unwrap_err();
+    let err = parse("[charts.glyphs]\nbar = \"▓▓\"\n", Mode::Dark).unwrap_err();
     assert!(
         format!("{err:#}").contains("exactly one character"),
         "{err:#}"
@@ -933,11 +1025,46 @@ fn load_falls_back_to_builtin_on_a_broken_theme() {
     fs::create_dir_all(&themes).unwrap();
     fs::write(themes.join("broken.toml"), "surfaces = 12\n").unwrap();
 
-    let theme = load(&config_path, "broken", Mode::Dark);
+    // A broken file falls back to the default and hands the error back so the
+    // caller can surface a toast (rather than smearing stderr over the TUI).
+    let (theme, warn) = load(&config_path, "broken", Mode::Dark);
     assert_eq!(theme, builtin(DEFAULT_THEME, Mode::Dark).unwrap());
+    assert!(warn.is_some());
 
-    let missing = load(&config_path, "does-not-exist", Mode::Dark);
+    let (missing, warn) = load(&config_path, "does-not-exist", Mode::Dark);
     assert_eq!(missing, builtin(DEFAULT_THEME, Mode::Dark).unwrap());
+    assert!(warn.is_some());
+}
+
+#[test]
+fn theme_load_warning_dedupes_per_name_and_reports_through_notify() {
+    use crate::tui::state::{ToastVariant, drain_notifications};
+
+    // A unique name/messages so the process-global warned-set and notify queue
+    // don't collide with other tests; we filter the drain to just our messages.
+    let name = "notify-dedup-probe";
+    let ours = |items: Vec<(ToastVariant, String)>| -> Vec<(ToastVariant, String)> {
+        items
+            .into_iter()
+            .filter(|(_, msg)| msg.starts_with("probe-"))
+            .collect()
+    };
+
+    // First failure reports; a repeat of the same name stays silent.
+    note_theme_load_warning(name, Some("probe-first".to_string()));
+    note_theme_load_warning(name, Some("probe-second".to_string()));
+    assert_eq!(
+        ours(drain_notifications()),
+        vec![(ToastVariant::Warning, "probe-first".to_string())]
+    );
+
+    // A clean load clears the name, so a genuine later break warns again.
+    note_theme_load_warning(name, None);
+    note_theme_load_warning(name, Some("probe-third".to_string()));
+    assert_eq!(
+        ours(drain_notifications()),
+        vec![(ToastVariant::Warning, "probe-third".to_string())]
+    );
 }
 
 #[test]

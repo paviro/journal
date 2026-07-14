@@ -808,7 +808,14 @@ fn render_separator(frame: &mut Frame<'_>, area: Rect) {
     }
 
     frame.render_widget(
-        Paragraph::new("─".repeat(area.width as usize)).style(separator_style()),
+        Paragraph::new(
+            theme()
+                .glyphs()
+                .separator
+                .to_string()
+                .repeat(area.width as usize),
+        )
+        .style(separator_style()),
         Rect { height: 1, ..area },
     );
 }
@@ -1272,7 +1279,11 @@ pub(super) fn draw_edit_feelings_dialog(
                         let bold = theme().heading();
                         // Disclosure marker trails the name so it never collides with the
                         // list's leading `>` selection cursor. ▾ open, ▸ collapsed.
-                        let disclosure = if state.expanded[group] { '▾' } else { '▸' };
+                        let disclosure = if state.expanded[group] {
+                            theme().glyphs().expanded
+                        } else {
+                            theme().glyphs().collapsed
+                        };
                         let mut spans = vec![Span::styled(g.name, bold)];
                         // The selected-count badge is lighter than the category name.
                         let selected = state.group_selected_count(group);

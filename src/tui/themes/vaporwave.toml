@@ -60,12 +60,12 @@ up = "△"
 down = "▽"
 
 [charts]
-positive = { glyph = "▓", color = { dark = "#9ff5c8", light = "#2e8a63" } }
-neutral  = { glyph = "▓", color = { dark = "#9384ad", light = "#a58ab0" } }
-negative = { glyph = "▓", color = { dark = "#ff9eb3", light = "#c04a67" } }
-bar      = { glyph = "▓", color = { dark = "#8ae8ff", light = "#2a7f99" } }
-track    = { glyph = "░", color = { dark = "#4a3f70", light = "#d5bcd8" } }
-baseline = { color = { dark = "#4a3f70", light = "#d5bcd8" } }
+positive = { dark = "#9ff5c8", light = "#2e8a63" }
+neutral  = { dark = "#9384ad", light = "#a58ab0" }
+negative = { dark = "#ff9eb3", light = "#c04a67" }
+bar      = { dark = "#8ae8ff", light = "#2a7f99" }
+track    = { dark = "#4a3f70", light = "#d5bcd8" }
+baseline = { dark = "#4a3f70", light = "#d5bcd8" }
 
 [markdown]
 heading    = { fg = { dark = "#ff9de2", light = "#b04f96" }, bold = true }

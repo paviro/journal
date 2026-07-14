@@ -8,8 +8,9 @@ use serde::Deserialize;
 use std::{collections::BTreeMap, str::FromStr};
 
 use super::{
-    BorderGlyphs, ChromeStyle, CustomBorderSet, EnvGlyphs, Fill, Glyphs, MetadataTheme, Mode,
-    MoonGlyphs, PillStyle, Syntax, Theme, WeatherGlyphs, intern_metadata_theme,
+    BorderGlyphs, ChartRamps, ChromeStyle, CustomBorderSet, EnvGlyphs, Fill, Glyphs,
+    MarkdownGlyphs, MetadataTheme, Mode, MoonGlyphs, PillStyle, Syntax, Theme, WeatherGlyphs,
+    intern_chart_ramps, intern_markdown_glyphs, intern_metadata_theme,
 };
 
 pub(super) fn parse(text: &str, mode: Mode) -> Result<Theme> {
@@ -146,26 +147,6 @@ impl TokenSpec {
     }
 }
 
-/// A chart fill: the glyph plus an optional color. The meaning-carrying
-/// modifiers (bold on signed series, dim on neutral/track) are added in code.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FillSpec {
-    glyph: String,
-    color: Option<ColorSpec>,
-}
-
-impl FillSpec {
-    fn resolve(&self, mode: Mode, palette: &Palette, token: &str) -> Result<Fill> {
-        let glyph = parse_glyph(&self.glyph, token)?;
-        let mut style = Style::default();
-        if let Some(color) = &self.color {
-            style = style.fg(color.resolve(mode, palette, token)?);
-        }
-        Ok(Fill { glyph, style })
-    }
-}
-
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(super) struct ThemeFile {
@@ -184,6 +165,26 @@ pub(super) struct ThemeFile {
     toast: ToastSection,
     tabs: TabsSection,
     metadata: MetadataSection,
+    indicators: IndicatorsSection,
+}
+
+/// Small stateful UI markers that carry no color of their own (they ride the
+/// surrounding text style). Glyphs only, like [`ToastSection`].
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct IndicatorsSection {
+    glyphs: IndicatorsGlyphsSection,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct IndicatorsGlyphsSection {
+    /// The disclosure marker for an expanded group.
+    expanded: Option<String>,
+    /// The disclosure marker for a collapsed group.
+    collapsed: Option<String>,
+    /// The marker trailing a starred entry.
+    starred: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -285,6 +286,9 @@ struct BorderGlyphsSection {
     /// The rule of section dividers (month headers, "Archived"). Read directly
     /// by `resolve`, not part of the box-set overlay.
     divider: Option<String>,
+    /// The plain full-width rule separating dialog sections. Furniture, read
+    /// directly by `resolve`.
+    separator: Option<String>,
 }
 
 /// ratatui border sets hold `&'static str`, so parsed glyphs are interned
@@ -358,21 +362,12 @@ impl BorderGlyphsSection {
     }
 }
 
-/// Like [`intern_glyph`], but for whole resolved sets — leaked once per
-/// distinct set so [`BorderGlyphs`] can carry a `Copy` reference.
+/// Intern a resolved border set — leaked once per distinct set so
+/// [`BorderGlyphs`] can carry a `Copy` reference.
 fn intern_border_set(set: CustomBorderSet) -> &'static CustomBorderSet {
     use std::sync::{Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<Vec<&'static CustomBorderSet>>> = OnceLock::new();
-    let mut cache = CACHE
-        .get_or_init(Mutex::default)
-        .lock()
-        .expect("border set intern lock");
-    if let Some(hit) = cache.iter().find(|cached| ***cached == set) {
-        return hit;
-    }
-    let leaked: &'static CustomBorderSet = Box::leak(Box::new(set));
-    cache.push(leaked);
-    leaked
+    super::intern(set, &CACHE)
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -411,32 +406,40 @@ struct ScrollbarGlyphsSection {
     down: Option<String>,
 }
 
-/// The zero baseline of signed column charts: glyph and color together.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct BaselineSpec {
-    glyph: Option<String>,
-    color: Option<ColorSpec>,
-}
-
+/// Chart *colors* only — glyphs live in the parallel `[charts.glyphs]` section,
+/// matching every other themable section (`[scrollbar]`/`[scrollbar.glyphs]`,
+/// `[borders]`/`[borders.glyphs]`, …). The meaning-carrying modifiers (bold on
+/// signed series, dim on neutral/track) are added in code.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ChartsSection {
-    positive: Option<FillSpec>,
-    neutral: Option<FillSpec>,
-    negative: Option<FillSpec>,
-    bar: Option<FillSpec>,
-    track: Option<FillSpec>,
-    baseline: BaselineSpec,
+    positive: Option<TokenSpec>,
+    neutral: Option<TokenSpec>,
+    negative: Option<TokenSpec>,
+    bar: Option<TokenSpec>,
+    track: Option<TokenSpec>,
+    baseline: Option<TokenSpec>,
     label: Option<TokenSpec>,
     glyphs: ChartsGlyphsSection,
 }
 
+/// Every glyph a chart draws. `ramp`/`ramp_down` are the eighths ramps for
+/// vertical bars and are the only multi-character keys; all others are exactly
+/// one character.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ChartsGlyphsSection {
-    groove: Option<String>,
-    bar_center: Option<String>,
+    positive: Option<String>,
+    neutral: Option<String>,
+    negative: Option<String>,
+    bar: Option<String>,
+    track: Option<String>,
+    diverge_track: Option<String>,
+    diverge_center: Option<String>,
+    baseline: Option<String>,
+    rule: Option<String>,
+    ramp_up: Option<String>,
+    ramp_down: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -448,6 +451,18 @@ struct MarkdownSection {
     code: Option<TokenSpec>,
     blockquote: Option<TokenSpec>,
     syntax: SyntaxSection,
+    glyphs: MarkdownGlyphsSection,
+}
+
+/// The markdown reader's structural chrome. Multi-character values (a rail is
+/// `│ `, a fence corner `╭─`), so plain strings — not single glyphs.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct MarkdownGlyphsSection {
+    quote_rail: Option<String>,
+    code_rail: Option<String>,
+    code_top: Option<String>,
+    code_bottom: Option<String>,
 }
 
 /// Syntax-highlight colors for fenced code blocks, one key per category the
@@ -575,6 +590,8 @@ struct EnvironmentSection {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct MetadataGlyphsSection {
+    /// The full-width rule above the metadata block (both layout paths).
+    rule: Option<String>,
     /// The dot between environment-strip items; always rendered with a space
     /// each side so the strip's width math stays fixed.
     separator: Option<String>,
@@ -586,7 +603,7 @@ struct MetadataGlyphsSection {
     /// The marker leading the high-pollen badge.
     pollen: Option<String>,
     /// The mood bar's filled and empty cells (the center marker is the shared
-    /// `charts.glyphs.bar_center`).
+    /// `charts.glyphs.diverge_center`).
     mood_fill: Option<String>,
     mood_track: Option<String>,
     /// The glyph leading each chip pill, by category — echoing the strip's
@@ -637,6 +654,29 @@ fn parse_glyph(spec: &str, token: &str) -> Result<char> {
     Ok(glyph)
 }
 
+/// A multi-character glyph string (a rail like `│ `, a fence corner like `╭─`),
+/// falling back to `default` when unset. Must be non-empty and single-line: an
+/// empty or multi-line value breaks the per-line reader chrome.
+fn string_glyph(spec: &Option<String>, default: &str, token: &str) -> Result<String> {
+    let value = spec.clone().unwrap_or_else(|| default.to_string());
+    if value.is_empty() || value.contains('\n') {
+        bail!("markdown glyph for `{token}` must be non-empty and single-line, got {value:?}");
+    }
+    Ok(value)
+}
+
+/// An eighths ramp: exactly `N` glyphs, darkest-empty first.
+fn parse_ramp<const N: usize>(spec: &str, token: &str) -> Result<[char; N]> {
+    let ramp: Vec<char> = spec.chars().collect();
+    let ramp: [char; N] = ramp.try_into().map_err(|got: Vec<char>| {
+        anyhow!(
+            "ramp for `{token}` must be exactly {N} characters, got {}",
+            got.len()
+        )
+    })?;
+    Ok(ramp)
+}
+
 impl ThemeFile {
     /// Flatten the file into a [`Theme`] for one [`Mode`]. Omitted tokens fall
     /// back to the classic look, so an empty file *is* `classic.toml`.
@@ -672,22 +712,27 @@ impl ThemeFile {
             spec.as_ref()
                 .map_or(Ok(default), |spec| spec.resolve(mode, palette, token))
         };
-        let fill = |spec: &Option<FillSpec>,
-                    glyph: char,
-                    default: Style,
+        // A chart fill draws its color from `[charts]` and its glyph from
+        // `[charts.glyphs]`; the meaning-carrying modifier always comes from code.
+        let fill = |color: &Option<TokenSpec>,
+                    glyph_spec: &Option<String>,
+                    default_glyph: char,
+                    default_style: Style,
                     carries: Modifier,
-                    token: &str|
+                    color_token: &str,
+                    glyph_token: &str|
          -> Result<Fill> {
-            let fill = match spec {
-                Some(spec) => spec.resolve(mode, palette, token)?,
-                None => Fill {
-                    glyph,
-                    style: default,
-                },
+            let base = match color {
+                Some(spec) => spec.resolve(mode, palette, color_token)?,
+                None => default_style,
+            };
+            let glyph = match glyph_spec {
+                Some(spec) => parse_glyph(spec, glyph_token)?,
+                None => default_glyph,
             };
             Ok(Fill {
-                glyph: fill.glyph,
-                style: fill.style.add_modifier(carries),
+                glyph,
+                style: base.add_modifier(carries),
             })
         };
 
@@ -788,52 +833,58 @@ impl ThemeFile {
         };
 
         let charts = &self.charts;
+        let chart_glyphs = &charts.glyphs;
         // The classic chart palette as fill defaults; bold/dim are the
         // monochrome contract and always come from code.
         let chart_positive = fill(
             &charts.positive,
+            &chart_glyphs.positive,
             '▓',
             Style::default().fg(Color::Green),
             Modifier::BOLD,
             "charts.positive",
+            "charts.glyphs.positive",
         )?;
         let chart_neutral = fill(
             &charts.neutral,
+            &chart_glyphs.neutral,
             '▓',
             Style::default(),
             Modifier::DIM,
             "charts.neutral",
+            "charts.glyphs.neutral",
         )?;
         let chart_negative = fill(
             &charts.negative,
+            &chart_glyphs.negative,
             '▓',
             Style::default().fg(Color::Red),
             Modifier::BOLD,
             "charts.negative",
+            "charts.glyphs.negative",
         )?;
         let bar = fill(
             &charts.bar,
+            &chart_glyphs.bar,
             '▓',
             Style::default().fg(Color::Cyan),
             Modifier::empty(),
             "charts.bar",
+            "charts.glyphs.bar",
         )?;
         let track = fill(
             &charts.track,
+            &chart_glyphs.track,
             '░',
             Style::default(),
             Modifier::DIM,
             "charts.track",
+            "charts.glyphs.track",
         )?;
         // Chart furniture defaults to the muted ink so charts read as they
         // always have when a theme doesn't restyle them.
         let chart_furniture = muted.add_modifier(Modifier::DIM);
-        let chart_baseline = match &charts.baseline.color {
-            Some(spec) => {
-                Style::default().fg(spec.resolve(mode, palette, "charts.baseline.color")?)
-            }
-            None => chart_furniture,
-        };
+        let chart_baseline = style(&charts.baseline, chart_furniture, "charts.baseline")?;
         let chart_label = style(&charts.label, chart_furniture, "charts.label")?;
 
         let markdown = &self.markdown;
@@ -1029,13 +1080,74 @@ impl ThemeFile {
                 '━',
                 "borders.glyphs.divider",
             )?,
-            chart_baseline: glyph(&charts.baseline.glyph, '┈', "charts.baseline.glyph")?,
-            chart_groove: glyph(&charts.glyphs.groove, '·', "charts.glyphs.groove")?,
-            bar_center: glyph(&charts.glyphs.bar_center, '│', "charts.glyphs.bar_center")?,
+            separator: glyph(
+                &border_furniture.and_then(|g| g.separator.clone()),
+                '─',
+                "borders.glyphs.separator",
+            )?,
+            chart_baseline: glyph(&chart_glyphs.baseline, '┈', "charts.glyphs.baseline")?,
+            chart_rule: glyph(&chart_glyphs.rule, '─', "charts.glyphs.rule")?,
+            diverge_track: glyph(
+                &chart_glyphs.diverge_track,
+                '·',
+                "charts.glyphs.diverge_track",
+            )?,
+            diverge_center: glyph(
+                &chart_glyphs.diverge_center,
+                '│',
+                "charts.glyphs.diverge_center",
+            )?,
+            ramps: intern_chart_ramps(ChartRamps {
+                up: match &chart_glyphs.ramp_up {
+                    Some(spec) => parse_ramp(spec, "charts.glyphs.ramp_up")?,
+                    None => [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'],
+                },
+                down: match &chart_glyphs.ramp_down {
+                    Some(spec) => parse_ramp(spec, "charts.glyphs.ramp_down")?,
+                    None => [' ', '▔', '▀', '█'],
+                },
+            }),
             scrollbar_thumb: glyph(&scrollbar_glyphs.thumb, '█', "scrollbar.glyphs.thumb")?,
             scrollbar_track: glyph(&scrollbar_glyphs.track, '║', "scrollbar.glyphs.track")?,
             scrollbar_up: glyph(&scrollbar_glyphs.up, '▲', "scrollbar.glyphs.up")?,
             scrollbar_down: glyph(&scrollbar_glyphs.down, '▼', "scrollbar.glyphs.down")?,
+            expanded: glyph(
+                &self.indicators.glyphs.expanded,
+                '▾',
+                "indicators.glyphs.expanded",
+            )?,
+            collapsed: glyph(
+                &self.indicators.glyphs.collapsed,
+                '▸',
+                "indicators.glyphs.collapsed",
+            )?,
+            starred: glyph(
+                &self.indicators.glyphs.starred,
+                '★',
+                "indicators.glyphs.starred",
+            )?,
+            markdown: intern_markdown_glyphs(MarkdownGlyphs {
+                quote_rail: string_glyph(
+                    &self.markdown.glyphs.quote_rail,
+                    "│ ",
+                    "markdown.glyphs.quote_rail",
+                )?,
+                code_rail: string_glyph(
+                    &self.markdown.glyphs.code_rail,
+                    "│ ",
+                    "markdown.glyphs.code_rail",
+                )?,
+                code_top: string_glyph(
+                    &self.markdown.glyphs.code_top,
+                    "╭─",
+                    "markdown.glyphs.code_top",
+                )?,
+                code_bottom: string_glyph(
+                    &self.markdown.glyphs.code_bottom,
+                    "╰─",
+                    "markdown.glyphs.code_bottom",
+                )?,
+            }),
             borders: border_glyphs,
             focused_borders,
         };
@@ -1052,6 +1164,7 @@ impl ThemeFile {
             mood_negative,
             mood_positive,
             glyphs: EnvGlyphs {
+                rule: glyph(&metadata_glyphs.rule, '─', "metadata.glyphs.rule")?,
                 separator: glyph(&metadata_glyphs.separator, '·', "metadata.glyphs.separator")?,
                 location: glyph(&metadata_glyphs.location, '⚑', "metadata.glyphs.location")?,
                 sunrise: glyph(&metadata_glyphs.sunrise, '↑', "metadata.glyphs.sunrise")?,
@@ -1113,8 +1226,8 @@ impl ThemeFile {
             chart_positive,
             chart_neutral,
             chart_negative,
-            bar,
-            track,
+            chart_bar: bar,
+            chart_track: track,
             chart_baseline,
             chart_label,
             md_heading,

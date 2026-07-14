@@ -538,6 +538,14 @@ fn run_loop(
     let mut validation_finished = validation_rx.is_none();
 
     loop {
+        // Surface anything reported where there was no `&mut App` to toast on —
+        // today the theme-load fallback (the configured theme failed to parse and
+        // the app fell back to the default), queued on the pre-App startup path
+        // and on mid-session journal switches. Drained here rather than at each
+        // report site.
+        for (variant, msg) in state::drain_notifications() {
+            app.toast(variant, msg);
+        }
         // Consume source changes before accepting the startup snapshot. If any
         // landed while validation was running, rebuild once from the current
         // tree instead of installing a result that may predate the change.

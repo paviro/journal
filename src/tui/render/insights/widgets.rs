@@ -377,27 +377,24 @@ pub(crate) fn draw_more_note(frame: &mut Frame<'_>, more: Option<(Rect, String)>
     }
 }
 
-/// The eighths ramp used by histograms and sparklines: index 0 is blank, 8 full.
-const RAMP: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-
-/// The eighths ramp filling from the *top* of the cell downward, for bars that
-/// grow below a baseline: index 0 is blank, 8 a full cell.
-fn ramp_cell(eighths: usize) -> char {
-    RAMP[eighths.min(8)]
+/// A cell of the themed up ramp (`charts.glyphs.ramp`): index 0 is blank, 8 full.
+fn ramp_cell(ramp: &[char; 9], eighths: usize) -> char {
+    ramp[eighths.min(8)]
 }
 
-/// The downward counterpart of [`ramp_cell`], for bars hanging below a baseline.
-/// Only the "Block Elements" upper glyphs are universally rendered by terminal
-/// fonts (the finer eighth-height *upper* blocks live in "Symbols for Legacy
-/// Computing", which most fonts lack), so the tip quantises to empty / one-eighth
-/// (`▔`) / half (`▀`) / full (`█`).
-fn ramp_cell_down(eighths: usize) -> char {
-    match eighths.min(8) {
-        0 => ' ',
-        1..=2 => '▔',
-        3..=6 => '▀',
-        _ => '█',
-    }
+/// The downward counterpart of [`ramp_cell`] (`charts.glyphs.ramp_down`), for
+/// bars hanging below a baseline. Only the "Block Elements" upper glyphs are
+/// universally rendered by terminal fonts (the finer eighth-height *upper* blocks
+/// live in "Symbols for Legacy Computing", which most fonts lack), so the tip
+/// quantises to empty / one-eighth / half / full — four cells.
+fn ramp_cell_down(ramp: &[char; 4], eighths: usize) -> char {
+    let level = match eighths.min(8) {
+        0 => 0,
+        1..=2 => 1,
+        3..=6 => 2,
+        _ => 3,
+    };
+    ramp[level]
 }
 
 /// A vertical bar chart of signed averages around a zero baseline: each column
@@ -453,18 +450,22 @@ pub(crate) fn draw_signed_columns(
 
     // The character each column shows on plot row `y`, with whether it is a
     // positive (green) or negative (red) cell.
+    let ramps = theme().glyphs().ramps;
     let column_cell = |value: &Option<f32>, y: u16| -> (char, bool) {
         match value {
             Some(avg) if *avg > 0.0 && y < baseline_row => {
                 let level = (baseline_row - y) as usize; // 1 = nearest the baseline
                 let filled = (norm(*avg) * up_eighths as f32).round() as usize;
-                (ramp_cell(filled.saturating_sub((level - 1) * 8)), true)
+                (
+                    ramp_cell(&ramps.up, filled.saturating_sub((level - 1) * 8)),
+                    true,
+                )
             }
             Some(avg) if *avg < 0.0 && y > baseline_row => {
                 let level = (y - baseline_row) as usize;
                 let filled = (-norm(*avg) * down_eighths as f32).round() as usize;
                 (
-                    ramp_cell_down(filled.saturating_sub((level - 1) * 8)),
+                    ramp_cell_down(&ramps.down, filled.saturating_sub((level - 1) * 8)),
                     false,
                 )
             }
@@ -506,12 +507,13 @@ pub(crate) fn draw_signed_columns(
     // weight difference is what marks bar-versus-gap without color.
     let baseline = theme().chart_baseline();
     let tick = theme().glyphs().chart_baseline.to_string();
+    let rule = theme().glyphs().chart_rule.to_string();
     let mut base = vec![Span::styled(tick.repeat(edge), baseline)];
     for i in 0..n {
         if i > 0 {
             base.push(Span::styled(tick.repeat(gap), baseline));
         }
-        base.push(Span::styled("─".repeat(col_w(i)), baseline));
+        base.push(Span::styled(rule.repeat(col_w(i)), baseline));
     }
     base.push(Span::styled(tick.repeat(edge), baseline));
     frame.render_widget(
@@ -572,6 +574,7 @@ pub(crate) fn draw_histogram(frame: &mut Frame<'_>, area: Rect, values: &[usize]
     let bar_h = area.height as usize;
     let eighths_per = bar_h * 8;
 
+    let ramp = theme().glyphs().ramps.up;
     let mut lines: Vec<Line> = Vec::with_capacity(bar_h);
     for row in 0..bar_h {
         // Row 0 is the top; `level` counts cells up from the baseline.
@@ -585,7 +588,7 @@ pub(crate) fn draw_histogram(frame: &mut Frame<'_>, area: Rect, values: &[usize]
             let filled = (value as f32 / max as f32 * eighths_per as f32).round() as usize;
             let cell = filled.saturating_sub(lower).min(8);
             spans.push(Span::styled(
-                ramp_cell(cell).to_string(),
+                ramp_cell(&ramp, cell).to_string(),
                 theme().chart_bar().style,
             ));
         }

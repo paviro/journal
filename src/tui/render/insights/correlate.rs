@@ -355,32 +355,33 @@ fn delta_bar(delta: Option<f32>, max_abs: f32, width: usize) -> Line<'static> {
     }
 
     // Filled cells carry the sign colour; empty ones read as the muted `·`
-    // groove, so length alone conveys magnitude on monochrome.
+    // groove, so length alone conveys magnitude on monochrome. Resolve the theme
+    // once — `theme()` copies the whole ~1KB `Theme` by value, and this runs per
+    // cell. A filled cell is the bar glyph in the sign colour (direction already
+    // carries the meaning); an empty cell is the groove track.
+    let t = theme();
+    let bar_glyph = t.chart_bar().glyph.to_string();
+    let track_glyph = t.glyphs().diverge_track.to_string();
+    let track_style = t.chart_track().style;
+    let cell = |on: bool, style: ratatui::style::Style| {
+        if on {
+            Span::styled(bar_glyph.clone(), style)
+        } else {
+            Span::styled(track_glyph.clone(), track_style)
+        }
+    };
     let mut spans = Vec::with_capacity(width);
     for &on in &left {
-        spans.push(cell_span(on, theme().negative()));
+        spans.push(cell(on, t.negative()));
     }
     spans.push(Span::styled(
-        theme().glyphs().bar_center.to_string(),
-        theme().muted(),
+        t.glyphs().diverge_center.to_string(),
+        t.muted(),
     ));
     for &on in &right {
-        spans.push(cell_span(on, theme().positive()));
+        spans.push(cell(on, t.positive()));
     }
     Line::from(spans)
-}
-
-/// One bar cell: a filled bar glyph in `style` (the sign color — direction
-/// already carries the meaning), or the `·` groove when empty.
-fn cell_span(filled: bool, style: ratatui::style::Style) -> Span<'static> {
-    if filled {
-        Span::styled(theme().chart_bar().glyph.to_string(), style)
-    } else {
-        Span::styled(
-            theme().glyphs().chart_groove.to_string(),
-            theme().chart_track().style,
-        )
-    }
 }
 
 /// One correlate row: `name   count   avg±   Δ±   [feeling]`. The `avg`/`Δ`

@@ -42,12 +42,12 @@ key_hint  = { fg = { dark = "#cdd6f4", light = "#4c4f69" }, bold = true }
 track = { dark = "#313244", light = "#ccd0da" }
 
 [charts]
-positive = { glyph = "▓", color = { dark = "#a6e3a1", light = "#40a02b" } }
-neutral  = { glyph = "▓", color = { dark = "#a6adc8", light = "#8c8fa1" } }
-negative = { glyph = "▓", color = { dark = "#f38ba8", light = "#d20f39" } }
-bar      = { glyph = "▓", color = { dark = "#cba6f7", light = "#8839ef" } }
-track    = { glyph = "░", color = { dark = "#45475a", light = "#bcc0cc" } }
-baseline = { color = { dark = "#45475a", light = "#bcc0cc" } }
+positive = { dark = "#a6e3a1", light = "#40a02b" }
+neutral  = { dark = "#a6adc8", light = "#8c8fa1" }
+negative = { dark = "#f38ba8", light = "#d20f39" }
+bar      = { dark = "#cba6f7", light = "#8839ef" }
+track    = { dark = "#45475a", light = "#bcc0cc" }
+baseline = { dark = "#45475a", light = "#bcc0cc" }
 
 [markdown]
 heading    = { fg = { dark = "#cba6f7", light = "#8839ef" }, bold = true }

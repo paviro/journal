@@ -10,8 +10,9 @@
 # [borders] line style and colors · [interaction] selection/hover/cursor ·
 # [scrollbar] colors and glyphs · [charts] insight graphs · [markdown] entry
 # rendering · [metadata] the entry view's chip pills and environment strip ·
-# [toast] · [tabs]. Every key is optional, and each element's glyphs live in
-# a [<section>.glyphs] table of its own.
+# [toast] · [tabs] · [indicators] disclosure / starred markers. Every key is
+# optional, and each element's glyphs live in a [<section>.glyphs] table of its
+# own.
 #
 # [metadata.pills] takes `style = "reversed"|"bg"|"bracket"` plus one style
 # per chip category (feelings, people, activities, tags); [metadata.glyphs]
@@ -72,12 +73,12 @@ key_hint  = { fg = { dark = "#eeeeee", light = "#1c1c1c" }, bold = true }
 track = { dark = "#282828", light = "#e4e4e4" }
 
 [charts]
-positive = { glyph = "▓", color = { dark = "#7fd06a", light = "#357a2a" } }
-neutral  = { glyph = "▓", color = { dark = "#7c8494", light = "#828699" } }
-negative = { glyph = "▓", color = { dark = "#ff5c6a", light = "#c22f3c" } }
-bar      = { glyph = "▓", color = { dark = "#3fd8cd", light = "#0f8078" } }
-track    = { glyph = "░", color = { dark = "#3c3c3c", light = "#d4d4d4" } }
-baseline = { color = { dark = "#3c3c3c", light = "#d4d4d4" } }
+positive = { dark = "#7fd06a", light = "#357a2a" }
+neutral  = { dark = "#7c8494", light = "#828699" }
+negative = { dark = "#ff5c6a", light = "#c22f3c" }
+bar      = { dark = "#3fd8cd", light = "#0f8078" }
+track    = { dark = "#3c3c3c", light = "#d4d4d4" }
+baseline = { dark = "#3c3c3c", light = "#d4d4d4" }
 
 # One hue per element so entries read as structured, not flat: teal headings,
 # warm-gold subheads, blue links, pink inline code, violet quotes.

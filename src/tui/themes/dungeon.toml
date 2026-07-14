@@ -48,16 +48,16 @@ key_hint  = { fg = { dark = "#e6d3a3", light = "#3b2f1b" }, bold = true }
 track = { dark = "#3a2f1e", light = "#cfc09a" }
 
 [charts]
-positive = { glyph = "▓", color = { dark = "#7fa055", light = "#4e6b2e" } }
-neutral  = { glyph = "▓", color = { dark = "#937f57", light = "#7d6a45" } }
-negative = { glyph = "▓", color = { dark = "#c14b42", light = "#96322a" } }
-bar      = { glyph = "▓", color = { dark = "#d9a821", light = "#8a6d0d" } }
-track    = { glyph = "░", color = { dark = "#5c4a2e", light = "#b5a273" } }
-baseline = { color = { dark = "#5c4a2e", light = "#b5a273" } }
+positive = { dark = "#7fa055", light = "#4e6b2e" }
+neutral  = { dark = "#937f57", light = "#7d6a45" }
+negative = { dark = "#c14b42", light = "#96322a" }
+bar      = { dark = "#d9a821", light = "#8a6d0d" }
+track    = { dark = "#5c4a2e", light = "#b5a273" }
+baseline = { dark = "#5c4a2e", light = "#b5a273" }
 
 # The delta/mood bars' center marker: matching the double borders.
 [charts.glyphs]
-bar_center = "║"
+diverge_center = "║"
 
 [markdown]
 heading    = { fg = { dark = "#d9a821", light = "#8a6d0d" }, bold = true }

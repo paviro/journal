@@ -282,24 +282,78 @@ pub(crate) struct MetadataTheme {
 /// sections — leaked once per distinct value so [`Theme`] carries a `Copy`
 /// reference. Themes resolve rarely (startup, picker preview, live reload),
 /// so the linear cache scan is nothing.
+/// Intern a resolved theme sub-struct by value: repeated parses (picker, live
+/// reload) return the same `&'static` instead of leaking without bound, so the
+/// `Copy` structs that carry it ([`Glyphs`], [`BorderGlyphs`]) stay cheap.
+pub(super) fn intern<T: PartialEq + 'static>(
+    value: T,
+    cache: &'static std::sync::OnceLock<std::sync::Mutex<Vec<&'static T>>>,
+) -> &'static T {
+    let mut cache = cache
+        .get_or_init(std::sync::Mutex::default)
+        .lock()
+        .unwrap_or_else(|_| panic!("{} intern lock", std::any::type_name::<T>()));
+    if let Some(hit) = cache.iter().find(|cached| ***cached == value) {
+        return hit;
+    }
+    let leaked: &'static T = Box::leak(Box::new(value));
+    cache.push(leaked);
+    leaked
+}
+
 pub(super) fn intern_metadata_theme(section: MetadataTheme) -> &'static MetadataTheme {
     use std::sync::{Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<Vec<&'static MetadataTheme>>> = OnceLock::new();
-    let mut cache = CACHE
-        .get_or_init(Mutex::default)
-        .lock()
-        .expect("metadata theme intern lock");
-    if let Some(hit) = cache.iter().find(|cached| ***cached == section) {
-        return hit;
-    }
-    let leaked: &'static MetadataTheme = Box::leak(Box::new(section));
-    cache.push(leaked);
-    leaked
+    intern(section, &CACHE)
+}
+
+/// The eighths ramps a theme's column charts, histograms, and sparklines fill
+/// with. Held behind a `&'static` (like [`MetadataTheme`]) so [`Glyphs`] stays
+/// a cheap `Copy` even though the ramps are 13 chars.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ChartRamps {
+    /// Bars growing *up* from a baseline: index 0 blank, 8 a full cell.
+    pub(crate) up: [char; 9],
+    /// Bars hanging *below* a baseline, quantised to the four universally-drawn
+    /// upper block glyphs: index 0 blank, 3 a full cell.
+    pub(crate) down: [char; 4],
+}
+
+/// Intern chart ramps by value so repeated parses (picker, live reload) don't
+/// leak without bound — mirrors [`intern_metadata_theme`].
+pub(super) fn intern_chart_ramps(ramps: ChartRamps) -> &'static ChartRamps {
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<Vec<&'static ChartRamps>>> = OnceLock::new();
+    intern(ramps, &CACHE)
+}
+
+/// The markdown reader's structural chrome — the code-fence frame and the
+/// quote/code left rails. Multi-character (a rail is `│ `, a fence corner `╭─`),
+/// so held behind a `&'static` to keep [`Glyphs`] a cheap `Copy`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MarkdownGlyphs {
+    /// The left rail of a blockquote (`markdown.glyphs.quote_rail`).
+    pub(crate) quote_rail: String,
+    /// The left rail of a fenced code block (`markdown.glyphs.code_rail`).
+    pub(crate) code_rail: String,
+    /// The top of a code fence, before the language label (`markdown.glyphs.code_top`).
+    pub(crate) code_top: String,
+    /// The bottom of a code fence (`markdown.glyphs.code_bottom`).
+    pub(crate) code_bottom: String,
+}
+
+/// Intern markdown glyphs by value — mirrors [`intern_metadata_theme`].
+pub(super) fn intern_markdown_glyphs(glyphs: MarkdownGlyphs) -> &'static MarkdownGlyphs {
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<Vec<&'static MarkdownGlyphs>>> = OnceLock::new();
+    intern(glyphs, &CACHE)
 }
 
 /// The environment strip's glyphs (`[metadata.glyphs]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct EnvGlyphs {
+    /// The full-width rule above the metadata block (`metadata.glyphs.rule`).
+    pub(crate) rule: char,
     /// The dot between strip items; always rendered with a space each side so
     /// the strip's width math stays fixed.
     pub(crate) separator: char,
@@ -317,7 +371,7 @@ pub(crate) struct EnvGlyphs {
     /// `metadata.environment.mood_negative`/`mood_positive`.
     pub(crate) mood_fill: char,
     /// The mood bar's empty cells. The center marker stays the shared
-    /// `charts.glyphs.bar_center` (its heavy at-zero variant is code-side —
+    /// `charts.glyphs.diverge_center` (its heavy at-zero variant is code-side —
     /// weight is the meaning).
     pub(crate) mood_track: char,
     /// The glyph leading each chip pill, by category.
@@ -413,13 +467,21 @@ pub(crate) struct Glyphs {
     pub(crate) tab_separator: char,
     /// The rule of section dividers (month headers, "Archived").
     pub(crate) divider: char,
-    /// The zero-baseline decoration of column charts (`charts.baseline.glyph`).
+    /// The plain full-width rule separating dialog sections (`borders.glyphs.separator`).
+    pub(crate) separator: char,
+    /// The zero-line tick shown in the gaps/edges of a signed column chart
+    /// (`charts.glyphs.baseline`).
     pub(crate) chart_baseline: char,
-    /// The groove marking an empty delta bar (`charts.groove`).
-    pub(crate) chart_groove: char,
-    /// The center marker of delta/mood bars (`charts.bar_center`). The heavy
-    /// variant shown at an exact zero stays code-side (weight carries meaning).
-    pub(crate) bar_center: char,
+    /// The zero-line drawn directly under each column (`charts.glyphs.rule`).
+    pub(crate) chart_rule: char,
+    /// The empty cell of a diverging (Δ / mood) bar (`charts.glyphs.diverge_track`).
+    pub(crate) diverge_track: char,
+    /// The center pivot of a diverging bar (`charts.glyphs.diverge_center`). The
+    /// heavy variant shown at an exact zero stays code-side (weight carries
+    /// meaning).
+    pub(crate) diverge_center: char,
+    /// The eighths ramps for vertical bars (`charts.glyphs.ramp_up`/`ramp_down`).
+    pub(crate) ramps: &'static ChartRamps,
     /// The scrollbar's draggable handle (`glyphs.scrollbar_thumb`).
     pub(crate) scrollbar_thumb: char,
     /// The scrollbar's track behind the handle (`glyphs.scrollbar_track`).
@@ -428,6 +490,13 @@ pub(crate) struct Glyphs {
     pub(crate) scrollbar_up: char,
     /// The arrow capping the scrollbar's bottom (`glyphs.scrollbar_down`).
     pub(crate) scrollbar_down: char,
+    /// The disclosure marker for an expanded/collapsed group (`indicators.glyphs`).
+    pub(crate) expanded: char,
+    pub(crate) collapsed: char,
+    /// The marker trailing a starred entry (`indicators.glyphs.starred`).
+    pub(crate) starred: char,
+    /// The multi-character markdown chrome (fence frame, quote/code rails).
+    pub(crate) markdown: &'static MarkdownGlyphs,
     /// The box-drawing set for borders, cards, and table grids (`borders.style`
     /// or `[borders.glyphs]`).
     pub(crate) borders: BorderGlyphs,
@@ -485,8 +554,8 @@ pub(crate) struct Theme {
     chart_positive: Fill,
     chart_neutral: Fill,
     chart_negative: Fill,
-    bar: Fill,
-    track: Fill,
+    chart_bar: Fill,
+    chart_track: Fill,
     chart_baseline: Style,
     chart_label: Style,
     md_heading: Style,
@@ -639,7 +708,12 @@ pub(crate) fn init_from_config(config_path: &Path, ui: &crate::config::UiSection
     let _ = DETECTED.set(detect_terminal_background());
     set_color_mode(ui.color_mode);
     set_chrome_override(ui.chrome.forced_style());
-    install(load(config_path, &ui.theme, mode()));
+    // Install the configured theme so something is themed before the App exists.
+    // The App re-resolves the effective theme (accounting for a journal-specific
+    // override) in `apply_effective_theme` during construction and drives the
+    // toast from there, so this transient pre-App load stays silent.
+    let (theme, _) = load(config_path, &ui.theme, mode());
+    install(theme);
 }
 
 /// Ask the terminal for its background (OSC 10/11, with the library's own
@@ -957,12 +1031,12 @@ impl Theme {
 
     /// The filled part of count/frequency bars.
     pub(crate) fn chart_bar(self) -> Fill {
-        self.bar
+        self.chart_bar
     }
 
     /// The empty remainder of a bar.
     pub(crate) fn chart_track(self) -> Fill {
-        self.track
+        self.chart_track
     }
 
     /// The positive sentiment series.
@@ -1148,8 +1222,8 @@ impl Theme {
             ("chart_positive", self.chart_positive.style),
             ("chart_neutral", self.chart_neutral.style),
             ("chart_negative", self.chart_negative.style),
-            ("bar", self.bar.style),
-            ("track", self.track.style),
+            ("chart_bar", self.chart_bar.style),
+            ("chart_track", self.chart_track.style),
             ("chart_baseline", self.chart_baseline),
             ("chart_label", self.chart_label),
             ("md_heading", self.md_heading),
@@ -1193,16 +1267,50 @@ pub(crate) fn ensure_bundled(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Load the named theme, materializing the bundled files first. Any failure
-/// (missing file, bad TOML, unknown color) falls back to the built-in
-/// [`DEFAULT_THEME`] with a warning on stderr — the app always starts.
-pub(crate) fn load(config_path: &Path, name: &str, mode: Mode) -> Theme {
-    match try_load(config_path, name, mode) {
-        Ok(theme) => theme,
-        Err(err) => {
-            eprintln!("warning: {err:#}; using the built-in '{DEFAULT_THEME}' theme");
-            builtin(DEFAULT_THEME, mode).unwrap_or_else(Theme::terminal_default)
+/// Theme names already warned about this session. Keyed by name so moving
+/// between journals that resolve to the same broken theme toasts only once; a
+/// clean load of that name clears it, so a later fix-then-break warns again.
+static WARNED_THEMES: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Record the effective theme's load result. The first time a given theme name
+/// fails this session it reports one warning through the shared notification
+/// queue for the event loop to toast; re-applying the same broken theme (journal
+/// switches, background snapshots) stays silent. A clean load clears the name so
+/// a genuine later break can warn again.
+pub(crate) fn note_theme_load_warning(name: &str, warning: Option<String>) {
+    let mut warned = WARNED_THEMES.lock().expect("warned themes lock");
+    match warning {
+        Some(msg) if warned.insert(name.to_string()) => {
+            crate::tui::state::report_notification(crate::tui::state::ToastVariant::Warning, msg);
         }
+        Some(_) => {}
+        None => {
+            warned.remove(name);
+        }
+    }
+}
+
+/// The toast text shown when the configured theme can't be loaded and the app
+/// falls back to the default.
+pub(crate) fn format_theme_warning(name: &str, err: &anyhow::Error) -> String {
+    format!(
+        "Theme '{name}' couldn't load ({}); using default",
+        crate::tui::concise_error(err)
+    )
+}
+
+/// Load the named theme, materializing the bundled files first. On any failure
+/// (missing file, bad TOML, unknown color) returns the built-in
+/// [`DEFAULT_THEME`] alongside the error so the caller can surface it — the app
+/// always starts.
+pub(crate) fn load(config_path: &Path, name: &str, mode: Mode) -> (Theme, Option<anyhow::Error>) {
+    match try_load(config_path, name, mode) {
+        Ok(theme) => (theme, None),
+        Err(err) => (
+            builtin(DEFAULT_THEME, mode).unwrap_or_else(Theme::terminal_default),
+            Some(err),
+        ),
     }
 }
 
