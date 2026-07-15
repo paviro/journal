@@ -47,6 +47,22 @@ type or configure a path by hand.
 Sometimes right after the TUI launches iSH won't register key presses until you
 tap the terminal once. If nothing responds, tap the screen and try again.
 
+### Timezone
+
+iSH's clock runs on UTC out of the box, so new entries get timestamps — and the
+sunrise/sunset shown alongside them — offset by your UTC difference until you set
+the zone. Install `tzdata` and point the clock at your zone:
+
+```sh
+apk add tzdata
+cp /usr/share/zoneinfo/Region/City /etc/localtime
+```
+
+Replace `Region/City` with your own IANA zone — e.g. `Europe/Berlin`,
+`America/New_York`, `Asia/Tokyo`. Browse `/usr/share/zoneinfo` (after installing
+`tzdata`) to find yours. Restart notema afterwards. This only affects entries
+written from then on; entries already saved keep their original offset.
+
 ### Current location
 
 `Ctrl+L` grabs the device's location on iOS too, read from iSH's `/dev/location`
