@@ -121,6 +121,7 @@ pub(super) fn editor(app: &mut AppModel, action: EditorAction) -> AppResult<()> 
             }
         }
         EditorAction::StartSelection { col, row } => start_editor_selection(app, col, row),
+        EditorAction::SelectWord { col, row } => select_editor_word(app, col, row),
         EditorAction::DragSelection { col, row } => drag_editor_selection(app, col, row),
         EditorAction::EndSelection => end_editor_selection(app),
     }

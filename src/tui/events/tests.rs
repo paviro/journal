@@ -69,7 +69,7 @@ fn render_view(
 
 fn mouse_in_area(app: &mut AppModel, event: MouseEvent, w: u16, h: u16) {
     let (mut terminal, view) = render_view(app, w, h);
-    if let Some(action) = mouse::mouse_to_action(app, event, Rect::new(0, 0, w, h), &view) {
+    if let Some(action) = mouse::mouse_to_action(app, event, Rect::new(0, 0, w, h), &view, false) {
         dispatch_action(&mut terminal, app, action).unwrap();
     }
 }

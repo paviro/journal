@@ -225,7 +225,7 @@ fn click_translation_does_not_mutate_the_model() {
         app.toasts.items().len(),
     );
 
-    let action = mouse::mouse_to_action(&app, mouse(down(), list.x + 2, row), area, &view);
+    let action = mouse::mouse_to_action(&app, mouse(down(), list.x + 2, row), area, &view, false);
 
     assert_eq!(
         action,
@@ -366,7 +366,7 @@ fn menu_click_action(
     let (_, view) = render_view(app, area.width, area.height);
     let (col, row) =
         find_interaction(&view, area.width, area.height, predicate).expect("region registered");
-    mouse::mouse_to_action(app, mouse(down(), col, row), area, &view)
+    mouse::mouse_to_action(app, mouse(down(), col, row), area, &view, false)
 }
 
 #[test]
@@ -447,6 +447,28 @@ fn metadata_menu_click_maps_every_row_to_its_action() {
         matches!(kind, InteractionKind::DialogClose(DialogId::MetadataMenu))
     });
     assert_eq!(close_action, Some(Action::Overlay(OverlayAction::Cancel)));
+}
+
+#[test]
+fn editor_double_click_maps_to_select_word() {
+    let mut app = app_with_entries(1);
+    app.select_entry_index(0);
+    app.open_editor_for_selected().unwrap();
+    let area = Rect::new(0, 0, 80, 24);
+    let (_, view) = render_view(&mut app, area.width, area.height);
+
+    // A central cell in the text body, away from the border and footer.
+    let (col, row) = (10, 6);
+    let single = mouse::mouse_to_action(&app, mouse(down(), col, row), area, &view, false);
+    assert_eq!(
+        single,
+        Some(Action::Editor(EditorAction::StartSelection { col, row }))
+    );
+    let double = mouse::mouse_to_action(&app, mouse(down(), col, row), area, &view, true);
+    assert_eq!(
+        double,
+        Some(Action::Editor(EditorAction::SelectWord { col, row }))
+    );
 }
 
 #[test]

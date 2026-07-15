@@ -512,6 +512,32 @@ fn start_editor_selection(app: &mut AppModel, col: u16, row: u16) {
     }
 }
 
+fn select_editor_word(app: &mut AppModel, col: u16, row: u16) {
+    let Some(editor) = app.editor.as_mut() else {
+        return;
+    };
+    let Some((line, column)) = editor.text_pos_at(col, row) else {
+        return;
+    };
+    let Some((start, end)) = crate::tui::text_input::word_bounds(
+        &editor.textarea.lines()[line as usize],
+        column as usize,
+    ) else {
+        return;
+    };
+    // Anchor at the word's end and leave the caret at its start: while selecting,
+    // the caret cell is painted with the reversed selection style, so keeping it on
+    // a selected char avoids highlighting the boundary cell after the word.
+    editor.textarea.cancel_selection();
+    editor
+        .textarea
+        .move_cursor(CursorMove::Jump(line, end as u16));
+    editor.textarea.start_selection();
+    editor
+        .textarea
+        .move_cursor(CursorMove::Jump(line, start as u16));
+}
+
 fn drag_editor_selection(app: &mut AppModel, col: u16, row: u16) {
     let Some(editor) = app.editor.as_mut() else {
         return;

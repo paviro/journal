@@ -220,6 +220,9 @@ pub(crate) struct Nav {
     /// A mouse drag is selecting text in a single-line field (search box or a
     /// dialog input); set on press in the field, cleared on release.
     pub(crate) input_selecting: bool,
+    /// The last left-button press `(time, col, row)`, used to detect a
+    /// double-click (a second press on the same cell within [`DOUBLE_CLICK`]).
+    pub(crate) last_click: Option<(Instant, u16, u16)>,
 }
 
 impl Default for Nav {
@@ -237,7 +240,32 @@ impl Default for Nav {
             insights_scope: InsightsScope::default(),
             insights_timeframe: InsightsTimeframe::default(),
             input_selecting: false,
+            last_click: None,
         }
+    }
+}
+
+/// How close in time two left presses on the same cell must land to count as a
+/// double-click. Terminals send discrete press/release pairs, so a double-click
+/// is just two presses on one cell within this window.
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+
+impl Nav {
+    /// Record a left-button press and report whether it completes a double-click:
+    /// a prior press within [`DOUBLE_CLICK`] on the same `(col, row)`. A match
+    /// clears the record so a third quick press starts a fresh single click
+    /// rather than chaining into another double.
+    pub(crate) fn register_left_click(&mut self, col: u16, row: u16) -> bool {
+        let now = Instant::now();
+        let is_double = self.last_click.is_some_and(|(at, c, r)| {
+            c == col && r == row && now.duration_since(at) <= DOUBLE_CLICK
+        });
+        self.last_click = if is_double {
+            None
+        } else {
+            Some((now, col, row))
+        };
+        is_double
     }
 }
 

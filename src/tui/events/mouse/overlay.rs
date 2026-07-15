@@ -67,8 +67,9 @@ pub(super) fn overlay_mouse_action(
     mouse: MouseEvent,
     _area: Rect,
     view: &ViewState,
+    double_click: bool,
 ) -> Option<Action> {
-    if let Some(action) = text_field_mouse_action(app, mouse, view) {
+    if let Some(action) = text_field_mouse_action(app, mouse, view, double_click) {
         return Some(Action::Mouse(action));
     }
     match mouse.kind {
@@ -253,11 +254,16 @@ pub(super) fn text_field_mouse_action(
     app: &AppModel,
     mouse: MouseEvent,
     view: &ViewState,
+    double_click: bool,
 ) -> Option<MouseAction> {
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             let (target, column) = text_field_at(mouse.column, mouse.row, view)?;
-            Some(MouseAction::TextFieldPress { target, column })
+            Some(if double_click {
+                MouseAction::TextFieldSelectWord { target, column }
+            } else {
+                MouseAction::TextFieldPress { target, column }
+            })
         }
         MouseEventKind::Drag(MouseButton::Left) if app.nav.input_selecting => {
             let target = active_text_field_target(app)?;

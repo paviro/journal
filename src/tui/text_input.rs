@@ -19,6 +19,40 @@ use zeroize::Zeroize;
 
 use super::theme::Theme;
 
+/// A character that belongs to a word for double-click selection: letters and
+/// digits (Unicode-aware, so non-English journaling and mixed tokens like `A24`
+/// or `234344` select whole). Punctuation and whitespace are boundaries, so a
+/// double-click on `test,` selects just `test`.
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric()
+}
+
+/// The word (a maximal run of [`is_word_char`]) that a caret at char index `col`
+/// sits on, as a `[start, end)` char range. Prefers the char at `col`, falling
+/// back to the one just left of it so a caret resting at a word's trailing edge
+/// still selects it. Returns `None` when the caret is on a boundary char with no
+/// adjacent word char.
+pub(crate) fn word_bounds(line: &str, col: usize) -> Option<(usize, usize)> {
+    let chars: Vec<char> = line.chars().collect();
+    let n = chars.len();
+    let idx = if col < n && is_word_char(chars[col]) {
+        col
+    } else if col > 0 && col <= n && is_word_char(chars[col - 1]) {
+        col - 1
+    } else {
+        return None;
+    };
+    let mut start = idx;
+    while start > 0 && is_word_char(chars[start - 1]) {
+        start -= 1;
+    }
+    let mut end = idx + 1;
+    while end < n && is_word_char(chars[end]) {
+        end += 1;
+    }
+    Some((start, end))
+}
+
 pub(crate) struct TextInput {
     textarea: TextArea<'static>,
 }
@@ -102,6 +136,23 @@ impl TextInput {
         self.textarea.cancel_selection();
         self.jump_to_col(col);
         self.textarea.start_selection();
+    }
+
+    /// Double-click in the field: select the word under the click column. A click
+    /// on a boundary char with no adjacent word leaves the caret where it lands.
+    /// The selection is anchored at the word's end with the caret at its start, so
+    /// the reversed-block caret sits on a selected char rather than highlighting
+    /// the boundary cell after the word.
+    pub(crate) fn select_word_at(&mut self, col: u16) {
+        let column = self.textarea.cursor_at_screen(0, col as usize).1;
+        let Some((start, end)) = word_bounds(&self.textarea.lines()[0], column) else {
+            self.jump_to_col(col);
+            return;
+        };
+        self.textarea.cancel_selection();
+        self.textarea.move_cursor(CursorMove::Jump(0, end as u16));
+        self.textarea.start_selection();
+        self.textarea.move_cursor(CursorMove::Jump(0, start as u16));
     }
 
     /// Mouse drag: extend the armed selection to the dragged column.
@@ -349,6 +400,46 @@ mod tests {
         let mut input = TextInput::from("täg");
         assert!(input.input(key(KeyCode::Char('!'))));
         assert_eq!(input.as_str(), "täg!");
+    }
+
+    #[test]
+    fn word_bounds_selects_alphanumeric_runs_excluding_punctuation() {
+        let line = "hello, world 42! A24";
+        let word = |col| word_bounds(line, col).map(|(s, e)| &line[s..e]);
+        // Inside `hello,` — the trailing comma is a boundary, not part of the word.
+        assert_eq!(word(0), Some("hello"));
+        assert_eq!(word(4), Some("hello"));
+        // The caret resting on the comma falls back to the word on its left.
+        assert_eq!(word(5), Some("hello"));
+        // A caret past the comma+space lands on nothing to grab.
+        assert_eq!(word(6), None);
+        assert_eq!(word(7), Some("world"));
+        // Digits and mixed alphanumerics select whole; the trailing `!` drops.
+        assert_eq!(word(13), Some("42"));
+        assert_eq!(word(17), Some("A24"));
+        // Caret at end-of-line selects the trailing token.
+        assert_eq!(word(line.chars().count()), Some("A24"));
+    }
+
+    #[test]
+    fn word_bounds_is_none_on_boundary_runs() {
+        assert_eq!(word_bounds("a   b", 2), None);
+        assert_eq!(word_bounds("a , b", 2), None);
+        assert_eq!(word_bounds("   ", 1), None);
+        assert_eq!(word_bounds("", 0), None);
+    }
+
+    #[test]
+    fn select_word_at_selects_the_clicked_word_with_caret_at_start() {
+        let mut input = TextInput::from("foo bar baz");
+        // Column 5 lands inside `bar` (chars 4..7).
+        input.select_word_at(5);
+        let (start, end) = input.selection_range().expect("word selected");
+        // Anchored at the word end, caret at the start — but the range is
+        // normalized low-to-high regardless of direction.
+        assert_eq!((start.1, end.1), (4, 7));
+        // The caret (cursor) rests on the word's first char, not the trailing cell.
+        assert_eq!(input.cursor().1, 4);
     }
 
     #[test]

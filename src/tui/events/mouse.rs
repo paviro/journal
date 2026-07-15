@@ -29,10 +29,16 @@ use overlay::{
     prompt_mouse_action, text_field_hover_at, text_field_mouse_action,
 };
 
-fn editor_mouse_action(app: &AppModel, mouse: MouseEvent) -> Option<Action> {
+fn editor_mouse_action(app: &AppModel, mouse: MouseEvent, double_click: bool) -> Option<Action> {
     match mouse.kind {
         MouseEventKind::ScrollDown => Some(Action::Editor(EditorAction::Scroll(1))),
         MouseEventKind::ScrollUp => Some(Action::Editor(EditorAction::Scroll(-1))),
+        MouseEventKind::Down(MouseButton::Left) if double_click => {
+            Some(Action::Editor(EditorAction::SelectWord {
+                col: mouse.column,
+                row: mouse.row,
+            }))
+        }
         MouseEventKind::Down(MouseButton::Left) => {
             Some(Action::Editor(EditorAction::StartSelection {
                 col: mouse.column,
@@ -64,7 +70,9 @@ pub(crate) fn handle_mouse(
     view: &ViewState,
 ) -> AppResult<DispatchOutcome> {
     let area = super::terminal_area(terminal)?;
-    let Some(action) = mouse_to_action(app, mouse, area, view) else {
+    let double_click = mouse.kind == MouseEventKind::Down(MouseButton::Left)
+        && app.nav.register_left_click(mouse.column, mouse.row);
+    let Some(action) = mouse_to_action(app, mouse, area, view, double_click) else {
         return Ok(DispatchOutcome::Continue);
     };
     super::dispatch_action(terminal, app, action)
@@ -75,6 +83,7 @@ pub(super) fn mouse_to_action(
     mouse: MouseEvent,
     area: Rect,
     view: &ViewState,
+    double_click: bool,
 ) -> Option<Action> {
     if mouse.kind == MouseEventKind::Down(MouseButton::Left)
         && let Some(index) = render::toast_at_point(app, area, mouse.column, mouse.row)
@@ -83,7 +92,7 @@ pub(super) fn mouse_to_action(
     }
 
     if app.has_overlay() {
-        return overlay_mouse_action(app, mouse, area, view);
+        return overlay_mouse_action(app, mouse, area, view, double_click);
     }
 
     if let Some(action) = prompt_mouse_action(app, mouse, view) {
@@ -119,13 +128,13 @@ pub(super) fn mouse_to_action(
     }
 
     if app.editor.is_some() {
-        if let Some(action) = editor_mouse_action(app, mouse) {
+        if let Some(action) = editor_mouse_action(app, mouse, double_click) {
             return Some(action);
         }
         return None;
     }
 
-    if let Some(action) = text_field_mouse_action(app, mouse, view) {
+    if let Some(action) = text_field_mouse_action(app, mouse, view, double_click) {
         return Some(Action::Mouse(action));
     }
 
@@ -458,6 +467,12 @@ pub(super) fn apply_mouse_action(
             if let Some(input) = text_field_mut(app, target) {
                 input.begin_mouse_selection(column);
                 app.nav.input_selecting = true;
+            }
+        }
+        MouseAction::TextFieldSelectWord { target, column } => {
+            focus_text_field(app, target);
+            if let Some(input) = text_field_mut(app, target) {
+                input.select_word_at(column);
             }
         }
         MouseAction::TextFieldDrag { column } => {

@@ -65,6 +65,10 @@ pub(crate) enum MouseAction {
         target: TextFieldTarget,
         column: u16,
     },
+    TextFieldSelectWord {
+        target: TextFieldTarget,
+        column: u16,
+    },
     TextFieldDrag {
         column: u16,
     },
@@ -177,6 +181,7 @@ pub(crate) enum EditorAction {
     Paste,
     Scroll(i16),
     StartSelection { col: u16, row: u16 },
+    SelectWord { col: u16, row: u16 },
     DragSelection { col: u16, row: u16 },
     EndSelection,
 }

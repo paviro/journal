@@ -40,6 +40,22 @@ fn appearance_reports_each_theme_warning_once_until_recovery() {
 }
 
 #[test]
+fn register_left_click_detects_a_double_click_on_the_same_cell() {
+    let mut nav = Nav::default();
+    // A first press is never a double-click.
+    assert!(!nav.register_left_click(10, 4));
+    // A second press on the same cell (well within the window) is.
+    assert!(nav.register_left_click(10, 4));
+    // The match cleared the record, so a third quick press starts fresh — a
+    // triple-click isn't two overlapping doubles.
+    assert!(!nav.register_left_click(10, 4));
+    // A press on a different cell doesn't pair with the previous one.
+    assert!(!nav.register_left_click(11, 4));
+    // But a second press on that new cell does.
+    assert!(nav.register_left_click(11, 4));
+}
+
+#[test]
 fn cache_miss_starts_with_live_journals_while_entries_validate() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("journals");
