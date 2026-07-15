@@ -92,6 +92,22 @@ impl TextInput {
         }
     }
 
+    /// Insert a pasted block at the caret in one edit. Control chars (newlines,
+    /// tabs, stray C0 bytes) are folded to spaces so a multi-line or tabbed paste
+    /// collapses onto the single line instead of splitting or corrupting the field
+    /// — the keystroke path rejects those outright (see [`Self::input`]).
+    /// Returns whether the text changed, mirroring [`Self::input`].
+    pub(crate) fn paste_str(&mut self, text: &str) -> bool {
+        let cleaned: String = text
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        if cleaned.is_empty() {
+            return false;
+        }
+        self.textarea.insert_str(cleaned)
+    }
+
     /// Empty the field, keeping its configuration (placeholder, styles).
     pub(crate) fn clear(&mut self) {
         self.set_text("");
@@ -384,6 +400,19 @@ mod tests {
         assert!(input.selection_range().is_some());
         input.input(key(KeyCode::Char('d')));
         assert_eq!(input.as_str(), "abd");
+    }
+
+    #[test]
+    fn paste_str_inserts_at_the_caret_and_folds_control_chars() {
+        let mut input = TextInput::from("ac");
+        input.input(key(KeyCode::Left)); // caret between a and c
+        assert!(input.paste_str("X\nY\rZ\tW"));
+        // Newlines, carriage returns, and tabs fold to spaces so the field stays
+        // one line — the keystroke path rejects those chars outright.
+        assert_eq!(input.as_str(), "aX Y Z Wc");
+        assert_eq!(input.lines().len(), 1);
+        // An empty paste is a no-op.
+        assert!(!input.paste_str(""));
     }
 
     #[test]

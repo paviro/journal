@@ -57,6 +57,37 @@ pub(crate) fn handle_key(
     }
 }
 
+/// Insert a bracketed paste as one block into whichever text sink owns the caret:
+/// the open editor, or a focused single-line field. Mirrors [`handle_key`]'s
+/// context routing so paste and typing never grow separate mutation paths.
+pub(crate) fn handle_paste<B: ratatui::backend::Backend>(
+    terminal: &mut Terminal<B>,
+    app: &mut AppModel,
+    text: String,
+) -> AppResult<DispatchOutcome> {
+    if text.is_empty() {
+        return Ok(DispatchOutcome::Continue);
+    }
+    // Only the plain typing state accepts a paste; a modal editor prompt
+    // (discard-confirm, metadata chooser, help) keeps Overlay::None but must not
+    // let the paste fall through into the hidden document behind it.
+    let editor_typing = app
+        .editor
+        .as_ref()
+        .is_some_and(|ed| matches!(ed.prompt, EditorPrompt::None));
+    if editor_typing && matches!(app.overlay, Overlay::None) {
+        return super::dispatch_action(
+            terminal,
+            app,
+            Action::Editor(EditorAction::InsertText(text)),
+        );
+    }
+    if app.focused_text_input_mut().is_some() {
+        app.handle_text_input_paste(&text);
+    }
+    Ok(DispatchOutcome::Continue)
+}
+
 /// Translate a keystroke while the internal editor is open. Text insertion still
 /// goes through dispatch as an editor input action so keyboard and mouse cannot
 /// grow separate mutation paths.
@@ -66,6 +97,11 @@ fn handle_editor_key(
     key: KeyEvent,
 ) -> AppResult<DispatchOutcome> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    // Clipboard ops accept either Ctrl or Cmd (Super), so `Cmd+C/X/V` behave
+    // exactly like `^C/^X/^V`. Super is only reported when the terminal supports
+    // the keyboard-enhancement protocol (see `runtime::terminal`); elsewhere it
+    // stays Ctrl-only with no regression.
+    let clip = ctrl || key.modifiers.contains(KeyModifiers::SUPER);
 
     if let Some(EditorPrompt::ConfirmDiscard { discard_selected }) = editor_prompt(app) {
         let selected = *discard_selected;
@@ -122,28 +158,44 @@ fn handle_editor_key(
     }
 
     match key.code {
-        KeyCode::Char('s') if ctrl => {
+        // Save takes Ctrl or Cmd (Super), so `Cmd+S` works on macOS.
+        KeyCode::Char('s') if clip => {
             return super::dispatch_action(terminal, app, Action::Editor(EditorAction::Save));
         }
         // The editor is a text field, so commands take a modifier (bare letters
-        // type). Ctrl+A select-all, Ctrl+Z/Y undo/redo, Ctrl+X/C/V cut/copy/paste;
-        // Ctrl+K and Ctrl+W (cut-to-line-end, delete-word) fall through to the
-        // textarea. Home covers line-start; Esc discards.
+        // type). Ctrl+A select-all, Ctrl/Cmd+Z undo/redo, Ctrl/Cmd+X/C cut/copy,
+        // Ctrl+V paste; Ctrl+K and Ctrl+W (cut-to-line-end, delete-word) fall
+        // through to the textarea. Home covers line-start; Esc discards. Cmd+A is
+        // left to the terminal (it binds it to "select the whole window").
         KeyCode::Char('a') if ctrl => {
             return super::dispatch_action(terminal, app, Action::Editor(EditorAction::SelectAll));
         }
-        KeyCode::Char('z') if ctrl => {
+        // Undo/redo take Ctrl (^Z/^Y) or Cmd (Super), so macOS `Cmd+Z` undoes and
+        // `Cmd+Shift+Z` redoes. A shifted `z` reaches us as uppercase `Z` or as
+        // `z` with Shift held depending on the terminal's keyboard protocol, so
+        // match both; Ctrl+Y stays as the emacs-ish redo alias.
+        KeyCode::Char('Z') if clip => {
+            return super::dispatch_action(terminal, app, Action::Editor(EditorAction::Redo));
+        }
+        KeyCode::Char('z') if clip && key.modifiers.contains(KeyModifiers::SHIFT) => {
+            return super::dispatch_action(terminal, app, Action::Editor(EditorAction::Redo));
+        }
+        KeyCode::Char('z') if clip => {
             return super::dispatch_action(terminal, app, Action::Editor(EditorAction::Undo));
         }
         KeyCode::Char('y') if ctrl => {
             return super::dispatch_action(terminal, app, Action::Editor(EditorAction::Redo));
         }
-        KeyCode::Char('x') if ctrl => {
+        KeyCode::Char('x') if clip => {
             return super::dispatch_action(terminal, app, Action::Editor(EditorAction::Cut));
         }
-        KeyCode::Char('c') if ctrl => {
+        KeyCode::Char('c') if clip => {
             return super::dispatch_action(terminal, app, Action::Editor(EditorAction::Copy));
         }
+        // Ctrl+V pastes the system clipboard (native read on desktop, internal yank
+        // as the fallback). `Cmd+V` isn't bound here: the terminal owns it as a paste
+        // gesture, delivering the same system clipboard as a bracketed paste — so
+        // both routes land the one clipboard, not two competing pastes.
         KeyCode::Char('v') if ctrl => {
             return super::dispatch_action(terminal, app, Action::Editor(EditorAction::Paste));
         }
@@ -179,7 +231,37 @@ fn handle_editor_key(
         _ => {}
     }
 
+    // Rewrite macOS Option/Cmd navigation chords the textarea doesn't bind into
+    // the equivalent key it does, then feed that through the same Input path.
+    let key = macos_nav_alias(key).unwrap_or(key);
     super::dispatch_action(terminal, app, Action::Editor(EditorAction::Input(key)))
+}
+
+/// Alias the macOS Option/Cmd editing chords the textarea leaves unbound onto the
+/// key it already understands, preserving Shift so the move extends the selection.
+/// Returns `None` for anything already bound (or needing no alias). Option (Alt)
+/// chords are ESC-prefixed and always delivered. Cmd+←/→/↑/↓ are intentionally
+/// *not* aliased: terminals bind those to their own window/scroll navigation, so
+/// they never reach the app (Home/End and Ctrl+↑/↓ cover the same moves).
+fn macos_nav_alias(key: KeyEvent) -> Option<KeyEvent> {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    let sup = key.modifiers.contains(KeyModifiers::SUPER);
+    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+    let with = |code: KeyCode, mods: KeyModifiers| {
+        let mods = if shift {
+            mods | KeyModifiers::SHIFT
+        } else {
+            mods
+        };
+        Some(KeyEvent::new(code, mods))
+    };
+    match key.code {
+        // Option+←/→: word back/forward — the textarea binds Ctrl+←/→ for that.
+        KeyCode::Left if alt && !ctrl && !sup => with(KeyCode::Left, KeyModifiers::CONTROL),
+        KeyCode::Right if alt && !ctrl && !sup => with(KeyCode::Right, KeyModifiers::CONTROL),
+        _ => None,
+    }
 }
 
 /// The open editor's current modal prompt, if an editor is open.
@@ -718,5 +800,58 @@ fn image_viewer_key_to_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Left | KeyCode::Up => Some(Action::Images(ImageAction::StepViewer(-1))),
         KeyCode::Right | KeyCode::Down => Some(Action::Images(ImageAction::StepViewer(1))),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ev(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, mods)
+    }
+
+    #[test]
+    fn option_arrows_alias_to_word_nav() {
+        assert_eq!(
+            macos_nav_alias(ev(KeyCode::Left, KeyModifiers::ALT)),
+            Some(ev(KeyCode::Left, KeyModifiers::CONTROL))
+        );
+        assert_eq!(
+            macos_nav_alias(ev(KeyCode::Right, KeyModifiers::ALT)),
+            Some(ev(KeyCode::Right, KeyModifiers::CONTROL))
+        );
+        // Shift is preserved so Option+Shift+arrow extends the selection.
+        assert_eq!(
+            macos_nav_alias(ev(KeyCode::Right, KeyModifiers::ALT | KeyModifiers::SHIFT)),
+            Some(ev(
+                KeyCode::Right,
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ))
+        );
+    }
+
+    #[test]
+    fn cmd_arrows_are_not_aliased() {
+        // Terminals eat Cmd+arrows for their own navigation, so we don't rewrite
+        // them (Home/End and Ctrl+↑/↓ cover the same moves).
+        for code in [KeyCode::Left, KeyCode::Right, KeyCode::Up, KeyCode::Down] {
+            assert_eq!(macos_nav_alias(ev(code, KeyModifiers::SUPER)), None);
+        }
+    }
+
+    #[test]
+    fn already_bound_or_plain_keys_are_left_alone() {
+        // Plain and Ctrl arrows the textarea already handles are not rewritten.
+        assert_eq!(macos_nav_alias(ev(KeyCode::Left, KeyModifiers::NONE)), None);
+        assert_eq!(
+            macos_nav_alias(ev(KeyCode::Left, KeyModifiers::CONTROL)),
+            None
+        );
+        // Ctrl+Alt+Left is the textarea's line-head; don't hijack it for word-back.
+        assert_eq!(
+            macos_nav_alias(ev(KeyCode::Left, KeyModifiers::ALT | KeyModifiers::CONTROL)),
+            None
+        );
     }
 }

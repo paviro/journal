@@ -85,6 +85,14 @@ impl AppModel {
         }
     }
 
+    /// Insert a pasted block into the search field, deferring the hit recompute
+    /// like [`Self::search_input_key`].
+    pub(crate) fn search_input_paste(&mut self, text: &str) {
+        if self.search.query.paste_str(text) {
+            self.mark_search_dirty();
+        }
+    }
+
     pub(crate) fn search_results(&self) -> Vec<SearchHit> {
         let query = self.search.query.as_str();
         if let Some(tag) = query.strip_prefix("tags:") {

@@ -110,3 +110,4 @@ fn key(code: KeyCode) -> KeyEvent {
 mod keyboard_cases;
 mod mouse_cases;
 mod overlay_cases;
+mod paste_cases;

@@ -173,6 +173,9 @@ pub(crate) enum EditorAction {
     ClosePrompt,
     ScrollHelp(i16),
     Input(KeyEvent),
+    /// Insert a block of text at the caret in one edit (a bracketed paste),
+    /// instead of replaying it as individual key events.
+    InsertText(String),
     SelectAll,
     Undo,
     Redo,
@@ -180,9 +183,18 @@ pub(crate) enum EditorAction {
     Copy,
     Paste,
     Scroll(i16),
-    StartSelection { col: u16, row: u16 },
-    SelectWord { col: u16, row: u16 },
-    DragSelection { col: u16, row: u16 },
+    StartSelection {
+        col: u16,
+        row: u16,
+    },
+    SelectWord {
+        col: u16,
+        row: u16,
+    },
+    DragSelection {
+        col: u16,
+        row: u16,
+    },
     EndSelection,
 }
 

@@ -30,6 +30,29 @@ impl AppModel {
         }
     }
 
+    /// Insert a pasted block into whichever single-line field owns the caret,
+    /// running the same after-edit hook as typing. Mirrors
+    /// [`Self::handle_text_input_key`] so both stay in sync.
+    pub(crate) fn handle_text_input_paste(&mut self, text: &str) {
+        match &mut self.overlay {
+            Overlay::NewJournal(input) => {
+                input.paste_str(text);
+            }
+            Overlay::EditMetadata(state) => {
+                if state.input.paste_str(text) {
+                    state.rebuild_filter();
+                }
+            }
+            Overlay::EditFeelings(state) => {
+                if state.input.paste_str(text) {
+                    state.rebuild_filter();
+                }
+            }
+            Overlay::EditLocation(state) => state.input_paste(text),
+            _ => self.search_input_paste(text),
+        }
+    }
+
     /// The text field that currently owns the caret, if any: an overlay's
     /// focused input, or the search box while typing in it. Selection and
     /// caret commands route through here so every field shares one binding.

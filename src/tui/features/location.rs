@@ -340,6 +340,22 @@ impl EditLocationState {
         }
     }
 
+    /// Insert a pasted block into the focused field, invalidating the lookup when
+    /// the query changed, like [`Self::input_key`].
+    pub(crate) fn input_paste(&mut self, text: &str) {
+        match self.focus {
+            EditLocationFocus::Query => {
+                if self.query.paste_str(text) {
+                    self.invalidate_lookup();
+                }
+            }
+            EditLocationFocus::Name => {
+                self.name.paste_str(text);
+            }
+            EditLocationFocus::List => {}
+        }
+    }
+
     /// Editing the query invalidates the last lookup: drop the resolved result and
     /// candidate matches, clear the status preview, and flip Enter back to "look
     /// up". The typed name is untouched.

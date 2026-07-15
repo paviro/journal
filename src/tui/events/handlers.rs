@@ -85,6 +85,11 @@ pub(super) fn editor(app: &mut AppModel, action: EditorAction) -> AppResult<()> 
                 editor.textarea.input(key);
             }
         }
+        EditorAction::InsertText(text) => {
+            if let Some(editor) = app.editor.as_mut() {
+                editor.textarea.insert_str(&text);
+            }
+        }
         EditorAction::SelectAll => {
             if let Some(editor) = app.editor.as_mut() {
                 editor.textarea.select_all();
@@ -102,17 +107,36 @@ pub(super) fn editor(app: &mut AppModel, action: EditorAction) -> AppResult<()> 
         }
         EditorAction::Cut => {
             if let Some(editor) = app.editor.as_mut() {
-                editor.textarea.cut();
+                // cut() only touches the yank buffer when it removed a selection;
+                // don't push a stale yank to the system clipboard otherwise.
+                if editor.textarea.cut() {
+                    crate::tui::clipboard::system_copy(&editor.textarea.yank_text());
+                }
             }
         }
         EditorAction::Copy => {
             if let Some(editor) = app.editor.as_mut() {
-                editor.textarea.copy();
+                // copy() is a no-op without a selection and leaves the previous
+                // yank in place, so only mirror to the system clipboard when
+                // something is actually selected.
+                if editor.textarea.selection_range().is_some() {
+                    editor.textarea.copy();
+                    crate::tui::clipboard::system_copy(&editor.textarea.yank_text());
+                }
             }
         }
         EditorAction::Paste => {
             if let Some(editor) = app.editor.as_mut() {
-                editor.textarea.paste();
+                // Prefer the real system clipboard (desktop); fall back to the
+                // internal yank where there's no native backend to read it.
+                match crate::tui::clipboard::system_paste() {
+                    Some(text) if !text.is_empty() => {
+                        editor.textarea.insert_str(&text);
+                    }
+                    _ => {
+                        editor.textarea.paste();
+                    }
+                }
             }
         }
         EditorAction::Scroll(delta) => {

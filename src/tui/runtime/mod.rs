@@ -8,7 +8,10 @@ pub(crate) mod worker;
 use super::{events, image, render, state, theme};
 use crate::{AppResult, config::Config};
 use crossterm::{
-    event::{self, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers, MouseEventKind},
+    event::{
+        self, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+        MouseEventKind,
+    },
     execute,
 };
 use notema_encryption::SecretString;
@@ -201,6 +204,11 @@ fn approve_pending_requests(
             let Event::Key(key) = event::read()? else {
                 continue;
             };
+            // With the keyboard-enhancement protocol on, keys also report release
+            // and repeat; only act on the initial press.
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
             if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
                 return Ok(false);
             }
@@ -240,7 +248,9 @@ fn wait_for_dismiss(
 ) -> AppResult<()> {
     loop {
         terminal.draw(&mut draw)?;
-        if let Event::Key(_) = event::read()? {
+        if let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
             return Ok(());
         }
     }
@@ -318,7 +328,9 @@ fn run_unlock_screen(
         })?;
 
         match event::read()? {
-            Event::Key(key) => match unlock_key_action(key) {
+            // Only the initial press edits the field; skip release/repeat reports
+            // the enhancement protocol adds.
+            Event::Key(key) if key.kind == KeyEventKind::Press => match unlock_key_action(key) {
                 UnlockAction::Cancel => {
                     input.zeroize();
                     return Ok(false);
@@ -354,6 +366,13 @@ fn run_unlock_screen(
                     && mouse.column < rect.x + rect.width
                 {
                     input.click_at(mouse.column - rect.x);
+                }
+            }
+            // Bracketed paste is enabled terminal-wide, so a pasted passphrase
+            // (e.g. from a password manager) arrives here, not as key presses.
+            Event::Paste(text) => {
+                for ch in text.chars().filter(|c| !c.is_control()) {
+                    input.insert(ch);
                 }
             }
             _ => {}
@@ -544,6 +563,9 @@ fn run_loop(
         };
 
         let redraw = match event {
+            // Skip release reports the enhancement protocol adds; keep repeats so
+            // held keys still autorepeat (typing, scrolling).
+            Some(Event::Key(key)) if key.kind == KeyEventKind::Release => false,
             Some(Event::Key(key)) => {
                 // Back to keyboard mode: a parked cursor must not keep its
                 // hover glow while the user arrows around.
@@ -607,6 +629,14 @@ fn run_loop(
             }
             Some(Event::Mouse(mouse)) => {
                 let outcome = events::handle_mouse(terminal, &mut app, mouse, &view)?;
+                let outcome = effects::execute(terminal, &mut app, outcome)?;
+                if outcome.should_quit() {
+                    break;
+                }
+                outcome.redraw
+            }
+            Some(Event::Paste(text)) => {
+                let outcome = events::handle_paste(terminal, &mut app, text)?;
                 let outcome = effects::execute(terminal, &mut app, outcome)?;
                 if outcome.should_quit() {
                     break;

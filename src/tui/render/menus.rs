@@ -30,7 +30,7 @@ const EDITOR_SHORTCUT_SECTIONS: [(&str, &[(&str, &str)]); 4] = [
     (
         "File",
         &[
-            ("ctrl+s", "Save"),
+            ("ctrl/⌘+s", "Save"),
             ("ctrl+o", "Fullscreen"),
             ("ctrl+g", "Metadata"),
             ("esc", "Discard"),
@@ -40,11 +40,11 @@ const EDITOR_SHORTCUT_SECTIONS: [(&str, &[(&str, &str)]); 4] = [
         "Edit",
         &[
             ("ctrl+a", "Select all"),
-            ("ctrl+z", "Undo"),
-            ("ctrl+y", "Redo"),
-            ("ctrl+x", "Cut"),
-            ("ctrl+c", "Copy"),
-            ("ctrl+v", "Paste"),
+            ("ctrl/⌘+z", "Undo"),
+            ("ctrl+y · ⌘⇧z", "Redo"),
+            ("ctrl/⌘+x", "Cut → clipboard"),
+            ("ctrl/⌘+c", "Copy → clipboard"),
+            ("ctrl/⌘+v", "Paste"),
             ("ctrl+k", "Cut to line end"),
             ("ctrl+w", "Delete word"),
         ],
@@ -54,7 +54,7 @@ const EDITOR_SHORTCUT_SECTIONS: [(&str, &[(&str, &str)]); 4] = [
         &[
             ("arrows", "Move"),
             ("shift+move", "Select"),
-            ("ctrl+←/→", "Word"),
+            ("ctrl/⌥+←/→", "Word"),
             ("home/end", "Line start/end"),
             ("ctrl+↑/↓", "Paragraph"),
             ("pgup/pgdn", "Page"),

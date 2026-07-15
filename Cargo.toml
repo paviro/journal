@@ -154,6 +154,12 @@ unicode-width.workspace = true
 zeroize.workspace = true
 terminal-colorsaurus.workspace = true
 
+# Native OS clipboard for desktop paste (reading the system clipboard) and reliable
+# copy. Gated to macOS/Windows so the linux/iSH and android/termux artifacts never
+# pull it in — they keep working through OSC 52 alone. Text only, no image-data dep.
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+arboard = { version = "3", default-features = false }
+
 [features]
 default = ["tls-ring"]
 # HTTPS only; journal encryption uses age. Mainstream builds use rustls/ring.

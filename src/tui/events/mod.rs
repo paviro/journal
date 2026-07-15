@@ -26,7 +26,7 @@ use actions::{
     set_feelings_on_entry, set_location_on_entry, set_metadata_on_entry, set_mood_on_entry,
     submit_new_journal, toggle_archive_selected_journal, toggle_starred_on_entry, view_selected,
 };
-pub(crate) use keyboard::handle_key;
+pub(crate) use keyboard::{handle_key, handle_paste};
 pub(crate) use mouse::{fold_leading_wheel, handle_mouse, handle_scroll, is_wheel, update_hover};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
