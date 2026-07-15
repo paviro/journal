@@ -439,7 +439,7 @@ mod tests {
     // fraction of the corpus for a single unique word; these guard that a query
     // now only surfaces entries that actually contain it.
 
-    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     /// Plain, mutually non-overlapping words (none a substring, prefix, or small
     /// typo of another) so a query for one is an unambiguous ground truth.

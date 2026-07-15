@@ -11,7 +11,7 @@ use std::{
 pub fn sibling_temp_path(target: &Path, suffix: &str) -> Result<PathBuf> {
     let parent = target.parent().unwrap_or_else(|| Path::new("."));
     let mut noise = [0u8; 8];
-    getrandom::getrandom(&mut noise)
+    getrandom::fill(&mut noise)
         .map_err(|error| crate::EncryptionError::Randomness(error.to_string()))?;
     Ok(parent.join(format!(
         ".notema-{}-{}.{suffix}",

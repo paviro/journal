@@ -17,7 +17,7 @@ use anyhow::Result as AppResult;
 use chrono::{Duration, Local};
 use notema_domain::{FEELING_GROUPS, ImportSource, MOOD_RANGE, Metadata, feelings};
 use notema_storage::JournalStore;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 /// The `source` value stamped into every generated entry's `[import]` block.
 pub const SEED_SOURCE: &str = "seed";
@@ -144,7 +144,7 @@ const NEGATIVE_SENTENCES: &[&str] = &[
 pub fn generate(store: &JournalStore, config: &SeedConfig) -> AppResult<usize> {
     let mut rng = match config.seed {
         Some(seed) => StdRng::seed_from_u64(seed),
-        None => StdRng::from_os_rng(),
+        None => StdRng::from_rng(&mut rand::rng()),
     };
 
     ensure_journal(store, &config.journal)?;

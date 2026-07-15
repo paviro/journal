@@ -16,7 +16,7 @@ pub struct StoreId(String);
 impl StoreId {
     pub(crate) fn generate() -> AppResult<Self> {
         let mut bytes = [0_u8; STORE_ID_BYTES];
-        getrandom::getrandom(&mut bytes).context("generating journal store id")?;
+        getrandom::fill(&mut bytes).context("generating journal store id")?;
         Ok(Self(hex::encode(bytes)))
     }
 }

@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 /// Generate a fresh Ed25519 signing keypair from OS randomness.
 pub(crate) fn generate_signing_key() -> Result<SigningKey> {
     let mut seed = Zeroizing::new([0u8; 32]);
-    getrandom::getrandom(&mut seed[..])
+    getrandom::fill(&mut seed[..])
         .map_err(|error| EncryptionError::Randomness(error.to_string()))?;
     Ok(SigningKey::from_bytes(&seed))
 }

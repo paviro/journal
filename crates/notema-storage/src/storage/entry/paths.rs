@@ -9,7 +9,7 @@ pub(crate) const ENTRY_ID_LEN: usize = 4;
 /// Random alphanumeric id (`A–Z a–z 0–9`) of the given length, used as the
 /// filename stem suffix for entries and assets.
 pub(crate) fn random_id(len: usize) -> String {
-    use rand::{Rng, distr::Alphanumeric};
+    use rand::{RngExt, distr::Alphanumeric};
     rand::rng()
         .sample_iter(Alphanumeric)
         .take(len)
