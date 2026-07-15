@@ -20,6 +20,8 @@ pub(crate) struct Config {
     pub ui: UiSection,
     #[serde(default)]
     pub editor: EditorSection,
+    #[serde(default)]
+    pub location: LocationSection,
 }
 
 /// Which journals to open and where they live on disk.
@@ -52,6 +54,18 @@ pub(crate) struct EditorSection {
     /// of in-pane.
     #[serde(default)]
     pub start_fullscreen: bool,
+}
+
+/// How a new entry's location influences its timestamp.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LocationSection {
+    /// Stamp a new located entry with the timezone of its place rather than the
+    /// machine's, so travelling without changing `TZ` doesn't skew the entry's
+    /// local time, date, or sunrise/sunset. Falls back to the system zone when
+    /// the location can't be resolved to one.
+    #[serde(default = "default_true")]
+    pub use_location_timezone: bool,
 }
 
 /// TUI presentation preferences.
@@ -197,6 +211,14 @@ impl Default for AttachmentsSection {
     }
 }
 
+impl Default for LocationSection {
+    fn default() -> Self {
+        Self {
+            use_location_timezone: true,
+        }
+    }
+}
+
 impl Default for ReaderSection {
     fn default() -> Self {
         Self {
@@ -226,6 +248,7 @@ impl Config {
             attachments: AttachmentsSection::default(),
             ui: UiSection::default(),
             editor: EditorSection::default(),
+            location: LocationSection::default(),
         }
     }
 }

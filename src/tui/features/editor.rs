@@ -153,10 +153,29 @@ impl AppModel {
     pub(crate) fn set_editor_location(
         &mut self,
         location: Option<notema_domain::Location>,
+        osm_zone: Option<String>,
     ) -> Option<crate::tui::environment::EnvironmentRequest> {
-        let editor = self.editor.as_mut()?;
+        self.editor.as_ref()?;
         let cleared = location.is_none();
+        let use_location_timezone = self.services.config.location.use_location_timezone;
+
+        let editor = self.editor.as_mut()?;
         editor.metadata.location = location;
+        // A located new entry adopts its place's timezone (an offline coordinate
+        // lookup, preferring any zone the geocoder gave) so its timestamp and
+        // sunrise/sunset match where it was written. Clearing, an existing entry,
+        // or the disabled setting leaves the system zone in place.
+        editor.zone = match (&editor.target, use_location_timezone) {
+            (EditorTarget::New { .. }, true) => editor
+                .metadata
+                .location
+                .as_ref()
+                .and_then(|location| location.coordinates())
+                .and_then(|coordinates| {
+                    notema_context::resolve_zone(coordinates, osm_zone.as_deref())
+                }),
+            _ => None,
+        };
         self.toast(
             ToastVariant::Success,
             if cleared {

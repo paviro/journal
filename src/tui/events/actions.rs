@@ -1,4 +1,5 @@
 use crate::AppResult;
+use chrono::Local;
 use notema_domain::{EntryEncryptionState, Location, MetadataField};
 use notema_storage::EditOutcome;
 use std::path::{Path, PathBuf};
@@ -288,6 +289,14 @@ pub(super) fn save_internal_editor(app: &mut AppModel) -> AppResult<()> {
                 draft.celestial = Some(&environment.celestial);
                 draft.air_quality = environment.air_quality.as_ref();
                 draft.writing_seconds = Some(elapsed.as_secs());
+                // Stamp the entry with its place's timezone rather than the system's,
+                // when one was resolved for the location (see set_editor_location).
+                if let Some(zone) = app.editor.as_ref().and_then(|editor| editor.zone) {
+                    let created_at = notema_context::rezone(Local::now().fixed_offset(), zone);
+                    draft.created_at = Some(created_at);
+                    draft.edited_at = Some(created_at);
+                    draft.timezone = Some(zone.name());
+                }
                 Some(app.services.store.create_entry(draft, asset_options(app))?)
             };
             match created {
@@ -1054,6 +1063,43 @@ mod tests {
                 .iter()
                 .any(|entry| entry.body.contains("Located entry") && entry.celestial.is_some()),
             "prefetched environment is attached to the created entry"
+        );
+    }
+
+    #[test]
+    fn new_located_entry_is_stamped_with_its_place_timezone() {
+        use notema_domain::Location;
+
+        let (_dir, mut app, _path) = app_with_entry("+++\nschema_version = 1\n+++\n\n# A\n");
+
+        let mut editor = EntryEditor::for_new("work".to_string());
+        editor.textarea.insert_str("In Tokyo");
+        editor.metadata.location = Some(Location {
+            latitude: Some(35.68),
+            longitude: Some(139.767),
+            ..Location::default()
+        });
+        // The resolved zone the location dialog would have stored for this place.
+        editor.zone = Some(chrono_tz::Tz::Asia__Tokyo);
+        app.editor = Some(editor);
+        save_internal_editor(&mut app).unwrap();
+
+        let entry = app
+            .library
+            .entries
+            .iter()
+            .find(|entry| entry.body.contains("In Tokyo"))
+            .expect("entry created");
+        // The timestamp carries Tokyo's offset, not the machine's.
+        assert_eq!(
+            entry.created_time().unwrap().offset().local_minus_utc(),
+            9 * 3600
+        );
+        // And the IANA name is recorded on disk.
+        let raw = std::fs::read_to_string(&entry.path).unwrap();
+        assert!(
+            raw.contains("timezone = \"Asia/Tokyo\""),
+            "entry front-matter records the place's zone: {raw}"
         );
     }
 

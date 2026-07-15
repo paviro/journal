@@ -24,6 +24,10 @@ const ENDPOINT_REVERSE: &str = "https://nominatim.openstreetmap.org/reverse";
 pub struct GeocodeHit {
     pub display_name: String,
     pub location: Location,
+    /// The IANA timezone of the matched OSM object, when it carries the tag
+    /// (`extratags.timezone`). Often absent for a specific point — callers fall
+    /// back to an offline coordinate lookup. Not persisted onto [`Location`].
+    pub timezone: Option<String>,
 }
 
 /// Resolve a free-form address to candidate places (best match first). Empty
@@ -38,7 +42,7 @@ pub fn geocode(query: &str, limit: usize) -> Result<Vec<GeocodeHit>> {
         return Ok(hits.clone());
     }
     let url = format!(
-        "{ENDPOINT_SEARCH}?format=jsonv2&addressdetails=1&limit={limit}&q={}",
+        "{ENDPOINT_SEARCH}?format=jsonv2&addressdetails=1&extratags=1&limit={limit}&q={}",
         encode_component(trimmed)
     );
     let hits = parse_search_json(&get(&url)?);
@@ -55,7 +59,9 @@ pub fn reverse_geocode(coordinates: Coordinates) -> Result<Option<GeocodeHit>> {
     if let Some(hits) = cache().lock().unwrap().get(&key) {
         return Ok(hits.first().cloned());
     }
-    let url = format!("{ENDPOINT_REVERSE}?format=jsonv2&addressdetails=1&lat={lat}&lon={lon}");
+    let url = format!(
+        "{ENDPOINT_REVERSE}?format=jsonv2&addressdetails=1&extratags=1&lat={lat}&lon={lon}"
+    );
     let hit = parse_reverse_json(&get(&url)?);
     cache()
         .lock()
@@ -97,6 +103,16 @@ struct NominatimPlace {
     name: Option<String>,
     #[serde(default)]
     address: NominatimAddress,
+    /// Free-form OSM tags of the matched object; we only read `timezone`, which
+    /// many admin boundaries carry but most specific points don't.
+    #[serde(default)]
+    extratags: NominatimExtratags,
+}
+
+/// The `extratags` keys we read from a Nominatim place — just the IANA timezone.
+#[derive(Deserialize, Default)]
+struct NominatimExtratags {
+    timezone: Option<String>,
 }
 
 /// The Nominatim `address` keys we mirror onto [`Location`], one-to-one.
@@ -138,6 +154,7 @@ fn parse_reverse_json(body: &str) -> Option<GeocodeHit> {
 }
 
 fn place_to_hit(place: NominatimPlace) -> Option<GeocodeHit> {
+    let timezone = place.extratags.timezone.filter(|zone| !zone.is_empty());
     let address = place.address;
     let location = Location {
         // A named POI (shop, venue, landmark) carries its name; a plain address
@@ -174,6 +191,7 @@ fn place_to_hit(place: NominatimPlace) -> Option<GeocodeHit> {
     Some(GeocodeHit {
         display_name: place.display_name.unwrap_or_default(),
         location,
+        timezone,
     })
 }
 
@@ -221,6 +239,24 @@ mod tests {
         let hit = parse_reverse_json(body).unwrap();
         assert_eq!(hit.location.city.as_deref(), Some("New York"));
         assert_eq!(hit.location.country.as_deref(), Some("United States"));
+        // No extratags block at all -> no timezone.
+        assert_eq!(hit.timezone, None);
+    }
+
+    #[test]
+    fn parse_reverse_json_reads_extratags_timezone() {
+        let with_tz = r#"{"lat":"35.68","lon":"139.76","display_name":"Tokyo",
+            "address":{"city":"Tokyo","country":"Japan"},
+            "extratags":{"timezone":"Asia/Tokyo","population":"14000000"}}"#;
+        assert_eq!(
+            parse_reverse_json(with_tz).unwrap().timezone.as_deref(),
+            Some("Asia/Tokyo")
+        );
+
+        // An empty timezone tag is treated as absent.
+        let empty_tz = r#"{"lat":"35.68","lon":"139.76","display_name":"Tokyo",
+            "address":{"city":"Tokyo","country":"Japan"},"extratags":{"timezone":""}}"#;
+        assert_eq!(parse_reverse_json(empty_tz).unwrap().timezone, None);
     }
 
     #[test]

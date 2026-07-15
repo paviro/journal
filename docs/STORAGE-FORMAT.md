@@ -197,6 +197,9 @@ start_fullscreen = false
 [attachments]
 download_remote_images = true
 
+[location]
+use_location_timezone = true    # stamp a located new entry with its place's timezone, not the system's
+
 [ui]
 theme = "journal"               # global theme; theme file in <config>/themes/, without .toml
 color_mode = "auto"             # auto | dark | light

@@ -123,3 +123,19 @@ cargo build --release --features fuse
 ```
 
 See [`docs/FUSE.md`](FUSE.md) for mount usage and caveats.
+
+## Timezone precision
+
+A new entry with a location is stamped with the timezone of that place rather
+than the machine's (so travelling without changing `TZ` doesn't skew its local
+time, date, or sunrise/sunset). The coordinate-to-timezone lookup is offline and
+picks the zone from an embedded boundary dataset.
+
+The default build uses a small tile-based lookup that adds ~2 MB to the binary
+and is only inaccurate within a few kilometres of a zone border. The
+`exact-timezone` feature swaps in exact polygon boundaries — correct everywhere,
+at the cost of ~13 MB more binary:
+
+```bash
+cargo build --release --features exact-timezone
+```

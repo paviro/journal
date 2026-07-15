@@ -439,9 +439,10 @@ fn edit_or_commit(
 fn edit_or_commit_location(
     app: &mut AppModel,
     location: Option<notema_domain::Location>,
+    osm_zone: Option<String>,
 ) -> AppResult<Option<crate::tui::environment::EnvironmentRequest>> {
     if app.editor.is_some() {
-        let request = app.set_editor_location(location);
+        let request = app.set_editor_location(location, osm_zone);
         app.close_overlay();
         Ok(request)
     } else {

@@ -329,27 +329,33 @@ pub(super) fn location(
             if let Some(state) = app.edit_location_state_mut() {
                 state.select_row();
             }
-            let Some(location) = app.edit_location_state().map(|state| state.composed()) else {
+            let Some((location, zone)) = app
+                .edit_location_state()
+                .map(|state| (state.composed(), state.composed_timezone()))
+            else {
                 return Ok(None);
             };
-            if let Some(request) = edit_or_commit_location(app, location)? {
+            if let Some(request) = edit_or_commit_location(app, location, zone)? {
                 return Ok(Some(
                     DispatchOutcome::Continue.with_effect(Effect::Environment(request)),
                 ));
             }
         }
         LocationAction::Save => {
-            let Some(location) = app.edit_location_state().map(|state| state.composed()) else {
+            let Some((location, zone)) = app
+                .edit_location_state()
+                .map(|state| (state.composed(), state.composed_timezone()))
+            else {
                 return Ok(None);
             };
-            if let Some(request) = edit_or_commit_location(app, location)? {
+            if let Some(request) = edit_or_commit_location(app, location, zone)? {
                 return Ok(Some(
                     DispatchOutcome::Continue.with_effect(Effect::Environment(request)),
                 ));
             }
         }
         LocationAction::Clear => {
-            let _ = edit_or_commit_location(app, None)?;
+            let _ = edit_or_commit_location(app, None, None)?;
         }
     }
     Ok(None)

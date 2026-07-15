@@ -15,6 +15,7 @@ mod device_location;
 mod error;
 mod geocode;
 mod http;
+mod timezone;
 mod weather;
 
 pub use air::fetch_air_quality;
@@ -22,6 +23,7 @@ pub use celestial::compute_celestial;
 pub use device_location::{DeviceFix, DeviceLocationSource, device_location};
 pub use error::{ContextError, Result};
 pub use geocode::{GeocodeHit, geocode, reverse_geocode};
+pub use timezone::{resolve_zone, rezone};
 pub use weather::fetch_weather;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

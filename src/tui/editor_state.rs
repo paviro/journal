@@ -66,6 +66,10 @@ pub(crate) struct EntryEditor {
     pub(crate) pending_environment: Option<u64>,
     /// The landed environment for the current location, attached to the entry on save.
     pub(crate) environment: Option<crate::tui::environment::Environment>,
+    /// The timezone of the current location, when `use_location_timezone` resolved
+    /// one (new entries only). Re-zones the environment datetime and, on save,
+    /// stamps `created_at`/`edited_at`/`timezone` to the place rather than the system.
+    pub(crate) zone: Option<chrono_tz::Tz>,
     /// The body text the syntax highlighting was last computed for, so the map is
     /// only recomputed when the body actually changes rather than every frame.
     last_highlight_src: Option<String>,
@@ -97,6 +101,7 @@ impl EntryEditor {
             mouse_selecting: false,
             pending_environment: None,
             environment: None,
+            zone: None,
             last_highlight_src: None,
         }
     }
@@ -114,6 +119,7 @@ impl EntryEditor {
             mouse_selecting: false,
             pending_environment: None,
             environment: None,
+            zone: None,
             last_highlight_src: None,
         }
     }

@@ -78,6 +78,7 @@ tree-sitter-swift = "0.7"
 tree-sitter-toml-ng = "0.7"
 tree-sitter-typescript = "0.23"
 tree-sitter-yaml = "0.7"
+tzf-rs = { version = "0.4", default-features = false }
 unicode-width = "0.2"
 ureq = { version = "3", default-features = false }
 zbus = "5"
@@ -106,6 +107,7 @@ undocumented_unsafe_blocks = "deny"
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
+chrono-tz.workspace = true
 clap.workspace = true
 crossterm.workspace = true
 dirs.workspace = true
@@ -169,6 +171,9 @@ tls-native = ["notema-context/tls-native", "notema-storage/tls-native"]
 # Off by default: the standard build has no FUSE dependency and runs everywhere.
 # Enable for the dedicated macOS/Linux "-fuse" release artifacts (see Makefile.toml).
 fuse = ["dep:notema-fuse"]
+# Use exact timezone boundaries for location-derived timezones (~+12 MB binary)
+# instead of the default coarse tile lookup. See notema-context/src/timezone.rs.
+exact-timezone = ["notema-context/exact-timezone"]
 # Exposes the `bench` module (private TUI hot paths) for benches/. Dev-only.
 bench = []
 

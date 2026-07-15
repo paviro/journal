@@ -60,7 +60,7 @@ impl AppModel {
     /// bumping the request id so a stale reply for an older location is dropped.
     /// A cleared or coordless location just abandons any pending fetch and result.
     pub(crate) fn prepare_editor_environment(&mut self) -> Option<EnvironmentRequest> {
-        let datetime = self.editor_context_datetime();
+        let mut datetime = self.editor_context_datetime();
         let coordinates = {
             let editor = self.editor.as_mut()?;
             let Some(coordinates) = editor.metadata.location.as_ref().and_then(coords) else {
@@ -68,6 +68,11 @@ impl AppModel {
                 editor.environment = None;
                 return None;
             };
+            // Date the fetch to the place's local day when the entry is timezoned,
+            // so sunrise/sunset and the weather sample match where it was written.
+            if let Some(zone) = editor.zone {
+                datetime = notema_context::rezone(datetime, zone);
+            }
             coordinates
         };
         // Allocate from the app-level counter so a stale result from a discarded

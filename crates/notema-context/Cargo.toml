@@ -10,16 +10,22 @@ publish.workspace = true
 [dependencies]
 notema-domain.workspace = true
 chrono.workspace = true
+chrono-tz.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sunrise.workspace = true
 thiserror.workspace = true
+tzf-rs.workspace = true
 ureq.workspace = true
 
 [features]
 default = []
 tls-ring = ["ureq/rustls"]
 tls-native = ["ureq/native-tls"]
+# Swap the offline coordinate->timezone finder from the small tile-based
+# `FuzzyFinder` (default, ~2 MB, coarse only within a few km of a zone border)
+# to the exact polygon `DefaultFinder` (~14 MB). See src/timezone.rs.
+exact-timezone = []
 
 # Device location ("grab current GPS") providers, one per platform so no crate is
 # pulled in where it isn't used. See src/device_location/. macOS has no crate dep:

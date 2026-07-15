@@ -232,6 +232,9 @@ pub(crate) struct EditLocationState {
     pub(crate) name: TextInput,
     /// Coordinates + names resolved from the query, a candidate, or a preset.
     pub(crate) resolved: Option<Location>,
+    /// The IANA timezone the geocoder gave for `resolved`, when it carried one.
+    /// Preferred over the offline coordinate lookup when the entry is timezoned.
+    pub(crate) resolved_timezone: Option<String>,
     /// Recent-then-common existing locations, shown when no lookup is active.
     pub(crate) presets: Vec<LocationPreset>,
     /// Candidate matches from the last forward geocode; while non-empty they
@@ -268,6 +271,7 @@ impl EditLocationState {
             query: TextInput::from(query),
             name: TextInput::from(name),
             resolved: current,
+            resolved_timezone: None,
             presets,
             candidates: Vec::new(),
             list: SelectableList::default(),
@@ -362,6 +366,7 @@ impl EditLocationState {
     fn invalidate_lookup(&mut self) {
         self.query_looked_up = false;
         self.resolved = None;
+        self.resolved_timezone = None;
         self.candidates.clear();
         self.status = LocationResolveStatus::Idle;
         self.normalize_list_state();
@@ -405,6 +410,8 @@ impl EditLocationState {
         };
         location.set_coordinates(fix.coordinates);
         self.resolved = Some(location);
+        // A raw fix has no geocoded zone yet; the reverse lookup may supply one.
+        self.resolved_timezone = None;
     }
 
     /// Fold a finished reverse-geocode reply into the dialog: enrich the resolved
@@ -413,6 +420,7 @@ impl EditLocationState {
     pub(crate) fn apply_reverse(&mut self, hit: Option<GeocodeHit>) {
         match hit {
             Some(hit) => {
+                self.resolved_timezone = hit.timezone;
                 let mut location = hit.location;
                 // Keep the coordinates the user entered or the device grabbed,
                 // along with that grab's accuracy and provider.
@@ -447,14 +455,21 @@ impl EditLocationState {
         let Some(index) = self.selected_index() else {
             return;
         };
-        let location = if self.showing_candidates() {
-            self.candidates.get(index).map(|hit| hit.location.clone())
+        let (location, timezone) = if self.showing_candidates() {
+            match self.candidates.get(index) {
+                Some(hit) => (Some(hit.location.clone()), hit.timezone.clone()),
+                None => (None, None),
+            }
         } else {
-            self.presets
-                .get(index)
-                .map(|preset| preset.location.clone())
+            (
+                self.presets
+                    .get(index)
+                    .map(|preset| preset.location.clone()),
+                None,
+            )
         };
         if let Some(location) = location {
+            self.resolved_timezone = timezone;
             if self.name.as_str().trim().is_empty()
                 && let Some(name) = &location.name
             {
@@ -473,6 +488,12 @@ impl EditLocationState {
         let name = self.name.as_str().trim();
         location.name = (!name.is_empty()).then(|| name.to_string());
         (!location.is_empty()).then_some(location)
+    }
+
+    /// The geocoder-supplied IANA timezone for the composed location, if any. Only
+    /// meaningful alongside a non-empty [`composed`](Self::composed).
+    pub(crate) fn composed_timezone(&self) -> Option<String> {
+        self.resolved_timezone.clone()
     }
 }
 
@@ -542,6 +563,7 @@ mod tests {
                 longitude: Some(lon),
                 ..Location::default()
             },
+            timezone: None,
         }
     }
 
@@ -595,6 +617,7 @@ mod tests {
                 longitude: Some(13.405),
                 ..Location::default()
             },
+            timezone: None,
         };
         state.apply_candidates(vec![candidate]);
         state.select_row();
@@ -623,6 +646,7 @@ mod tests {
                 city: Some("Berlin".to_string()),
                 ..Location::default()
             },
+            timezone: None,
         };
         state.apply_candidates(vec![candidate]);
         state.select_row();
@@ -675,6 +699,27 @@ mod tests {
     }
 
     #[test]
+    fn location_captures_and_clears_the_geocoder_timezone() {
+        let mut state = EditLocationState::new(None, Vec::new());
+        state.seed_device_fix(&device_fix(35.68, 139.767));
+        assert_eq!(state.composed_timezone(), None, "a raw fix has no zone yet");
+
+        // A reverse hit carrying a timezone is captured for the composed location.
+        let mut hit = hit("Tokyo", 35.68, 139.767);
+        hit.timezone = Some("Asia/Tokyo".to_string());
+        state.apply_reverse(Some(hit));
+        assert_eq!(state.composed_timezone().as_deref(), Some("Asia/Tokyo"));
+
+        // Editing the query invalidates the lookup, dropping the zone with it.
+        state.focus = EditLocationFocus::Query;
+        state.input_key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('x'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(state.composed_timezone(), None);
+    }
+
+    #[test]
     fn location_reverse_keeps_user_coordinates_and_adds_names() {
         let mut state = EditLocationState::new(None, Vec::new());
         state.resolved = Some(Location {
@@ -704,6 +749,7 @@ mod tests {
                 longitude: Some(9.9),
                 ..Location::default()
             },
+            timezone: None,
         };
         state.apply_reverse(Some(poi));
 
