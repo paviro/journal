@@ -184,7 +184,7 @@ impl AppModel {
             match result.hits {
                 Ok(hits) if result.reverse => state.apply_reverse(hits.into_iter().next()),
                 Ok(hits) => state.apply_candidates(hits),
-                Err(error) => state.status = LocationResolveStatus::Error(error),
+                Err(error) => state.lookup_failed(error),
             }
             changed = true;
         }
@@ -445,6 +445,19 @@ impl EditLocationState {
             None => self.status = LocationResolveStatus::NoMatch,
         }
         self.query_looked_up = true;
+    }
+
+    /// A lookup failed — typically offline. Any coordinates already resolved (a
+    /// device grab or a typed "lat, lon", still shown in the query field) are
+    /// saveable on their own, so mark the query looked-up: Enter now saves the
+    /// bare coordinates instead of re-firing the failing lookup. With nothing
+    /// resolved (a plain address that never geocoded) the query stays in look-up
+    /// mode.
+    pub(crate) fn lookup_failed(&mut self, error: String) {
+        self.status = LocationResolveStatus::Error(error);
+        if self.resolved.is_some() {
+            self.query_looked_up = true;
+        }
     }
 
     /// Adopt the highlighted preset/candidate as the resolved location, seeding
@@ -717,6 +730,31 @@ mod tests {
             crossterm::event::KeyModifiers::NONE,
         ));
         assert_eq!(state.composed_timezone(), None);
+    }
+
+    #[test]
+    fn location_failed_reverse_of_grabbed_coords_stays_saveable() {
+        let mut state = EditLocationState::new(None, Vec::new());
+        state.seed_device_fix(&device_fix(52.52, 13.405));
+        // The normal flow: the lookup hasn't returned yet, so Enter still resolves.
+        assert!(!state.query_looked_up);
+
+        // Offline: the reverse lookup fails. The grabbed coordinates are already
+        // shown and saveable, so Enter now saves them.
+        state.lookup_failed("offline".to_string());
+        assert!(state.query_looked_up);
+        assert!(matches!(state.status, LocationResolveStatus::Error(_)));
+        assert_eq!(state.composed().unwrap().latitude, Some(52.52));
+    }
+
+    #[test]
+    fn location_failed_lookup_without_coords_stays_in_lookup_mode() {
+        // A forward address that never geocoded (offline): nothing resolved, so
+        // there's nothing to save — Enter must keep looking up.
+        let mut state = EditLocationState::new(None, Vec::new());
+        state.lookup_failed("offline".to_string());
+        assert!(!state.query_looked_up);
+        assert!(state.composed().is_none());
     }
 
     #[test]

@@ -7,6 +7,10 @@ use crate::Result;
 use std::{path::Path, sync::OnceLock, sync::mpsc, thread, time::Duration};
 
 pub(crate) const TIMEOUT: Duration = Duration::from_secs(10);
+/// Cap on establishing the TCP connection. Shorter than the global timeout so a
+/// dead or black-holed network (offline, dropped SYNs, captive portals) gives up
+/// fast, while a slow-but-alive server still gets the full [`TIMEOUT`] to respond.
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 /// Upper bound on a response body (bytes) — the JSON these APIs return is tiny.
 pub(crate) const MAX_BODY_BYTES: u64 = 2 * 1024 * 1024;
 /// Identifies the application. Nominatim's policy requires a descriptive
@@ -62,7 +66,9 @@ fn agent_config_for(ish: bool) -> ureq::config::Config {
     let builder = if ish {
         builder.no_delay(false)
     } else {
-        builder.timeout_global(Some(TIMEOUT))
+        builder
+            .timeout_global(Some(TIMEOUT))
+            .timeout_connect(Some(CONNECT_TIMEOUT))
     };
     #[cfg(feature = "tls-native")]
     let builder = builder.tls_config(
@@ -100,6 +106,9 @@ mod tests {
         let config = super::agent_config_for(false);
         assert!(config.no_delay());
         assert_eq!(config.timeouts().global, Some(super::TIMEOUT));
+        // A short connect cap fails fast on a dead network without shortening the
+        // read budget for a slow-but-alive server.
+        assert_eq!(config.timeouts().connect, Some(super::CONNECT_TIMEOUT));
     }
 
     #[cfg(all(feature = "tls-ring", not(feature = "tls-native")))]
