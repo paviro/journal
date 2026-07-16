@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use notema_domain::{Entry, EntryEncryptionState, SearchHit, normalize_feeling};
+use notema_domain::{Entry, EntryEncryptionState, SearchHit, feeling_matches_search};
 
 use crate::tui::{
     app::{AppModel, Focus, Mode, SearchScope},
@@ -148,14 +148,11 @@ impl AppModel {
     }
 
     pub(crate) fn search_results_by_feeling(&self, feeling: &str) -> Vec<SearchHit> {
-        let Some(feeling) = normalize_feeling(feeling) else {
-            return Vec::new();
-        };
         self.search_results_matching(|entry| {
             entry
                 .feelings
                 .iter()
-                .any(|entry_feeling| entry_feeling == &feeling)
+                .any(|entry_feeling| feeling_matches_search(entry_feeling, feeling))
         })
     }
 

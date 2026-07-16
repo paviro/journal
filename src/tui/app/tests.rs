@@ -351,7 +351,7 @@ fn empty_search_has_no_selected_entry() {
 }
 
 #[test]
-fn feelings_search_matches_exact_known_label() {
+fn feelings_search_matches_full_and_partial_labels() {
     let dir = tempdir().unwrap();
     let entry_dir = dir.path().join("work").join("2026-07-01");
     fs::create_dir_all(&entry_dir).unwrap();
@@ -365,16 +365,50 @@ fn feelings_search_matches_exact_known_label() {
         "+++\nschema_version = 1\n\n[entry]\nfeelings = [\"anxious\"]\n+++\n\n# B\n",
     )
     .unwrap();
+    fs::write(
+        entry_dir.join("c.md"),
+        "+++\nschema_version = 1\n\n[entry]\nfeelings = [\"relaxed\"]\n+++\n\n# C\n",
+    )
+    .unwrap();
+    fs::write(
+        entry_dir.join("d.md"),
+        "+++\nschema_version = 1\n\n[entry]\nfeelings = [\"grateful\"]\n+++\n\n# D\n",
+    )
+    .unwrap();
 
     let config = Config::new(dir.path().to_path_buf());
     let mut app = new_app(config);
     app.select_journal_by_name("work");
     app.begin_search();
+
+    let titles = |app: &AppModel| {
+        let mut t: Vec<_> = app.search.hits.iter().map(|h| h.title.clone()).collect();
+        t.sort();
+        t
+    };
+
+    // Full label still matches exactly one entry.
     app.search.query = "feelings:calm".into();
     app.update_search_results();
+    assert_eq!(titles(&app), vec!["A"]);
 
-    assert_eq!(app.search.hits.len(), 1);
-    assert_eq!(app.search.hits[0].title, "A");
+    // Partial label matches: `cal` -> calm, and the reported bug `relaxe`/`relax` -> relaxed.
+    app.search.query = "feelings:cal".into();
+    app.update_search_results();
+    assert_eq!(titles(&app), vec!["A"]);
+
+    app.search.query = "feelings:relaxe".into();
+    app.update_search_results();
+    assert_eq!(titles(&app), vec!["C"]);
+
+    app.search.query = "feelings:relax".into();
+    app.update_search_results();
+    assert_eq!(titles(&app), vec!["C"]);
+
+    // Partial alias resolves onto the canonical feeling: `thank` -> grateful.
+    app.search.query = "feelings:thank".into();
+    app.update_search_results();
+    assert_eq!(titles(&app), vec!["D"]);
 }
 
 #[test]

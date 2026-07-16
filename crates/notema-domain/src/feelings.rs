@@ -332,6 +332,18 @@ pub fn normalize_feeling(feeling: &str) -> Option<String> {
         .map(|(_, canonical)| canonical.to_string())
 }
 
+/// Whether a canonical `feeling` stored on an entry should match the partial search
+/// `query`: the (trimmed, lowercased) query is a substring of the feeling name or of one
+/// of that feeling's search aliases. Mirrors the feelings picker filter (see
+/// `EditFeelingState::visible_rows`) so `feelings:` search and the picker agree. An empty
+/// query matches every feeling, like an empty `tags:` filter matches any tagged entry.
+pub fn feeling_matches_search(feeling: &str, query: &str) -> bool {
+    let query = query.trim().to_lowercase();
+    feeling.contains(&query)
+        || feeling_aliases()
+            .any(|(alias, canonical)| canonical == feeling && alias.contains(&query))
+}
+
 pub fn normalize_feelings<'a>(feelings: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     let mut normalized = Vec::new();
     for feeling in feelings {
@@ -401,6 +413,24 @@ mod tests {
         assert_eq!(normalize_feeling("Joyous"), Some("happy".to_string()));
         assert_eq!(normalize_feeling("thankful"), Some("grateful".to_string()));
         assert_eq!(normalize_feeling("Worn Out"), Some("exhausted".to_string()));
+    }
+
+    #[test]
+    fn feeling_matches_search_handles_partial_name_alias_and_empty() {
+        // Partial canonical name: `relaxe` still finds `relaxed`.
+        assert!(feeling_matches_search("relaxed", "relaxe"));
+        assert!(feeling_matches_search("relaxed", "relax"));
+        // Partial alias resolves onto its canonical feeling: `thank` -> `grateful`.
+        assert!(feeling_matches_search("grateful", "thank"));
+        assert!(feeling_matches_search("grateful", "thankful"));
+        // Case-insensitive and trimmed.
+        assert!(feeling_matches_search("relaxed", "  RELAX  "));
+        // A non-matching query matches nothing.
+        assert!(!feeling_matches_search("relaxed", "zzz"));
+        // An alias of another feeling doesn't leak across canonicals.
+        assert!(!feeling_matches_search("relaxed", "thank"));
+        // Empty query matches any feeling.
+        assert!(feeling_matches_search("relaxed", ""));
     }
 
     #[test]

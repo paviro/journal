@@ -14,7 +14,7 @@ pub use entry::{
     build_search_haystack, normalize_for_search,
 };
 pub use feelings::{
-    FEELING_GROUPS, Feeling, FeelingGroup, feelings, normalize_feeling, normalize_feelings,
-    validate_feelings,
+    FEELING_GROUPS, Feeling, FeelingGroup, feeling_matches_search, feelings, normalize_feeling,
+    normalize_feelings, validate_feelings,
 };
 pub use markdown::{InlineSpan, parse_inline_at};
