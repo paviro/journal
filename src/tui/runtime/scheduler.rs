@@ -22,10 +22,10 @@ pub(super) fn poll_timeout(
     if app.image.runtime.has_pending() {
         timeout = timeout.min(Duration::from_millis(30));
     }
-    if app.geocode.has_pending() || app.address_backfill_active() {
+    if app.geocode.has_pending() {
         timeout = timeout.min(Duration::from_millis(50));
     }
-    if app.environment.has_pending() || app.environment_backfill_active() {
+    if app.environment.has_pending() {
         timeout = timeout.min(Duration::from_millis(100));
     }
     if !app.toasts.items().is_empty() {

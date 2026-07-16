@@ -1,46 +1,14 @@
-use std::{
-    collections::{HashSet, VecDeque},
-    path::{Path, PathBuf},
-    time::{Duration, Instant},
-};
+use std::path::{Path, PathBuf};
 
 use crate::tui::app::AppModel;
 use crate::tui::editor_state::EditorTarget;
 use crate::tui::environment::{EnvironmentRequest, EnvironmentTarget, environment_fields};
 use chrono::{DateTime, FixedOffset, Local};
-use notema_domain::{Coordinates, EntryEncryptionState, Location};
-
-/// Minimum gap between backfill dispatches — the Open-Meteo rate-limit knob.
-/// One entry per second (two calls) stays well under the free-tier ceiling.
-const BACKFILL_THROTTLE: Duration = Duration::from_secs(1);
-
-/// The paced environment-backfill state: entries with a location but no captured
-/// environment, fetched one at a time so the interactive fetch never queues behind
-/// a batch and Open-Meteo isn't spammed. See [`AppModel::prepare_environment_backfill`].
-#[derive(Default)]
-pub(crate) struct EnvironmentBackfill {
-    /// Entries awaiting a backfill fetch, paced out one at a time.
-    pub(crate) queue: VecDeque<PathBuf>,
-    /// Paths ever queued this session, so a re-scan can't re-enqueue one still in
-    /// flight (its environment lands and clears the predicate later).
-    pub(crate) enqueued: HashSet<PathBuf>,
-    /// The id of the backfill request currently in flight, if any.
-    pub(crate) inflight: Option<u64>,
-    /// When the last backfill request was dispatched, for throttling.
-    last_dispatch: Option<Instant>,
-}
+use notema_domain::{Coordinates, Location};
 
 /// The `(lat, lon)` of a location, or `None` when it isn't pinned to coordinates.
 pub(crate) fn coords(location: &Location) -> Option<Coordinates> {
     location.coordinates()
-}
-
-/// Whether the store can read and rewrite this entry (unlocked or plaintext).
-pub(crate) fn is_writable(state: EntryEncryptionState) -> bool {
-    matches!(
-        state,
-        EntryEncryptionState::Plain | EntryEncryptionState::EncryptedUnlocked
-    )
 }
 
 impl AppModel {
@@ -92,19 +60,13 @@ impl AppModel {
     }
 
     /// Spawn a background environment fetch whose result is written back to `path`
-    /// (a direct location-set, or a paced backfill). Returns the request id.
-    ///
-    /// Claims `path` in the backfill ledger and drops any queued copy, so this
-    /// fetch is the sole owner of the entry's environment: a location-set that
-    /// also enqueued the entry for backfill can't then fetch it a second time.
+    /// (a location just set directly on an entry). Returns the request id.
     fn prepare_entry_environment_request(
         &mut self,
         path: PathBuf,
         coordinates: Coordinates,
         datetime: DateTime<FixedOffset>,
     ) -> EnvironmentRequest {
-        self.backfill.enqueued.insert(path.clone());
-        self.backfill.queue.retain(|queued| queued != &path);
         self.next_environment_id += 1;
         let id = self.next_environment_id;
         EnvironmentRequest {
@@ -155,9 +117,6 @@ impl AppModel {
                     }
                 }
                 EnvironmentTarget::Entry(path) => {
-                    if self.backfill.inflight == Some(result.id) {
-                        self.backfill.inflight = None;
-                    }
                     // Skip an entry open in the editor; it's captured on its save.
                     if self.editor_is_editing(&path) {
                         continue;
@@ -178,76 +137,5 @@ impl AppModel {
             }
         }
         changed
-    }
-
-    /// Queue any writable, located entry that never got environment (celestial absent
-    /// marks it, since celestial is always computable). Called after entries load
-    /// or refresh; already-queued paths are skipped so a re-scan can't double up.
-    pub(crate) fn enqueue_environment_backfill(&mut self) {
-        let targets: Vec<PathBuf> = self
-            .library
-            .entries
-            .iter()
-            .filter(|entry| entry.celestial.is_none())
-            .filter(|entry| is_writable(entry.encryption_state))
-            .filter(|entry| entry.location.as_ref().and_then(coords).is_some())
-            .map(|entry| entry.path.clone())
-            .filter(|path| !self.backfill.enqueued.contains(path))
-            .collect();
-        for path in targets {
-            self.backfill.enqueued.insert(path.clone());
-            self.backfill.queue.push_back(path);
-        }
-    }
-
-    /// Dispatch at most one queued backfill fetch, throttled and one-at-a-time so
-    /// the interactive worker never queues behind a batch. Call each event-loop
-    /// tick; cheap when the queue is empty or a job is already in flight.
-    pub(crate) fn prepare_environment_backfill(&mut self) -> Option<EnvironmentRequest> {
-        if self.backfill.inflight.is_some() {
-            return None;
-        }
-        if self
-            .backfill
-            .last_dispatch
-            .is_some_and(|at| at.elapsed() < BACKFILL_THROTTLE)
-        {
-            return None;
-        }
-        while let Some(path) = self.backfill.queue.pop_front() {
-            // An entry now open in the editor is captured on its own save.
-            if self.editor_is_editing(&path) {
-                continue;
-            }
-            let params = self
-                .library
-                .entries
-                .iter()
-                .find(|entry| entry.path == path)
-                // Skip if it already has environment — e.g. an editor edit attached
-                // it after this path was queued, so the queued job is now stale.
-                .filter(|entry| entry.celestial.is_none())
-                .and_then(|entry| {
-                    let coordinates = coords(entry.location.as_ref()?)?;
-                    let datetime = entry
-                        .created_time()
-                        .unwrap_or_else(|| Local::now().fixed_offset());
-                    Some((coordinates, datetime))
-                });
-            let Some((coordinates, datetime)) = params else {
-                continue;
-            };
-            let request = self.prepare_entry_environment_request(path, coordinates, datetime);
-            self.backfill.inflight = Some(request.id);
-            self.backfill.last_dispatch = Some(Instant::now());
-            return Some(request);
-        }
-        None
-    }
-
-    /// Whether backfill work is pending — a job in flight or entries still queued —
-    /// so the event loop can wake promptly to pace the next dispatch.
-    pub(crate) fn environment_backfill_active(&self) -> bool {
-        self.backfill.inflight.is_some() || !self.backfill.queue.is_empty()
     }
 }

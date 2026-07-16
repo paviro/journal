@@ -1128,66 +1128,20 @@ mod tests {
     }
 
     #[test]
-    fn located_entry_without_context_is_backfill_queued_once() {
-        let body = "+++\nschema_version = 1\n[location]\nlatitude = 52.52\nlongitude = 13.405\n+++\n\n# A\n";
-        let (_dir, app, _path) = app_with_entry(body);
-
-        // Loading the store already scanned and queued the located, environment-less
-        // entry (celestial absent marks it); a re-scan must not double-queue it.
-        assert_eq!(app.backfill.queue.len(), 1);
-        let mut app = app;
-        app.enqueue_environment_backfill();
-        assert_eq!(app.backfill.queue.len(), 1);
-    }
-
-    #[test]
-    fn direct_location_set_claims_entry_so_backfill_cannot_duplicate() {
-        // Dated (so a weather lookup can fire) but initially locationless, so it
-        // starts off the backfill queue.
+    fn direct_location_set_fires_an_environment_fetch() {
+        // Dated (so a weather lookup can fire) but initially locationless.
         let body = "+++\nschema_version = 1\n[time]\ncreated_at = \"2026-07-01T10:00:00+00:00\"\n+++\n\n# A\n";
-        let (_dir, mut app, path) = app_with_entry(body);
-        assert!(app.backfill.queue.is_empty());
+        let (_dir, mut app, _path) = app_with_entry(body);
 
         let location = Location {
             latitude: Some(52.52),
             longitude: Some(13.405),
             ..Location::default()
         };
+        // Setting a location on an entry captures its environment there and then —
+        // this live capture is what replaces the old automatic sweep.
         let request = set_location_on_entry(&mut app, Some(location)).unwrap();
         assert!(request.is_some());
-
-        // Setting the location enqueues the entry for backfill and also fires an
-        // immediate fetch. The fetch claims the path, so it must not remain queued —
-        // otherwise backfill would fetch and write the same environment a second time.
-        assert!(app.backfill.enqueued.contains(&path));
-        assert!(!app.backfill.queue.contains(&path));
-        assert!(app.prepare_environment_backfill().is_none());
-        assert!(!app.backfill.queue.contains(&path));
-    }
-
-    #[test]
-    fn backfill_dispatch_skips_entry_that_already_has_environment() {
-        use notema_context::compute_celestial;
-        let body = "+++\nschema_version = 1\n[location]\nlatitude = 52.52\nlongitude = 13.405\n+++\n\n# A\n";
-        let (_dir, mut app, path) = app_with_entry(body);
-        assert_eq!(app.backfill.queue.len(), 1);
-
-        // A direct location-set both queues the entry for backfill and fires an
-        // immediate fetch. Simulate that fetch landing first: environment present.
-        let datetime = chrono::Local::now().fixed_offset();
-        for entry in &mut app.library.entries {
-            if entry.path == path {
-                entry.celestial = Some(compute_celestial(
-                    notema_domain::Coordinates::try_new(52.52, 13.405).unwrap(),
-                    datetime,
-                ));
-            }
-        }
-
-        // The queued job is now stale — dispatch drains it without a duplicate fetch.
-        assert!(app.prepare_environment_backfill().is_none());
-        assert!(app.backfill.inflight.is_none());
-        assert!(app.backfill.queue.is_empty());
     }
 
     #[test]

@@ -314,9 +314,6 @@ pub(crate) struct AppModel {
     /// Per-device UI state persisted to `state.toml` (e.g. the last-open journal).
     pub(crate) state: State,
     pub(crate) library: Library,
-    /// Cached lists are usable immediately, but background write-backs wait
-    /// until the source-tree reconciliation has completed.
-    pub(crate) library_validated: bool,
     /// Changes whenever source-backed library state is refreshed. Startup
     /// validation uses this to avoid installing a snapshot older than an edit
     /// or manual refresh completed while it was running.
@@ -337,13 +334,10 @@ pub(crate) struct AppModel {
     /// Background geocoding for the location dialog; spawned on first lookup.
     pub(crate) geocode: crate::tui::geocode::GeocodeWorker,
     /// Background weather/air-quality/celestial fetching; spawned on first use.
-    /// Serves the editor prefetch, direct location-sets, and the paced backfill.
+    /// Serves the editor prefetch and direct location-sets. Bulk enrichment of
+    /// existing entries is the `notema backfill` CLI command's job, not the TUI's.
     pub(crate) environment: crate::tui::environment::EnvironmentWorker,
-    /// Paced backfill of environment for located entries that never captured it.
-    pub(crate) backfill: crate::tui::features::environment::EnvironmentBackfill,
-    /// Paced reverse-geocode backfill for entries that carry only coordinates.
-    pub(crate) address_backfill: crate::tui::features::address::AddressBackfill,
-    /// Id counter for environment requests (editor fetches, backfill, direct
+    /// Id counter for environment requests (editor fetches, direct
     /// location-set write-backs) — app-level so ids never repeat across editor
     /// sessions and a stale result can't be adopted by a later one.
     pub(crate) next_environment_id: u64,
@@ -422,7 +416,6 @@ impl AppModel {
             config,
             store,
             snapshot,
-            true,
             crate::tui::theme::Mode::Dark,
         )
     }
@@ -445,8 +438,7 @@ impl AppModel {
                 report: cache.report.clone(),
             },
         };
-        let mut app =
-            Self::new_with_snapshot(config_path, config, store, snapshot, false, detected_mode)?;
+        let mut app = Self::new_with_snapshot(config_path, config, store, snapshot, detected_mode)?;
         if cache.cached.is_none() {
             app.toasts
                 .push_persistent(ToastVariant::Info, INITIAL_LIBRARY_LOADING_TOAST);
@@ -459,7 +451,6 @@ impl AppModel {
         config: Config,
         store: JournalStore,
         snapshot: LibrarySnapshot,
-        library_validated: bool,
         detected_mode: crate::tui::theme::Mode,
     ) -> AppResult<Self> {
         let state = crate::config::load_state(&config_path)?;
@@ -479,7 +470,6 @@ impl AppModel {
             appearance,
             state,
             library: Library::default(),
-            library_validated,
             library_generation: 0,
             nav: Nav::default(),
             search: SearchState::default(),
@@ -490,8 +480,6 @@ impl AppModel {
             image: ImageState::default(),
             geocode: crate::tui::geocode::GeocodeWorker::default(),
             environment: crate::tui::environment::EnvironmentWorker::default(),
-            backfill: crate::tui::features::environment::EnvironmentBackfill::default(),
-            address_backfill: crate::tui::features::address::AddressBackfill::default(),
             next_environment_id: 0,
             next_geocode_id: 0,
             reader_anchor_flash: None,
@@ -535,7 +523,6 @@ impl AppModel {
         self.clear_image_caches();
         self.library.journals = snapshot.journals;
         self.library.entries = snapshot.entries;
-        self.library_validated = true;
         self.normalize_journal_selection();
         if let Some(journal_id) = journal_id
             && let Some(index) = self
@@ -687,12 +674,6 @@ impl AppModel {
     fn after_entries_changed(&mut self) {
         self.library_generation = self.library_generation.wrapping_add(1);
         self.library.rebuild_indexes();
-        // Queue any newly-seen located entry that still lacks captured environment
-        // or a reverse-geocoded address.
-        if self.library_validated {
-            self.enqueue_environment_backfill();
-            self.enqueue_address_backfill();
-        }
         // Entries (and possibly hits) changed: invalidate every version-keyed
         // cache — the body/analytics caches (entries_version) and the row cache
         // (rows_version).

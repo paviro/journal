@@ -1,5 +1,6 @@
 use crate::{AppResult, config, startup, tui};
 
+mod backfill;
 mod encryption;
 mod import;
 mod location;
@@ -47,6 +48,9 @@ enum CliCommand {
         #[command(subcommand)]
         source: ImportSource,
     },
+    /// Fill in missing location names, weather, air quality, and celestial data
+    /// for existing located entries (fetched on demand, one request per second)
+    Backfill,
     /// Manage journal encryption: enable/disable and the device keystore
     #[command(alias = "enc")]
     Encryption {
@@ -239,6 +243,7 @@ fn handle_command(cli: &Cli, command: &CliCommand, stdin_is_pipe: bool) -> AppRe
         CliCommand::Import { source } => match source {
             ImportSource::Dayone(args) => import::run_dayone(cli, args),
         },
+        CliCommand::Backfill => backfill::run(cli),
         CliCommand::Encryption { command } => handle_encryption_command(cli, command),
         CliCommand::Licenses { dependency } => crate::licenses::run(dependency.clone()),
         #[cfg(feature = "fuse")]

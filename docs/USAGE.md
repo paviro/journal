@@ -21,11 +21,18 @@ notema log "Shipped the release" \
   --tag project,milestone \
   --person Alice --activity coding \
   --feeling proud,focused \
-  --mood 3
+  --mood 3 \
+  --location "Berlin"
 ```
 
 `--feeling` takes values from a fixed vocabulary — see
 [STORAGE-FORMAT.md](STORAGE-FORMAT.md#feelings-vocabulary).
+
+`--location` sets where the entry was written. A bare `--location` grabs the
+device's current GPS fix; a value is treated as `lat,lon` when it parses as
+coordinates, otherwise as an address to geocode. Whenever a location resolves, the
+weather, air quality, and celestial data for that place and time are captured with
+it.
 
 ## Location
 
@@ -51,6 +58,22 @@ address. The provider is platform-specific and only ever produces
   Support/de.paviro.notema/` on first use and reads the fix from it. Grant
   Location access when prompted, or later in System Settings → Privacy & Security →
   Location Services.
+
+## Backfilling old entries
+
+New entries capture their environment as they're written, but entries logged
+before a place was known — or imported with only `lat,lon` — may be missing their
+address, weather, air quality, or celestial data. Fill those in on demand:
+
+```bash
+notema backfill
+```
+
+It walks every located entry and fetches only what's missing, one request per
+second (OpenStreetMap Nominatim asks that bulk querying not be automated, so this
+is a manual command rather than a background sweep). Data already present is never
+overwritten, and entries without coordinates are skipped. It's safe to re-run — a
+second pass reports anything already complete and makes no further requests for it.
 
 ## Themes
 

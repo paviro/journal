@@ -2,8 +2,6 @@
 //! worker resolves requests serially, which also keeps us under Nominatim's
 //! one-request-per-second ceiling.
 
-use std::path::PathBuf;
-
 use crate::tui::runtime::worker::Worker;
 use notema_context::{DeviceFix, GeocodeHit, device_location, geocode, reverse_geocode};
 use notema_domain::Coordinates;
@@ -23,23 +21,11 @@ pub(crate) enum GeocodeQuery {
     Device,
 }
 
-/// Where a finished lookup's result belongs, so the drain step can route it. The
-/// worker (and thus Nominatim's one-request-per-second budget) is shared between
-/// the interactive dialog and the paced address backfill.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum GeocodeTarget {
-    /// Fold into the open location dialog, matched by the request id.
-    Dialog,
-    /// Write the reverse-geocoded address back to this entry file (backfill).
-    Entry(PathBuf),
-}
-
 /// A lookup handed to the worker, tagged with the request id the dialog assigned.
 #[derive(Debug, PartialEq)]
 pub(crate) struct GeocodeRequest {
     pub(crate) id: u64,
     pub(crate) query: GeocodeQuery,
-    pub(crate) target: GeocodeTarget,
 }
 
 /// A finished lookup coming back. `hits` holds the candidates (forward) or the
@@ -52,7 +38,6 @@ pub(crate) struct GeocodeResult {
     pub(crate) reverse: bool,
     pub(crate) hits: Result<Vec<GeocodeHit>, String>,
     pub(crate) device_fix: Option<DeviceFix>,
-    pub(crate) target: GeocodeTarget,
 }
 
 /// Resolve one geocoding request. Runs on the worker thread.
@@ -79,7 +64,6 @@ pub(crate) fn resolve(request: GeocodeRequest) -> GeocodeResult {
         reverse,
         hits,
         device_fix,
-        target: request.target,
     }
 }
 

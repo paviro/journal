@@ -1,4 +1,4 @@
-use crate::tui::geocode::{GeocodeQuery, GeocodeRequest, GeocodeTarget};
+use crate::tui::geocode::{GeocodeQuery, GeocodeRequest};
 use crate::tui::state::{ListNav, SelectableList};
 use crate::tui::{app::AppModel, state::Overlay, text_input::TextInput};
 use chrono::{DateTime, FixedOffset};
@@ -137,11 +137,7 @@ impl AppModel {
                 }
                 None => GeocodeQuery::Address(query),
             };
-            GeocodeRequest {
-                id,
-                query,
-                target: GeocodeTarget::Dialog,
-            }
+            GeocodeRequest { id, query }
         };
         self.next_geocode_id += 1;
         Some(dispatch)
@@ -159,7 +155,6 @@ impl AppModel {
             GeocodeRequest {
                 id,
                 query: GeocodeQuery::Device,
-                target: GeocodeTarget::Dialog,
             }
         };
         self.next_geocode_id += 1;
@@ -173,12 +168,6 @@ impl AppModel {
         let results = self.geocode.drain();
         let mut changed = false;
         for result in results {
-            // Backfill results are written straight to their entry file; only
-            // dialog results fold into the open dialog below.
-            if let GeocodeTarget::Entry(_) = result.target {
-                changed |= self.apply_address_result(result);
-                continue;
-            }
             let Some(state) = self.edit_location_state_mut() else {
                 continue;
             };

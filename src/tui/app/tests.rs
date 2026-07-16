@@ -78,7 +78,6 @@ fn cache_miss_starts_with_live_journals_while_entries_validate() {
     assert_eq!(app.library.journals.len(), 1);
     assert_eq!(app.library.journals[0].name, "work");
     assert!(app.library.entries.is_empty());
-    assert!(!app.library_validated);
     assert_eq!(app.toasts.items().len(), 1);
     assert_eq!(app.toasts.items()[0].message, "Loading journals from disk…");
     assert!(!app.expire_toasts());
