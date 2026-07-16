@@ -321,7 +321,15 @@ fn apply_background_action(app: &mut AppModel, action: BackgroundAction) -> Disp
             true
         }
         BackgroundAction::PollImages => app.image.runtime.poll_results(),
-        BackgroundAction::PollGeocode => app.apply_geocode_results(),
+        BackgroundAction::PollGeocode => {
+            // Fold dialog results and write back any address-backfill results, then
+            // pace out the next reverse lookup over the shared geocode worker.
+            let changed = app.apply_geocode_results();
+            if let Some(request) = app.prepare_address_backfill() {
+                outcome.effects.push(Effect::Geocode(request));
+            }
+            changed
+        }
         BackgroundAction::PollEnvironment => {
             let changed = app.apply_environment_results();
             if let Some(request) = app.prepare_environment_backfill() {

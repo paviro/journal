@@ -1,4 +1,4 @@
-use crate::tui::geocode::{GeocodeQuery, GeocodeRequest};
+use crate::tui::geocode::{GeocodeQuery, GeocodeRequest, GeocodeTarget};
 use crate::tui::state::{ListNav, SelectableList};
 use crate::tui::{app::AppModel, state::Overlay, text_input::TextInput};
 use chrono::{DateTime, FixedOffset};
@@ -137,7 +137,11 @@ impl AppModel {
                 }
                 None => GeocodeQuery::Address(query),
             };
-            GeocodeRequest { id, query }
+            GeocodeRequest {
+                id,
+                query,
+                target: GeocodeTarget::Dialog,
+            }
         };
         self.next_geocode_id += 1;
         Some(dispatch)
@@ -155,6 +159,7 @@ impl AppModel {
             GeocodeRequest {
                 id,
                 query: GeocodeQuery::Device,
+                target: GeocodeTarget::Dialog,
             }
         };
         self.next_geocode_id += 1;
@@ -168,6 +173,12 @@ impl AppModel {
         let results = self.geocode.drain();
         let mut changed = false;
         for result in results {
+            // Backfill results are written straight to their entry file; only
+            // dialog results fold into the open dialog below.
+            if let GeocodeTarget::Entry(_) = result.target {
+                changed |= self.apply_address_result(result);
+                continue;
+            }
             let Some(state) = self.edit_location_state_mut() else {
                 continue;
             };
@@ -421,15 +432,12 @@ impl EditLocationState {
         match hit {
             Some(hit) => {
                 self.resolved_timezone = hit.timezone;
-                let mut location = hit.location;
                 // Keep the coordinates the user entered or the device grabbed,
                 // along with that grab's accuracy and provider.
-                if let Some(resolved) = &self.resolved {
-                    location.latitude = resolved.latitude.or(location.latitude);
-                    location.longitude = resolved.longitude.or(location.longitude);
-                    location.accuracy_m = resolved.accuracy_m.or(location.accuracy_m);
-                    location.source = resolved.source.clone().or(location.source);
-                }
+                let location = match &self.resolved {
+                    Some(resolved) => hit.location.with_pin_from(resolved),
+                    None => hit.location,
+                };
                 // A POI/venue name fills the name field unless the user typed one,
                 // so composed() (which takes the name from that field) keeps it.
                 if self.name.as_str().trim().is_empty()

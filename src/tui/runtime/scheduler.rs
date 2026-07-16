@@ -22,7 +22,7 @@ pub(super) fn poll_timeout(
     if app.image.runtime.has_pending() {
         timeout = timeout.min(Duration::from_millis(30));
     }
-    if app.geocode.has_pending() {
+    if app.geocode.has_pending() || app.address_backfill_active() {
         timeout = timeout.min(Duration::from_millis(50));
     }
     if app.environment.has_pending() || app.environment_backfill_active() {

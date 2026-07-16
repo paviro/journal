@@ -532,13 +532,15 @@ fn run_loop(
             events::Action::Background(events::BackgroundAction::PollImages),
         )?
         .redraw;
-        // A finished geocode lookup updates the open location dialog; repaint too.
-        let geocode_ready = events::dispatch_action(
+        // A finished geocode lookup updates the open location dialog or writes back
+        // a backfilled address; either repaints, and the outcome may dispatch the
+        // next paced reverse lookup, so execute its effects.
+        let geocode_outcome = events::dispatch_action(
             terminal,
             &mut app,
             events::Action::Background(events::BackgroundAction::PollGeocode),
-        )?
-        .redraw;
+        )?;
+        let geocode_ready = effects::execute(terminal, &mut app, geocode_outcome)?.redraw;
         // Route any finished weather/air fetches: attach to the editor draft or
         // write back to the entry file. Then pace out the next backfill job.
         let context_outcome = events::dispatch_action(

@@ -31,12 +31,12 @@ pub(crate) struct EnvironmentBackfill {
 }
 
 /// The `(lat, lon)` of a location, or `None` when it isn't pinned to coordinates.
-fn coords(location: &Location) -> Option<Coordinates> {
+pub(crate) fn coords(location: &Location) -> Option<Coordinates> {
     location.coordinates()
 }
 
 /// Whether the store can read and rewrite this entry (unlocked or plaintext).
-fn is_writable(state: EntryEncryptionState) -> bool {
+pub(crate) fn is_writable(state: EntryEncryptionState) -> bool {
     matches!(
         state,
         EntryEncryptionState::Plain | EntryEncryptionState::EncryptedUnlocked
@@ -130,7 +130,7 @@ impl AppModel {
 
     /// Whether the entry at `path` is the one currently open in the editor — a
     /// background write-back must not clobber the live buffer.
-    fn editor_is_editing(&self, path: &Path) -> bool {
+    pub(crate) fn editor_is_editing(&self, path: &Path) -> bool {
         matches!(
             self.editor.as_ref().map(|editor| &editor.target),
             Some(EditorTarget::Existing { path: open, .. }) if open == path

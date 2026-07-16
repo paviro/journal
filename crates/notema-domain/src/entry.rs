@@ -158,6 +158,17 @@ impl Location {
         *self != coords_only
     }
 
+    /// Overlay these names onto `pin`'s coordinates: keep `pin`'s
+    /// latitude/longitude/accuracy/source (a reverse lookup must never move the
+    /// pin) and take every named part from `self`.
+    pub fn with_pin_from(mut self, pin: &Location) -> Location {
+        self.latitude = pin.latitude.or(self.latitude);
+        self.longitude = pin.longitude.or(self.longitude);
+        self.accuracy_m = pin.accuracy_m.or(self.accuracy_m);
+        self.source = pin.source.clone().or(self.source);
+        self
+    }
+
     /// The settlement name, whichever size key Nominatim used (city → hamlet).
     fn settlement(&self) -> Option<&str> {
         self.city

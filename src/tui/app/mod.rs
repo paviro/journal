@@ -341,6 +341,8 @@ pub(crate) struct AppModel {
     pub(crate) environment: crate::tui::environment::EnvironmentWorker,
     /// Paced backfill of environment for located entries that never captured it.
     pub(crate) backfill: crate::tui::features::environment::EnvironmentBackfill,
+    /// Paced reverse-geocode backfill for entries that carry only coordinates.
+    pub(crate) address_backfill: crate::tui::features::address::AddressBackfill,
     /// Id counter for environment requests (editor fetches, backfill, direct
     /// location-set write-backs) — app-level so ids never repeat across editor
     /// sessions and a stale result can't be adopted by a later one.
@@ -489,6 +491,7 @@ impl AppModel {
             geocode: crate::tui::geocode::GeocodeWorker::default(),
             environment: crate::tui::environment::EnvironmentWorker::default(),
             backfill: crate::tui::features::environment::EnvironmentBackfill::default(),
+            address_backfill: crate::tui::features::address::AddressBackfill::default(),
             next_environment_id: 0,
             next_geocode_id: 0,
             reader_anchor_flash: None,
@@ -684,9 +687,11 @@ impl AppModel {
     fn after_entries_changed(&mut self) {
         self.library_generation = self.library_generation.wrapping_add(1);
         self.library.rebuild_indexes();
-        // Queue any newly-seen located entry that still lacks captured environment.
+        // Queue any newly-seen located entry that still lacks captured environment
+        // or a reverse-geocoded address.
         if self.library_validated {
             self.enqueue_environment_backfill();
+            self.enqueue_address_backfill();
         }
         // Entries (and possibly hits) changed: invalidate every version-keyed
         // cache — the body/analytics caches (entries_version) and the row cache
