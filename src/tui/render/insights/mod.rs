@@ -87,10 +87,16 @@ pub(crate) fn draw_journal_insights(
     // the tab-strip's separator colour, matching the top border. Overview skips it — its
     // top card already names the scope.
     if tab != InsightsTab::Overview {
-        let mut footnote = vec![Span::styled(
-            format!(" {}", app.nav.insights_scope.label()),
-            active_theme.muted(),
-        )];
+        // The leading pad is unstyled so it doesn't lay a `DIM` cell under the
+        // focus stripe's bottom row (ratatui accumulates cell modifiers, so a
+        // dim space beneath the stripe would dim its final `┃`).
+        let mut footnote = vec![
+            Span::raw(" "),
+            Span::styled(
+                app.nav.insights_scope.label().to_string(),
+                active_theme.muted(),
+            ),
+        ];
         if tab.uses_timeframe() {
             footnote.push(Span::styled(
                 format!(" {} ", active_theme.glyphs().tab_separator),
