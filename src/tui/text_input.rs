@@ -129,13 +129,14 @@ impl TextInput {
     }
 
     /// Viewport-relative caret column after the last render, for placing the
-    /// native cursor. The fork doesn't expose the horizontal scroll offset, so
-    /// this clamps to the last cell — exact while the text fits the field or
-    /// the caret rides the end (the typing case).
-    // ponytail: off by the scroll offset for mid-string edits in overflowing
-    // text; expose the column offset in the ratatui-textarea fork if it matters.
+    /// native cursor. The widget scrolls a single-line field horizontally when
+    /// its text overflows, drawing the caret at `absolute_col - scroll_offset`;
+    /// mirror that here so the native cursor tracks the glyph instead of
+    /// stranding at the right edge as an overflowing query is edited down.
     pub(crate) fn visible_cursor_col(&self, width: u16) -> u16 {
-        (self.textarea.screen_cursor().col as u16).min(width.saturating_sub(1))
+        let col = (self.textarea.screen_cursor().col as u16)
+            .saturating_sub(self.textarea.horizontal_scroll_offset());
+        col.min(width.saturating_sub(1))
     }
 
     /// Jump the caret to a click `col` cells into the field. Same horizontal

@@ -3416,7 +3416,7 @@ dependencies = [
 [[package]]
 name = "ratatui-textarea"
 version = "0.9.2"
-source = "git+https://github.com/paviro/ratatui-textarea?rev=fc041da#fc041da64d22039f49715f826837099eb356d172"
+source = "git+https://github.com/paviro/ratatui-textarea?rev=0a65444#0a654449a4c687f28dc3316e389458db92445ad3"
 dependencies = [
  "ratatui-core",
  "ratatui-crossterm",
