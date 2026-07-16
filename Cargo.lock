@@ -2304,7 +2304,7 @@ dependencies = [
 
 [[package]]
 name = "notema"
-version = "2026.7.2"
+version = "2026.7.3"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2358,7 +2358,7 @@ dependencies = [
 
 [[package]]
 name = "notema-analytics"
-version = "2026.7.2"
+version = "2026.7.3"
 dependencies = [
  "chrono",
  "notema-domain",
@@ -2366,7 +2366,7 @@ dependencies = [
 
 [[package]]
 name = "notema-context"
-version = "2026.7.2"
+version = "2026.7.3"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -2383,7 +2383,7 @@ dependencies = [
 
 [[package]]
 name = "notema-domain"
-version = "2026.7.2"
+version = "2026.7.3"
 dependencies = [
  "chrono",
  "serde",
@@ -2391,7 +2391,7 @@ dependencies = [
 
 [[package]]
 name = "notema-encryption"
-version = "2026.7.2"
+version = "2026.7.3"
 dependencies = [
  "age",
  "ed25519-dalek",
@@ -2407,7 +2407,7 @@ dependencies = [
 
 [[package]]
 name = "notema-fuse"
-version = "2026.7.2"
+version = "2026.7.3"
 dependencies = [
  "anyhow",
  "cc",
@@ -2421,7 +2421,7 @@ dependencies = [
 
 [[package]]
 name = "notema-import"
-version = "2026.7.2"
+version = "2026.7.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2437,7 +2437,7 @@ dependencies = [
 
 [[package]]
 name = "notema-locate"
-version = "2026.7.2"
+version = "2026.7.3"
 dependencies = [
  "objc2",
  "objc2-core-location",
@@ -2446,7 +2446,7 @@ dependencies = [
 
 [[package]]
 name = "notema-seed"
-version = "2026.7.2"
+version = "2026.7.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2459,7 +2459,7 @@ dependencies = [
 
 [[package]]
 name = "notema-storage"
-version = "2026.7.2"
+version = "2026.7.3"
 dependencies = [
  "anyhow",
  "chrono",
