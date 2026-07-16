@@ -126,7 +126,7 @@ impl AppModel {
             }
             state.pending_request_id = Some(id);
             state.status = LocationResolveStatus::Resolving;
-            let query = match parse_coordinates(&query) {
+            let query = match notema_domain::Coordinates::parse(&query) {
                 Some(coordinates) => {
                     // Coordinates are already valid; keep them as the resolved value
                     // so the entry can be saved even before names come back.
@@ -542,38 +542,9 @@ fn query_seed(location: &Location) -> String {
     }
 }
 
-/// Parse `"lat, lon"` into validated coordinates. `None` when it isn't two
-/// comma-separated numbers within the valid latitude/longitude ranges — the
-/// signal to treat the input as an address instead.
-pub(crate) fn parse_coordinates(input: &str) -> Option<notema_domain::Coordinates> {
-    let (lat, lon) = input.split_once(',')?;
-    let lat: f64 = lat.trim().parse().ok()?;
-    let lon: f64 = lon.trim().parse().ok()?;
-    notema_domain::Coordinates::try_new(lat, lon).ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_coordinates_accepts_valid_and_rejects_out_of_range() {
-        assert_eq!(
-            parse_coordinates("52.52, 13.405"),
-            notema_domain::Coordinates::try_new(52.52, 13.405).ok()
-        );
-        assert_eq!(
-            parse_coordinates("  -33.8, 151.2 "),
-            notema_domain::Coordinates::try_new(-33.8, 151.2).ok()
-        );
-        // Out of range.
-        assert_eq!(parse_coordinates("91, 0"), None);
-        assert_eq!(parse_coordinates("0, 181"), None);
-        // Not two numbers.
-        assert_eq!(parse_coordinates("Berlin"), None);
-        assert_eq!(parse_coordinates("52.52"), None);
-        assert_eq!(parse_coordinates("a, b"), None);
-    }
 
     fn hit(name: &str, lat: f64, lon: f64) -> GeocodeHit {
         GeocodeHit {

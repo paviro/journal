@@ -1,14 +1,17 @@
 use std::{
-    io::{self, Read},
+    io::{self, IsTerminal, Read},
     path::Path,
 };
 
 use anyhow::{Context, bail};
-use notema_domain::{MOOD_RANGE, Metadata, validate_feelings};
+use chrono::Local;
+use notema_context::{EnvironmentProvider, fetch_environment, resolve_zone, rezone};
+use notema_domain::{Location, MOOD_RANGE, Metadata, validate_feelings};
 use notema_storage::JournalStore;
 
 use crate::{AppResult, startup, tui};
 
+use super::location::{self, ResolvedLocation};
 use super::{Cli, LogArgs, plural};
 
 pub(super) fn run(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool) -> AppResult<()> {
@@ -29,6 +32,21 @@ pub(super) fn run(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool) -> AppResult<(
         .or(config.journal.default.as_deref())
         .context("no journal specified; pass --journal or set one with `notema use <name>`")?;
     validate_existing_journal(&config.journal.path, journal)?;
+
+    // No inline text: compose interactively in the fullscreen built-in editor. Its
+    // own on-screen shortcuts set tags/people/mood and location (Ctrl+L, which
+    // also fetches environment), so the metadata and --location flags apply only
+    // to a one-shot logged entry — reject them here rather than silently drop them.
+    if !body_from_args && !stdin_is_pipe {
+        if let Some(flag) = first_interactive_only_flag(args) {
+            bail!(
+                "{flag} applies only to a one-shot entry with inline text; open the editor and set it with the on-screen shortcuts"
+            );
+        }
+        let journal = journal.to_string();
+        return tui::run_compose(config_path, config, store, journal, Metadata::default());
+    }
+
     let tags = comma_separated_values(&args.tag);
     let people = comma_separated_values(&args.person);
     let activities = comma_separated_values(&args.activity);
@@ -52,6 +70,17 @@ pub(super) fn run(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool) -> AppResult<(
     } else {
         None
     };
+    // A numbered picker for an ambiguous address only works when it can be shown
+    // and answered: stdout is a terminal and stdin isn't the piped entry body.
+    let interactive = io::stdout().is_terminal() && !stdin_is_pipe;
+    let (location, osm_timezone) = match location::resolve(args.location.clone(), interactive)? {
+        Some(ResolvedLocation {
+            location,
+            osm_timezone,
+        }) => (Some(location), osm_timezone),
+        None => (None, None),
+    };
+
     let metadata = Metadata {
         tags,
         people,
@@ -59,15 +88,8 @@ pub(super) fn run(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool) -> AppResult<(
         feelings,
         mood,
         starred: false,
-        location: None,
+        location,
     };
-
-    // No inline text: compose interactively in the fullscreen built-in editor. It
-    // handles asset ingest and status on save, so nothing is printed here.
-    if !body_from_args && !stdin_is_pipe {
-        let journal = journal.to_string();
-        return tui::run_compose(config_path, config, store, journal, metadata);
-    }
 
     let body = if body_from_args {
         args.body.join(" ")
@@ -76,8 +98,43 @@ pub(super) fn run(cli: &Cli, args: &LogArgs, stdin_is_pipe: bool) -> AppResult<(
         io::stdin().read_to_string(&mut body)?;
         body
     };
+
+    // A located entry adopts its place's timezone (config-gated) so its timestamp
+    // and date-folder match where it was written, and captures the ambient
+    // weather/air/celestial there — the same enrichment the TUI performs.
+    let mut created_at = Local::now().fixed_offset();
+    let mut timezone = None;
+    let mut environment = None;
+    if let Some(coordinates) = metadata.location.as_ref().and_then(Location::coordinates) {
+        if config.location.use_location_timezone
+            && let Some(zone) = resolve_zone(coordinates, osm_timezone.as_deref())
+        {
+            created_at = rezone(created_at, zone);
+            timezone = Some(zone.name().to_string());
+        }
+        let report = fetch_environment(coordinates, created_at);
+        for warning in &report.warnings {
+            eprintln!(
+                "note: {} unavailable ({})",
+                environment_provider_label(warning.provider),
+                warning.message
+            );
+        }
+        environment = Some(report);
+    }
+
+    let mut draft = notema_storage::EntryDraft::new(journal, &body, &metadata);
+    if metadata.location.is_some() {
+        draft.created_at = Some(created_at);
+        draft.timezone = timezone.as_deref();
+        if let Some(report) = &environment {
+            draft.celestial = Some(&report.celestial);
+            draft.weather = report.weather.as_ref();
+            draft.air_quality = report.air_quality.as_ref();
+        }
+    }
     let created = store.create_entry(
-        notema_storage::EntryDraft::new(journal, &body, &metadata),
+        draft,
         notema_storage::EntryAssetOptions {
             download_remote: config.attachments.download_remote_images,
             replace_offline: false,
@@ -127,6 +184,34 @@ fn asset_report_message(report: &notema_storage::AssetReport) -> String {
         ));
     }
     parts.join("; ")
+}
+
+/// The first metadata/location flag that was supplied, if any. These enrich a
+/// one-shot logged entry; when the command instead opens the fullscreen editor
+/// (no inline text), they have no effect and are reported rather than ignored.
+fn first_interactive_only_flag(args: &LogArgs) -> Option<&'static str> {
+    if !args.tag.is_empty() {
+        Some("--tag")
+    } else if !args.person.is_empty() {
+        Some("--person")
+    } else if !args.activity.is_empty() {
+        Some("--activity")
+    } else if !args.feeling.is_empty() {
+        Some("--feeling")
+    } else if args.mood.is_some() {
+        Some("--mood")
+    } else if args.location.is_some() {
+        Some("--location")
+    } else {
+        None
+    }
+}
+
+fn environment_provider_label(provider: EnvironmentProvider) -> &'static str {
+    match provider {
+        EnvironmentProvider::Weather => "weather",
+        EnvironmentProvider::AirQuality => "air quality",
+    }
 }
 
 fn comma_separated_values(values: &[String]) -> Vec<String> {

@@ -33,6 +33,16 @@ impl Coordinates {
     pub fn longitude(self) -> f64 {
         self.longitude
     }
+
+    /// Parse `"lat, lon"` into validated coordinates. `None` when it isn't two
+    /// comma-separated numbers within the valid latitude/longitude ranges — the
+    /// signal to treat the input as an address instead.
+    pub fn parse(input: &str) -> Option<Self> {
+        let (lat, lon) = input.split_once(',')?;
+        let lat: f64 = lat.trim().parse().ok()?;
+        let lon: f64 = lon.trim().parse().ok()?;
+        Self::try_new(lat, lon).ok()
+    }
 }
 
 impl<'de> Deserialize<'de> for Coordinates {
@@ -84,5 +94,24 @@ mod tests {
         assert!(Coordinates::try_new(f64::NAN, 0.0).is_err());
         assert!(Coordinates::try_new(90.1, 0.0).is_err());
         assert!(Coordinates::try_new(0.0, -180.1).is_err());
+    }
+
+    #[test]
+    fn parse_accepts_valid_and_rejects_out_of_range() {
+        assert_eq!(
+            Coordinates::parse("52.52, 13.405"),
+            Coordinates::try_new(52.52, 13.405).ok()
+        );
+        assert_eq!(
+            Coordinates::parse("  -33.8, 151.2 "),
+            Coordinates::try_new(-33.8, 151.2).ok()
+        );
+        // Out of range.
+        assert_eq!(Coordinates::parse("91, 0"), None);
+        assert_eq!(Coordinates::parse("0, 181"), None);
+        // Not two numbers.
+        assert_eq!(Coordinates::parse("Berlin"), None);
+        assert_eq!(Coordinates::parse("52.52"), None);
+        assert_eq!(Coordinates::parse("a, b"), None);
     }
 }

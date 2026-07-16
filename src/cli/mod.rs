@@ -2,6 +2,7 @@ use crate::{AppResult, config, startup, tui};
 
 mod encryption;
 mod import;
+mod location;
 mod log;
 pub(crate) mod prompts;
 #[cfg(feature = "fuse")]
@@ -199,6 +200,12 @@ struct LogArgs {
 
     #[arg(long, value_name = "SCORE", allow_hyphen_values = true)]
     mood: Option<i8>,
+
+    /// Set a location. Bare `--location` grabs a device GPS fix; a value is used
+    /// as `lat,lon` when it parses as coordinates, otherwise as an address to
+    /// geocode. Whenever a location resolves, weather/air/celestial are captured.
+    #[arg(long, num_args = 0..=1, value_name = "ADDRESS|LAT,LON")]
+    location: Option<Option<String>>,
 
     #[arg(value_name = "TEXT")]
     body: Vec<String>,
