@@ -82,6 +82,24 @@ pub fn decrypt_file_bytes(identity: &UnlockedIdentity, input: &Path) -> Result<P
     decrypt_bytes_with_identity(&ciphertext, &identity.identity)
 }
 
+/// Open an encrypted file as a streaming plaintext reader, decrypting on demand
+/// as the caller reads. Unlike [`decrypt_file_bytes`], the full plaintext is
+/// never buffered in memory, so this stays constant-memory for large files.
+///
+/// Zeroization: `age` decrypts each chunk into a `SecretSlice` that is zeroized
+/// on drop, so the plaintext held *inside* the reader is scrubbed. What is not
+/// scrubbed is whatever buffer the caller reads bytes *into* — this returns a
+/// plain `impl Read`, not a [`PlaintextBytes`], so the caller owns that. Use it
+/// for copy-through work (re-encryption, migration) where the destination is
+/// itself another encrypted stream; prefer [`decrypt_file_bytes`] when you need
+/// the decrypted bytes to live in a zeroized buffer.
+pub fn decrypt_file_reader(identity: &UnlockedIdentity, input: &Path) -> Result<impl Read> {
+    let file = io::BufReader::new(fs::File::open(input)?);
+    let decryptor = age::Decryptor::new_buffered(file)?;
+    let reader = decryptor.decrypt(std::iter::once(&identity.identity as &dyn age::Identity))?;
+    Ok(reader)
+}
+
 /// Encrypt bytes to every store recipient.
 pub fn encrypt_bytes(paths: &KeyPaths, plaintext: &PlaintextBytes) -> Result<CiphertextBytes> {
     EncryptionRecipients::for_store(paths)?.encrypt(plaintext)
@@ -139,6 +157,16 @@ impl EncryptionRecipients {
     pub fn encrypt_to_file(&self, plaintext: &PlaintextBytes, output: &Path) -> Result<()> {
         let ciphertext = self.encrypt(plaintext)?;
         crate::files::atomic_write(output, ciphertext.as_bytes())
+    }
+
+    /// Encrypt a plaintext stream directly to `output` via an atomic temp+rename,
+    /// buffering neither the full plaintext nor the full ciphertext in memory.
+    /// The temp file only ever holds ciphertext.
+    pub fn encrypt_reader_to_file<R: Read>(&self, plaintext: R, output: &Path) -> Result<()> {
+        crate::files::atomic_write_with(output, false, |file| {
+            encrypt_reader_to_recipients(&self.recipients, plaintext, file)?;
+            Ok(())
+        })
     }
 }
 

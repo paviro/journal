@@ -24,28 +24,46 @@ pub fn sibling_temp_path(target: &Path, suffix: &str) -> Result<PathBuf> {
 /// mid-write can't truncate an existing file (which would strand every device)
 /// or leave a half-written join request behind.
 pub fn atomic_write(path: &Path, content: &[u8]) -> Result<()> {
-    write_atomic(path, content, false)
+    write_atomic(path, false, |file| Ok(file.write_all(content)?))
 }
 
 /// Atomically write a file readable only by its owner (mode 0600 on Unix),
 /// creating parent directories as needed.
 pub fn atomic_write_private(path: &Path, content: &[u8]) -> Result<()> {
-    write_atomic(path, content, true)
+    write_atomic(path, true, |file| Ok(file.write_all(content)?))
 }
 
-fn write_atomic(path: &Path, content: &[u8], private: bool) -> Result<()> {
+/// Atomically produce `path` by writing through a sibling temp file: `write`
+/// receives the freshly created temp file and streams its content into it, then
+/// the temp is fsynced and renamed over `path`. Lets callers stream data
+/// (e.g. an age encryptor) straight to disk without buffering the whole payload,
+/// while keeping the same crash-safety guarantees as [`atomic_write`].
+pub fn atomic_write_with<F>(path: &Path, private: bool, write: F) -> Result<()>
+where
+    F: FnOnce(&mut fs::File) -> Result<()>,
+{
+    write_atomic(path, private, write)
+}
+
+fn write_atomic<F>(path: &Path, private: bool, write: F) -> Result<()>
+where
+    F: FnOnce(&mut fs::File) -> Result<()>,
+{
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let temp = sibling_temp_path(path, "tmp")?;
-    let result = write_temp_then_rename(&temp, path, content, private);
+    let result = write_temp_then_rename(&temp, path, private, write);
     if result.is_err() {
         let _ = fs::remove_file(&temp);
     }
     result
 }
 
-fn write_temp_then_rename(temp: &Path, path: &Path, content: &[u8], private: bool) -> Result<()> {
+fn write_temp_then_rename<F>(temp: &Path, path: &Path, private: bool, write: F) -> Result<()>
+where
+    F: FnOnce(&mut fs::File) -> Result<()>,
+{
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -58,7 +76,7 @@ fn write_temp_then_rename(temp: &Path, path: &Path, content: &[u8], private: boo
     #[cfg(not(unix))]
     let _ = private;
     let mut file = options.open(temp)?;
-    file.write_all(content)?;
+    write(&mut file)?;
     file.sync_all()?;
     drop(file);
     fs::rename(temp, path)?;

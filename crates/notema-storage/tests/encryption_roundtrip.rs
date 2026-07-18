@@ -727,3 +727,88 @@ fn create_entry_ingests_assets_on_a_locked_encrypted_store() {
     let content = setup.read_entry_content(&entries[0].path).unwrap();
     assert!(content.contains("writing_seconds = 12"), "{content}");
 }
+
+/// A body several age STREAM chunks long (chunk size is 64 KiB), with head and
+/// tail markers, so re-encryption must stream correctly across chunk boundaries.
+fn multi_chunk_body() -> String {
+    let mut body = String::from("HEAD-MARKER\n");
+    for i in 0..40_000 {
+        body.push_str(&format!("line {i:06}\n"));
+    }
+    body.push_str("TAIL-MARKER");
+    assert!(body.len() > 300_000, "body should span several age chunks");
+    body
+}
+
+#[test]
+fn add_recipient_streams_large_entries_across_chunk_boundaries() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut laptop = store_at(dir.path());
+    laptop.ensure().unwrap();
+    laptop
+        .initialize_encryption("laptop", Some(&pw("pw")))
+        .unwrap();
+    laptop.unlock(Some(&pw("pw"))).unwrap();
+    laptop.create_journal("diary").unwrap();
+
+    let body = multi_chunk_body();
+    create_entry(&laptop, "diary", &body);
+
+    // A phone joins; approving it re-encrypts the whole store, streaming the
+    // large entry through decrypt -> encrypt without buffering it in full.
+    let mut phone = JournalStore::new(dir.path().join("journals"), dir.path().join("phone"));
+    phone.ensure().unwrap();
+    let phone_recipient = phone.request_access("phone", Some(&pw("phonepw"))).unwrap();
+    laptop.add_recipient(phone_recipient, |_, _| {}).unwrap();
+
+    // The phone unlocks with its own key and reads back the exact original body,
+    // proving the re-encrypted ciphertext round-trips across every chunk.
+    phone.unlock(Some(&pw("phonepw"))).unwrap();
+    let entries = phone.scan_entries().unwrap();
+    assert_eq!(entries.len(), 1);
+    let content = phone.read_entry_content(&entries[0].path).unwrap();
+    assert!(content.contains(&body), "phone body must match byte-for-byte");
+}
+
+#[test]
+fn encrypt_then_decrypt_migration_streams_large_entry_and_asset() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_at(dir.path());
+    store.ensure().unwrap();
+    store.create_journal("diary").unwrap();
+
+    let body = multi_chunk_body();
+    let path = create_entry(&store, "diary", &body);
+
+    // A large plaintext asset alongside the entry, spanning multiple age chunks.
+    let stem = notema_storage::entry_id(&path).unwrap();
+    let assets = path.parent().unwrap().join(format!("{stem}.assets"));
+    std::fs::create_dir_all(&assets).unwrap();
+    let asset = assets.join("photo.bin");
+    let asset_bytes: Vec<u8> = (0..400_000u32).map(|i| (i % 251) as u8).collect();
+    std::fs::write(&asset, &asset_bytes).unwrap();
+
+    // Encrypt the store (streams plaintext entry + asset into ciphertext files).
+    store
+        .enable_encryption("laptop", Some(&pw("pw")), |_, _| {})
+        .unwrap();
+    assert!(!asset.exists(), "asset should now be encrypted");
+    assert!(assets.join("photo.bin.age").exists());
+
+    // Decrypt the store (streams ciphertext back to plaintext files).
+    let mut unlocked = store_at(dir.path());
+    unlocked.unlock(Some(&pw("pw"))).unwrap();
+    unlocked.decrypt_store(|_, _| {}).unwrap();
+
+    // Entry text and asset bytes are restored exactly across chunk boundaries.
+    let plain = store_at(dir.path());
+    let entries = plain.scan_entries().unwrap();
+    assert_eq!(entries.len(), 1);
+    let content = plain.read_entry_content(&entries[0].path).unwrap();
+    assert!(content.contains(&body), "entry body must round-trip exactly");
+    assert_eq!(
+        std::fs::read(&asset).unwrap(),
+        asset_bytes,
+        "asset bytes must round-trip exactly"
+    );
+}

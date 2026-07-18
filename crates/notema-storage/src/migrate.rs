@@ -4,7 +4,7 @@ use chrono::Local;
 use notema_encryption::{self as crypto, KeyPaths};
 use std::{
     ffi::OsStr,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -229,10 +229,11 @@ fn reencrypt_file(
     recipients: &crypto::EncryptionRecipients,
     identity: &crypto::UnlockedIdentity,
 ) -> AppResult<()> {
-    let plaintext = crypto::decrypt_file_bytes(identity, path)?;
-    let temp = crypto::sibling_temp_path(path, "tmp.age")?;
-    recipients.encrypt_to_file(&plaintext, &temp)?;
-    fs::rename(&temp, path)?;
+    // Stream old ciphertext -> plaintext -> new ciphertext without buffering the
+    // whole file. Safe to write back to the same path: the source is fully read and
+    // re-encrypted into a sibling temp, which is only then renamed over `path`.
+    let reader = crypto::decrypt_file_reader(identity, path)?;
+    recipients.encrypt_reader_to_file(reader, path)?;
     Ok(())
 }
 
@@ -353,18 +354,15 @@ fn convert_asset_file(path: &Path, mode: &MigrationMode<'_>) -> AppResult<()> {
     match mode {
         MigrationMode::Encrypt { recipients } => {
             let target = append_age(path);
-            let temp = crypto::sibling_temp_path(&target, "tmp.age")?;
-            let plaintext = crypto::PlaintextBytes::from_vec(fs::read(path)?);
-            recipients.encrypt_to_file(&plaintext, &temp)?;
-            fs::rename(&temp, &target)?;
+            recipients.encrypt_reader_to_file(fs::File::open(path)?, &target)?;
             fs::remove_file(path)?;
         }
         MigrationMode::Decrypt { identity } => {
             let target = strip_age(path)?;
-            let temp = crypto::sibling_temp_path(&target, "tmp")?;
-            let plaintext = crypto::decrypt_file_bytes(identity, path)?;
-            fs::write(&temp, plaintext.as_bytes())?;
-            fs::rename(&temp, &target)?;
+            let reader = crypto::decrypt_file_reader(identity, path)?;
+            // This path intentionally writes plaintext to disk; streaming keeps
+            // memory constant but the output is the decrypted file itself.
+            stream_to_atomic_file(reader, &target)?;
             fs::remove_file(path)?;
         }
     }
@@ -462,25 +460,37 @@ fn ensure_no_asset_collisions(files: &[PathBuf], mode: &MigrationMode<'_>) -> Ap
 
 fn encrypt_plain_entry(path: &Path, recipients: &crypto::EncryptionRecipients) -> AppResult<()> {
     let target = path.with_extension("md.age");
-    let temp = crypto::sibling_temp_path(&target, "tmp.age")?;
-    let plaintext = crypto::PlaintextBytes::from_vec(fs::read(path)?);
-    recipients.encrypt_to_file(&plaintext, &temp)?;
-    fs::rename(&temp, &target)?;
+    recipients.encrypt_reader_to_file(fs::File::open(path)?, &target)?;
     fs::remove_file(path)?;
     Ok(())
 }
 
 fn decrypt_encrypted_entry(path: &Path, identity: &crypto::UnlockedIdentity) -> AppResult<()> {
     let target = decrypted_entry_path(path)?;
-    let temp = crypto::sibling_temp_path(&target, "tmp.md")?;
-    let plaintext = crypto::decrypt_file_bytes(identity, path)?;
-    if std::str::from_utf8(plaintext.as_bytes())?.is_empty() {
+    let reader = crypto::decrypt_file_reader(identity, path)?;
+    // Stream the plaintext straight to disk (decrypting the store intentionally
+    // produces plaintext files). We can't cheaply re-validate the whole payload
+    // as UTF-8 while streaming, so we keep only the emptiness guard via the byte
+    // count; entry text is UTF-8-validated on read.
+    let written = stream_to_atomic_file(reader, &target)?;
+    if written == 0 {
+        fs::remove_file(&target)?;
         bail!("decrypted entry is empty: {}", path.display());
     }
-    fs::write(&temp, plaintext.as_bytes())?;
-    fs::rename(&temp, &target)?;
     fs::remove_file(path)?;
     Ok(())
+}
+
+/// Copy `reader` into `path` via an atomic temp+rename, returning the number of
+/// bytes written. Used for the decrypt-migration paths, which produce plaintext
+/// files on disk by design.
+fn stream_to_atomic_file<R: io::Read>(mut reader: R, path: &Path) -> AppResult<u64> {
+    let mut written = 0u64;
+    crypto::atomic_write_with(path, false, |file| {
+        written = io::copy(&mut reader, file)?;
+        Ok(())
+    })?;
+    Ok(written)
 }
 
 fn migration_target(path: &Path, mode: &MigrationMode<'_>) -> AppResult<PathBuf> {
