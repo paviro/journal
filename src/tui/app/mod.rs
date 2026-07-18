@@ -430,16 +430,24 @@ impl AppModel {
         detected_mode: crate::tui::theme::Mode,
     ) -> AppResult<(Self, Option<CachedLibrary>)> {
         let cache = store.read_cached_library(CachePolicy::Normal)?;
+        // A passphrase-locked store can't decrypt its entries, and no background
+        // validation runs while locked — so don't walk the journal root (slow start)
+        // and don't raise the "Loading journals…" toast we'd never dismiss.
+        let locked = store.encryption_enabled() && !store.is_unlocked();
         let snapshot = match cache.cached.as_ref() {
             Some(cached) => cached.snapshot(),
             None => LibrarySnapshot {
-                journals: store.list_journals()?,
+                journals: if locked {
+                    Vec::new()
+                } else {
+                    store.list_journals()?
+                },
                 entries: Vec::new(),
                 report: cache.report.clone(),
             },
         };
         let mut app = Self::new_with_snapshot(config_path, config, store, snapshot, detected_mode)?;
-        if cache.cached.is_none() {
+        if cache.cached.is_none() && !locked {
             app.toasts
                 .push_persistent(ToastVariant::Info, INITIAL_LIBRARY_LOADING_TOAST);
         }
