@@ -767,7 +767,10 @@ fn add_recipient_streams_large_entries_across_chunk_boundaries() {
     let entries = phone.scan_entries().unwrap();
     assert_eq!(entries.len(), 1);
     let content = phone.read_entry_content(&entries[0].path).unwrap();
-    assert!(content.contains(&body), "phone body must match byte-for-byte");
+    assert!(
+        content.contains(&body),
+        "phone body must match byte-for-byte"
+    );
 }
 
 #[test]
@@ -805,7 +808,10 @@ fn encrypt_then_decrypt_migration_streams_large_entry_and_asset() {
     let entries = plain.scan_entries().unwrap();
     assert_eq!(entries.len(), 1);
     let content = plain.read_entry_content(&entries[0].path).unwrap();
-    assert!(content.contains(&body), "entry body must round-trip exactly");
+    assert!(
+        content.contains(&body),
+        "entry body must round-trip exactly"
+    );
     assert_eq!(
         std::fs::read(&asset).unwrap(),
         asset_bytes,
