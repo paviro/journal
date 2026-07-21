@@ -72,10 +72,23 @@ release even if another account gains write access.
 | `APPLE_CERT_P12_BASE64` | The Developer ID Application certificate exported as a `.p12`, base64-encoded: `base64 -i cert.p12 \| pbcopy`. |
 | `APPLE_CERT_PASSWORD` | The password set when exporting the `.p12`. |
 
-The first three mirror the local `./.env` (see [`.env.example`](../.env.example));
-the workflow writes them back into a temporary `./.env` so the Makefile's
-sign/notarize tasks run. The last two import the certificate into a throwaway
-keychain on the runner so `codesign` can find the identity.
+`APPLE_DEVELOPER_ID` mirrors the local `./.env` (see
+[`.env.example`](../.env.example)); the workflow writes it back into a temporary
+`./.env` so the Makefile's file-gated sign/notarize tasks run. `APPLE_USERNAME`
+and `APPLE_PASSWORD` never touch `.env`: the workflow stores them straight into
+a **notarytool keychain profile** on the runner, and every `notarytool submit`
+(Makefile tasks and `notema-context`'s build.rs) runs off the profile named by
+`APPLE_NOTARY_PROFILE` in `.env`. For local releases the profile is a one-time
+setup instead — pick any name (an existing profile shared with other projects
+works too), and the password is prompted for, so the secret lives only in the
+keychain:
+
+```bash
+xcrun notarytool store-credentials <name> --apple-id <apple-id> --team-id <team-id>
+```
+
+The last two secrets import the certificate into a throwaway keychain on the
+runner so `codesign` can find the identity.
 
 The macOS build also signs and notarizes the embedded location helper *during*
 `cargo build` (see `crates/notema-context/build.rs`), so each macOS artifact is

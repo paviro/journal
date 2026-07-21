@@ -30,7 +30,7 @@ fn main() {
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
-    for var in ["APPLE_DEVELOPER_ID", "APPLE_USERNAME", "APPLE_PASSWORD"] {
+    for var in ["APPLE_DEVELOPER_ID", "APPLE_NOTARY_PROFILE"] {
         println!("cargo:rerun-if-env-changed={var}");
     }
 
@@ -113,37 +113,28 @@ fn sign(app: &Path, entitlements: &Path) {
 /// Stapling embeds the ticket so the extracted `.app` validates offline. An ad-hoc
 /// build (no `APPLE_DEVELOPER_ID`) has nothing to notarize; a Developer-ID build is
 /// distributable, so notarization is required and any gap fails the build.
+///
+/// Credentials come from the notarytool keychain profile named by
+/// `APPLE_NOTARY_PROFILE` (a one-time `xcrun notarytool store-credentials` per
+/// machine, see docs/RELEASING.md), so the Apple ID and password never pass
+/// through the environment or argv.
 fn notarize_and_staple(app: &Path, out_dir: &Path) {
-    let Some(developer_id) = env_nonempty("APPLE_DEVELOPER_ID") else {
+    if env_nonempty("APPLE_DEVELOPER_ID").is_none() {
         return;
-    };
-    let user = env_nonempty("APPLE_USERNAME")
-        .expect("APPLE_DEVELOPER_ID is set but APPLE_USERNAME is missing — cannot notarize the location helper");
-    let password = env_nonempty("APPLE_PASSWORD")
-        .expect("APPLE_DEVELOPER_ID is set but APPLE_PASSWORD is missing — cannot notarize the location helper");
-    let team_id = developer_id
-        .rsplit_once('(')
-        .and_then(|(_, rest)| rest.split_once(')'))
-        .map(|(id, _)| id.to_string())
-        .expect("APPLE_DEVELOPER_ID has no team id in parentheses — cannot notarize the location helper");
+    }
+    let profile = env_nonempty("APPLE_NOTARY_PROFILE").expect(
+        "APPLE_DEVELOPER_ID is set but APPLE_NOTARY_PROFILE is missing — set it to the name of a \
+         notarytool keychain profile (created once with `xcrun notarytool store-credentials`)",
+    );
 
-    // Stash the app-specific password in a keychain profile first, so the long
-    // `submit --wait` poll below runs off --keychain-profile and never carries
-    // the password on argv (readable via `ps` by any local process).
-    let profile = format!("notema-notary-{}", std::process::id());
+    // Fail fast with a clear message if the profile is missing, instead of
+    // burning through the submit retry loop below.
     run(
-        Command::new("xcrun").args([
-            "notarytool",
-            "store-credentials",
-            &profile,
-            "--apple-id",
-            &user,
-            "--password",
-            &password,
-            "--team-id",
-            &team_id,
-        ]),
-        "store notarization credentials for the location helper",
+        Command::new("xcrun")
+            .args(["notarytool", "history", "--keychain-profile", &profile])
+            .stdout(std::process::Stdio::null()),
+        "read the notarytool keychain profile named by APPLE_NOTARY_PROFILE — run \
+         `xcrun notarytool store-credentials <name> --apple-id <apple-id> --team-id <team-id>` once to create it",
     );
 
     let notary_zip = out_dir.join("NotemaLocate-notary.zip");
