@@ -2,10 +2,12 @@
 //!
 //! Runs `cargo-about` over the dependency tree, groups crates by their license
 //! text, and writes a gzipped JSON blob into `OUT_DIR` that the binary embeds
-//! via `include_bytes!`. cargo-about is optional: if it isn't installed (or
-//! `NOTEMA_SKIP_LICENSE_GENERATION=1` is set) the build still succeeds with an
-//! empty report and a warning, and `notema licenses` still prints the
-//! data-source attributions — only the third-party dependency list is omitted.
+//! via `include_bytes!`. In dev builds cargo-about is optional: if it isn't
+//! installed (or `NOTEMA_SKIP_LICENSE_GENERATION=1` is set) the build still
+//! succeeds with an empty report and a warning, and `notema licenses` still
+//! prints the data-source attributions — only the third-party dependency list
+//! is omitted. Release builds fail instead of silently shipping without the
+//! report; only the explicit skip variable builds one without it.
 
 use flate2::{Compression, write::GzEncoder};
 use serde::{Deserialize, Serialize};
@@ -76,21 +78,41 @@ fn main() {
         .output();
 
     // cargo-about is only needed to populate `notema licenses`. A fresh clone
-    // without it must still build, so a missing or failing tool degrades to an
-    // empty report with a warning rather than breaking the build. Release builds
-    // install cargo-about, so their reports stay complete.
+    // without it must still build, so in dev builds a missing or failing tool
+    // degrades to an empty report with a warning. A release build is meant to
+    // ship, and shipping without the third-party license report must never
+    // happen silently — there it's a hard error (opt out explicitly with
+    // NOTEMA_SKIP_LICENSE_GENERATION=1).
+    let release = env::var("PROFILE").as_deref() == Ok("release");
     let json = match output {
         Ok(result) if result.status.success() => result.stdout,
         Ok(result) => {
+            let details = String::from_utf8_lossy(&result.stderr);
+            let details = details.trim();
+            if release {
+                panic!(
+                    "cargo-about failed, so the third-party license report cannot be \
+                     generated and the release build is incomplete. Details: {details}\n\
+                     Install/update it with `cargo install cargo-about --locked`, or set \
+                     NOTEMA_SKIP_LICENSE_GENERATION=1 to knowingly build without the report."
+                );
+            }
             println!(
                 "cargo:warning=cargo-about failed; `notema licenses` will list no \
-                 dependencies. Install it with `cargo install cargo-about`. Details: {}",
-                String::from_utf8_lossy(&result.stderr).trim()
+                 dependencies. Install it with `cargo install cargo-about`. Details: {details}"
             );
             write_gzipped(&output_path, b"[]");
             return;
         }
         Err(err) => {
+            if release {
+                panic!(
+                    "cargo-about not found ({err}), so the third-party license report \
+                     cannot be generated and the release build is incomplete.\n\
+                     Install it with `cargo install cargo-about --locked`, or set \
+                     NOTEMA_SKIP_LICENSE_GENERATION=1 to knowingly build without the report."
+                );
+            }
             println!(
                 "cargo:warning=cargo-about not found ({err}); `notema licenses` will list \
                  no dependencies. Install it with `cargo install cargo-about`."

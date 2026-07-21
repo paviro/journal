@@ -105,7 +105,7 @@ jobs:
           version: 0.16.0
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
-          tool: ${{ matrix.zigbuild && 'cargo-about,cargo-zigbuild' || 'cargo-about' }}
+          tool: ${{ matrix.zigbuild && 'cargo-about@0.9.1,cargo-zigbuild' || 'cargo-about@0.9.1' }}
       # The `.2.17` suffix pins the glibc floor; the binary still lands in
       # target/<target>/release like a plain cargo build.
       - if: ${{ matrix.zigbuild }}
@@ -164,7 +164,7 @@ jobs:
           sudo ln -sf "$(command -v gcc)" /usr/local/bin/x86_64-unknown-linux-gnu-gcc
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
-          tool: cargo-make,cargo-about
+          tool: cargo-make,cargo-about@0.9.1
       # setup-cross-toolchain-action sets CARGO_BUILD_TARGET to i686-musl; the
       # i586 task passes its own --target, so drop it to avoid any conflict.
       - name: Build i586
@@ -200,7 +200,7 @@ jobs:
           echo "AR_aarch64_linux_android=$TOOLCHAIN/llvm-ar" >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
-          tool: cargo-about
+          tool: cargo-about@0.9.1
       - run: cargo build --release -p notema --target aarch64-linux-android --locked
       - name: Package
         run: |
@@ -227,7 +227,7 @@ jobs:
           targets: x86_64-pc-windows-gnu
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
-          tool: cargo-about
+          tool: cargo-about@0.9.1
       - run: cargo build --release -p notema --target x86_64-pc-windows-gnu --locked
       - name: Package
         shell: pwsh
@@ -290,7 +290,7 @@ jobs:
           } > ./.env
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
-          tool: cargo-make,cargo-about
+          tool: cargo-make,cargo-about@0.9.1
       # Each task runs its build → sign → package → notarize dependency chain.
       - name: Build, sign, package, notarize
         run: |
