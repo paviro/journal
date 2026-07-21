@@ -158,6 +158,10 @@ jobs:
             fi
             sudo ln -sf "$src" "/usr/local/bin/i686-unknown-linux-musl-$tool"
           done
+          # The Makefile's [env] also hardcodes the Homebrew cross-toolchain
+          # name for the x86_64 *host* linker (used by build scripts); on this
+          # runner the host toolchain is plain gcc, so bridge that name too.
+          sudo ln -sf "$(command -v gcc)" /usr/local/bin/x86_64-unknown-linux-gnu-gcc
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
           tool: cargo-make,cargo-about
