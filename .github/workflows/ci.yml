@@ -145,19 +145,18 @@ jobs:
             packages: gcc-aarch64-linux-gnu
             cc_var: CC_aarch64_unknown_linux_gnu
             cc: aarch64-linux-gnu-gcc
-          # FreeBSD is check-only (nothing links, so no FreeBSD sysroot is
-          # needed): the row guards that the workspace keeps compiling for a
-          # Tier 2 BSD, not that we ship it. clang cross-compiles ring's C with
-          # --target against the host's headers, which suffices for a check —
-          # but for a non-Linux triple clang doesn't add the x86_64-linux-gnu
-          # multiarch dir glibc's headers include from (bits/...), so cflags
-          # appends it at the end of the search path.
+          # FreeBSD is check-only: the row guards that the workspace keeps
+          # compiling for a Tier 2 BSD, not that we ship it. clang cross-compiles
+          # the C deps' build-script objects with --target, but their sources
+          # take OS-specific include paths (tree-sitter wants sys/endian.h),
+          # which glibc's headers can't satisfy — so a step below extracts
+          # usr/include from the pinned FreeBSD release into a sysroot. Nothing
+          # links in a check, so headers are all it needs.
           - target: x86_64-unknown-freebsd
             packages: clang
             cc_var: CC_x86_64_unknown_freebsd
             cc: clang
-            cflags_var: CFLAGS_x86_64_unknown_freebsd
-            cflags: -idirafter /usr/include/x86_64-linux-gnu
+            freebsd_sysroot: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -170,16 +169,27 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: ${{ matrix.target }}
+      # The FreeBSD headers change rarely and the base set is a ~160 MB
+      # download, so cache the extracted include dir keyed on the release.
+      - if: ${{ matrix.freebsd_sysroot }}
+        id: freebsd-sysroot
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/freebsd-sysroot
+          key: freebsd-sysroot-14.4-RELEASE
+      - if: ${{ matrix.freebsd_sysroot && steps.freebsd-sysroot.outputs.cache-hit != 'true' }}
+        name: Download FreeBSD headers
+        run: |
+          curl --fail --location --output /tmp/base.txz \
+              https://download.freebsd.org/releases/amd64/amd64/14.4-RELEASE/base.txz
+          echo "769f60a6eea2938ad6b7943cfbcc17dfaf7d1f7ba59a32b869a00349302df853  /tmp/base.txz" | sha256sum --check
+          mkdir -p "$HOME/freebsd-sysroot"
+          tar -C "$HOME/freebsd-sysroot" -xf /tmp/base.txz ./usr/include
+      - if: ${{ matrix.freebsd_sysroot }}
+        run: echo "CFLAGS_x86_64_unknown_freebsd=--sysroot=$HOME/freebsd-sysroot" >> "$GITHUB_ENV"
       # ring's build script compiles native code, so point cc at the target's
-      # cross compiler (CC_<target>, with dashes as underscores), plus any
-      # per-target CFLAGS a row defines.
-      - run: |
-          {
-            echo "${{ matrix.cc_var }}=${{ matrix.cc }}"
-            if [ -n "${{ matrix.cflags_var }}" ]; then
-              echo "${{ matrix.cflags_var }}=${{ matrix.cflags }}"
-            fi
-          } >> "$GITHUB_ENV"
+      # cross compiler (CC_<target>, with dashes as underscores).
+      - run: echo "${{ matrix.cc_var }}=${{ matrix.cc }}" >> "$GITHUB_ENV"
       - run: cargo check --target ${{ matrix.target }} --workspace --exclude notema-fuse --all-targets --locked
 
   android:
