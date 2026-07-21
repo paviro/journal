@@ -92,9 +92,15 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - run: cargo check --workspace --all-targets --locked
 
+  # Both shipped Windows targets (x86_64 and aarch64 MSVC) check natively on
+  # their own runner, where the host triple is the release target.
   windows:
-    name: Windows (check)
-    runs-on: windows-latest
+    name: Windows (check, ${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-latest, windows-11-arm]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -109,11 +115,12 @@ jobs:
 
   # Cross-check the other targets we ship (see Makefile.toml) so the code keeps
   # compiling for the dimensions the native jobs miss: musl libc, 32-bit pointer
-  # width (i686, armv7), 64-bit ARM, and the x86_64-pc-windows-gnu artifact we
-  # actually release. `cargo check` still runs ring's build script, so each target
-  # needs its cross C compiler (CC_<target>). notema-fuse needs libfuse and is
-  # excluded, matching the release build. i586 is omitted on purpose: it needs a
-  # bespoke SSE-free OpenSSL build too heavy for CI.
+  # width (i686, armv7), and 64-bit ARM. Windows needs no row here — both MSVC
+  # release targets are checked natively by the windows job above. `cargo check`
+  # still runs ring's build script, so each target needs its cross C compiler
+  # (CC_<target>). notema-fuse needs libfuse and is excluded, matching the
+  # release build. i586 is omitted on purpose: it needs a bespoke SSE-free
+  # OpenSSL build too heavy for CI.
   cross-check:
     name: Cross-check (${{ matrix.target }})
     runs-on: ubuntu-latest
@@ -137,10 +144,6 @@ jobs:
             packages: gcc-aarch64-linux-gnu
             cc_var: CC_aarch64_unknown_linux_gnu
             cc: aarch64-linux-gnu-gcc
-          - target: x86_64-pc-windows-gnu
-            packages: gcc-mingw-w64-x86-64
-            cc_var: CC_x86_64_pc_windows_gnu
-            cc: x86_64-w64-mingw32-gcc
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

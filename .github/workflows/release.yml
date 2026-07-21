@@ -212,11 +212,25 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
-  # Windows x86_64 (MinGW), built natively — the mingw toolchain is preinstalled.
+  # Windows, built natively with the MSVC toolchain on each architecture's own
+  # hosted runner (windows-11-arm is free for public repos). Each runner's host
+  # triple is the matrix target; the explicit --target keeps the output path
+  # deterministic. On windows-11-arm, install-action may have no prebuilt
+  # cargo-about and falls back to building it from source — slower, but fine.
   windows:
-    name: Windows windows-gnu-x86_64
+    name: Windows ${{ matrix.platform }}
     needs: preflight
-    runs-on: windows-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            platform: windows-msvc-x86_64
+            runner: windows-latest
+          - target: aarch64-pc-windows-msvc
+            platform: windows-msvc-aarch64
+            runner: windows-11-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -224,19 +238,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: 1.96.0
-          targets: x86_64-pc-windows-gnu
+          targets: ${{ matrix.target }}
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
           tool: cargo-about@0.9.1
-      - run: cargo build --release -p notema --target x86_64-pc-windows-gnu --locked
+      - run: cargo build --release -p notema --target ${{ matrix.target }} --locked
       - name: Package
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path target/x86_64-pc-windows-gnu/release/notema.exe -DestinationPath dist/windows-gnu-x86_64.zip
+          Compress-Archive -Path target/${{ matrix.target }}/release/notema.exe -DestinationPath dist/${{ matrix.platform }}.zip
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: windows-gnu-x86_64
+          name: ${{ matrix.platform }}
           path: dist/*.zip
           if-no-files-found: error
 
