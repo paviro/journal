@@ -19,6 +19,9 @@ env:
   CARGO_TERM_COLOR: always
   NOTEMA_SKIP_LICENSE_GENERATION: "1"
   RUSTDOCFLAGS: "-D warnings"
+  # Tolerate transient crates.io/CDN resets (curl [56]) on hosted runners.
+  CARGO_NET_RETRY: "10"
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
   # Repo-wide gates, run once on Linux.

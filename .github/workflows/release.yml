@@ -22,6 +22,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Tolerate transient crates.io/CDN resets (curl [56]) on hosted runners.
+  CARGO_NET_RETRY: "10"
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
   # Fail a mistagged release in seconds, before the build runners spin up. The job
