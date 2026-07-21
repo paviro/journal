@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Cancel superseded runs on the same ref (e.g. new push to a PR) to save minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   NOTEMA_SKIP_LICENSE_GENERATION: "1"
@@ -48,6 +53,7 @@ jobs:
           toolchain: 1.96.0
           components: clippy
       - run: sudo apt-get update && sudo apt-get install --yes libfuse3-dev pkg-config
+      - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-targets --locked
       - if: ${{ !cancelled() }}
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -70,6 +76,7 @@ jobs:
           toolchain: 1.96.0
       - run: brew install pkg-config
       - run: brew install --cask fuse-t
+      - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-targets --locked
 
   windows:
@@ -80,9 +87,68 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.96.0
+      - uses: Swatinem/rust-cache@v2
       # FUSE doesn't exist on Windows (notema-fuse needs libfuse) and the Windows
       # release build excludes it; check the rest of the standard build compiles.
       - run: cargo check --workspace --exclude notema-fuse --all-targets --locked
+
+  # Cross-compile the x86_64-pc-windows-gnu target we actually ship (see
+  # Makefile.toml). notema-fuse needs libfuse and isn't built for Windows.
+  windows-gnu-cross:
+    name: Windows gnu (cross-check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install --yes gcc-mingw-w64-x86-64
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.96.0
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --target x86_64-pc-windows-gnu --workspace --exclude notema-fuse --all-targets --locked
+
+  # Cross-check the other Linux targets we ship (see Makefile.toml) so the code
+  # keeps compiling for the dimensions the native jobs miss: musl libc, 32-bit
+  # pointer width (i686, armv7), and 64-bit ARM. `cargo check` still runs ring's
+  # build script, so each target needs its cross C compiler (CC_<target>). i586 is
+  # omitted on purpose: it needs a bespoke SSE-free OpenSSL build too heavy for CI.
+  linux-cross:
+    name: Cross-check (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            packages: musl-tools
+            cc_var: CC_x86_64_unknown_linux_musl
+            cc: musl-gcc
+          - target: i686-unknown-linux-gnu
+            packages: gcc-multilib
+            cc_var: CC_i686_unknown_linux_gnu
+            cc: gcc -m32
+          - target: armv7-unknown-linux-gnueabihf
+            packages: gcc-arm-linux-gnueabihf
+            cc_var: CC_armv7_unknown_linux_gnueabihf
+            cc: arm-linux-gnueabihf-gcc
+          - target: aarch64-unknown-linux-gnu
+            packages: gcc-aarch64-linux-gnu
+            cc_var: CC_aarch64_unknown_linux_gnu
+            cc: aarch64-linux-gnu-gcc
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install --yes ${{ matrix.packages }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.96.0
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      # ring's build script compiles native code, so point cc at the target's
+      # cross compiler (CC_<target>, with dashes as underscores).
+      - run: echo "${{ matrix.cc_var }}=${{ matrix.cc }}" >> "$GITHUB_ENV"
+      - run: cargo check --target ${{ matrix.target }} --workspace --exclude notema-fuse --all-targets --locked
 
   android:
     name: Android (check)
@@ -99,4 +165,5 @@ jobs:
           echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TOOLCHAIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
           echo "CC_aarch64_linux_android=$TOOLCHAIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
           echo "AR_aarch64_linux_android=$TOOLCHAIN/llvm-ar" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
       - run: cargo check -p notema --target aarch64-linux-android --locked
