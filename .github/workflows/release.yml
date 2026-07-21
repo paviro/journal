@@ -1,0 +1,345 @@
+name: Release
+
+# Build every shipped artifact and publish it to the GitHub Release for a pushed
+# version tag. See docs/RELEASING.md.
+on:
+  push:
+    # Glob (not regex): matches date-based versions like 2026.7.4 — a digit-led
+    # number in each of three dot-separated segments.
+    tags: ['[0-9]*.[0-9]*.[0-9]*']
+  # Manual runs build and upload artifacts but skip publishing (see the publish
+  # job's `if`).
+  workflow_dispatch:
+
+# Least privilege by default: only the publish job opts up to contents: write.
+permissions:
+  contents: read
+
+# Serialize runs per ref (e.g. a deleted-and-repushed tag) without cancelling:
+# a run that is mid-publish must never be killed.
+concurrency:
+  group: release-${{ github.ref }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Fail a mistagged release in seconds, before five runners spin up. The job
+  # itself always runs (a skipped job would cascade-skip everything that
+  # `needs` it on workflow_dispatch); the check only applies to tag pushes.
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check tag matches the workspace version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version="$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\([^"]*\)"/\1/p' Cargo.toml)"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match workspace.package.version $version" >&2
+            exit 1
+          fi
+  # Every Linux target. The gnu rows cross-compile with zig as the linker
+  # (cargo-zigbuild) so the glibc floor stays at 2.17 — matching the previous
+  # Homebrew cross-toolchain releases — instead of inheriting the runner's
+  # glibc. The musl rows are statically linked (no glibc concern) and use
+  # taiki-e/setup-cross-toolchain-action, which installs each target's linker +
+  # C toolchain and sets CARGO_BUILD_TARGET; aarch64-musl builds natively on
+  # ubuntu-24.04-arm. i586 and Android are handled separately (bespoke
+  # OpenSSL / NDK).
+  linux:
+    name: Linux ${{ matrix.platform }}
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            platform: linux-gnu-x86_64
+            runner: ubuntu-latest
+            zigbuild: true
+          - target: x86_64-unknown-linux-musl
+            platform: linux-musl-x86_64
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            platform: linux-gnu-aarch64
+            runner: ubuntu-latest
+            zigbuild: true
+          - target: aarch64-unknown-linux-musl
+            platform: linux-musl-aarch64
+            runner: ubuntu-24.04-arm
+          - target: i686-unknown-linux-gnu
+            platform: linux-gnu-i686
+            runner: ubuntu-latest
+            zigbuild: true
+          - target: i686-unknown-linux-musl
+            platform: linux-musl-i686
+            runner: ubuntu-latest
+          - target: armv7-unknown-linux-gnueabihf
+            platform: linux-gnu-armv7
+            runner: ubuntu-latest
+            zigbuild: true
+          - target: armv7-unknown-linux-musleabihf
+            platform: linux-musl-armv7
+            runner: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: 1.96.0
+          targets: ${{ matrix.target }}
+      - uses: taiki-e/setup-cross-toolchain-action@12b7ad4acfa95a1476779d6c06699b96ec1691f8 # v1
+        if: ${{ !matrix.zigbuild }}
+        with:
+          target: ${{ matrix.target }}
+      # Zig version cargo-zigbuild tests against as stable in its own CI.
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        if: ${{ matrix.zigbuild }}
+        with:
+          version: 0.16.0
+      - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
+        with:
+          tool: ${{ matrix.zigbuild && 'cargo-about,cargo-zigbuild' || 'cargo-about' }}
+      # The `.2.17` suffix pins the glibc floor; the binary still lands in
+      # target/<target>/release like a plain cargo build.
+      - if: ${{ matrix.zigbuild }}
+        run: cargo zigbuild --release -p notema --locked --target ${{ matrix.target }}.2.17
+      # CARGO_BUILD_TARGET is set by setup-cross-toolchain-action, so no --target.
+      - if: ${{ !matrix.zigbuild }}
+        run: cargo build --release -p notema --locked
+      - name: Package
+        run: |
+          install -d dist
+          (cd "target/${{ matrix.target }}/release" && zip - notema) > "dist/${{ matrix.platform }}.zip"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # The i586 baseline for iSH: an SSE-free build linked against a pinned,
+  # checksum-verified static OpenSSL. The bespoke logic already lives in
+  # Makefile.toml (build/package-i586-musl); CI just supplies the i686 musl
+  # toolchain it links with, under the names the Makefile expects.
+  i586:
+    name: Linux linux-musl-i586
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: 1.96.0
+          targets: i586-unknown-linux-musl
+      # Installs an i686 musl cross toolchain (for i586, which links with the
+      # i686 musl gcc). The action names it i686-linux-musl-*; the Makefile task
+      # calls i686-unknown-linux-musl-*, so bridge the names with symlinks.
+      - uses: taiki-e/setup-cross-toolchain-action@12b7ad4acfa95a1476779d6c06699b96ec1691f8 # v1
+        with:
+          target: i686-unknown-linux-musl
+      - name: Bridge toolchain names for the i586 Makefile task
+        run: |
+          set -euo pipefail
+          for tool in gcc ar ranlib; do
+            src="$(command -v "i686-linux-musl-$tool" \
+                || command -v "i686-unknown-linux-musl-$tool" || true)"
+            if [ -z "$src" ]; then
+              echo "no i686 musl $tool on PATH; musl tools present:" >&2
+              compgen -c | grep -i musl | sort -u >&2 || true
+              exit 1
+            fi
+            sudo ln -sf "$src" "/usr/local/bin/i686-unknown-linux-musl-$tool"
+          done
+      - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
+        with:
+          tool: cargo-make,cargo-about
+      # setup-cross-toolchain-action sets CARGO_BUILD_TARGET to i686-musl; the
+      # i586 task passes its own --target, so drop it to avoid any conflict.
+      - name: Build i586
+        run: |
+          unset CARGO_BUILD_TARGET
+          cargo make build-i586-musl
+      - run: cargo make package-i586-musl
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-musl-i586
+          path: release/linux-musl-i586.zip
+          if-no-files-found: error
+
+  # Android/Termux ARM64, cross-compiled with the NDK that ships on the runner
+  # (same wiring as ci.yml's android job, extended from check to a real build).
+  android:
+    name: Android android-aarch64-termux
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: 1.96.0
+          targets: aarch64-linux-android
+      - name: Configure Android NDK compiler
+        run: |
+          TOOLCHAIN="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TOOLCHAIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "CC_aarch64_linux_android=$TOOLCHAIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "AR_aarch64_linux_android=$TOOLCHAIN/llvm-ar" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
+        with:
+          tool: cargo-about
+      - run: cargo build --release -p notema --target aarch64-linux-android --locked
+      - name: Package
+        run: |
+          install -d dist
+          (cd target/aarch64-linux-android/release && zip - notema) > dist/android-aarch64-termux.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-aarch64-termux
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # Windows x86_64 (MinGW), built natively — the mingw toolchain is preinstalled.
+  windows:
+    name: Windows windows-gnu-x86_64
+    needs: preflight
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: 1.96.0
+          targets: x86_64-pc-windows-gnu
+      - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
+        with:
+          tool: cargo-about
+      - run: cargo build --release -p notema --target x86_64-pc-windows-gnu --locked
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path target/x86_64-pc-windows-gnu/release/notema.exe -DestinationPath dist/windows-gnu-x86_64.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-gnu-x86_64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # All four macOS artifacts on one Apple Silicon runner (the Xcode SDK builds
+  # both arch slices — not a cross-compile). Reuses the Makefile's sign + package
+  # + notarize chain unchanged: writing ./.env makes its file-gated tasks run,
+  # and the imported Developer ID cert lets codesign find the identity. Each
+  # `notarize-*` task pulls in its build/sign/package deps, and the macOS build
+  # itself signs + notarizes the embedded location helper (notema-context/build.rs).
+  macos:
+    name: macOS (universal + fuse, signed + notarized)
+    needs: preflight
+    runs-on: macos-latest
+    # The signing cert + notarization credentials live on this protected
+    # Environment (required reviewers / tag restriction), so a workflow_dispatch
+    # on an arbitrary branch can't reach them without approval.
+    environment: release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: 1.96.0
+          # Host is aarch64; add the Intel slice for lipo.
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      # fuse-t + pkg-config for the --features fuse artifact.
+      - run: brew install pkg-config
+      - run: brew install --cask fuse-t
+      - name: Import Developer ID certificate
+        uses: apple-actions/import-codesign-certs@63fff01cd422d4b7b855d40ca1e9d34d2de9427d # v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          p12-password: ${{ secrets.APPLE_CERT_PASSWORD }}
+      - name: Write Apple credentials for the Makefile tasks
+        # Pass secrets through `env:` (the runner puts them in the process
+        # environment) rather than `${{ }}` interpolation, which would splice the
+        # literal values into the generated script — a value containing an `EOF`
+        # line or shell metacharacters could break out. `printf` from the env
+        # vars keeps them opaque. Values are quoted (the Developer ID has spaces).
+        env:
+          APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+          APPLE_USERNAME: ${{ secrets.APPLE_USERNAME }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        run: |
+          umask 077
+          {
+            printf 'APPLE_DEVELOPER_ID="%s"\n' "$APPLE_DEVELOPER_ID"
+            printf 'APPLE_USERNAME="%s"\n'     "$APPLE_USERNAME"
+            printf 'APPLE_PASSWORD="%s"\n'     "$APPLE_PASSWORD"
+          } > ./.env
+      - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
+        with:
+          tool: cargo-make,cargo-about
+      # Each task runs its build → sign → package → notarize dependency chain.
+      - name: Build, sign, package, notarize
+        run: |
+          cargo make notarize-macos-intel
+          cargo make notarize-macos-silicon
+          cargo make notarize-macos-universal
+          cargo make notarize-fuse-macos-silicon
+      - name: Remove credentials
+        if: always()
+        run: rm -f ./.env
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos
+          path: |
+            release/apple-darwin-x86_64.zip
+            release/apple-darwin-aarch64.zip
+            release/apple-darwin-universal.zip
+            release/apple-darwin-aarch64-fuse.zip
+          if-no-files-found: error
+
+  # Gather every artifact, checksum them, and publish to the tag's release.
+  publish:
+    name: Publish release
+    needs: [linux, i586, android, windows, macos]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # create the release and upload assets
+      id-token: write # mint the OIDC token for provenance attestation
+      attestations: write # record the build-provenance attestation
+    # Only real tag pushes publish; workflow_dispatch stops after building.
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: assets
+        run: sha256sum *.zip > SHA256SUMS
+      # Provenance links each zip to this workflow run; verify with
+      # `gh attestation verify <zip> --repo <owner>/<repo>`.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: |
+            assets/*.zip
+            assets/SHA256SUMS
+      - name: Publish
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+          files: |
+            assets/*.zip
+            assets/SHA256SUMS

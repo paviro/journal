@@ -16,6 +16,10 @@ These have no FUSE dependency and run everywhere. The `mount` command needs a
 `-fuse` build; the only prebuilt one is for Apple Silicon macOS, and other
 platforms build it from source (both below).
 
+The prebuilt binaries are produced by CI on every version tag — see
+[`docs/RELEASING.md`](RELEASING.md). The cross-compilation setup below is for
+local builds and development.
+
 ## Build from source
 
 Needs a Rust toolchain (edition 2024).
