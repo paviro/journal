@@ -580,7 +580,13 @@ if [ -z "$APPLE_USERNAME" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$TEAM_ID" ]; th
     echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID team id not set, cannot notarize Intel macOS zip." >&2
     exit 1
 fi
-xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
+PROFILE="notema-notary-$$"
+# Stash the app-specific password in a keychain profile first, so the long
+# `submit --wait` poll runs off --keychain-profile and never carries the
+# password on argv (where any local process could read it from `ps`).
+xcrun notarytool store-credentials "$PROFILE" \
+    --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" >/dev/null
+xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$PROFILE" --wait
 '''
 
 [tasks.notarize-macos-silicon]
@@ -595,7 +601,13 @@ if [ -z "$APPLE_USERNAME" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$TEAM_ID" ]; th
     echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID team id not set, cannot notarize Apple Silicon macOS zip." >&2
     exit 1
 fi
-xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
+PROFILE="notema-notary-$$"
+# Stash the app-specific password in a keychain profile first, so the long
+# `submit --wait` poll runs off --keychain-profile and never carries the
+# password on argv (where any local process could read it from `ps`).
+xcrun notarytool store-credentials "$PROFILE" \
+    --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" >/dev/null
+xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$PROFILE" --wait
 '''
 
 [tasks.notarize-macos-universal]
@@ -610,7 +622,13 @@ if [ -z "$APPLE_USERNAME" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$TEAM_ID" ]; th
     echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID team id not set, cannot notarize Universal macOS zip." >&2
     exit 1
 fi
-xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
+PROFILE="notema-notary-$$"
+# Stash the app-specific password in a keychain profile first, so the long
+# `submit --wait` poll runs off --keychain-profile and never carries the
+# password on argv (where any local process could read it from `ps`).
+xcrun notarytool store-credentials "$PROFILE" \
+    --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" >/dev/null
+xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$PROFILE" --wait
 '''
 
 # ------------------------------------------------------------------------------
@@ -677,7 +695,13 @@ if [ -z "$APPLE_USERNAME" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$TEAM_ID" ]; th
     echo "APPLE_USERNAME, APPLE_PASSWORD, or APPLE_DEVELOPER_ID team id not set, cannot notarize Apple Silicon macOS FUSE zip." >&2
     exit 1
 fi
-xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
+PROFILE="notema-notary-$$"
+# Stash the app-specific password in a keychain profile first, so the long
+# `submit --wait` poll runs off --keychain-profile and never carries the
+# password on argv (where any local process could read it from `ps`).
+xcrun notarytool store-credentials "$PROFILE" \
+    --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" >/dev/null
+xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$PROFILE" --wait
 '''
 
 # Combined FUSE build/package/release

@@ -127,6 +127,25 @@ fn notarize_and_staple(app: &Path, out_dir: &Path) {
         .map(|(id, _)| id.to_string())
         .expect("APPLE_DEVELOPER_ID has no team id in parentheses — cannot notarize the location helper");
 
+    // Stash the app-specific password in a keychain profile first, so the long
+    // `submit --wait` poll below runs off --keychain-profile and never carries
+    // the password on argv (readable via `ps` by any local process).
+    let profile = format!("notema-notary-{}", std::process::id());
+    run(
+        Command::new("xcrun").args([
+            "notarytool",
+            "store-credentials",
+            &profile,
+            "--apple-id",
+            &user,
+            "--password",
+            &password,
+            "--team-id",
+            &team_id,
+        ]),
+        "store notarization credentials for the location helper",
+    );
+
     let notary_zip = out_dir.join("NotemaLocate-notary.zip");
     ditto(&["-c", "-k", "--keepParent"], app, &notary_zip);
     let mut submit = Command::new("xcrun");
@@ -134,12 +153,8 @@ fn notarize_and_staple(app: &Path, out_dir: &Path) {
         "notarytool",
         "submit",
         notary_zip.to_str().unwrap(),
-        "--apple-id",
-        &user,
-        "--password",
-        &password,
-        "--team-id",
-        &team_id,
+        "--keychain-profile",
+        &profile,
         "--wait",
     ]);
     // A network blip during the long `--wait` poll fails the whole command;
