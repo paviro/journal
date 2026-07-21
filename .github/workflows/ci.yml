@@ -148,11 +148,16 @@ jobs:
           # FreeBSD is check-only (nothing links, so no FreeBSD sysroot is
           # needed): the row guards that the workspace keeps compiling for a
           # Tier 2 BSD, not that we ship it. clang cross-compiles ring's C with
-          # --target against the host's headers, which suffices for a check.
+          # --target against the host's headers, which suffices for a check —
+          # but for a non-Linux triple clang doesn't add the x86_64-linux-gnu
+          # multiarch dir glibc's headers include from (bits/...), so cflags
+          # appends it at the end of the search path.
           - target: x86_64-unknown-freebsd
             packages: clang
             cc_var: CC_x86_64_unknown_freebsd
             cc: clang
+            cflags_var: CFLAGS_x86_64_unknown_freebsd
+            cflags: -idirafter /usr/include/x86_64-linux-gnu
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -166,8 +171,15 @@ jobs:
         with:
           key: ${{ matrix.target }}
       # ring's build script compiles native code, so point cc at the target's
-      # cross compiler (CC_<target>, with dashes as underscores).
-      - run: echo "${{ matrix.cc_var }}=${{ matrix.cc }}" >> "$GITHUB_ENV"
+      # cross compiler (CC_<target>, with dashes as underscores), plus any
+      # per-target CFLAGS a row defines.
+      - run: |
+          {
+            echo "${{ matrix.cc_var }}=${{ matrix.cc }}"
+            if [ -n "${{ matrix.cflags_var }}" ]; then
+              echo "${{ matrix.cflags_var }}=${{ matrix.cflags }}"
+            fi
+          } >> "$GITHUB_ENV"
       - run: cargo check --target ${{ matrix.target }} --workspace --exclude notema-fuse --all-targets --locked
 
   android:
