@@ -12,7 +12,8 @@ Enable the versioned Git hooks once per clone:
 git config core.hooksPath .githooks
 ```
 
-The commit-message hook requires `type(scope): description`. CI checks the same
+The commit-message hook requires `type(scope): description`. Add `!` before the
+colon for a breaking change: `type(scope)!: description`. CI checks the same
 format for every commit pushed to `main` or included in a pull request.
 
 ## Checks
