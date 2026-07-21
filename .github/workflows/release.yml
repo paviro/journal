@@ -38,8 +38,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Tolerate transient crates.io/CDN resets (curl [56]) on hosted runners.
+  # Retry transient registry failures and avoid HTTP/2 framing errors.
   CARGO_NET_RETRY: "10"
+  CARGO_HTTP_MULTIPLEXING: "false"
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
