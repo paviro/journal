@@ -318,12 +318,19 @@ jobs:
         with:
           p12-file-base64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
           p12-password: ${{ secrets.APPLE_CERT_PASSWORD }}
-      - name: Write Apple credentials for the Makefile tasks
+      - name: Set up signing identity and notarization keychain profile
         # Pass secrets through `env:` (the runner puts them in the process
         # environment) rather than `${{ }}` interpolation, which would splice the
         # literal values into the generated script — a value containing an `EOF`
         # line or shell metacharacters could break out. `printf` from the env
         # vars keeps them opaque. Values are quoted (the Developer ID has spaces).
+        #
+        # Only non-secret values go into ./.env (the signing identity and the
+        # profile name); the notarization credentials go straight into a
+        # notarytool keychain profile, which every notarytool submit (Makefile
+        # tasks and notema-context's build.rs) then runs off. Locally the
+        # store-credentials call is a one-time setup instead — see
+        # docs/RELEASING.md.
         env:
           APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
           APPLE_USERNAME: ${{ secrets.APPLE_USERNAME }}
@@ -332,9 +339,11 @@ jobs:
           umask 077
           {
             printf 'APPLE_DEVELOPER_ID="%s"\n' "$APPLE_DEVELOPER_ID"
-            printf 'APPLE_USERNAME="%s"\n'     "$APPLE_USERNAME"
-            printf 'APPLE_PASSWORD="%s"\n'     "$APPLE_PASSWORD"
+            printf 'APPLE_NOTARY_PROFILE="notema-notary"\n'
           } > ./.env
+          TEAM_ID="$(printf '%s' "$APPLE_DEVELOPER_ID" | sed -n 's/.*(\(.*\)).*/\1/p')"
+          xcrun notarytool store-credentials notema-notary \
+              --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" >/dev/null
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
           tool: cargo-make,cargo-about@0.9.1
