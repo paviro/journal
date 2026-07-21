@@ -14,7 +14,7 @@ members = ["crates/notema-domain", "crates/notema-encryption", "crates/notema-st
 # One version for the whole workspace: the macOS location helper stamps this into
 # its bundle and the runtime checks it, so the crates must not drift apart.
 [workspace.package]
-version = "2026.7.3"
+version = "2026.7.4"
 edition = "2024"
 license = "EUPL-1.2"
 authors = ["Paul-Vincent Roll <notema@paviro.de>"]
