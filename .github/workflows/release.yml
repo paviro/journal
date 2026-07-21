@@ -482,6 +482,7 @@ jobs:
         with:
           path: assets
           merge-multiple: true
+          skip-decompress: true
       - name: Validate artifact set
         working-directory: assets
         run: |
