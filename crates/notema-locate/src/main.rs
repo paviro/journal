@@ -32,7 +32,7 @@ fn main() {
 mod macos {
     use objc2::rc::Retained;
     use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
-    use objc2::{AnyThread, DefinedClass, define_class, msg_send};
+    use objc2::{AnyThread, DefinedClass, define_class, msg_send, sel};
     use objc2_core_location::{
         CLAuthorizationStatus, CLLocation, CLLocationManager, CLLocationManagerDelegate,
     };
@@ -113,21 +113,17 @@ mod macos {
 
             #[unsafe(method(locationManagerDidChangeAuthorization:))]
             fn did_change_authorization(&self, manager: &CLLocationManager) {
-                // SAFETY: CoreLocation supplied a live manager to this callback.
-                let status = unsafe { manager.authorizationStatus() };
-                debug(|| format!("didChangeAuthorization status={status:?}"));
-                match status {
-                    CLAuthorizationStatus::NotDetermined => {}
-                    CLAuthorizationStatus::Restricted | CLAuthorizationStatus::Denied => {
-                        self.finish(Err(DENIED.into()));
-                    }
-                    // Authorized — make sure updates are flowing (a no-op if already).
-                    _ => {
-                        // SAFETY: The callback-owned manager is live and
-                        // authorization has left the undetermined state.
-                        unsafe { manager.startUpdatingLocation() }
-                    }
-                }
+                self.authorization_changed(manager, authorization_status(manager));
+            }
+
+            #[allow(deprecated)]
+            #[unsafe(method(locationManager:didChangeAuthorizationStatus:))]
+            fn did_change_authorization_status(
+                &self,
+                manager: &CLLocationManager,
+                status: CLAuthorizationStatus,
+            ) {
+                self.authorization_changed(manager, status);
             }
         }
     );
@@ -147,6 +143,42 @@ mod macos {
                 *slot = Some(outcome);
             }
         }
+
+        fn authorization_changed(
+            &self,
+            manager: &CLLocationManager,
+            status: CLAuthorizationStatus,
+        ) {
+            debug(|| format!("didChangeAuthorization status={status:?}"));
+            match status {
+                CLAuthorizationStatus::NotDetermined => {}
+                CLAuthorizationStatus::Restricted | CLAuthorizationStatus::Denied => {
+                    self.finish(Err(DENIED.into()));
+                }
+                _ => {
+                    // SAFETY: CoreLocation supplied this live manager to the
+                    // callback and authorization has left the undetermined state.
+                    unsafe { manager.startUpdatingLocation() }
+                }
+            }
+        }
+    }
+
+    fn authorization_status(manager: &CLLocationManager) -> CLAuthorizationStatus {
+        if manager.respondsToSelector(sel!(authorizationStatus)) {
+            // SAFETY: The retained manager reports that it implements this
+            // no-argument selector.
+            return unsafe { manager.authorizationStatus() };
+        }
+
+        // The class method supports macOS 10.12 through 10.15. Modern systems
+        // take the instance-property branch above.
+        #[allow(deprecated)]
+        // SAFETY: This class method takes no arguments and CoreLocation is
+        // loaded for the lifetime of the helper process.
+        unsafe {
+            CLLocationManager::authorizationStatus_class()
+        }
     }
 
     pub(crate) fn locate() -> Result<Fix, String> {
@@ -160,28 +192,25 @@ mod macos {
         // the entire run loop below; the manager is live.
         unsafe { manager.setDelegate(Some(protocol)) };
 
-        // requestWhenInUseAuthorization alone is unreliable; the prompt is raised
-        // by actually starting location services. Request authorization (when
-        // undetermined) and start updates — that presents the prompt and then
-        // delivers fixes once authorized.
-        // SAFETY: `manager` is retained for the duration of `locate`.
-        match unsafe { manager.authorizationStatus() } {
+        // Explicit authorization requests were added to macOS in 10.15. Starting
+        // updates triggers the legacy authorization flow on older releases and
+        // remains necessary for the prompt on current releases.
+        match authorization_status(&manager) {
             CLAuthorizationStatus::Restricted | CLAuthorizationStatus::Denied => {
                 return Err(DENIED.into());
             }
-            CLAuthorizationStatus::NotDetermined => {
-                // SAFETY: The retained manager is live and both selectors take
-                // no borrowed Objective-C arguments.
-                unsafe {
-                    manager.requestWhenInUseAuthorization();
-                    manager.startUpdatingLocation();
-                }
+            CLAuthorizationStatus::NotDetermined
+                if manager.respondsToSelector(sel!(requestWhenInUseAuthorization)) =>
+            {
+                // SAFETY: The retained manager reports that it implements this
+                // no-argument selector.
+                unsafe { manager.requestWhenInUseAuthorization() };
             }
-            _ => {
-                // SAFETY: The retained manager is live and already authorized.
-                unsafe { manager.startUpdatingLocation() }
-            }
+            CLAuthorizationStatus::NotDetermined => {}
+            _ => {}
         }
+        // SAFETY: The retained manager is live for the run loop below.
+        unsafe { manager.startUpdatingLocation() };
 
         // Pump this thread's run loop in slices until the delegate reports or the
         // deadline passes. While undetermined we wait on the user's prompt answer
@@ -195,8 +224,7 @@ mod macos {
             }
             if !authorized
                 && !matches!(
-                    // SAFETY: `manager` remains retained throughout this loop.
-                    unsafe { manager.authorizationStatus() },
+                    authorization_status(&manager),
                     CLAuthorizationStatus::NotDetermined
                 )
             {

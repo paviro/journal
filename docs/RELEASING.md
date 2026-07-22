@@ -48,6 +48,12 @@ plus `libfuse3.so.3`; older systems can use the standard artifacts without the
 macOS reuse the `Makefile.toml` tasks, which can also be run locally (see
 [`docs/BUILDING.md`](BUILDING.md)).
 
+The workflow rejects standard GNU binaries with symbols newer than glibc 2.17,
+musl binaries with a dynamic interpreter or shared-library dependency, and an
+Android artifact that is not ARM64 API 24. Standard macOS builds pin and verify
+10.12 for Intel and 11 for Apple Silicon on both `notema` and the embedded
+location helper.
+
 [`cargo-zigbuild`]: https://github.com/rust-cross/cargo-zigbuild
 [`taiki-e/setup-cross-toolchain-action`]: https://github.com/taiki-e/setup-cross-toolchain-action
 
@@ -108,6 +114,10 @@ notarized twice (helper, then outer zip). The four jobs run in parallel.
 - The standard glibc floor held: for each non-FUSE `linux-gnu-*` binary,
   `strings notema | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1` prints
   `GLIBC_2.17` or lower.
+- Every non-FUSE musl binary has no ELF interpreter or `DT_NEEDED` entry.
+- `android-aarch64-termux.zip` is an AArch64 ELF declaring Android API 24.
+- The standard macOS binaries and embedded location helpers declare macOS 10.12
+  for Intel and macOS 11 for Apple Silicon.
 - The two `linux-gnu-*-fuse` binaries require `libfuse3.so.3`, and the same
   command prints `GLIBC_2.28` or lower.
 - Each published zip carries a build-provenance attestation:

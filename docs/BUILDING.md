@@ -4,18 +4,27 @@
 
 Grab a binary for your platform from the [releases page](https://github.com/paviro/notema/releases).
 
-**Standard builds cover:**
+Standard builds have no FUSE dependency:
 
-- Android/Termux (ARM64)
-- Linux (x86_64, ARM64, 32-bit x86/i686, and ARMv7, glibc and musl)
-- iOS/iSH (32-bit x86 i586 musl — an SSE-less baseline that runs under iSH)
-- Windows (x86_64 and ARM64)
-- macOS (Intel and Apple Silicon)
+| Platform | Architectures | Minimum system |
+| --- | --- | --- |
+| Android/Termux | ARM64 | Android 7.0 (API 24), with a 64-bit Android userspace |
+| Linux glibc | x86_64, i686, ARMv7 | Linux 3.2 and glibc 2.17 |
+| Linux glibc | ARM64 | Linux 4.1 and glibc 2.17 |
+| Linux musl | x86_64, ARM64, i686, ARMv7 | Static; no host glibc requirement |
+| iOS/iSH | i586 musl | Static, SSE-free i586 baseline |
+| Windows | x86_64, ARM64 | Windows 10 or Windows Server 2016 |
+| macOS | Intel | macOS 10.12 |
+| macOS | Apple Silicon | macOS 11 |
 
-These have no FUSE dependency and run everywhere. The `mount` command needs a
-`-fuse` build; prebuilt ones exist for macOS (Intel and Apple Silicon)
-and 64-bit Linux glibc (x86_64, ARM64), and other platforms build it from
-source (both below).
+The static Linux builds do not have an exact minimum kernel guarantee; use the
+glibc builds when the documented kernel floor matters. Android 7 phones with a
+32-bit userspace cannot run the ARM64 Termux artifact. Compatibility with an old
+OS does not mean that OS still receives security updates.
+
+The `mount` command needs a `-fuse` build; prebuilt ones exist for macOS (Intel
+and Apple Silicon) and 64-bit Linux glibc (x86_64, ARM64), and other platforms
+build it from source (both below).
 
 The prebuilt binaries are produced by CI on every version tag — see
 [`docs/RELEASING.md`](RELEASING.md). The cross-compilation setup below is for

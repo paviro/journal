@@ -30,7 +30,11 @@ fn main() {
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
-    for var in ["APPLE_DEVELOPER_ID", "APPLE_NOTARY_PROFILE"] {
+    for var in [
+        "APPLE_DEVELOPER_ID",
+        "APPLE_NOTARY_PROFILE",
+        "MACOSX_DEPLOYMENT_TARGET",
+    ] {
         println!("cargo:rerun-if-env-changed={var}");
     }
 

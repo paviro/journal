@@ -135,6 +135,25 @@ jobs:
       # CARGO_BUILD_TARGET is set by setup-cross-toolchain-action, so no --target.
       - if: ${{ !matrix.zigbuild }}
         run: cargo build --release -p notema --locked
+      - name: Verify glibc floor
+        if: ${{ matrix.zigbuild }}
+        run: |
+          bin="target/${{ matrix.target }}/release/notema"
+          bad="$(readelf --dyn-syms -W "$bin" | grep -o 'GLIBC_[0-9.]*' | sort -uV \
+              | awk -F_ '{ split($2, v, "."); if (v[1] > 2 || (v[1] == 2 && v[2] > 17)) print }')"
+          if [ -n "$bad" ]; then echo "glibc symbols above 2.17: $bad" >&2; exit 1; fi
+      - name: Verify static musl linkage
+        if: ${{ !matrix.zigbuild }}
+        run: |
+          bin="target/${{ matrix.target }}/release/notema"
+          if readelf -lW "$bin" | grep -q ' INTERP '; then
+            echo "musl binary has a dynamic interpreter" >&2
+            exit 1
+          fi
+          if readelf -dW "$bin" | grep -q '(NEEDED)'; then
+            echo "musl binary has a shared-library dependency" >&2
+            exit 1
+          fi
       - name: Package
         run: |
           install -d dist
@@ -249,6 +268,17 @@ jobs:
         run: |
           unset CARGO_BUILD_TARGET
           cargo make build-i586-musl
+      - name: Verify static musl linkage
+        run: |
+          bin="target/i586-unknown-linux-musl/release/notema"
+          if readelf -lW "$bin" | grep -q ' INTERP '; then
+            echo "i586 musl binary has a dynamic interpreter" >&2
+            exit 1
+          fi
+          if readelf -dW "$bin" | grep -q '(NEEDED)'; then
+            echo "i586 musl binary has a shared-library dependency" >&2
+            exit 1
+          fi
       - run: cargo make package-i586-musl
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -285,6 +315,19 @@ jobs:
         with:
           tool: cargo-about@0.9.1
       - run: cargo build --release -p notema --target aarch64-linux-android --locked
+      - name: Verify Android ABI and API floor
+        run: |
+          bin="target/aarch64-linux-android/release/notema"
+          toolchain="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          "$toolchain/llvm-readelf" -h "$bin" | grep -Eq 'Machine:[[:space:]]+AArch64' || {
+            echo "Android binary is not AArch64" >&2
+            exit 1
+          }
+          "$toolchain/llvm-objdump" -s -j .note.android.ident "$bin" \
+              | grep -Eq '6f696400[[:space:]]+18000000' || {
+            echo "Android binary does not declare API 24" >&2
+            exit 1
+          }
       - name: Package
         run: |
           install -d dist
@@ -354,9 +397,11 @@ jobs:
           - target: x86_64-apple-darwin
             platform: apple-darwin-x86_64
             task: notarize-macos-intel
+            min_macos: "10.12"
           - target: aarch64-apple-darwin
             platform: apple-darwin-aarch64
             task: notarize-macos-silicon
+            min_macos: "11.0"
     # Gates signing secrets behind release-environment approval.
     environment: release
     steps:
@@ -392,6 +437,27 @@ jobs:
         with:
           tool: cargo-make,cargo-about@0.9.1
       - run: cargo make ${{ matrix.task }}
+      - name: Verify minimum macOS version
+        env:
+          TARGET: ${{ matrix.target }}
+          MIN_MACOS: ${{ matrix.min_macos }}
+        run: |
+          helper="$(find "target/$TARGET/release/build" \
+              -path '*/out/NotemaLocate.app/Contents/MacOS/notema-locate' -type f | head -n 1)"
+          if [ -z "$helper" ]; then
+            echo "embedded location helper was not built" >&2
+            exit 1
+          fi
+          for bin in "target/$TARGET/release/notema" "$helper"; do
+            build="$(xcrun vtool -show-build "$bin")"
+            if ! awk -v minimum="$MIN_MACOS" \
+                '($1 == "minos" || $1 == "version") && $2 == minimum { found = 1 } END { exit !found }' \
+                <<< "$build"; then
+              echo "$bin does not declare macOS $MIN_MACOS" >&2
+              printf '%s\n' "$build" >&2
+              exit 1
+            fi
+          done
       - name: Remove credentials
         if: always()
         run: rm -f ./.env
