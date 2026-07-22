@@ -32,7 +32,7 @@ against a tag. Their workflow artifacts expire after one day.
 
 | Runner / container | Artifacts |
 | --- | --- |
-| `ubuntu-latest` | x86_64/i686/armv7 glibc Linux, x86_64/i686/armv7 musl, i586, and Android/Termux |
+| `ubuntu-latest` | x86_64/i686/armv6/armv7 glibc Linux, x86_64/i686/armv6/armv7 musl, i586, and Android/Termux |
 | `ubuntu-24.04-arm` | aarch64 glibc (zigbuild, for the 2.17 floor) and aarch64 musl Linux |
 | `almalinux:8.10` on matching x86_64/ARM64 runners | `linux-gnu-{x86_64,aarch64}-fuse`, built natively |
 | `windows-latest` | `windows-msvc-x86_64`, built natively |
@@ -56,8 +56,12 @@ the embedded location helper. Every artifact except Android also gets a
 `--version` smoke test (with `LD_BIND_NOW=1` on dynamically linked Linux builds,
 so the whole symbol chain must resolve): natively where the runner can load the
 binary — including the Intel macOS slices under Rosetta and 32-bit x86 on the
-x86_64 runners — and under qemu-user for armv7, which no hosted runner can run
-natively. Android needs an emulator, so it stops at the static checks.
+x86_64 runners — and under qemu-user for armv6 and armv7, which no hosted
+runner can run natively. The static armv6 musl slice runs with
+`-cpu arm1176` (the Pi Zero core), so ARMv7 instruction leakage fails the
+test; the dynamically linked slices use qemu's default CPU because the Debian
+armhf cross sysroot's loader is ARMv7. Android needs an emulator, so it stops
+at the static checks.
 
 [`cargo-zigbuild`]: https://github.com/rust-cross/cargo-zigbuild
 [`taiki-e/setup-cross-toolchain-action`]: https://github.com/taiki-e/setup-cross-toolchain-action
@@ -111,7 +115,7 @@ notarized twice (helper, then outer zip). The four jobs run in parallel.
 ## Verifying a release
 
 - Every expected zip plus `SHA256SUMS` is attached to the release
-  (18 zips: 8 Linux + 2 Linux FUSE + i586 + Android + 2 Windows + 2 macOS +
+  (20 zips: 10 Linux + 2 Linux FUSE + i586 + Android + 2 Windows + 2 macOS +
   2 macOS FUSE).
 - On macOS, `codesign --verify --strict` and `spctl -a -vv` pass for a downloaded
   binary; the notarized zips staple/validate.

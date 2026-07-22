@@ -115,6 +115,18 @@ jobs:
             platform: linux-musl-armv7
             runner: ubuntu-latest
             smoke_prefix: qemu-arm
+          # armv6 = Pi Zero and Raspberry Pi OS 32-bit, which armv7 (VFPv3)
+          # can't serve. The musl slice pins qemu to the ARM1176 core; the
+          # glibc slice can't since the armhf sysroot's loader is ARMv7.
+          - target: arm-unknown-linux-gnueabihf
+            platform: linux-gnu-armv6
+            runner: ubuntu-latest
+            zigbuild: true
+            smoke_prefix: qemu-arm -L /usr/arm-linux-gnueabihf
+          - target: arm-unknown-linux-musleabihf
+            platform: linux-musl-armv6
+            runner: ubuntu-latest
+            smoke_prefix: qemu-arm -cpu arm1176
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -175,7 +187,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libc6:i386
       - name: Install qemu-user and armhf sysroot
-        if: startsWith(matrix.target, 'armv7')
+        if: startsWith(matrix.target, 'armv7') || startsWith(matrix.target, 'arm-')
         run: |
           sudo apt-get update
           sudo apt-get install --yes qemu-user libc6-armhf-cross
@@ -643,11 +655,13 @@ jobs:
             android-aarch64-termux.zip \
             linux-gnu-aarch64-fuse.zip \
             linux-gnu-aarch64.zip \
+            linux-gnu-armv6.zip \
             linux-gnu-armv7.zip \
             linux-gnu-i686.zip \
             linux-gnu-x86_64-fuse.zip \
             linux-gnu-x86_64.zip \
             linux-musl-aarch64.zip \
+            linux-musl-armv6.zip \
             linux-musl-armv7.zip \
             linux-musl-i586.zip \
             linux-musl-i686.zip \

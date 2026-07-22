@@ -9,16 +9,18 @@ Standard builds have no FUSE dependency:
 | Platform | Architectures | Minimum system |
 | --- | --- | --- |
 | Android/Termux | ARM64 | Android 7.0 (API 24), with a 64-bit Android userspace |
-| Linux glibc | x86_64, i686, ARMv7 | Linux 3.2 and glibc 2.17 |
+| Linux glibc | x86_64, i686, ARMv6, ARMv7 | Linux 3.2 and glibc 2.17 |
 | Linux glibc | ARM64 | Linux 4.1 and glibc 2.17 |
-| Linux musl | x86_64, ARM64, i686, ARMv7 | Static; no host glibc requirement |
+| Linux musl | x86_64, ARM64, i686, ARMv6, ARMv7 | Static; no host glibc requirement |
 | iOS/iSH | i586 musl | Static, SSE-free i586 baseline |
 | Windows | x86_64, ARM64 | Windows 10 or Windows Server 2016 |
 | macOS | Intel | macOS 10.12 |
 | macOS | Apple Silicon | macOS 11 |
 
 The static Linux builds do not have an exact minimum kernel guarantee; use the
-glibc builds when the documented kernel floor matters. Android 7 phones with a
+glibc builds when the documented kernel floor matters. The ARMv6 builds run on
+the Raspberry Pi Zero / Zero W and anything Raspberry Pi OS 32-bit ("armhf")
+supports; the ARMv7 builds need VFPv3 and cannot. Android 7 phones with a
 32-bit userspace cannot run the ARM64 Termux artifact. Compatibility with an old
 OS does not mean that OS still receives security updates.
 
@@ -73,6 +75,7 @@ cargo make build-x86-gnu           # x86_64 Linux (glibc)
 cargo make build-i686-musl         # 32-bit x86 Linux (static musl)
 cargo make build-i586-musl         # 32-bit x86 musl (i586 baseline; works on iSH)
 cargo make build-armv7-musl        # 32-bit ARMv7 Linux (static musl)
+cargo make build-armv6-musl        # 32-bit ARMv6 Linux (static musl; Pi Zero)
 cargo make build-macos-universal   # Intel + Apple Silicon
 cargo make build-windows-gnu       # Windows x86_64
 ```
@@ -97,6 +100,8 @@ brew install \
   messense/macos-cross-toolchains/i686-unknown-linux-musl \
   messense/macos-cross-toolchains/armv7-unknown-linux-gnueabihf \
   messense/macos-cross-toolchains/armv7-unknown-linux-musleabihf \
+  messense/macos-cross-toolchains/arm-unknown-linux-gnueabihf \
+  messense/macos-cross-toolchains/arm-unknown-linux-musleabihf \
   mingw-w64
 ```
 
@@ -109,6 +114,7 @@ rustup target add \
   aarch64-unknown-linux-gnu aarch64-unknown-linux-musl \
   i686-unknown-linux-gnu i686-unknown-linux-musl i586-unknown-linux-musl \
   armv7-unknown-linux-gnueabihf armv7-unknown-linux-musleabihf \
+  arm-unknown-linux-gnueabihf arm-unknown-linux-musleabihf \
   x86_64-pc-windows-gnu
 ```
 

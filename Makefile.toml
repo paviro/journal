@@ -19,6 +19,8 @@ CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER = "i686-unknown-linux-gnu-gcc"
 CARGO_TARGET_I586_UNKNOWN_LINUX_MUSL_LINKER = "i686-unknown-linux-musl-gcc"
 CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER = "armv7-unknown-linux-musleabihf-gcc"
 CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER = "armv7-unknown-linux-gnueabihf-gcc"
+CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABIHF_LINKER = "arm-unknown-linux-musleabihf-gcc"
+CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER = "arm-unknown-linux-gnueabihf-gcc"
 CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "x86_64-w64-mingw32-gcc"
 
 # Android / Termux targets
@@ -180,6 +182,17 @@ description = "Build for 32-bit ARMv7 Linux with glibc (hard-float)"
 command = "cargo"
 args = ["build", "--release", "--target", "armv7-unknown-linux-gnueabihf"]
 
+# 32-bit ARMv6 Linux targets (hard-float, Pi Zero compatible)
+[tasks.build-armv6-musl]
+description = "Build for 32-bit ARMv6 Linux with musl (hard-float, Pi Zero compatible)"
+command = "cargo"
+args = ["build", "--release", "--target", "arm-unknown-linux-musleabihf"]
+
+[tasks.build-armv6-gnu]
+description = "Build for 32-bit ARMv6 Linux with glibc (hard-float, Pi Zero compatible)"
+command = "cargo"
+args = ["build", "--release", "--target", "arm-unknown-linux-gnueabihf"]
+
 # Windows targets
 [tasks.build-windows-gnu]
 description = "Build for Windows x86_64 (MinGW)"
@@ -229,6 +242,8 @@ dependencies = [
     "build-i586-musl",
     "build-armv7-musl",
     "build-armv7-gnu",
+    "build-armv6-musl",
+    "build-armv6-gnu",
     "build-windows-gnu",
     "build-macos-intel",
     "build-macos-silicon",
@@ -254,7 +269,9 @@ dependencies = [
     "build-i686-gnu",
     "build-i586-musl",
     "build-armv7-musl",
-    "build-armv7-gnu"
+    "build-armv7-gnu",
+    "build-armv6-musl",
+    "build-armv6-gnu"
 ]
 
 [tasks.build-windows-all]
@@ -418,6 +435,32 @@ zip "${PLATFORM}.zip" "${BINARY_NAME}"
 rm "${BINARY_NAME}"
 '''
 
+[tasks.package-armv6-musl]
+description = "Package 32-bit ARMv6 musl binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="notema"
+TARGET="arm-unknown-linux-musleabihf"
+PLATFORM="linux-musl-armv6"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-armv6-gnu]
+description = "Package 32-bit ARMv6 gnu binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="notema"
+TARGET="arm-unknown-linux-gnueabihf"
+PLATFORM="linux-gnu-armv6"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
 [tasks.package-windows-gnu]
 description = "Package Windows gnu binary"
 dependencies = ["create-release-dir"]
@@ -484,6 +527,8 @@ dependencies = [
     "package-i586-musl",
     "package-armv7-musl",
     "package-armv7-gnu",
+    "package-armv6-musl",
+    "package-armv6-gnu",
     "package-windows-gnu",
     "package-macos-intel",
     "package-macos-silicon",
