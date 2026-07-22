@@ -77,6 +77,11 @@ jobs:
     if: github.event_name == 'push' || inputs.target_group == 'all' || inputs.target_group == 'linux'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    env:
+      # riscv64 musl is a newer target that defaults to dynamic linking,
+      # unlike the older musl targets; force the static binary the musl
+      # artifacts promise. Target-specific, so every other row is untouched.
+      CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_RUSTFLAGS: -C target-feature=+crt-static
     strategy:
       fail-fast: true
       matrix:
