@@ -22,6 +22,9 @@ CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER = "armv7-unknown-linux-gnueabi
 CARGO_TARGET_ARM_UNKNOWN_LINUX_MUSLEABIHF_LINKER = "arm-unknown-linux-musleabihf-gcc"
 CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER = "arm-unknown-linux-gnueabihf-gcc"
 CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "x86_64-w64-mingw32-gcc"
+# The aarch64 FreeBSD slice is Tier 3 (no rustup std); this nightly must match
+# the pin in .github/workflows/release.yml.
+FREEBSD_NIGHTLY = "nightly-2026-07-15"
 
 # Android / Termux targets
 [tasks.build-termux]
@@ -193,6 +196,44 @@ description = "Build for 32-bit ARMv6 Linux with glibc (hard-float, Pi Zero comp
 command = "cargo"
 args = ["build", "--release", "--target", "arm-unknown-linux-gnueabihf"]
 
+# riscv64 Linux targets. The macOS cross-toolchain tap has no riscv64 gcc, so
+# both slices link with cargo-zigbuild instead. The `.2.27` suffix pins the
+# glibc floor to match the release workflow — riscv64 support starts there.
+[tasks.build-riscv64-gnu]
+description = "Cross-compile for riscv64 Linux with glibc (zigbuild, 2.27 floor)"
+command = "cargo"
+args = ["zigbuild", "--release", "--target", "riscv64gc-unknown-linux-gnu.2.27"]
+
+[tasks.build-riscv64-musl]
+description = "Cross-compile for riscv64 Linux with musl (zigbuild, static)"
+command = "cargo"
+args = ["zigbuild", "--release", "--target", "riscv64gc-unknown-linux-musl"]
+
+# FreeBSD targets, cross-compiled with cargo-zigbuild (zig >= 0.15.1 ships the
+# FreeBSD 14+ libc stubs and headers, so no BSD host is needed). aarch64 is
+# Tier 3: no rustup std, so it builds std from source on the pinned nightly,
+# which needs `rustup toolchain install $FREEBSD_NIGHTLY --component rust-src`.
+[tasks.build-freebsd-x86]
+description = "Cross-compile for x86_64 FreeBSD 14+ with cargo-zigbuild"
+command = "cargo"
+args = ["zigbuild", "--release", "--locked", "--target", "x86_64-unknown-freebsd"]
+
+# RUSTUP_TOOLCHAIN selects the nightly; a `+toolchain` argument would trip
+# cargo-make's unknown-subcommand auto-install.
+[tasks.build-freebsd-arm64]
+description = "Cross-compile for aarch64 FreeBSD 14+ (Tier 3, nightly + build-std)"
+command = "cargo"
+args = [
+    "zigbuild",
+    "--release",
+    "--locked",
+    "--target",
+    "aarch64-unknown-freebsd",
+    "-Z",
+    "build-std=std,panic_abort",
+]
+env = { RUSTUP_TOOLCHAIN = "${FREEBSD_NIGHTLY}" }
+
 # Windows targets
 [tasks.build-windows-gnu]
 description = "Build for Windows x86_64 (MinGW)"
@@ -244,6 +285,10 @@ dependencies = [
     "build-armv7-gnu",
     "build-armv6-musl",
     "build-armv6-gnu",
+    "build-riscv64-musl",
+    "build-riscv64-gnu",
+    "build-freebsd-x86",
+    "build-freebsd-arm64",
     "build-windows-gnu",
     "build-macos-intel",
     "build-macos-silicon",
@@ -271,7 +316,9 @@ dependencies = [
     "build-armv7-musl",
     "build-armv7-gnu",
     "build-armv6-musl",
-    "build-armv6-gnu"
+    "build-armv6-gnu",
+    "build-riscv64-musl",
+    "build-riscv64-gnu"
 ]
 
 [tasks.build-windows-all]
@@ -461,6 +508,58 @@ zip "${PLATFORM}.zip" "${BINARY_NAME}"
 rm "${BINARY_NAME}"
 '''
 
+[tasks.package-riscv64-gnu]
+description = "Package riscv64 gnu binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="notema"
+TARGET="riscv64gc-unknown-linux-gnu"
+PLATFORM="linux-gnu-riscv64"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-riscv64-musl]
+description = "Package riscv64 musl binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="notema"
+TARGET="riscv64gc-unknown-linux-musl"
+PLATFORM="linux-musl-riscv64"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-freebsd-x86]
+description = "Package x86_64 FreeBSD binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="notema"
+TARGET="x86_64-unknown-freebsd"
+PLATFORM="freebsd-x86_64"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
+[tasks.package-freebsd-arm64]
+description = "Package aarch64 FreeBSD binary"
+dependencies = ["create-release-dir"]
+script = '''
+BINARY_NAME="notema"
+TARGET="aarch64-unknown-freebsd"
+PLATFORM="freebsd-aarch64"
+cp "target/${TARGET}/release/${BINARY_NAME}" "release/"
+cd release
+zip "${PLATFORM}.zip" "${BINARY_NAME}"
+rm "${BINARY_NAME}"
+'''
+
 [tasks.package-windows-gnu]
 description = "Package Windows gnu binary"
 dependencies = ["create-release-dir"]
@@ -529,6 +628,10 @@ dependencies = [
     "package-armv7-gnu",
     "package-armv6-musl",
     "package-armv6-gnu",
+    "package-riscv64-musl",
+    "package-riscv64-gnu",
+    "package-freebsd-x86",
+    "package-freebsd-arm64",
     "package-windows-gnu",
     "package-macos-intel",
     "package-macos-silicon",

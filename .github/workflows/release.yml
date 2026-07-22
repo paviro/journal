@@ -22,6 +22,7 @@ on:
           - linux-fuse
           - i586
           - android
+          - freebsd
           - windows
           - macos
           - macos-fuse
@@ -68,8 +69,8 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match workspace.package.version $version" >&2
             exit 1
           fi
-  # Standard GNU artifacts retain a glibc 2.17 floor. FUSE, i586, and Android
-  # are handled separately.
+  # Standard GNU artifacts retain a glibc 2.17 floor (2.27 for riscv64, the
+  # first glibc with that port). FUSE, i586, and Android are handled separately.
   linux:
     name: Linux ${{ matrix.platform }}
     needs: preflight
@@ -84,6 +85,7 @@ jobs:
             platform: linux-gnu-x86_64
             runner: ubuntu-latest
             zigbuild: true
+            glibc_floor: "2.17"
           - target: x86_64-unknown-linux-musl
             platform: linux-musl-x86_64
             runner: ubuntu-latest
@@ -93,6 +95,7 @@ jobs:
             platform: linux-gnu-aarch64
             runner: ubuntu-24.04-arm
             zigbuild: true
+            glibc_floor: "2.17"
           - target: aarch64-unknown-linux-musl
             platform: linux-musl-aarch64
             runner: ubuntu-24.04-arm
@@ -100,6 +103,7 @@ jobs:
             platform: linux-gnu-i686
             runner: ubuntu-latest
             zigbuild: true
+            glibc_floor: "2.17"
           - target: i686-unknown-linux-musl
             platform: linux-musl-i686
             runner: ubuntu-latest
@@ -110,6 +114,7 @@ jobs:
             platform: linux-gnu-armv7
             runner: ubuntu-latest
             zigbuild: true
+            glibc_floor: "2.17"
             smoke_prefix: qemu-arm -L /usr/arm-linux-gnueabihf
           - target: armv7-unknown-linux-musleabihf
             platform: linux-musl-armv7
@@ -122,11 +127,26 @@ jobs:
             platform: linux-gnu-armv6
             runner: ubuntu-latest
             zigbuild: true
+            glibc_floor: "2.17"
             smoke_prefix: qemu-arm -L /usr/arm-linux-gnueabihf
           - target: arm-unknown-linux-musleabihf
             platform: linux-musl-armv6
             runner: ubuntu-latest
             smoke_prefix: qemu-arm -cpu arm1176
+          # riscv64 SBCs (VisionFive 2, Milk-V, Orange Pi RV2). No hosted
+          # runner can run riscv64, so smoke tests use qemu-user. The glibc
+          # floor is 2.27 — the first glibc with riscv64 support — and the
+          # cross sysroot's loader is newer, same caveat as armv6.
+          - target: riscv64gc-unknown-linux-gnu
+            platform: linux-gnu-riscv64
+            runner: ubuntu-latest
+            zigbuild: true
+            glibc_floor: "2.27"
+            smoke_prefix: qemu-riscv64 -L /usr/riscv64-linux-gnu
+          - target: riscv64gc-unknown-linux-musl
+            platform: linux-musl-riscv64
+            runner: ubuntu-latest
+            smoke_prefix: qemu-riscv64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -148,10 +168,10 @@ jobs:
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
           tool: ${{ matrix.zigbuild && 'cargo-about@0.9.1,cargo-zigbuild@0.23.0' || 'cargo-about@0.9.1' }}
-      # The `.2.17` suffix pins the glibc floor; the binary still lands in
+      # The glibc_floor suffix pins the glibc floor; the binary still lands in
       # target/<target>/release like a plain cargo build.
       - if: ${{ matrix.zigbuild }}
-        run: cargo zigbuild --release -p notema --locked --target ${{ matrix.target }}.2.17
+        run: cargo zigbuild --release -p notema --locked --target ${{ matrix.target }}.${{ matrix.glibc_floor }}
       # CARGO_BUILD_TARGET is set by setup-cross-toolchain-action, so no --target.
       - if: ${{ !matrix.zigbuild }}
         run: cargo build --release -p notema --locked
@@ -159,12 +179,15 @@ jobs:
       # into grep, only grep's exit status would count under the default shell.
       - name: Verify glibc floor
         if: ${{ matrix.zigbuild }}
+        env:
+          GLIBC_FLOOR: ${{ matrix.glibc_floor }}
         run: |
           bin="target/${{ matrix.target }}/release/notema"
           syms="$(readelf --dyn-syms -W "$bin")"
           bad="$(grep -o 'GLIBC_[0-9.]*' <<< "$syms" | sort -uV \
-              | awk -F_ '{ split($2, v, "."); if (v[1] > 2 || (v[1] == 2 && v[2] > 17)) print }')"
-          if [ -n "$bad" ]; then echo "glibc symbols above 2.17: $bad" >&2; exit 1; fi
+              | awk -F_ -v fM="${GLIBC_FLOOR%%.*}" -v fm="${GLIBC_FLOOR#*.}" \
+                '{ split($2, v, "."); if (v[1] > fM || (v[1] == fM && v[2] > fm)) print }')"
+          if [ -n "$bad" ]; then echo "glibc symbols above $GLIBC_FLOOR: $bad" >&2; exit 1; fi
       - name: Verify static musl linkage
         if: ${{ !matrix.zigbuild }}
         run: |
@@ -191,6 +214,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes qemu-user libc6-armhf-cross
+      - name: Install qemu-user and riscv64 sysroot
+        if: startsWith(matrix.target, 'riscv64')
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes qemu-user libc6-riscv64-cross
       # Every slice gets a runtime check — natively where the runner can load
       # it, under qemu-user for armv7. LD_BIND_NOW forces every dynamic symbol
       # to resolve now (qemu passes it through to the guest loader).
@@ -394,6 +422,99 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           path: dist/android-aarch64-termux.zip
+          if-no-files-found: error
+          archive: false
+          retention-days: 1
+
+  # FreeBSD, cross-compiled with cargo-zigbuild: zig ships the FreeBSD 14+
+  # libc stubs and headers, so no BSD host is needed to build. aarch64 is a
+  # Tier 3 target with no rustup std, so that slice builds std from source on
+  # a pinned nightly; bumping the pin is a deliberate act like the 1.96.0 pin.
+  freebsd:
+    name: FreeBSD ${{ matrix.platform }}
+    needs: preflight
+    if: github.event_name == 'push' || inputs.target_group == 'all' || inputs.target_group == 'freebsd'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: x86_64-unknown-freebsd
+            platform: freebsd-x86_64
+            toolchain: 1.96.0
+            machine: Advanced Micro Devices X86-64
+            vm_arch: x86_64
+          - target: aarch64-unknown-freebsd
+            platform: freebsd-aarch64
+            toolchain: nightly-2026-07-15
+            build_std: true
+            machine: AArch64
+            vm_arch: aarch64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Tier 3 has no rustup target to add; build-std needs rust-src instead.
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          targets: ${{ matrix.build_std && '' || matrix.target }}
+          components: ${{ matrix.build_std && 'rust-src' || '' }}
+      # Current stable Zig, tested by cargo-zigbuild in its own CI.
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+          cache-key: ${{ matrix.target }}
+      - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
+        with:
+          tool: cargo-about@0.9.1,cargo-zigbuild@0.23.0
+      - if: ${{ !matrix.build_std }}
+        run: cargo zigbuild --release -p notema --locked --target ${{ matrix.target }}
+      # std comes from the nightly's vendored sources; the workspace Cargo.lock
+      # still governs the crate graph.
+      - if: ${{ matrix.build_std }}
+        run: cargo zigbuild --release -p notema --locked --target ${{ matrix.target }} -Z build-std=std,panic_abort
+      # zig brands FreeBSD binaries via the .note.tag FreeBSD notes and the
+      # FreeBSD dynamic linker path, not the e_ident OS/ABI byte — the kernel
+      # accepts either, so check what is actually there.
+      - name: Verify FreeBSD ABI
+        run: |
+          bin="target/${{ matrix.target }}/release/notema"
+          header="$(readelf -h "$bin")"
+          grep -Eq 'Machine:[[:space:]]+${{ matrix.machine }}' <<< "$header" || {
+            echo "binary is not ${{ matrix.machine }}" >&2
+            exit 1
+          }
+          progs="$(readelf -lW "$bin")"
+          grep -q 'interpreter: /libexec/ld-elf\.so\.1' <<< "$progs" || {
+            echo "binary does not request the FreeBSD dynamic linker" >&2
+            exit 1
+          }
+          notes="$(readelf -n "$bin")"
+          grep -q 'FreeBSD' <<< "$notes" || {
+            echo "binary has no FreeBSD ELF branding note" >&2
+            exit 1
+          }
+      # Runtime proof on the oldest supported release (14.x), so passing also
+      # pins the artifact's FreeBSD floor. The VM boots via qemu on the runner;
+      # aarch64 runs under full system emulation — if that turns out too slow,
+      # drop this step for the aarch64 row and stop at the static checks, like
+      # Android.
+      - name: Smoke test
+        uses: vmactions/freebsd-vm@77ed28d336d03fe19a3f4f7266c1d2c4714dd79d # v1.5.2
+        with:
+          release: "14.3"
+          arch: ${{ matrix.vm_arch }}
+          usesh: true
+          run: ./target/${{ matrix.target }}/release/notema --version
+      - name: Package
+        run: |
+          install -d dist
+          (cd "target/${{ matrix.target }}/release" && zip - notema) > "dist/${{ matrix.platform }}.zip"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: dist/${{ matrix.platform }}.zip
           if-no-files-found: error
           archive: false
           retention-days: 1
@@ -628,7 +749,7 @@ jobs:
   # Gather every artifact, checksum them, and publish to the tag's release.
   publish:
     name: Publish release
-    needs: [linux, linux-fuse, i586, android, windows, macos, macos-fuse]
+    needs: [linux, linux-fuse, i586, android, freebsd, windows, macos, macos-fuse]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: release
@@ -653,11 +774,14 @@ jobs:
             apple-darwin-x86_64-fuse.zip \
             apple-darwin-x86_64.zip \
             android-aarch64-termux.zip \
+            freebsd-aarch64.zip \
+            freebsd-x86_64.zip \
             linux-gnu-aarch64-fuse.zip \
             linux-gnu-aarch64.zip \
             linux-gnu-armv6.zip \
             linux-gnu-armv7.zip \
             linux-gnu-i686.zip \
+            linux-gnu-riscv64.zip \
             linux-gnu-x86_64-fuse.zip \
             linux-gnu-x86_64.zip \
             linux-musl-aarch64.zip \
@@ -665,6 +789,7 @@ jobs:
             linux-musl-armv7.zip \
             linux-musl-i586.zip \
             linux-musl-i686.zip \
+            linux-musl-riscv64.zip \
             linux-musl-x86_64.zip \
             windows-msvc-aarch64.zip \
             windows-msvc-x86_64.zip | sort)"

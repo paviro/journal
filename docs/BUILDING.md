@@ -76,6 +76,8 @@ cargo make build-i686-musl         # 32-bit x86 Linux (static musl)
 cargo make build-i586-musl         # 32-bit x86 musl (i586 baseline; works on iSH)
 cargo make build-armv7-musl        # 32-bit ARMv7 Linux (static musl)
 cargo make build-armv6-musl        # 32-bit ARMv6 Linux (static musl; Pi Zero)
+cargo make build-riscv64-gnu       # riscv64 Linux (glibc; RISC-V SBCs)
+cargo make build-freebsd-x86       # x86_64 FreeBSD 14+
 cargo make build-macos-universal   # Intel + Apple Silicon
 cargo make build-windows-gnu       # Windows x86_64
 ```
@@ -86,6 +88,25 @@ The Linux targets link with per-target GCC toolchains from the
 Homebrew tap; Windows uses MinGW-w64; macOS builds natively (host clang + `lipo`,
 no cross-toolchain); Android/Termux uses the Android NDK (see the `build-termux`
 task for how it's located).
+
+The riscv64 and FreeBSD targets link with
+[`cargo-zigbuild`](https://github.com/rust-cross/cargo-zigbuild) instead — the
+tap has no riscv64 gcc, and zig (0.15.1+) ships the FreeBSD 14+ libc stubs and
+headers, so no BSD host or VM is involved:
+
+```bash
+brew install zig
+cargo install cargo-zigbuild --locked
+```
+
+`build-freebsd-arm64` is the exception to "add std with rustup":
+`aarch64-unknown-freebsd` is a Tier 3 target with no prebuilt std, so the task
+builds std from source (`-Z build-std`) on the nightly pinned as
+`FREEBSD_NIGHTLY` in `Makefile.toml` (keep it in sync with release.yml):
+
+```bash
+rustup toolchain install nightly-2026-07-15 --component rust-src
+```
 
 Install the linkers — every Linux toolchain the tap provides for our targets,
 plus MinGW for Windows:
@@ -105,7 +126,8 @@ brew install \
   mingw-w64
 ```
 
-Add every Rust target (Android/Termux, all Linux, Windows):
+Add every Rust target (Android/Termux, all Linux, x86_64 FreeBSD, Windows —
+aarch64 FreeBSD has none to add, see above):
 
 ```bash
 rustup target add \
@@ -115,6 +137,8 @@ rustup target add \
   i686-unknown-linux-gnu i686-unknown-linux-musl i586-unknown-linux-musl \
   armv7-unknown-linux-gnueabihf armv7-unknown-linux-musleabihf \
   arm-unknown-linux-gnueabihf arm-unknown-linux-musleabihf \
+  riscv64gc-unknown-linux-gnu riscv64gc-unknown-linux-musl \
+  x86_64-unknown-freebsd \
   x86_64-pc-windows-gnu
 ```
 

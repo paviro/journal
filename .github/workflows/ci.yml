@@ -160,13 +160,13 @@ jobs:
 
   # Cross-check the other targets we ship (see Makefile.toml) so the code keeps
   # compiling for the dimensions the native jobs miss: musl libc, 32-bit pointer
-  # width (i686, armv7), 64-bit ARM — plus FreeBSD, which we don't ship but keep
-  # compilable. Windows needs no row here — both MSVC release targets are
-  # checked natively by the windows job above. `cargo check` still runs ring's
-  # build script, so each target needs its cross C compiler (CC_<target>).
-  # notema-fuse needs libfuse and is excluded, matching the release build. i586
-  # is omitted on purpose: its bespoke SSE-free OpenSSL build is too heavy for
-  # per-PR CI; the release workflow builds it.
+  # width (i686, armv7), 64-bit ARM, riscv64, and x86_64 FreeBSD. Windows needs
+  # no row here — both MSVC release targets are checked natively by the windows
+  # job above. `cargo check` still runs ring's build script, so each target
+  # needs its cross C compiler (CC_<target>). notema-fuse needs libfuse and is
+  # excluded, matching the release build. i586 and aarch64 FreeBSD are omitted
+  # on purpose — both too heavy for per-PR CI (bespoke SSE-free OpenSSL build;
+  # Tier 3 nightly build-std): the release workflow builds them.
   cross-check:
     name: Cross-check (${{ matrix.target }})
     runs-on: ubuntu-latest
@@ -191,6 +191,10 @@ jobs:
             packages: gcc-aarch64-linux-gnu
             cc_var: CC_aarch64_unknown_linux_gnu
             cc: aarch64-linux-gnu-gcc
+          - target: riscv64gc-unknown-linux-gnu
+            packages: gcc-riscv64-linux-gnu
+            cc_var: CC_riscv64gc_unknown_linux_gnu
+            cc: riscv64-linux-gnu-gcc
           # FreeBSD is check-only: the row guards that the workspace keeps
           # compiling for a Tier 2 BSD, not that we ship it. clang cross-compiles
           # the C deps' build-script objects with --target, but their sources
