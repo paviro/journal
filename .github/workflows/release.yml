@@ -127,14 +127,15 @@ jobs:
         if: ${{ !matrix.zigbuild }}
         with:
           target: ${{ matrix.target }}
-      # Zig version cargo-zigbuild tests against as stable in its own CI.
+      # Current stable Zig, tested by cargo-zigbuild in its own CI.
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         if: ${{ matrix.zigbuild }}
         with:
           version: 0.16.0
+          cache-key: ${{ matrix.target }}
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
-          tool: ${{ matrix.zigbuild && 'cargo-about@0.9.1,cargo-zigbuild' || 'cargo-about@0.9.1' }}
+          tool: ${{ matrix.zigbuild && 'cargo-about@0.9.1,cargo-zigbuild@0.23.0' || 'cargo-about@0.9.1' }}
       # The `.2.17` suffix pins the glibc floor; the binary still lands in
       # target/<target>/release like a plain cargo build.
       - if: ${{ matrix.zigbuild }}
@@ -298,7 +299,7 @@ jobs:
           sudo ln -sf "$(command -v gcc)" /usr/local/bin/x86_64-unknown-linux-gnu-gcc
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
-          tool: cargo-make,cargo-about@0.9.1
+          tool: cargo-make@0.37.24,cargo-about@0.9.1
       # setup-cross-toolchain-action sets CARGO_BUILD_TARGET to i686-musl; the
       # i586 task passes its own --target, so drop it to avoid any conflict.
       - name: Build i586
@@ -484,7 +485,7 @@ jobs:
               --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" >/dev/null
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
-          tool: cargo-make,cargo-about@0.9.1
+          tool: cargo-make@0.37.24,cargo-about@0.9.1
       - run: cargo make ${{ matrix.task }}
       - name: Verify minimum macOS version
         env:
@@ -574,7 +575,7 @@ jobs:
               --apple-id "$APPLE_USERNAME" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" >/dev/null
       - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2
         with:
-          tool: cargo-make,cargo-about@0.9.1
+          tool: cargo-make@0.37.24,cargo-about@0.9.1
       - run: cargo make ${{ matrix.task }}
       # FUSE builds land in target/fuse (CARGO_TARGET_DIR in Makefile.toml).
       - name: Verify minimum macOS version
