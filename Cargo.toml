@@ -48,7 +48,12 @@ pkg-config = "0.3"
 rand = "0.10"
 ratatui = "0.30"
 ratatui-image = { version = "11", default-features = false, features = ["crossterm"] }
-ratatui-textarea = { version = "0.9", features = ["crossterm"] }
+# Fork of ratatui-textarea 0.9.2 the editor depends on: public accessors
+# (scroll_offset, horizontal_scroll_offset, screen_line_count, cursor_at_screen)
+# for its scrollbar, scroll-aware mouse mapping, and native-cursor placement in
+# horizontally-scrolling single-line fields, plus set_syntax_spans for the markdown
+# highlighter's base styling layer. Upstream keeps these pub(crate).
+ratatui-textarea = { package = "notema-textarea", git = "https://github.com/paviro/notema-textarea", rev = "b53b993", features = ["crossterm"] }
 pulldown-cmark = { version = "0.13.4", default-features = false }
 rayon = "1"
 regex = "1"
@@ -194,12 +199,3 @@ tempfile.workspace = true
 
 [lints]
 workspace = true
-
-# Fork of ratatui-textarea 0.9.2 the editor depends on: public accessors
-# (scroll_offset, horizontal_scroll_offset, screen_line_count, cursor_at_screen)
-# for its scrollbar, scroll-aware mouse mapping, and native-cursor placement in
-# horizontally-scrolling single-line fields, plus set_syntax_spans for the markdown
-# highlighter's base styling layer. Upstream keeps these pub(crate); drop this patch
-# if/when they land in a release.
-[patch.crates-io]
-ratatui-textarea = { git = "https://github.com/paviro/ratatui-textarea", rev = "0a65444" }
